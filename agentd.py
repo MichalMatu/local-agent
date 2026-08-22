@@ -18,13 +18,14 @@ from typing import Any
 import agent_core as core
 from agent_runtime import RuntimeExecutor, task_digest, validate_task
 
-DAEMON_VERSION = "4.0.0"
+DAEMON_VERSION = "4.1.0"
 HOME = Path.home()
 SELF_REPO = Path(__file__).resolve().parent
 SELF_BRANCH = "main"
 SELF_UPDATE_INTERVAL = 60
 POLL_SECONDS = 15
 REMOTE_HEARTBEAT_SECONDS = 300
+RUN_PROGRESS_SECONDS = 60
 RUN_HEARTBEAT_SECONDS = 300
 
 STATE_DIR = HOME / "Library" / "Application Support" / "local-agent"
@@ -574,9 +575,10 @@ def publish_run_state(
 
 def make_progress_callback(task_id: str, attempt_id: str, digest: str):
     last_remote = 0.0
+    last_remote_phase: str | None = None
 
     def progress(event: dict[str, Any]) -> None:
-        nonlocal last_remote
+        nonlocal last_remote, last_remote_phase
         global _current_progress
         enriched = dict(event)
         enriched.update(
@@ -592,17 +594,34 @@ def make_progress_callback(task_id: str, attempt_id: str, digest: str):
         _current_progress = enriched
         now = time.monotonic()
         event_name = str(event.get("event", ""))
-        force_remote = event_name in {"task_started", "command_started", "task_finished"}
-        if event_name == "command_finished" and int(event.get("exit_code", 0)) != 0:
-            force_remote = True
+        phase = str(event.get("phase", ""))
+
+        force_remote = event_name in {"task_started", "task_finished"}
+        if event_name == "command_started":
+            first_command = last_remote_phase is None
+            phase_changed = bool(last_remote_phase) and phase != last_remote_phase
+            progress_due = now - last_remote >= RUN_PROGRESS_SECONDS
+            force_remote = first_command or phase_changed or progress_due
+        if event_name == "command_finished":
+            if int(event.get("exit_code", 0)) != 0:
+                force_remote = True
+            elif float(event.get("elapsed_seconds", 0.0)) >= RUN_PROGRESS_SECONDS:
+                force_remote = True
         if event_name == "command_heartbeat" and now - last_remote >= RUN_HEARTBEAT_SECONDS:
             force_remote = True
+
         publish_run_state(task_id, enriched, force_remote=force_remote)
         if force_remote:
             last_remote = now
+            if phase:
+                last_remote_phase = phase
+
+        # Local status tracks every transition. Remote daemon status is health/state
+        # telemetry, not a duplicate per-command stream. Detailed execution belongs
+        # in .agent/runs/<task-id>.json.
         publish_daemon_status(
-            "finishing" if event_name == "task_finished" else "running",
-            force_remote=force_remote,
+            "running",
+            force_remote=False,
             progress=enriched,
         )
 
