@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import fcntl
+import hashlib
 import json
 import os
 import queue
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -19,9 +22,18 @@ CONTROL = HOME / "agent-workspace" / "control"
 WORK = HOME / "agent-workspace" / "work"
 CONTROL_BRANCH = "agent-control"
 
+SELF_REPO = Path(__file__).resolve().parent
+SELF_BRANCH = "main"
+SELF_UPDATE_INTERVAL = 60
+
+STATE_DIR = HOME / "Library" / "Application Support" / "local-agent"
+CLAIMS_DIR = STATE_DIR / "claims"
+DAEMON_LOCK_PATH = STATE_DIR / "agentd.lock"
+REJECTED_UPDATE_PATH = STATE_DIR / "rejected-self-update.json"
+
 POLL_SECONDS = 15
-COMMAND_TIMEOUT = 7200
-MAX_COMMAND_TIMEOUT = 21600
+COMMAND_TIMEOUT = 1200
+MAX_COMMAND_TIMEOUT = 3600
 MAX_OUTPUT = 60000
 
 BASE_PATH = [
@@ -37,6 +49,9 @@ ENV = os.environ.copy()
 ENV["PATH"] = ":".join(BASE_PATH + [ENV.get("PATH", "")])
 
 _BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+_ACTIVE_PROCESS: subprocess.Popen[str] | None = None
+_DAEMON_LOCK_HANDLE: Any | None = None
+_last_self_update_check = 0.0
 
 
 def now_iso() -> str:
@@ -59,8 +74,10 @@ def process(
     timeout: int = 120,
     *,
     input_text: str | None = None,
+    log_command: bool = True,
 ) -> dict[str, Any]:
-    log(f"exec: {' '.join(args)}")
+    if log_command:
+        log(f"exec: {' '.join(args)}")
     started = time.monotonic()
     try:
         completed = subprocess.run(
@@ -76,10 +93,11 @@ def process(
         )
         output = bounded(completed.stdout or "")
         elapsed = time.monotonic() - started
-        log(
-            f"exec finished exit={completed.returncode} "
-            f"elapsed={elapsed:.1f}s: {' '.join(args)}"
-        )
+        if log_command:
+            log(
+                f"exec finished exit={completed.returncode} "
+                f"elapsed={elapsed:.1f}s: {' '.join(args)}"
+            )
         return {
             "exit_code": completed.returncode,
             "output": output,
@@ -128,7 +146,22 @@ def kill_process_group(proc: subprocess.Popen[str]) -> None:
         pass
 
 
+def _handle_shutdown(signum: int, _frame: Any) -> None:
+    global _ACTIVE_PROCESS
+    log(f"received signal {signum}; shutting down")
+    if _ACTIVE_PROCESS is not None:
+        kill_process_group(_ACTIVE_PROCESS)
+    raise SystemExit(128 + signum)
+
+
+def install_signal_handlers() -> None:
+    signal.signal(signal.SIGTERM, _handle_shutdown)
+    signal.signal(signal.SIGINT, _handle_shutdown)
+
+
 def run_command(command: str, timeout: int) -> dict[str, Any]:
+    global _ACTIVE_PROCESS
+
     log(f"exec: {command}")
     started = time.monotonic()
 
@@ -143,6 +176,7 @@ def run_command(command: str, timeout: int) -> dict[str, Any]:
         bufsize=1,
         start_new_session=True,
     )
+    _ACTIVE_PROCESS = proc
 
     lines: queue.Queue[str | None] = queue.Queue()
 
@@ -162,44 +196,47 @@ def run_command(command: str, timeout: int) -> dict[str, Any]:
     reader_done = False
     timed_out = False
 
-    while True:
-        elapsed = time.monotonic() - started
-        remaining = timeout - elapsed
-        if remaining <= 0 and proc.poll() is None:
-            timed_out = True
-            log(f"TIMEOUT after {timeout}s: {command}")
-            kill_process_group(proc)
+    try:
+        while True:
+            elapsed = time.monotonic() - started
+            remaining = timeout - elapsed
+            if remaining <= 0 and proc.poll() is None:
+                timed_out = True
+                log(f"TIMEOUT after {timeout}s: {command}")
+                kill_process_group(proc)
 
-        try:
-            item = lines.get(timeout=0.25 if remaining > 0 else 0.05)
-            if item is None:
-                reader_done = True
-            else:
-                print(f"[CMD] {item}", end="", flush=True)
-                chunks.append(item)
-                total_chars += len(item)
-                while total_chars > MAX_OUTPUT and chunks:
-                    removed = chunks.pop(0)
-                    total_chars -= len(removed)
-        except queue.Empty:
-            pass
-
-        if proc.poll() is not None and reader_done:
-            break
-
-        if timed_out and proc.poll() is not None:
-            while True:
-                try:
-                    item = lines.get_nowait()
-                except queue.Empty:
-                    break
+            try:
+                item = lines.get(timeout=0.25 if remaining > 0 else 0.05)
                 if item is None:
                     reader_done = True
-                    continue
-                print(f"[CMD] {item}", end="", flush=True)
-                chunks.append(item)
-                total_chars += len(item)
-            break
+                else:
+                    print(f"[CMD] {item}", end="", flush=True)
+                    chunks.append(item)
+                    total_chars += len(item)
+                    while total_chars > MAX_OUTPUT and chunks:
+                        removed = chunks.pop(0)
+                        total_chars -= len(removed)
+            except queue.Empty:
+                pass
+
+            if proc.poll() is not None and reader_done:
+                break
+
+            if timed_out and proc.poll() is not None:
+                while True:
+                    try:
+                        item = lines.get_nowait()
+                    except queue.Empty:
+                        break
+                    if item is None:
+                        reader_done = True
+                        continue
+                    print(f"[CMD] {item}", end="", flush=True)
+                    chunks.append(item)
+                    total_chars += len(item)
+                break
+    finally:
+        _ACTIVE_PROCESS = None
 
     exit_code = proc.returncode if proc.returncode is not None else 124
     if timed_out:
@@ -564,6 +601,43 @@ def publish_result(task_id: str, result: dict[str, Any]) -> None:
     log(f"published result {task_id}")
 
 
+def task_claim_path(task_id: str) -> Path:
+    digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
+    return CLAIMS_DIR / f"{digest}.json"
+
+
+def claim_task(task_id: str) -> bool:
+    CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
+    path = task_claim_path(task_id)
+    payload = {
+        "id": task_id,
+        "pid": os.getpid(),
+        "started_at": now_iso(),
+    }
+
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        log(f"task already claimed; refusing replay: {task_id}")
+        return False
+
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, indent=2) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    log(f"claimed task {task_id}")
+    return True
+
+
+def release_task_claim(task_id: str) -> None:
+    try:
+        task_claim_path(task_id).unlink()
+        log(f"released task claim {task_id}")
+    except FileNotFoundError:
+        pass
+
+
 def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
     tasks_dir = CONTROL / ".agent" / "tasks"
     results_dir = CONTROL / ".agent" / "results"
@@ -582,47 +656,283 @@ def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
         result_path = results_dir / f"{task_id}.json"
         if result_path.exists():
             continue
+        if task_claim_path(task_id).exists():
+            log(f"task already claimed; skipping replay: {task_id}")
+            continue
         pending.append((path, task))
-    return pending
+    return pendinY
 
-
-def publish_daemon_error(task: dict[str, Any], exc: Exception) -> None:
-    task_id = str(task.get("id", "unknown"))
-    result = {
+def interrupted_result(task_id: str, claim: dict[str, Any]) -> dict[str, Any]:
+    return {
         "id": task_id,
         "status": "failed",
-        "failure_reason": "daemon_exception",
-        "started_at": now_iso(),
+        "failure_reason": "interrupted_previous_attempt",
+        "started_at": claim.get("started_at"),
         "finished_at": now_iso(),
-        "error": f"{type(exc).__name__}: {exc}",
-        "traceback": traceback.format_exc(),
+        "error": (
+            "Previous daemon instance ended while this task was claimed. "
+            "Automatic replay was blocked."
+         ),
     }
+
+
+def recover_stale_claims() -> None:
+    CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
+    results_dir = CONTROL / ".agent" / "results"
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    for path in sorted(CLAIMS_DIR.glob("*.json")):
+        try:
+            claim = json.loads(path.read_text(encoding="utf-8"))
+            task_id = str(claim["id"])
+        except Exception as exc:
+            log(f"invalid stale claim {path.name}: {exc}")
+            continue
+
+        result_path = results_dir / f"{task_id}.json"
+        if result_path.exists():
+            try:
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                log(f"invalid local result for {task_id}: {exc}")
+                result = interrupted_result(task_id, claim)
+        else:
+            result = interrupted_result(task_id, claim)
+
+        log(f"recovering interrupted task without replay: {task_id}")
+        try:
+            publish_result(task_id, result)
+        except Exception as exc:
+            log(f"failed to publish interrupted result for {task_id}: {exc}")
+            continue
+
+        release_task_claim(task_id)
+
+
+def acquire_daemon_lock() -> Any:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    handle = DAEMON_LOCK_PATH.open("a+", encoding="utf-8")
     try:
-        publish_result(task_id, result)
-    except Exception as publish_exc:
-        log(f"failed to publish daemon error for {task_id}: {publish_exc}")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        log("another local-agent daemon is already running; exiting")
+        raise SystemExit(0)
+
+    handle.seek(0)
+    handle.truncate()
+    handle.write(json.dumps({"pid": os.getpid(), "started_at": now_iso()}) + "\n")
+    handle.flush()
+    os.fsync(handle.fileno())
+    return handle
+
+
+def _git_output(args: list[str], timeout: int = 60) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        args,
+        cwd=SELF_REPO,
+        env=ENV,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        timeout=timeout,
+        check=False,
+    )
+
+
+def tracked_self_repo_clean() -> bool:
+    unstaged = _git_output(["git", "diff", "--quiet"])
+    staged = _git_output(["git", "diff", "--cached", "--quiet"])
+    return unstaged.returncode == 0 and staged.returncode == 0
+
+
+def maybe_self_update(force: bool = False) -> bool:
+    global _last_self_update_check
+
+    now = time.monotonic()
+    if not force and now - _last_self_update_check < SELF_UPDATE_INTERVAL:
+        return False
+    _last_self_update_check = now
+
+    if not (SELF_REPO / ".git").exists():
+        return False
+    if not tracked_self_repo_clean():
+        log("self-update skipped: tracked local-agent changes are present")
+        return False
+
+    try:
+        fetch = _git_output(["git", "fetch", "--quiet", "origin", SELF_BRANCH])
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        log(f"self-update fetch failed: {exc}")
+        return False
+    if fetch.returncode != 0:
+        log(f"self-update fetch failed: {bounded(fetch.stdout.strip(), 2000)}")
+        return False
+
+    local = _git_output(["git", "rev-parse", "HEAD"])
+    remote = _git_output(["git", "rev-parse", f"origin/{SELF_BRANCH}"])
+    if local.returncode != 0 or remote.returncode != 0:
+        log("self-update skipped: unable to resolve local/remote revision")
+        return False
+
+    local_sha = local.stdout.strip()
+    remote_sha = remote.stdout.strip()
+    if local_sha == remote_sha:
+        try:
+            REJECTED_UPDATE_PATH.unlink()
+        except FileNotFoundError:
+            pass
+        return False
+
+    try:
+        rejected = json.loads(REJECTED_UPDATE_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        rejected = {}
+    if rejected.get("sha") == remote_sha:
+        return False
+
+    ancestor = _git_output(
+        ["git", "merge-base", "--is-ancestor", local_sha, remote_sha]
+    )
+    if ancestor.returncode != 0:
+        log(
+            "self-update skipped: local-agent main is not a fast-forward "
+            f"of origin/{SELF_BRANCH}"
+        )
+        return False
+
+    log(f"self-update available {local_sha[:9]} -> {remote_sha[:9]}")
+    pull = _git_output(
+        ["git", "pull", "--ff-only", "--quiet", "origin", SELF_BRANCH],
+        timeout=120,
+    )
+    if pull.returncode != 0:
+        log(f"self-update pull failed: {bounded(pull.stdout.strip(), 2000)}")
+        return False
+
+    validation_commands = [
+        [sys.executable, "-m", "py_compile", str(Path(__file__).resolve())],
+    ]
+    if (SELF_REPO / "test_agentd.py").exists():
+        validation_commands.append(
+            [sys.executable, "-m", "unittest", "-q", "test_agentd.py"]
+        )
+
+    validation_failure = ""
+    for validation_command in validation_commands:
+        try:
+            validation = subprocess.run(
+                validation_command,
+                cwd=SELF_REPO,
+                env=ENV,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=60,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            validation_failure = f"{validation_command!r}: {exc}"
+            break
+        if validation.returncode != 0:
+            validation_failure = validation.stdout.strip()
+            break
+
+    if validation_failure:
+        log(
+            "self-update validation failed; rolling back: "
+            + bounded(validation_failure, 2000)
+        )
+        rollback = _git_output(["git", "reset", "--hard", local_sha], timeout=60)
+        if rollback.returncode != 0:
+            log("CRITICAL: self-update rollback failed")
+        else:
+            STATE_DIR.mkdir(parents=True, exist_ok=True)
+            REJECTED_UPDATE_PATH.write_text(
+                json.dumps(
+                    {
+                        "sha": remote_sha,
+                        "rejected_at": now_iso(),
+                        "reason": "validation_failed",
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        return False
+
+    try:
+        REJECTED_UPDATE_PATH.unlink()
+    except FileNotFoundError:
+        pass
+
+    log(f"self-update installed {remote_sha[:9]}; restarting daemon")
+    try:
+        os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve())])
+    except OSError as exc:
+        log(f"self-update exec failed; asking launchd to restart: {exc}")
+        raise SystemExit(75) from exc
+    return True
 
 
 def main() -> None:
+    global _DAEMON_LOCK_HANDLE
+
+    install_signal_handlers()
+    _DAEMON_LOCK_HANDLE = acquire_daemon_lock()
+
     log(
-        "Local Agent daemon v2 starting; "
-        f"mode=deterministic command_timeout={COMMAND_TIMEOUT}s"
+        "Local Agent daemon v3 starting; "
+        f"mode=deterministic command_timeout={COMMAND_TIMEOUT}s "
+        f"self_update={SELF_UPDATE_INTERVAL}s"
     )
 
     while True:
         try:
+            # A stale claim is authoritative: recover/publish an interrupted
+            # result instead of ever replaying the task automatically.
+            recover_stale_claims()
             sync_control()
+
+            # Self-update only happens between tasks, never while a command is
+            # running. execv keeps launchd supervision and loads the new code.
+            maybe_self_update()
+
             tasks = pending_tasks()
             if not tasks:
                 log("no pending tasks")
+
             for _, task in tasks:
                 task_id = str(task.get("id", "unknown"))
+                if not claim_task(task_id):
+                    continue
+
                 try:
                     result = process_task(task)
+                except Exception as exc:
+                    result = {
+                        "id": task_id,
+                        "status": "failed",
+                        "failure_reason": "daemon_exception",
+                        "started_at": now_iso(),
+                        "finished_at": now_iso(),
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "traceback": traceback.format_exc(),
+                    }
+
+                try:
                     publish_result(task_id, result)
                 except Exception as exc:
-                    log(f"task {task_id} crashed: {type(exc).__name__}: {exc}")
-                    publish_daemon_error(task, exc)
+                    # Keep the claim. The next poll will retry publication or
+                    # publish an interrupted result, but it will not rerun the
+                    # commands.
+                    log(f"result publish failed for {task_id}: {exc}")
+                    continue
+
+                release_task_claim(task_id)
+
+        except SystemExit:
+            raise
         except Exception as exc:
             log(f"poll loop error: {type(exc).__name__}: {exc}")
             traceback.print_exc()
