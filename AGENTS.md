@@ -1,5 +1,7 @@
 # Local Agent repository rules
 
+This repository is paired by default with `MichalMatu/esp32s3_LiteGraph`. In a future session, if the user provides this repository or says to use the established local-agent flow, read `SESSION_BOOTSTRAP.md` first and treat ESP32 LiteGraph as the default development target unless the user explicitly asks to work on the daemon itself.
+
 This repository is infrastructure. Prefer deterministic behavior, bounded execution and explicit failure over clever recovery.
 
 - `agentd.py` owns queue orchestration, durable claims, remote status/control and self-update.
