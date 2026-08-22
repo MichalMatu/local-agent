@@ -1,149 +1,57 @@
-# Local Agent Autopilot
+# Local Agent Autopilot v4
 
-This file extends `LOCAL_AGENT_FLOW.md` with the autonomous iteration contract.
+Autopilot means ChatGPT owns the orchestration loop until the requested gates are green or a genuine user-only blocker is reached.
 
-## Trigger
+## Core loop
 
-When the user says an equivalent of:
+1. inspect target source and rules;
+2. create an exact deterministic task;
+3. queue it on `agent-control`;
+4. inspect `.agent/runs/<task-id>.json` for live state instead of asking the user for logs;
+5. read `.agent/results/<task-id>.json` when complete;
+6. diagnose the exact failed command/output;
+7. prepare the next smallest fix or diagnostic task;
+8. repeat until focused gates pass;
+9. broaden gates progressively;
+10. publish only the validated target diff.
 
-- `uzyj local-agent autopilot`
-- `uzyj local-agent flow w autopilocie`
-- `zrob autonomicznie przez local agenta`
-- `napraw do skutku przez local agenta`
-- `autopilot until green`
+Do not stop merely because a task is running. Remote progress exists specifically so ChatGPT can check state itself.
 
-ChatGPT must read both `LOCAL_AGENT_FLOW.md` and this file and follow them without asking the user to restate the architecture.
+## Failure-loop rules
 
-## Core rule
+- compiler error -> fix and rerun the focused build;
+- focused test failure -> rerun that focused target after the fix;
+- frontend check/build failure -> rerun the frontend gate first;
+- firmware build failure -> rerun firmware build, not the entire host suite;
+- hardware/runtime failure -> capture bounded serial/HTTP/MQTT evidence before changing code;
+- timeout/idle-timeout -> diagnose the blocked command before retrying;
+- `interrupted_previous_attempt` -> create a new task id after inspecting the interrupted state; never force replay of the old id.
 
-Do not stop merely because a local task was queued or because a build/test is still running.
+A broad suite must not be restarted blindly after every edit.
 
-Within the active ChatGPT turn, keep the orchestration loop alive:
+## Progress and hang handling
 
-1. inspect source and prepare an exact deterministic patch/write;
-2. queue a local-agent task with a new unique task ID;
-3. poll `.agent/results/<task-id>.json` on `agent-control` until it is published;
-4. inspect actual exit codes, command output, `git_status`, and `git_diff`;
-5. if verification failed, diagnose the real failure in ChatGPT;
-6. prepare the smallest useful next deterministic patch/task using a new task ID;
-7. repeat until the requested verification is green;
-8. broaden verification progressively: focused test -> relevant suite/build -> full host suite when appropriate -> hardware checks when requested;
-9. publish only validated source changes.
-
-The user should not need to paste daemon logs or say `sprawdz` between normal iterations.
-
-## Replay-safe retry rule
-
-Daemon v3 claims a task ID before executing its commands.
-
-Never reuse an existing task ID for a retry.
-
-If the result contains:
+The daemon publishes command transitions immediately and long-command heartbeat state periodically. ChatGPT can inspect:
 
 ```text
-failure_reason = interrupted_previous_attempt
+.agent/status/daemon.json
+.agent/runs/<task-id>.json
 ```
 
-that attempt is terminal. The daemon intentionally blocked automatic replay because the previous process ended while the task was running.
+The daemon itself enforces command, idle and whole-task watchdogs. A silent or runaway command therefore cannot consume the machine indefinitely.
 
-ChatGPT must:
+## Daemon maintenance during autopilot
 
-1. inspect the available result/log/source evidence;
-2. decide whether a retry is appropriate;
-3. queue a new task with a new ID and the smallest useful diagnostic or verification command.
+ChatGPT may improve `MichalMatu/local-agent` when execution infrastructure itself is the blocker. The daemon self-updates only while idle, validates the new checkout and rolls back failed updates before they become the long-running version.
 
-Do not delete a claim merely to force the same task to run again.
+ChatGPT may request `restart`, `self_update` or `status` through `.agent/daemon/control.json`; durable acknowledgements prevent repeating the same control request.
 
-## When to stop and ask the user
+## User interaction
 
-Stop the autonomous loop only when one of these is true:
+Ask the user only for actions that cannot be performed remotely: reconnecting hardware, moving wires, pressing a physical button, supplying unavailable credentials, or resolving a truly ambiguous product decision.
 
-- a physical action is required, such as reconnecting hardware, moving a wire, pressing a button, or supplying a missing device;
-- an ambiguous product/behavior decision cannot be resolved safely from repository context;
-- credentials, secrets, or permissions unavailable to the agent are required;
-- the next operation is materially destructive or outside the authorized scope;
-- repeated evidence indicates an infrastructure failure that cannot be corrected from code/tasks;
-- the user explicitly asks to pause.
+The user does not need to watch `tail -f` for normal operation.
 
-Normal compiler errors, test failures, lint/type errors, missing includes/imports, deterministic patch mismatches, endpoint mismatches, and ordinary firmware build failures are not reasons to ask the user. Diagnose and iterate autonomously.
+## Completion
 
-## Task construction rules
-
-Keep task JSON small and mechanically valid.
-
-For substantial edits:
-
-- store deterministic patching scripts or patches under `.agent/patches/` on `agent-control`;
-- make the task JSON reference that file with a short exact command;
-- do not embed large Python/heredoc programs inside JSON command strings;
-- use structured JSON serialization rather than hand-escaping large payloads;
-- verify task JSON is parseable before considering it queued;
-- use the default `1200` second command timeout unless a specific command legitimately requires more;
-- never set a timeout above the daemon maximum of `3600` seconds.
-
-If an invalid task file is discovered, replace/remove it promptly so the daemon does not report the same parse failure every poll.
-
-## Failure-loop policy
-
-Use the smallest useful retry after each failure.
-
-Examples:
-
-- compiler error in one translation unit -> fix it and rerun the focused build first;
-- focused host test failure -> fix and rerun only that test first;
-- frontend type/lint error -> rerun the relevant frontend gate first;
-- firmware link/build failure -> rerun firmware build, not the full host suite;
-- hardware runtime failure -> capture bounded serial/HTTP/MQTT evidence before changing code;
-- broad suite appears hung -> do not blindly start the same suite again; inspect duration, active process/output, and isolate the stuck target first.
-
-Do not restart an expensive broad suite from scratch unless the preceding focused gate is green and a new full run is actually justified.
-
-Treat actual compiler/test/hardware output as ground truth. Never invent a diagnosis from model prose when shell output says otherwise.
-
-## Cache and retries
-
-Preserve ignored build/cache directories unless a clean rebuild is specifically required. The disposable work clone may be reset/cleaned, but normal `git clean -fd` must not remove ignored PlatformIO/CMake caches. Reuse caches to make autonomous iterations faster.
-
-## Daemon self-update
-
-Daemon v3 updates its own `MichalMatu/local-agent` checkout independently of target-project tasks.
-
-The self-update check runs only between tasks. It accepts only a clean fast-forward from `origin/main`, validates the new daemon code, rolls back a failed update, remembers rejected SHAs, and restarts the daemon process after a valid update.
-
-Do not use target-project task commands to modify `~/local-agent` during normal operation. Publish local-agent changes to its own `main`; the daemon self-update mechanism is the deployment path after the one-time v3 bootstrap.
-
-## Hardware autopilot
-
-When the user has already stated that the board is connected and the requested task includes hardware validation, continue automatically through safe hardware stages after software gates pass:
-
-1. build firmware;
-2. detect/confirm the expected serial/upload port using local commands;
-3. upload with the repository-approved PlatformIO command;
-4. capture bounded serial output;
-5. run relevant REST/MQTT/browser smoke checks when applicable;
-6. analyze evidence and iterate if necessary.
-
-Do not require the user to watch `tail -f`; logs are optional observability only.
-
-## Chat/session limitation
-
-This autopilot loop is autonomous while the ChatGPT turn is active. The local daemon can continue executing deterministic tasks after the turn ends, but it cannot by itself wake this exact ChatGPT conversation and request a new programming decision.
-
-Therefore ChatGPT should keep the turn active and poll expected task results instead of ending a response merely because a build/test is still pending.
-
-A truly unattended reasoning loop after the chat turn ends would require a separate callable model/orchestrator endpoint. Do not claim that the current chat performs background reasoning after its turn ends.
-
-## Completion criteria
-
-Do not report success until requested gates are actually green.
-
-For a typical Nodeflow firmware change this may mean:
-
-- focused host tests green;
-- relevant frontend tests/check/build green;
-- firmware build green;
-- full `pio run -c platformio.tests.ini -e test-all-host` green when warranted;
-- firmware upload green when hardware validation was requested;
-- bounded serial/runtime smoke evidence consistent with requested behavior;
-- final diff reviewed and limited to intended files;
-- validated source published according to repository policy.
+For a typical ESP32 change, success can require focused host tests, relevant frontend tests/check/build, firmware build, broad host suite when warranted, hardware validation when requested, exact diff review and publication to `main`.
