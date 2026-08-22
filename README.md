@@ -74,3 +74,11 @@ cd ~/local-agent
 python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py
 python -m unittest discover -q
 ```
+
+## Golden-standard reference
+
+Read `GOLDEN_STANDARD.md` for the final infrastructure invariants and audit disposition. Source publication and ESP32 hardware flashing are separate gates; never infer the running firmware commit from repository `main` or semantic firmware version alone.
+
+### Invalid task contract
+
+Malformed task JSON and filename/payload-id mismatches are terminal queue errors, not retry candidates. The daemon publishes `failure_reason=invalid_task_file`, and pending scans check an existing result by filename before parsing so a bad task cannot spam every poll forever.

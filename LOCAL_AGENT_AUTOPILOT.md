@@ -70,3 +70,11 @@ The user does not need to watch `tail -f` for normal operation.
 For a typical ESP32 change, success can require focused host tests, relevant frontend tests/check/build, firmware build, broad host suite when warranted, hardware validation when requested, exact diff review and publication to `main`.
 
 Do not report completion until the intended source commit is actually on the target branch and the requested gates are evidenced by real results.
+
+## Golden-standard reference
+
+Read `GOLDEN_STANDARD.md` for the final infrastructure invariants and audit disposition. Source publication and ESP32 hardware flashing are separate gates; never infer the running firmware commit from repository `main` or semantic firmware version alone.
+
+### Invalid task contract
+
+Malformed task JSON and filename/payload-id mismatches are terminal queue errors, not retry candidates. The daemon publishes `failure_reason=invalid_task_file`, and pending scans check an existing result by filename before parsing so a bad task cannot spam every poll forever.

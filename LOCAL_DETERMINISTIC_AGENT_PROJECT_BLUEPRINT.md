@@ -1,3 +1,5 @@
+> **Historical design note.** This blueprint is retained for background only. The canonical operational contract is `SESSION_BOOTSTRAP.md`, `AGENTS.md`, `LOCAL_AGENT_FLOW.md`, and `LOCAL_AGENT_AUTOPILOT.md`.
+
 # Local Deterministic Agent — Project Blueprint
 
 ## 1. Cel projektu

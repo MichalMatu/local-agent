@@ -16,6 +16,7 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.originals = {
             "STATE_DIR": agentd.STATE_DIR,
             "CLAIMS_DIR": agentd.CLAIMS_DIR,
+            "CORRUPT_CLAIMS_DIR": agentd.CORRUPT_CLAIMS_DIR,
             "DAEMON_LOCK_PATH": agentd.DAEMON_LOCK_PATH,
             "REJECTED_UPDATE_PATH": agentd.REJECTED_UPDATE_PATH,
             "LOCAL_STATUS_PATH": agentd.LOCAL_STATUS_PATH,
@@ -24,6 +25,7 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         }
         agentd.STATE_DIR = root / "state"
         agentd.CLAIMS_DIR = agentd.STATE_DIR / "claims"
+        agentd.CORRUPT_CLAIMS_DIR = agentd.STATE_DIR / "corrupt-claims"
         agentd.DAEMON_LOCK_PATH = agentd.STATE_DIR / "agentd.lock"
         agentd.REJECTED_UPDATE_PATH = agentd.STATE_DIR / "rejected-self-update.json"
         agentd.LOCAL_STATUS_PATH = agentd.STATE_DIR / "status.json"
@@ -81,6 +83,89 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertEqual(result["failure_reason"], "interrupted_previous_attempt")
         self.assertEqual(result["task_digest"], "abc")
         self.assertIn("Automatic replay was blocked", result["error"])
+
+    def test_corrupt_claim_is_terminal_and_never_replayed(self) -> None:
+        task = self.task("task-corrupt")
+        task_path = agentd.core.CONTROL / ".agent" / "tasks" / "task-corrupt.json"
+        task_path.write_text(json.dumps(task), encoding="utf-8")
+        claim_path = agentd.task_claim_path("task-corrupt")
+        claim_path.parent.mkdir(parents=True, exist_ok=True)
+        claim_path.write_text("{broken", encoding="utf-8")
+        published: list[dict] = []
+
+        def fake_publish(task_id, result):
+            published.append(dict(result))
+            result_path = agentd.core.CONTROL / ".agent" / "results" / f"{task_id}.json"
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+
+        with mock.patch.object(agentd.core, "publish_result", side_effect=fake_publish), mock.patch.object(
+            agentd, "publish_run_state"
+        ) as publish_run:
+            agentd.recover_stale_claims()
+
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0]["status"], "failed")
+        self.assertEqual(published[0]["failure_reason"], "corrupt_claim_state")
+        self.assertIn("Automatic replay was blocked", published[0]["error"])
+        self.assertFalse(claim_path.exists())
+        self.assertEqual(len(list(agentd.CORRUPT_CLAIMS_DIR.glob("*.json"))), 1)
+        self.assertEqual(agentd.pending_tasks(), [])
+        self.assertTrue(publish_run.call_args.kwargs["force_remote"])
+
+    def test_self_update_requires_clean_main_checkout(self) -> None:
+        clean = mock.Mock(returncode=0, stdout="")
+        dirty = mock.Mock(returncode=0, stdout="?? stray.py\n")
+        main = mock.Mock(returncode=0, stdout="main\n")
+        staging = mock.Mock(returncode=0, stdout="v4.2-staging\n")
+        with mock.patch.object(agentd, "_git", return_value=clean):
+            self.assertTrue(agentd.tracked_self_repo_clean())
+        with mock.patch.object(agentd, "_git", return_value=dirty):
+            self.assertFalse(agentd.tracked_self_repo_clean())
+        with mock.patch.object(agentd, "_git", return_value=main):
+            self.assertTrue(agentd.self_repo_on_main_branch())
+        with mock.patch.object(agentd, "_git", return_value=staging):
+            self.assertFalse(agentd.self_repo_on_main_branch())
+
+    def test_invalid_task_file_becomes_terminal_result(self) -> None:
+        path = agentd.core.CONTROL / ".agent" / "tasks" / "broken-task.json"
+        path.write_text("{broken", encoding="utf-8")
+        published: list[dict] = []
+
+        def fake_publish(task_id, result):
+            published.append(dict(result))
+            result_path = agentd.core.CONTROL / ".agent" / "results" / f"{task_id}.json"
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+
+        with mock.patch.object(agentd.core, "publish_result", side_effect=fake_publish), mock.patch.object(
+            agentd, "publish_run_state"
+        ) as publish_run:
+            agentd.recover_invalid_task_files()
+
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0]["id"], "broken-task")
+        self.assertEqual(published[0]["failure_reason"], "invalid_task_file")
+        self.assertEqual(agentd.pending_tasks(), [])
+        self.assertTrue(publish_run.call_args.kwargs["force_remote"])
+
+    def test_task_filename_must_match_payload_id(self) -> None:
+        path = agentd.core.CONTROL / ".agent" / "tasks" / "filename-id.json"
+        path.write_text(json.dumps(self.task("payload-id")), encoding="utf-8")
+        published: list[dict] = []
+
+        def fake_publish(task_id, result):
+            published.append(dict(result))
+            result_path = agentd.core.CONTROL / ".agent" / "results" / f"{task_id}.json"
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+
+        with mock.patch.object(agentd.core, "publish_result", side_effect=fake_publish), mock.patch.object(
+            agentd, "publish_run_state"
+        ) as publish_run:
+            agentd.recover_invalid_task_files()
+
+        self.assertEqual(published[0]["id"], "filename-id")
+        self.assertEqual(published[0]["failure_reason"], "invalid_task_file")
+        self.assertIn("filename/id mismatch", published[0]["error"])
+        self.assertTrue(publish_run.call_args.kwargs["force_remote"])
 
     def test_progress_callback_persists_local_state(self) -> None:
         callback = agentd.make_progress_callback("task-4", "attempt", "digest")

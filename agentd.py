@@ -18,7 +18,7 @@ from typing import Any
 import agent_core as core
 from agent_runtime import RuntimeExecutor, task_digest, validate_task
 
-DAEMON_VERSION = "4.1.0"
+DAEMON_VERSION = "4.2.0"
 HOME = Path.home()
 SELF_REPO = Path(__file__).resolve().parent
 SELF_BRANCH = "main"
@@ -30,6 +30,7 @@ RUN_HEARTBEAT_SECONDS = 300
 
 STATE_DIR = HOME / "Library" / "Application Support" / "local-agent"
 CLAIMS_DIR = STATE_DIR / "claims"
+CORRUPT_CLAIMS_DIR = STATE_DIR / "corrupt-claims"
 DAEMON_LOCK_PATH = STATE_DIR / "agentd.lock"
 REJECTED_UPDATE_PATH = STATE_DIR / "rejected-self-update.json"
 LOCAL_STATUS_PATH = STATE_DIR / "status.json"
@@ -243,6 +244,57 @@ def release_task_claim(task_id: str) -> None:
         pass
 
 
+def invalid_task_result(task_id: str, error: Exception) -> dict[str, Any]:
+    return {
+        "id": task_id,
+        "status": "failed",
+        "failure_reason": "invalid_task_file",
+        "started_at": None,
+        "finished_at": now_iso(),
+        "daemon_version": DAEMON_VERSION,
+        "error": f"{type(error).__name__}: {error}",
+    }
+
+
+def recover_invalid_task_files() -> None:
+    tasks_dir = core.CONTROL / ".agent" / "tasks"
+    results_dir = core.CONTROL / ".agent" / "results"
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    for path in sorted(tasks_dir.glob("*.json")):
+        task_id = path.stem
+        result_path = results_dir / f"{task_id}.json"
+        if result_path.exists():
+            continue
+        try:
+            task = json.loads(path.read_text(encoding="utf-8"))
+            validate_task(task)
+            declared_id = str(task["id"])
+            if declared_id != task_id:
+                raise ValueError(
+                    f"task filename/id mismatch: filename={task_id!r} id={declared_id!r}"
+                )
+        except Exception as exc:
+            log(f"rejecting invalid task file {path.name}: {type(exc).__name__}: {exc}")
+            result = invalid_task_result(task_id, exc)
+            try:
+                core.publish_result(task_id, result)
+            except Exception as publish_exc:
+                log(f"failed to publish invalid-task result for {task_id}: {publish_exc}")
+                continue
+            publish_run_state(
+                task_id,
+                {
+                    "event": "invalid_task_rejected",
+                    "status": "failed",
+                    "failure_reason": "invalid_task_file",
+                    "updated_at": now_iso(),
+                },
+                force_remote=True,
+            )
+
+
 def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
     tasks_dir = core.CONTROL / ".agent" / "tasks"
     results_dir = core.CONTROL / ".agent" / "results"
@@ -251,25 +303,22 @@ def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
     pending: list[tuple[Path, dict[str, Any]]] = []
 
     for path in sorted(tasks_dir.glob("*.json")):
+        task_id_hint = path.stem
+        result_path = results_dir / f"{task_id_hint}.json"
+        if result_path.exists():
+            continue
         try:
             task = json.loads(path.read_text(encoding="utf-8"))
             validate_task(task)
             task_id = str(task["id"])
+            if task_id != task_id_hint:
+                raise ValueError(
+                    f"task filename/id mismatch: filename={task_id_hint!r} id={task_id!r}"
+                )
         except Exception as exc:
             log(f"invalid task file {path.name}: {type(exc).__name__}: {exc}")
             continue
 
-        result_path = results_dir / f"{task_id}.json"
-        if result_path.exists():
-            try:
-                result = json.loads(result_path.read_text(encoding="utf-8"))
-            except Exception:
-                result = {}
-            old_digest = result.get("task_digest")
-            new_digest = task_digest(task)
-            if old_digest and old_digest != new_digest:
-                log(f"task id reuse detected after result; refusing: {task_id}")
-            continue
         if task_claim_path(task_id).exists():
             log(f"task already claimed; skipping replay: {task_id}")
             continue
@@ -294,6 +343,45 @@ def interrupted_result(task_id: str, claim: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _task_for_claim_path(path: Path) -> dict[str, Any] | None:
+    tasks_dir = core.CONTROL / ".agent" / "tasks"
+    for task_path in sorted(tasks_dir.glob("*.json")):
+        try:
+            task = json.loads(task_path.read_text(encoding="utf-8"))
+            validate_task(task)
+            task_id = str(task["id"])
+        except Exception:
+            continue
+        if task_claim_path(task_id).name == path.name:
+            return task
+    return None
+
+
+def _quarantine_corrupt_claim(path: Path) -> Path:
+    CORRUPT_CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
+    target = CORRUPT_CLAIMS_DIR / f"{path.stem}.{time.time_ns()}.json"
+    os.replace(path, target)
+    return target
+
+
+def corrupt_claim_result(task: dict[str, Any], error: Exception) -> dict[str, Any]:
+    task_id = str(task["id"])
+    return {
+        "id": task_id,
+        "status": "failed",
+        "failure_reason": "corrupt_claim_state",
+        "task_digest": task_digest(task),
+        "attempt_id": None,
+        "daemon_version": DAEMON_VERSION,
+        "started_at": None,
+        "finished_at": now_iso(),
+        "error": (
+            f"Durable claim state could not be decoded ({type(error).__name__}: {error}). "
+            "Automatic replay was blocked and the corrupt claim was quarantined."
+        ),
+    }
+
+
 def recover_stale_claims() -> None:
     CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
     results_dir = core.CONTROL / ".agent" / "results"
@@ -303,7 +391,37 @@ def recover_stale_claims() -> None:
             claim = json.loads(path.read_text(encoding="utf-8"))
             task_id = str(claim["id"])
         except Exception as exc:
-            log(f"invalid stale claim {path.name}: {exc}")
+            task = _task_for_claim_path(path)
+            if task is None:
+                quarantined = _quarantine_corrupt_claim(path)
+                log(
+                    f"quarantined unmatched corrupt claim {path.name} -> "
+                    f"{quarantined.name}: {type(exc).__name__}: {exc}"
+                )
+                continue
+
+            task_id = str(task["id"])
+            result = corrupt_claim_result(task, exc)
+            log(f"recovering corrupt claim without replay: {task_id}")
+            try:
+                core.publish_result(task_id, result)
+            except Exception as publish_exc:
+                log(f"failed to publish corrupt-claim result for {task_id}: {publish_exc}")
+                continue
+            publish_run_state(
+                task_id,
+                {
+                    "event": "recovered_corrupt_claim",
+                    "status": "failed",
+                    "failure_reason": "corrupt_claim_state",
+                    "attempt_id": None,
+                    "task_digest": result.get("task_digest"),
+                    "updated_at": now_iso(),
+                },
+                force_remote=True,
+            )
+            quarantined = _quarantine_corrupt_claim(path)
+            log(f"quarantined corrupt claim for {task_id}: {quarantined.name}")
             continue
 
         result_path = results_dir / f"{task_id}.json"
@@ -367,11 +485,18 @@ def _git(args: list[str], timeout: int = 60) -> subprocess.CompletedProcess[str]
 
 def tracked_self_repo_clean() -> bool:
     try:
-        unstaged = _git(["git", "diff", "--quiet"])
-        staged = _git(["git", "diff", "--cached", "--quiet"])
+        status = _git(["git", "status", "--porcelain", "--untracked-files=normal"])
     except (OSError, subprocess.TimeoutExpired):
         return False
-    return unstaged.returncode == 0 and staged.returncode == 0
+    return status.returncode == 0 and not status.stdout.strip()
+
+
+def self_repo_on_main_branch() -> bool:
+    try:
+        branch = _git(["git", "symbolic-ref", "--quiet", "--short", "HEAD"])
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return branch.returncode == 0 and branch.stdout.strip() == SELF_BRANCH
 
 
 def _read_rejected_update() -> dict[str, Any]:
@@ -441,7 +566,13 @@ def maybe_self_update(force: bool = False) -> bool:
     if not force and now - _last_self_update_check < SELF_UPDATE_INTERVAL:
         return False
     _last_self_update_check = now
-    if not (SELF_REPO / ".git").exists() or not tracked_self_repo_clean():
+    if not (SELF_REPO / ".git").exists():
+        return False
+    if not self_repo_on_main_branch():
+        log(f"self-update skipped: checkout is not on {SELF_BRANCH}")
+        return False
+    if not tracked_self_repo_clean():
+        log("self-update skipped: checkout is not clean")
         return False
 
     try:
@@ -718,12 +849,14 @@ def main() -> None:
 
     core.sync_control()
     recover_stale_claims()
+    recover_invalid_task_files()
     publish_daemon_status("idle", force_remote=True)
 
     while True:
         try:
             core.sync_control()
             recover_stale_claims()
+            recover_invalid_task_files()
             handle_control_request()
             maybe_self_update()
             tasks = pending_tasks()
