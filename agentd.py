@@ -18,7 +18,7 @@ from typing import Any
 import agent_core as core
 from agent_runtime import RuntimeExecutor, task_digest, validate_task
 
-DAEMON_VERSION = "4.2.0"
+DAEMON_VERSION = "4.2.1"
 HOME = Path.home()
 SELF_REPO = Path(__file__).resolve().parent
 SELF_BRANCH = "main"
@@ -263,28 +263,26 @@ def recover_invalid_task_files() -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
 
     for path in sorted(tasks_dir.glob("*.json")):
-        task_id = path.stem
-        result_path = results_dir / f"{task_id}.json"
-        if result_path.exists():
+        # A malformed file cannot reliably provide task.id, so its filename stem is
+        # the durable rejection key. Valid historical task files are allowed to use
+        # a filename alias/prefix that differs from task.id.
+        rejection_id = path.stem
+        rejection_result = results_dir / f"{rejection_id}.json"
+        if rejection_result.exists():
             continue
         try:
             task = json.loads(path.read_text(encoding="utf-8"))
             validate_task(task)
-            declared_id = str(task["id"])
-            if declared_id != task_id:
-                raise ValueError(
-                    f"task filename/id mismatch: filename={task_id!r} id={declared_id!r}"
-                )
         except Exception as exc:
             log(f"rejecting invalid task file {path.name}: {type(exc).__name__}: {exc}")
-            result = invalid_task_result(task_id, exc)
+            result = invalid_task_result(rejection_id, exc)
             try:
-                core.publish_result(task_id, result)
+                core.publish_result(rejection_id, result)
             except Exception as publish_exc:
-                log(f"failed to publish invalid-task result for {task_id}: {publish_exc}")
+                log(f"failed to publish invalid-task result for {rejection_id}: {publish_exc}")
                 continue
             publish_run_state(
-                task_id,
+                rejection_id,
                 {
                     "event": "invalid_task_rejected",
                     "status": "failed",
@@ -303,22 +301,31 @@ def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
     pending: list[tuple[Path, dict[str, Any]]] = []
 
     for path in sorted(tasks_dir.glob("*.json")):
+        # First skip a terminal malformed-file rejection keyed by filename.
         task_id_hint = path.stem
-        result_path = results_dir / f"{task_id_hint}.json"
-        if result_path.exists():
+        if (results_dir / f"{task_id_hint}.json").exists():
             continue
         try:
             task = json.loads(path.read_text(encoding="utf-8"))
             validate_task(task)
             task_id = str(task["id"])
-            if task_id != task_id_hint:
-                raise ValueError(
-                    f"task filename/id mismatch: filename={task_id_hint!r} id={task_id!r}"
-                )
         except Exception as exc:
             log(f"invalid task file {path.name}: {type(exc).__name__}: {exc}")
             continue
 
+        # Valid historical files may use a filename prefix/alias. Results and claims
+        # are keyed by the immutable payload id, not by the queue filename.
+        result_path = results_dir / f"{task_id}.json"
+        if result_path.exists():
+            try:
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+            except Exception:
+                result = {}
+            old_digest = result.get("task_digest")
+            new_digest = task_digest(task)
+            if old_digest and old_digest != new_digest:
+                log(f"task id reuse detected after result; refusing: {task_id}")
+            continue
         if task_claim_path(task_id).exists():
             log(f"task already claimed; skipping replay: {task_id}")
             continue

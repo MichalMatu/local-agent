@@ -10,7 +10,7 @@ This is the final infrastructure audit summary for the `MichalMatu/local-agent` 
 - Every task has an immutable payload digest and one durable attempt claim.
 - A claimed, interrupted, or corrupt-claim task is never automatically replayed.
 - Corrupt durable claims are converted to a terminal `corrupt_claim_state` result for a known queued task and quarantined for evidence.
-- Malformed task JSON and filename/payload-id mismatches are terminal `invalid_task_file` failures; they are never retried and may not spam every poll forever.
+- Malformed task JSON is a terminal `invalid_task_file` failure; it is never retried and may not spam every poll forever. Historical filename aliases/prefixes that differ from `task.id` remain valid.
 - Command, no-output, and whole-task watchdogs are mandatory.
 - SIGTERM/SIGINT terminate the active process group.
 - Result publication may be retried, execution may not.
@@ -55,11 +55,11 @@ The v4.2 audit:
 - removed the unused v2 daemon loop from `agent_core.py` so `agentd.py` is the only daemon entry point;
 - hardened self-update to require a clean `main` checkout;
 - added terminal recovery/quarantine for corrupt durable claims;
-- added terminal handling for malformed task files and filename/id mismatches;
+- added terminal handling for malformed task files while preserving historical filename aliases;
 - preserved command, idle and whole-task watchdogs plus process-group termination;
 - preserved v4.1 coalesced progress publication;
 - formalized isolated release staging and the distinction between published ESP32 source and flashed/running firmware.
 
 ## Invalid task contract
 
-Malformed task JSON and filename/payload-id mismatches are terminal queue errors, not retry candidates. The daemon publishes `failure_reason=invalid_task_file`, and pending scans check an existing result by filename before parsing so a bad task cannot spam every poll forever.
+Malformed task JSON is a terminal queue error, not a retry candidate. The daemon publishes `failure_reason=invalid_task_file` under the filename rejection key, and pending scans check that rejection before parsing so a bad task cannot spam every poll forever. Valid historical filename aliases/prefixes may differ from `task.id`; execution results and claims remain keyed by `task.id`.

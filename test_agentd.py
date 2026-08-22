@@ -147,25 +147,27 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertEqual(agentd.pending_tasks(), [])
         self.assertTrue(publish_run.call_args.kwargs["force_remote"])
 
-    def test_task_filename_must_match_payload_id(self) -> None:
-        path = agentd.core.CONTROL / ".agent" / "tasks" / "filename-id.json"
-        path.write_text(json.dumps(self.task("payload-id")), encoding="utf-8")
-        published: list[dict] = []
+    def test_historical_filename_alias_is_valid(self) -> None:
+        task = self.task("payload-id")
+        path = agentd.core.CONTROL / ".agent" / "tasks" / "000-payload-id.json"
+        path.write_text(json.dumps(task), encoding="utf-8")
 
-        def fake_publish(task_id, result):
-            published.append(dict(result))
-            result_path = agentd.core.CONTROL / ".agent" / "results" / f"{task_id}.json"
-            result_path.write_text(json.dumps(result), encoding="utf-8")
-
-        with mock.patch.object(agentd.core, "publish_result", side_effect=fake_publish), mock.patch.object(
+        with mock.patch.object(agentd.core, "publish_result") as publish_result, mock.patch.object(
             agentd, "publish_run_state"
-        ) as publish_run:
+        ):
             agentd.recover_invalid_task_files()
+        publish_result.assert_not_called()
 
-        self.assertEqual(published[0]["id"], "filename-id")
-        self.assertEqual(published[0]["failure_reason"], "invalid_task_file")
-        self.assertIn("filename/id mismatch", published[0]["error"])
-        self.assertTrue(publish_run.call_args.kwargs["force_remote"])
+        pending = agentd.pending_tasks()
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0][1]["id"], "payload-id")
+
+        result_path = agentd.core.CONTROL / ".agent" / "results" / "payload-id.json"
+        result_path.write_text(
+            json.dumps({"id": "payload-id", "status": "done", "task_digest": agentd.task_digest(task)}),
+            encoding="utf-8",
+        )
+        self.assertEqual(agentd.pending_tasks(), [])
 
     def test_progress_callback_persists_local_state(self) -> None:
         callback = agentd.make_progress_callback("task-4", "attempt", "digest")

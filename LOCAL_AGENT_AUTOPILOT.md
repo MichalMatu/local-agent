@@ -77,4 +77,4 @@ Read `GOLDEN_STANDARD.md` for the final infrastructure invariants and audit disp
 
 ### Invalid task contract
 
-Malformed task JSON and filename/payload-id mismatches are terminal queue errors, not retry candidates. The daemon publishes `failure_reason=invalid_task_file`, and pending scans check an existing result by filename before parsing so a bad task cannot spam every poll forever.
+Malformed task JSON is a terminal queue error, not a retry candidate. The daemon publishes `failure_reason=invalid_task_file` under the filename rejection key, and pending scans check that rejection before parsing so a bad task cannot spam every poll forever. Valid historical filename aliases/prefixes may differ from `task.id`; execution results and claims remain keyed by `task.id`.
