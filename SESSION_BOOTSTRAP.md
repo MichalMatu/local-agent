@@ -25,6 +25,48 @@ Only treat `local-agent` itself as the product target when the user explicitly a
 
 The user checkout is not the disposable agent worktree. Never reset, clean or overwrite the user checkout as part of normal local-agent execution.
 
+## Current physical ESP32 bench
+
+The current development bench is reachable from the Mac at:
+
+- frontend/API base URL: `http://192.168.0.21`;
+- current serial candidate: `/dev/cu.usbserial-110`;
+- detected USB serial adapter: VID:PID `1A86:7523`;
+- current firmware reports build target `esp32s3-firmware-embedded-web`.
+
+Treat the serial path as a current observation, not a permanent identifier. Always re-run `pio device list` immediately before flashing or serial capture and verify the expected ESP32 adapter is still present.
+
+The frontend root and `GET /rest/features` are suitable unauthenticated reachability probes. When `/rest/features` reports `security=true`, protected endpoints such as `/rest/systemStatus`, `/rest/logging`, `/rest/logs/tail` and `/api/nodeflow/archive/status` require an authenticated bearer token.
+
+Never commit usernames, passwords, bearer tokens or session data to either repository, `.agent/tasks`, `.agent/results` or `.agent/runs`. Device authentication material must stay on the Mac in a local secret store such as macOS Keychain or another non-versioned local mechanism.
+
+## Flash, boot-log and live-API validation flow
+
+For a firmware change targeting the connected bench, after the required source/tests are green:
+
+1. re-detect the serial device with `pio device list`;
+2. build the exact intended firmware target;
+3. upload with PlatformIO/esptool, explicitly selecting the detected port when ambiguity exists;
+4. capture a bounded post-upload serial window rather than leaving an unbounded monitor process running;
+5. read the resulting device-monitor log and check for boot loops, panics, watchdog resets, coredump notices and expected startup milestones;
+6. wait for `http://192.168.0.21/rest/features` to become reachable again;
+7. authenticate locally when security is enabled, without exposing credentials in GitHub control files;
+8. inspect `/rest/systemStatus` and the feature-specific status endpoint relevant to the change;
+9. inspect `/rest/logs/tail?lines=<n>` for application logs when authenticated;
+10. perform the required live smoke test and record the result before calling the change hardware-validated.
+
+The target PlatformIO configuration uses `esptool` uploads. The default environment monitors at `115200` baud with filters `esp32_exception_decoder, log2file`, `monitor_rts=0`, and `monitor_dtr=0`.
+
+PlatformIO serial-monitor output is persisted under the ESP32 project `logs/` directory. Existing examples use names such as:
+
+```text
+logs/device-monitor-260819-124048.log
+```
+
+After a monitor run, locate/read the newest `logs/device-monitor-*.log`; do not assume a fixed timestamped filename.
+
+For firmware-only iteration where changed UI assets must not be embedded, follow the target repository rules and use `SKIP_FRONTEND=1` for the build/upload path. For UI changes that must ship in firmware, build the UI first and use the normal embedded-web firmware path.
+
 ## Session bootstrap sequence
 
 At the start of a future session using this flow:
