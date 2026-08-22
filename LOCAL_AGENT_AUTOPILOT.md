@@ -15,11 +15,22 @@ The default product target for this repository pair is `MichalMatu/esp32s3_LiteG
 7. read `.agent/results/<task-id>.json` when complete;
 8. diagnose the exact failed command/output;
 9. prepare the next smallest fix or diagnostic task;
-10. repeat until focused gates pass;
-11. broaden gates progressively;
+10. repeat until the targeted gates that correspond to the current diff pass;
+11. add broader verification only when the changed dependency/integration surface gives it a concrete chance to detect a regression;
 12. publish only the validated target diff.
 
 Do not stop merely because a task is running. Remote progress exists specifically so ChatGPT can check state itself.
+
+## Verification selection rule
+
+Autopilot does not use a fixed test ritual. Test selection is impact-driven.
+
+- Every queued test/build command must correspond to a plausible failure mode caused by the current diff, changed configuration, changed dependency or a realistically affected integration boundary.
+- Prefer the narrowest target that can detect that failure.
+- Do not run unrelated subsystem suites merely because a broad aggregate target includes them.
+- A green gate remains valid while the code and dependencies it covers have not changed. Do not rerun it after an unrelated edit.
+- A broad regression suite is opt-in. Use it only when the diff changes shared/cross-cutting infrastructure, the dependency blast radius cannot be bounded confidently, the target repository explicitly requires the suite for that change class, or the user explicitly requests it.
+- `This is the final iteration` is not by itself a reason to run every test in the repository.
 
 ## Failure-loop rules
 
@@ -31,7 +42,7 @@ Do not stop merely because a task is running. Remote progress exists specificall
 - timeout/idle-timeout -> diagnose the blocked command before retrying;
 - `interrupted_previous_attempt` -> create a new task id after inspecting the interrupted state; never force replay of the old id.
 
-A broad suite must not be restarted blindly after every edit.
+A broad suite must not be restarted blindly after every edit. If the broad suite already passed relevant portions and the later edit does not affect those portions or their dependencies, do not spend time rerunning them.
 
 ## Progress and hang handling
 
@@ -67,9 +78,9 @@ The user does not need to watch `tail -f` for normal operation.
 
 ## Completion
 
-For a typical ESP32 change, success can require focused host tests, relevant frontend tests/check/build, firmware build, broad host suite when warranted, hardware validation when requested, exact diff review and publication to `main`.
+For a typical ESP32 change, success can require focused host tests, relevant frontend tests/check/build, firmware build, justified broader host coverage when the diff warrants it, hardware validation when requested, exact diff review and publication to `main`.
 
-Do not report completion until the intended source commit is actually on the target branch and the requested gates are evidenced by real results.
+Do not report completion until the intended source commit is actually on the target branch and the requested gates are evidenced by real results. Do not add unrelated broad tests solely to make completion feel more exhaustive.
 
 ## Golden-standard reference
 

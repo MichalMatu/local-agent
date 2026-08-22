@@ -18,13 +18,18 @@ This is the final infrastructure audit summary for the `MichalMatu/local-agent` 
 - The live daemon checkout is never mutated to prepare a daemon release. Release staging happens in a separate temporary clone.
 - The ESP32 user checkout is never reset or cleaned by the daemon. Work happens in `~/agent-workspace/work`.
 - Progress/status/results are remotely observable on `esp32s3_LiteGraph/agent-control`.
+- Target-project verification is impact-driven. Tests that have no realistic path to detecting a regression from the current diff are not queued merely for completeness.
+- Broad regression suites are opt-in rather than default final gates; they require a cross-cutting change, uncertain dependency blast radius, an explicit target-repository requirement for the change class, or an explicit user request.
+- Green targeted evidence may be reused while the code and relevant dependencies covered by that evidence remain unchanged.
 - Secrets never belong in GitHub tasks, results, runs, logs committed to control, or repository documentation.
 
 ## ESP32 product workflow
 
 Default product target is `MichalMatu/esp32s3_LiteGraph/main`. `local-agent` is infrastructure unless explicitly requested otherwise.
 
-Normal loop: inspect source/rules -> focused patch -> focused tests -> broader gates -> exact diff review -> publish target source -> hardware flash when required -> bounded serial capture -> authenticated API/log-tail smoke -> final evidence.
+Normal loop: inspect source/rules -> focused patch -> impact-matched focused tests -> only justified broader gates -> exact diff review -> publish target source -> hardware flash when required -> bounded serial capture -> authenticated API/log-tail smoke -> final evidence.
+
+`pio run -c platformio.tests.ini -e test-all-host` is available as a broad ESP32 regression gate, but it is not a mandatory per-iteration or per-feature gate. Unrelated subsystem suites should not run when the current diff cannot plausibly affect them.
 
 Publishing source is not the same as flashing hardware. Never state that the bench contains a source commit merely because `main` contains it or because the device reports semantic version `0.6.0`. Hardware validation of a new firmware commit requires an explicit successful upload or an exact build-identity mechanism that proves the running source revision.
 
@@ -58,7 +63,8 @@ The v4.2 audit:
 - added terminal handling for malformed task files while preserving historical filename aliases;
 - preserved command, idle and whole-task watchdogs plus process-group termination;
 - preserved v4.1 coalesced progress publication;
-- formalized isolated release staging and the distinction between published ESP32 source and flashed/running firmware.
+- formalized isolated release staging and the distinction between published ESP32 source and flashed/running firmware;
+- formalized impact-driven verification so broad test suites are not rerun without a concrete regression-detection rationale.
 
 ## Invalid task contract
 

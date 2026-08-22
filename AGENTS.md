@@ -15,6 +15,9 @@ This repository is infrastructure. Prefer deterministic behavior, bounded execut
 - Do not add a local coding LLM to the deterministic execution path.
 - Keep Git staging path-exact; never use `git add -A` in publication logic.
 - Preserve ignored build caches unless a task explicitly asks for a clean rebuild.
+- Target-project verification is impact-driven: queue only tests/builds that exercise code, configuration, dependencies or integration boundaries plausibly affected by the current diff.
+- Do not run a broad regression suite merely because it exists or as a default end-of-iteration gate. A broad suite requires a concrete impact rationale: shared/cross-cutting infrastructure changed, dependency impact cannot be bounded confidently, the target repository explicitly requires it for this change class, or the user explicitly requests it.
+- After a focused fix, rerun only the affected gate unless that fix expands the impact surface. Previously green evidence remains valid while the code and relevant dependencies covered by that gate have not changed.
 - New control/progress behavior requires unit coverage.
 - Before publishing daemon changes run `python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py` and `python -m unittest discover -q`.
 

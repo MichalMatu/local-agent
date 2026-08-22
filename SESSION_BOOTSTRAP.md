@@ -77,18 +77,36 @@ At the start of a future session using this flow:
 4. inspect any relevant `.agent/runs/<task-id>.json` and `.agent/results/<task-id>.json`;
 5. if a task is already running, follow its `attempt_id` and `task_digest` instead of queueing a duplicate;
 6. queue unique deterministic tasks under `.agent/tasks/`;
-7. run focused verification first, then broaden only after the focused gate is green;
+7. derive the smallest verification set from the current diff and realistic dependency/integration impact; do not broaden verification without a concrete reason;
 8. publish the exact validated ESP32 diff to `main`; never treat a successful disposable-worktree test as publication by itself.
 
 The user should not need to paste `tail -f` output during normal operation. ChatGPT should inspect remote status/run/result files itself.
+
+## Impact-driven verification policy
+
+Verification is selected from the diff, not from a fixed ritual. Every test command queued for a target-project task should have a plausible failure mode connected to changed code, changed configuration, a changed dependency or a realistically affected integration boundary.
+
+Rules:
+
+- Start with the narrowest relevant unit/host/integration target.
+- If that gate passes, add another gate only when it covers a distinct realistic risk introduced by the diff.
+- Do not run tests for unrelated subsystems merely because they are bundled into an available broad suite.
+- A previously green targeted gate does not need to be rerun after a later edit that does not touch the code or dependencies it covers.
+- After a failure and fix, rerun the failed/affected gate first. Do not restart an already-green broad suite by default.
+- Broad regression suites are opt-in, not default. Use one only when shared/cross-cutting infrastructure changed, dependency impact cannot be bounded confidently, the target repository explicitly mandates the broad gate for that change class, or the user explicitly requests it.
+- If a broad suite is selected, the task rationale should be clear from the changed surface; `because it is the final gate` is not sufficient by itself.
+
+For `esp32s3_LiteGraph`, `pio run -c platformio.tests.ini -e test-all-host` is an available broad regression gate, not a mandatory per-iteration or per-feature gate.
 
 ## ESP32 verification defaults
 
 Follow the target repository rules. In particular:
 
 - never use `pio test`;
-- broad host gate: `pio run -c platformio.tests.ini -e test-all-host`;
-- UI changes normally require relevant Vitest coverage, `npm run lint`, `npm run check`, and `npm run build`;
+- prefer the smallest matching host environment or direct focused CMake binary for the changed subsystem;
+- use `pio run -c platformio.tests.ini -e test-all-host` only when justified by the impact-driven policy above;
+- File Manager-only changes should use File Manager/UploadSession tests; SD/storage changes should add storage-path tests; Archive sharing changes should add the Archive/datalogger tests; unrelated BLE/Wi-Fi/MQTT suites should not run unless their shared dependency surface changed;
+- UI changes normally require relevant Vitest coverage and the static/build gates needed to prove the changed UI compiles and ships; do not run the entire frontend test corpus when targeted coverage is sufficient;
 - hardware validation is performed when requested or required by the target repository contract;
 - commit/push only intended files and never use broad staging such as `git add -A`.
 

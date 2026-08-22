@@ -92,15 +92,28 @@ Timeouts terminate the entire command process group.
 1. read `SESSION_BOOTSTRAP.md` and inspect root/nearest `AGENTS.md` in the target repository;
 2. inspect relevant source/tests;
 3. prepare the smallest deterministic patch/write;
-4. queue a unique task on `agent-control`;
-5. inspect `.agent/status/daemon.json` and `.agent/runs/<id>.json` yourself while it runs; follow the same `attempt_id`/`task_digest` and never infer replay from repeated build output alone;
-6. read `.agent/results/<id>.json` when complete;
-7. diagnose actual failures and queue the next focused task;
-8. broaden verification only after focused gates pass;
-9. review the exact diff;
-10. publish only validated target source.
+4. derive the smallest verification set from the changed surface and realistic dependency/integration impact;
+5. queue a unique task on `agent-control`;
+6. inspect `.agent/status/daemon.json` and `.agent/runs/<id>.json` yourself while it runs; follow the same `attempt_id`/`task_digest` and never infer replay from repeated build output alone;
+7. read `.agent/results/<id>.json` when complete;
+8. diagnose actual failures and queue the next focused task;
+9. rerun only the gate affected by the fix unless the fix expands the impact surface;
+10. add broader verification only when a concrete cross-cutting risk remains;
+11. review the exact diff;
+12. publish only validated target source.
 
-For the ESP32 project, use focused host tests first. The broad gate is:
+## Verification selection
+
+Verification is impact-driven. Every test/build command should be able to answer a specific question about the current diff. If a command has no realistic path to detecting a regression caused by the current changes, do not queue it.
+
+- Start with the narrowest unit/host/integration target that exercises the changed code.
+- Add integration tests for boundaries that the diff actually crosses.
+- Reuse green evidence while the covered code and relevant dependencies remain unchanged.
+- After a focused fix, rerun the failed/affected gate first; do not restart unrelated suites.
+- Broad suites are not mandatory final gates. Use them only for shared/cross-cutting changes, uncertain dependency blast radius, an explicit target-repository requirement for that change class, or an explicit user request.
+- Do not spend minutes compiling unrelated BLE, Wi-Fi, MQTT, display or other subsystem tests for a File Manager-only change when their shared dependencies were not modified.
+
+For the ESP32 project, focused host tests are the default. The following is an available broad regression gate, not a default per-iteration or per-feature requirement:
 
 ```bash
 pio run -c platformio.tests.ini -e test-all-host
