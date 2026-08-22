@@ -2,7 +2,7 @@ name: local-agent CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, v4-staging]
   pull_request:
 
 jobs:
