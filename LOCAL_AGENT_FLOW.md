@@ -1,6 +1,8 @@
-# Local Agent Flow v4
+# Local Agent Flow v4.1
 
 This is the canonical deterministic execution workflow.
+
+The canonical future-session entrypoint is `SESSION_BOOTSTRAP.md`. If the user provides only the `local-agent` repository or says to use the established flow, default to working on `MichalMatu/esp32s3_LiteGraph`; do not wait for the user to restate the repository pairing.
 
 ## Roles
 
@@ -87,11 +89,11 @@ Timeouts terminate the entire command process group.
 
 ## Standard development loop
 
-1. inspect `AGENTS.md` in the target repository;
+1. read `SESSION_BOOTSTRAP.md` and inspect root/nearest `AGENTS.md` in the target repository;
 2. inspect relevant source/tests;
 3. prepare the smallest deterministic patch/write;
 4. queue a unique task on `agent-control`;
-5. inspect `.agent/runs/<id>.json` while it runs when useful;
+5. inspect `.agent/status/daemon.json` and `.agent/runs/<id>.json` yourself while it runs; follow the same `attempt_id`/`task_digest` and never infer replay from repeated build output alone;
 6. read `.agent/results/<id>.json` when complete;
 7. diagnose actual failures and queue the next focused task;
 8. broaden verification only after focused gates pass;
@@ -106,11 +108,25 @@ pio run -c platformio.tests.ini -e test-all-host
 
 Never use `pio test` for that repository.
 
+## Progress publication
+
+Local execution state is updated for every event. Remote GitHub progress is intentionally coalesced:
+
+- task start/finish, failures, first command and command/verification phase changes are immediate;
+- ordinary successful short-command progress is published at most about once per minute;
+- successful long command completion is immediate once it crosses the progress interval;
+- long command heartbeat is every five minutes;
+- daemon status is health/state telemetry, not a duplicate command stream.
+
+This keeps `.agent/runs/<id>.json` fresh enough for autonomous orchestration without turning a 20-30 command task into dozens of status commits.
+
 ## Daemon update and control
 
-ChatGPT may update `MichalMatu/local-agent/main` directly. When idle, the daemon checks every 60 seconds, fast-forwards, validates the daemon and full unit suite, rolls back bad updates and restarts itself after a good update.
+For non-trivial daemon changes, use a staging branch, run daemon compile/unit gates, require green GitHub CI, then fast-forward `local-agent/main` to the exact validated SHA. The idle daemon checks `main` every 60 seconds, validates the checkout locally, rolls back bad updates and restarts itself after a good update.
 
 Explicit daemon control uses `.agent/daemon/control.json`. Supported actions are `restart`, `self_update` and `status`; acknowledgements are written to `.agent/daemon/acks/<id>.json` and make each control request idempotent.
+
+After a self-update or restart, verify `.agent/status/daemon.json` reports the expected daemon version and source revision. The user should not need to run `git pull`, `launchctl` or `tail -f` during normal operation.
 
 ## Source of truth
 
