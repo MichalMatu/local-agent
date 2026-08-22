@@ -68,6 +68,28 @@ cd ~/local-agent
 ./.venv/bin/python agentctl.py validate-task /path/to/task.json
 ```
 
+## Live daemon logs
+
+Show the latest 30 lines once:
+
+```bash
+tail -n 30 ~/Library/Logs/local-agent.log
+```
+
+Show the latest 30 lines and continue following new output live:
+
+```bash
+tail -n 30 -f ~/Library/Logs/local-agent.log
+```
+
+Follow only new output from the current end of the log:
+
+```bash
+tail -f ~/Library/Logs/local-agent.log
+```
+
+Stop live following with `Ctrl+C`. When the daemon prints `no pending task`, the queue is currently empty; use `agentctl.py status` or the remote `.agent/status/daemon.json` for authoritative daemon state.
+
 ## Tests
 
 ```bash
