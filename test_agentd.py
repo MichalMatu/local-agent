@@ -99,6 +99,88 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertEqual(state["attempt_id"], "attempt")
         self.assertEqual(state["event"], "command_started")
 
+    def test_progress_callback_throttles_successful_command_boundaries(self) -> None:
+        callback = agentd.make_progress_callback("task-5", "attempt", "digest")
+        with mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(
+            agentd, "publish_daemon_status"
+        ) as publish_status, mock.patch.object(
+            agentd.time, "monotonic", side_effect=[100.0, 101.0, 102.0, 170.0]
+        ):
+            callback({"event": "task_started"})
+            callback(
+                {
+                    "event": "command_started",
+                    "phase": "commands",
+                    "index": 1,
+                    "total": 3,
+                    "command": "one",
+                }
+            )
+            callback(
+                {
+                    "event": "command_started",
+                    "phase": "commands",
+                    "index": 2,
+                    "total": 3,
+                    "command": "two",
+                }
+            )
+            callback(
+                {
+                    "event": "command_started",
+                    "phase": "commands",
+                    "index": 3,
+                    "total": 3,
+                    "command": "three",
+                }
+            )
+
+        remote_flags = [call.kwargs["force_remote"] for call in publish_run.call_args_list]
+        self.assertEqual(remote_flags, [True, True, False, True])
+        self.assertTrue(
+            all(call.kwargs["force_remote"] is False for call in publish_status.call_args_list)
+        )
+
+    def test_failed_command_is_published_immediately(self) -> None:
+        callback = agentd.make_progress_callback("task-6", "attempt", "digest")
+        with mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(
+            agentd, "publish_daemon_status"
+        ), mock.patch.object(agentd.time, "monotonic", side_effect=[100.0, 101.0]):
+            callback({"event": "task_started"})
+            callback(
+                {
+                    "event": "command_finished",
+                    "phase": "commands",
+                    "index": 1,
+                    "total": 1,
+                    "command": "false",
+                    "exit_code": 1,
+                    "elapsed_seconds": 0.1,
+                }
+            )
+
+        self.assertTrue(publish_run.call_args_list[-1].kwargs["force_remote"])
+
+    def test_long_successful_command_finish_is_published_immediately(self) -> None:
+        callback = agentd.make_progress_callback("task-7", "attempt", "digest")
+        with mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(
+            agentd, "publish_daemon_status"
+        ), mock.patch.object(agentd.time, "monotonic", side_effect=[100.0, 101.0]):
+            callback({"event": "task_started"})
+            callback(
+                {
+                    "event": "command_finished",
+                    "phase": "commands",
+                    "index": 1,
+                    "total": 1,
+                    "command": "slow-success",
+                    "exit_code": 0,
+                    "elapsed_seconds": agentd.RUN_PROGRESS_SECONDS,
+                }
+            )
+
+        self.assertTrue(publish_run.call_args_list[-1].kwargs["force_remote"])
+
     def test_remote_restart_control_is_acknowledged_before_restart(self) -> None:
         request_path = agentd.core.CONTROL / agentd.REMOTE_CONTROL_REQUEST
         request_path.parent.mkdir(parents=True, exist_ok=True)
