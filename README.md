@@ -4,7 +4,9 @@ Deterministic local execution daemon used by ChatGPT to build, test, flash and i
 
 The daemon is deliberately **not** a coding model. ChatGPT decides code changes and exact commands; the daemon executes them and publishes machine-readable evidence back to the `agent-control` branch.
 
-## v4 guarantees
+For future sessions, `SESSION_BOOTSTRAP.md` is the canonical cross-repository entrypoint. Merely providing this repository or asking to use the established local-agent flow means the default product target is `MichalMatu/esp32s3_LiteGraph`, unless the user explicitly asks to modify the daemon itself.
+
+## v4.1 guarantees
 
 - single daemon instance enforced with an OS file lock;
 - durable per-task claim before any execution;
@@ -16,7 +18,8 @@ The daemon is deliberately **not** a coding model. ChatGPT decides code changes 
 - remote progress is published to `.agent/runs/<task-id>.json`;
 - daemon health is published to `.agent/status/daemon.json`;
 - remote daemon commands use `.agent/daemon/control.json` with durable acknowledgements;
-- self-update from `local-agent/main`, local validation, rollback on failure, then `exec` restart.
+- self-update from `local-agent/main`, local validation, rollback on failure, then `exec` restart;
+- remote progress commits are coalesced so short command chains do not create one or more Git commits per command boundary.
 
 ## Time limits
 
@@ -32,7 +35,9 @@ On the target repository's `agent-control` branch:
 .agent/results/<task-id>.json
 ```
 
-Command transitions publish immediately. Long-running commands publish a remote heartbeat at most once every five minutes.
+Local command transitions are recorded immediately. Remote task progress is coalesced: task boundaries, failures, the first command and phase changes publish immediately; ordinary short-command progress is limited to about once per minute; long-running commands retain a five-minute heartbeat.
+
+Detailed task execution belongs in `.agent/runs/<task-id>.json`. `.agent/status/daemon.json` is daemon health/state and uses state changes plus a five-minute heartbeat instead of mirroring every command.
 
 ## Remote daemon control
 
@@ -50,6 +55,8 @@ Supported actions are `restart`, `self_update`, and `status`. Acknowledgements a
 ## Self-update
 
 When idle, the daemon checks `MichalMatu/local-agent/main` every 60 seconds. It accepts only a fast-forward update, runs `py_compile` and the full unit suite, rolls back a failed update, remembers the rejected SHA, and `exec`s a validated daemon in place. `launchd` remains the outer supervisor.
+
+For non-trivial daemon changes, stage and validate them before moving `main`. See `SESSION_BOOTSTRAP.md` for the exact staging -> CI -> fast-forward -> self-update -> remote verification sequence.
 
 ## Local diagnostics
 
