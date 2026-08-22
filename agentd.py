@@ -5,6 +5,8 @@ import fcntl
 import hashlib
 import json
 import os
+import secrets
+import signal
 import subprocess
 import sys
 import time
@@ -14,26 +16,41 @@ from pathlib import Path
 from typing import Any
 
 import agent_core as core
+from agent_runtime import RuntimeExecutor, task_digest, validate_task
 
+DAEMON_VERSION = "4.0.0"
 HOME = Path.home()
 SELF_REPO = Path(__file__).resolve().parent
 SELF_BRANCH = "main"
 SELF_UPDATE_INTERVAL = 60
+POLL_SECONDS = 15
+REMOTE_HEARTBEAT_SECONDS = 300
+RUN_HEARTBEAT_SECONDS = 300
 
 STATE_DIR = HOME / "Library" / "Application Support" / "local-agent"
 CLAIMS_DIR = STATE_DIR / "claims"
 DAEMON_LOCK_PATH = STATE_DIR / "agentd.lock"
 REJECTED_UPDATE_PATH = STATE_DIR / "rejected-self-update.json"
+LOCAL_STATUS_PATH = STATE_DIR / "status.json"
+LOCAL_RUNS_DIR = STATE_DIR / "runs"
 
-POLL_SECONDS = 15
-COMMAND_TIMEOUT = 1200
-MAX_COMMAND_TIMEOUT = 3600
+REMOTE_DAEMON_STATUS = ".agent/status/daemon.json"
+REMOTE_CONTROL_REQUEST = ".agent/daemon/control.json"
+REMOTE_CONTROL_ACK_DIR = ".agent/daemon/acks"
+REMOTE_RUNS_DIR = ".agent/runs"
 
-core.COMMAND_TIMEOUT = COMMAND_TIMEOUT
-core.MAX_COMMAND_TIMEOUT = MAX_COMMAND_TIMEOUT
+core.COMMAND_TIMEOUT = 1200
+core.MAX_COMMAND_TIMEOUT = 3600
+runtime = RuntimeExecutor(core)
 
 _last_self_update_check = 0.0
+_last_remote_status = 0.0
+_last_status_state: str | None = None
 _daemon_lock_handle: Any | None = None
+_current_task_id: str | None = None
+_current_attempt_id: str | None = None
+_current_task_digest: str | None = None
+_current_progress: dict[str, Any] = {}
 
 
 def now_iso() -> str:
@@ -44,33 +61,177 @@ def log(message: str) -> None:
     core.log(message)
 
 
+def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    with temp.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temp, path)
+
+
+def publish_control_json(
+    relative: str,
+    payload: dict[str, Any],
+    *,
+    commit_message: str,
+) -> bool:
+    target = (core.CONTROL / relative).resolve()
+    root = core.CONTROL.resolve()
+    if root not in target.parents:
+        raise ValueError(f"control path escapes repository: {relative!r}")
+
+    atomic_write_json(target, payload)
+    add = core.process(["git", "add", "--", relative], core.CONTROL)
+    if add["exit_code"] != 0:
+        raise RuntimeError(add["output"])
+
+    staged = core.process(
+        ["git", "diff", "--cached", "--quiet", "--", relative],
+        core.CONTROL,
+    )
+    if staged["exit_code"] == 0:
+        return False
+    if staged["exit_code"] != 1:
+        raise RuntimeError(staged["output"])
+
+    commit = core.process(
+        ["git", "commit", "-m", commit_message, "--", relative],
+        core.CONTROL,
+    )
+    if commit["exit_code"] != 0:
+        raise RuntimeError(commit["output"])
+
+    for attempt in range(2):
+        pull = core.process(
+            ["git", "pull", "--rebase", "origin", core.CONTROL_BRANCH],
+            core.CONTROL,
+            timeout=180,
+        )
+        if pull["exit_code"] != 0:
+            raise RuntimeError(pull["output"])
+        push = core.process(
+            ["git", "push", "origin", core.CONTROL_BRANCH],
+            core.CONTROL,
+            timeout=180,
+        )
+        if push["exit_code"] == 0:
+            return True
+        if attempt == 1:
+            raise RuntimeError(push["output"])
+    return False
+
+
+def self_revision() -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=SELF_REPO,
+            env=core.ENV,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def daemon_status_payload(state: str, **extra: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "version": 1,
+        "daemon_version": DAEMON_VERSION,
+        "state": state,
+        "pid": os.getpid(),
+        "updated_at": now_iso(),
+        "self_revision": self_revision(),
+        "poll_seconds": POLL_SECONDS,
+        "self_update_seconds": SELF_UPDATE_INTERVAL,
+        "command_timeout_default": core.COMMAND_TIMEOUT,
+        "idle_timeout_default": 600,
+        "task_timeout_default": 3600,
+        "current_task_id": _current_task_id,
+        "current_attempt_id": _current_attempt_id,
+        "current_task_digest": _current_task_digest,
+    }
+    payload.update(extra)
+    return payload
+
+
+def publish_daemon_status(
+    state: str,
+    *,
+    force_remote: bool = False,
+    **extra: Any,
+) -> None:
+    global _last_remote_status, _last_status_state
+
+    payload = daemon_status_payload(state, **extra)
+    atomic_write_json(LOCAL_STATUS_PATH, payload)
+    now = time.monotonic()
+    should_publish = (
+        force_remote
+        or state != _last_status_state
+        or now - _last_remote_status >= REMOTE_HEARTBEAT_SECONDS
+    )
+    _last_status_state = state
+    if not should_publish:
+        return
+    try:
+        publish_control_json(
+            REMOTE_DAEMON_STATUS,
+            payload,
+            commit_message=f"Agent daemon status: {state}",
+        )
+        _last_remote_status = now
+    except Exception as exc:
+        log(f"remote daemon status publish failed: {type(exc).__name__}: {exc}")
+
+
 def task_claim_path(task_id: str) -> Path:
     digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
     return CLAIMS_DIR / f"{digest}.json"
 
 
-def claim_task(task_id: str) -> bool:
-    CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
-    path = task_claim_path(task_id)
+def claim_task(task: dict[str, Any]) -> dict[str, Any] | None:
+    validate_task(task)
+    task_id = str(task["id"])
+    digest = task_digest(task)
+    attempt_id = secrets.token_hex(12)
     payload = {
         "id": task_id,
+        "task_digest": digest,
+        "attempt_id": attempt_id,
         "pid": os.getpid(),
+        "daemon_version": DAEMON_VERSION,
         "started_at": now_iso(),
     }
-
+    CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
+    path = task_claim_path(task_id)
     try:
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
-        log(f"task already claimed; refusing replay: {task_id}")
-        return False
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            existing = {}
+        if existing.get("task_digest") not in (None, digest):
+            log(f"task id payload mismatch; refusing execution: {task_id}")
+        else:
+            log(f"task already claimed; refusing replay: {task_id}")
+        return None
 
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, indent=2) + "\n")
+        json.dump(payload, handle, indent=2, ensure_ascii=False)
+        handle.write("\n")
         handle.flush()
         os.fsync(handle.fileno())
-
-    log(f"claimed task {task_id}")
-    return True
+    log(f"claimed task {task_id} attempt={attempt_id}")
+    return payload
 
 
 def release_task_claim(task_id: str) -> None:
@@ -86,23 +247,32 @@ def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
     results_dir = core.CONTROL / ".agent" / "results"
     tasks_dir.mkdir(parents=True, exist_ok=True)
     results_dir.mkdir(parents=True, exist_ok=True)
-
     pending: list[tuple[Path, dict[str, Any]]] = []
+
     for path in sorted(tasks_dir.glob("*.json")):
         try:
             task = json.loads(path.read_text(encoding="utf-8"))
+            validate_task(task)
             task_id = str(task["id"])
         except Exception as exc:
-            log(f"invalid task file {path.name}: {exc}")
+            log(f"invalid task file {path.name}: {type(exc).__name__}: {exc}")
             continue
 
-        if (results_dir / f"{task_id}.json").exists():
+        result_path = results_dir / f"{task_id}.json"
+        if result_path.exists():
+            try:
+                result = json.loads(result_path.read_text(encoding="utf-8"))
+            except Exception:
+                result = {}
+            old_digest = result.get("task_digest")
+            new_digest = task_digest(task)
+            if old_digest and old_digest != new_digest:
+                log(f"task id reuse detected after result; refusing: {task_id}")
             continue
         if task_claim_path(task_id).exists():
             log(f"task already claimed; skipping replay: {task_id}")
             continue
         pending.append((path, task))
-
     return pending
 
 
@@ -111,6 +281,9 @@ def interrupted_result(task_id: str, claim: dict[str, Any]) -> dict[str, Any]:
         "id": task_id,
         "status": "failed",
         "failure_reason": "interrupted_previous_attempt",
+        "task_digest": claim.get("task_digest"),
+        "attempt_id": claim.get("attempt_id"),
+        "daemon_version": claim.get("daemon_version"),
         "started_at": claim.get("started_at"),
         "finished_at": now_iso(),
         "error": (
@@ -124,7 +297,6 @@ def recover_stale_claims() -> None:
     CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
     results_dir = core.CONTROL / ".agent" / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
-
     for path in sorted(CLAIMS_DIR.glob("*.json")):
         try:
             claim = json.loads(path.read_text(encoding="utf-8"))
@@ -148,7 +320,18 @@ def recover_stale_claims() -> None:
         except Exception as exc:
             log(f"failed to publish interrupted result for {task_id}: {exc}")
             continue
-
+        publish_run_state(
+            task_id,
+            {
+                "event": "recovered_interrupted_attempt",
+                "status": "failed",
+                "failure_reason": result.get("failure_reason"),
+                "attempt_id": claim.get("attempt_id"),
+                "task_digest": claim.get("task_digest"),
+                "updated_at": now_iso(),
+            },
+            force_remote=True,
+        )
         release_task_claim(task_id)
 
 
@@ -160,7 +343,6 @@ def acquire_daemon_lock() -> Any:
     except BlockingIOError:
         log("another local-agent daemon is already running; exiting")
         raise SystemExit(0)
-
     handle.seek(0)
     handle.truncate()
     handle.write(json.dumps({"pid": os.getpid(), "started_at": now_iso()}) + "\n")
@@ -183,8 +365,11 @@ def _git(args: list[str], timeout: int = 60) -> subprocess.CompletedProcess[str]
 
 
 def tracked_self_repo_clean() -> bool:
-    unstaged = _git(["git", "diff", "--quiet"])
-    staged = _git(["git", "diff", "--cached", "--quiet"])
+    try:
+        unstaged = _git(["git", "diff", "--quiet"])
+        staged = _git(["git", "diff", "--cached", "--quiet"])
+    except (OSError, subprocess.TimeoutExpired):
+        return False
     return unstaged.returncode == 0 and staged.returncode == 0
 
 
@@ -195,29 +380,31 @@ def _read_rejected_update() -> dict[str, Any]:
         return {}
 
 
-def _remember_rejected_update(remote_sha: str) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    REJECTED_UPDATE_PATH.write_text(
-        json.dumps(
-            {
-                "sha": remote_sha,
-                "rejected_at": now_iso(),
-                "reason": "validation_failed",
-            },
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+def _remember_rejected_update(remote_sha: str, error: str) -> None:
+    atomic_write_json(
+        REJECTED_UPDATE_PATH,
+        {
+            "sha": remote_sha,
+            "rejected_at": now_iso(),
+            "reason": "validation_failed",
+            "error": core.bounded(error, 4000),
+        },
     )
 
 
 def _validate_installed_update() -> tuple[bool, str]:
     commands = [
-        [sys.executable, "-m", "py_compile", "agentd.py", "agent_core.py"],
+        [
+            sys.executable,
+            "-m",
+            "py_compile",
+            "agentd.py",
+            "agent_core.py",
+            "agent_runtime.py",
+            "agentctl.py",
+        ],
+        [sys.executable, "-m", "unittest", "discover", "-q"],
     ]
-    if (SELF_REPO / "test_agentd.py").exists():
-        commands.append([sys.executable, "-m", "unittest", "-q", "test_agentd.py"])
-
     for command in commands:
         try:
             result = subprocess.run(
@@ -227,7 +414,7 @@ def _validate_installed_update() -> tuple[bool, str]:
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                timeout=60,
+                timeout=120,
                 check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
@@ -237,18 +424,23 @@ def _validate_installed_update() -> tuple[bool, str]:
     return True, ""
 
 
+def restart_self(reason: str) -> None:
+    publish_daemon_status("restarting", force_remote=True, reason=reason)
+    log(f"restarting daemon: {reason}")
+    try:
+        os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve())])
+    except OSError as exc:
+        log(f"exec restart failed; asking launchd to restart: {exc}")
+        raise SystemExit(75) from exc
+
+
 def maybe_self_update(force: bool = False) -> bool:
     global _last_self_update_check
-
     now = time.monotonic()
     if not force and now - _last_self_update_check < SELF_UPDATE_INTERVAL:
         return False
     _last_self_update_check = now
-
-    if not (SELF_REPO / ".git").exists():
-        return False
-    if not tracked_self_repo_clean():
-        log("self-update skipped: tracked local-agent changes are present")
+    if not (SELF_REPO / ".git").exists() or not tracked_self_repo_clean():
         return False
 
     try:
@@ -263,9 +455,7 @@ def maybe_self_update(force: bool = False) -> bool:
     local = _git(["git", "rev-parse", "HEAD"])
     remote = _git(["git", "rev-parse", f"origin/{SELF_BRANCH}"])
     if local.returncode != 0 or remote.returncode != 0:
-        log("self-update skipped: unable to resolve local/remote revision")
         return False
-
     local_sha = local.stdout.strip()
     remote_sha = remote.stdout.strip()
     if local_sha == remote_sha:
@@ -276,10 +466,7 @@ def maybe_self_update(force: bool = False) -> bool:
 
     ancestor = _git(["git", "merge-base", "--is-ancestor", local_sha, remote_sha])
     if ancestor.returncode != 0:
-        log(
-            "self-update skipped: local-agent main is not a fast-forward "
-            f"of origin/{SELF_BRANCH}"
-        )
+        log("self-update skipped: remote main is not a fast-forward")
         return False
 
     log(f"self-update available {local_sha[:9]} -> {remote_sha[:9]}")
@@ -293,78 +480,249 @@ def maybe_self_update(force: bool = False) -> bool:
 
     valid, error = _validate_installed_update()
     if not valid:
-        log(
-            "self-update validation failed; rolling back: "
-            + core.bounded(error, 2000)
-        )
+        log("self-update validation failed; rolling back: " + core.bounded(error, 2000))
         rollback = _git(["git", "reset", "--hard", local_sha], timeout=60)
-        if rollback.returncode != 0:
-            log("CRITICAL: self-update rollback failed")
+        if rollback.returncode == 0:
+            _remember_rejected_update(remote_sha, error)
         else:
-            _remember_rejected_update(remote_sha)
+            log("CRITICAL: self-update rollback failed")
         return False
 
     REJECTED_UPDATE_PATH.unlink(missing_ok=True)
-    log(f"self-update installed {remote_sha[:9]}; restarting daemon")
+    log(f"self-update installed {remote_sha[:9]}")
+    restart_self("self_update")
+    return True
+
+
+def _control_ack_path(control_id: str) -> Path:
+    return core.CONTROL / REMOTE_CONTROL_ACK_DIR / f"{control_id}.json"
+
+
+def publish_control_ack(
+    control_id: str,
+    action: str,
+    status: str,
+    **extra: Any,
+) -> None:
+    payload = {
+        "id": control_id,
+        "action": action,
+        "status": status,
+        "daemon_version": DAEMON_VERSION,
+        "pid": os.getpid(),
+        "updated_at": now_iso(),
+    }
+    payload.update(extra)
+    publish_control_json(
+        f"{REMOTE_CONTROL_ACK_DIR}/{control_id}.json",
+        payload,
+        commit_message=f"Agent daemon control ack: {control_id}",
+    )
+
+
+def handle_control_request() -> None:
+    path = core.CONTROL / REMOTE_CONTROL_REQUEST
+    if not path.exists():
+        return
     try:
-        os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve())])
-    except OSError as exc:
-        log(f"self-update exec failed; asking launchd to restart: {exc}")
-        raise SystemExit(75) from exc
+        request = json.loads(path.read_text(encoding="utf-8"))
+        control_id = str(request["id"])
+        action = str(request["action"])
+    except Exception as exc:
+        log(f"invalid daemon control request: {exc}")
+        return
+    if not control_id or len(control_id) > 120 or _control_ack_path(control_id).exists():
+        return
+
+    if action == "restart":
+        publish_control_ack(control_id, action, "accepted")
+        restart_self(f"remote_control:{control_id}")
+    elif action == "self_update":
+        publish_control_ack(control_id, action, "accepted")
+        if not maybe_self_update(force=True):
+            publish_control_ack(control_id, action, "completed", result="no_update")
+    elif action == "status":
+        publish_daemon_status("idle", force_remote=True)
+        publish_control_ack(control_id, action, "completed")
+    else:
+        publish_control_ack(control_id, action, "rejected", error="unsupported_action")
+
+
+def publish_run_state(
+    task_id: str,
+    payload: dict[str, Any],
+    *,
+    force_remote: bool,
+) -> None:
+    state = dict(payload)
+    state.setdefault("task_id", task_id)
+    state.setdefault("daemon_version", DAEMON_VERSION)
+    state.setdefault("pid", os.getpid())
+    state.setdefault("updated_at", now_iso())
+    atomic_write_json(LOCAL_RUNS_DIR / f"{task_id}.json", state)
+    if not force_remote:
+        return
+    try:
+        publish_control_json(
+            f"{REMOTE_RUNS_DIR}/{task_id}.json",
+            state,
+            commit_message=f"Agent progress: {task_id}",
+        )
+    except Exception as exc:
+        log(f"remote run state publish failed for {task_id}: {exc}")
+
+
+def make_progress_callback(task_id: str, attempt_id: str, digest: str):
+    last_remote = 0.0
+
+    def progress(event: dict[str, Any]) -> None:
+        nonlocal last_remote
+        global _current_progress
+        enriched = dict(event)
+        enriched.update(
+            {
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "task_digest": digest,
+                "daemon_version": DAEMON_VERSION,
+                "daemon_pid": os.getpid(),
+                "updated_at": now_iso(),
+            }
+        )
+        _current_progress = enriched
+        now = time.monotonic()
+        event_name = str(event.get("event", ""))
+        force_remote = event_name in {"task_started", "command_started", "task_finished"}
+        if event_name == "command_finished" and int(event.get("exit_code", 0)) != 0:
+            force_remote = True
+        if event_name == "command_heartbeat" and now - last_remote >= RUN_HEARTBEAT_SECONDS:
+            force_remote = True
+        publish_run_state(task_id, enriched, force_remote=force_remote)
+        if force_remote:
+            last_remote = now
+        publish_daemon_status(
+            "finishing" if event_name == "task_finished" else "running",
+            force_remote=force_remote,
+            progress=enriched,
+        )
+
+    return progress
+
+
+def shutdown_handler(signum: int, _frame: Any) -> None:
+    log(f"received signal {signum}; terminating active command")
+    runtime.terminate_active_command()
+    raise SystemExit(128 + signum)
+
+
+def install_signal_handlers() -> None:
+    signal.signal(signal.SIGTERM, shutdown_handler)
+    signal.signal(signal.SIGINT, shutdown_handler)
+
+
+def execute_task(task: dict[str, Any]) -> None:
+    global _current_task_id, _current_attempt_id, _current_task_digest, _current_progress
+    claim = claim_task(task)
+    if claim is None:
+        return
+
+    task_id = str(task["id"])
+    _current_task_id = task_id
+    _current_attempt_id = str(claim["attempt_id"])
+    _current_task_digest = str(claim["task_digest"])
+    _current_progress = {}
+    progress = make_progress_callback(
+        task_id,
+        _current_attempt_id,
+        _current_task_digest,
+    )
+    publish_daemon_status("running", force_remote=True)
+
+    try:
+        result = runtime.process_task(task, progress=progress)
+    except Exception as exc:
+        result = {
+            "id": task_id,
+            "status": "failed",
+            "failure_reason": "daemon_exception",
+            "task_digest": _current_task_digest,
+            "started_at": claim.get("started_at"),
+            "finished_at": now_iso(),
+            "error": f"{type(exc).__name__}: {exc}",
+            "traceback": traceback.format_exc(),
+        }
+    result["attempt_id"] = _current_attempt_id
+    result["daemon_version"] = DAEMON_VERSION
+    result.setdefault("task_digest", _current_task_digest)
+
+    try:
+        core.publish_result(task_id, result)
+    except Exception as exc:
+        log(f"result publish failed for {task_id}: {exc}")
+        publish_daemon_status(
+            "result_publish_failed",
+            force_remote=True,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return
+
+    publish_run_state(
+        task_id,
+        {
+            "event": "result_published",
+            "status": result.get("status"),
+            "failure_reason": result.get("failure_reason"),
+            "attempt_id": _current_attempt_id,
+            "task_digest": _current_task_digest,
+            "finished_at": result.get("finished_at"),
+            "updated_at": now_iso(),
+        },
+        force_remote=True,
+    )
+    release_task_claim(task_id)
+    _current_task_id = None
+    _current_attempt_id = None
+    _current_task_digest = None
+    _current_progress = {}
+    publish_daemon_status("idle", force_remote=True)
 
 
 def main() -> None:
     global _daemon_lock_handle
-
     _daemon_lock_handle = acquire_daemon_lock()
+    install_signal_handlers()
     log(
-        "Local Agent daemon v3 starting; "
-        f"mode=deterministic command_timeout={COMMAND_TIMEOUT}s "
-        f"self_update={SELF_UPDATE_INTERVAL}s"
+        f"Local Agent daemon v{DAEMON_VERSION} starting; "
+        f"command_timeout={core.COMMAND_TIMEOUT}s idle_timeout=600s "
+        f"task_timeout=3600s self_update={SELF_UPDATE_INTERVAL}s"
     )
+
+    core.sync_control()
+    recover_stale_claims()
+    publish_daemon_status("idle", force_remote=True)
 
     while True:
         try:
-            recover_stale_claims()
             core.sync_control()
+            recover_stale_claims()
+            handle_control_request()
             maybe_self_update()
-
             tasks = pending_tasks()
             if not tasks:
                 log("no pending tasks")
-
+                publish_daemon_status("idle")
             for _, task in tasks:
-                task_id = str(task.get("id", "unknown"))
-                if not claim_task(task_id):
-                    continue
-
-                try:
-                    result = core.process_task(task)
-                except Exception as exc:
-                    result = {
-                        "id": task_id,
-                        "status": "failed",
-                        "failure_reason": "daemon_exception",
-                        "started_at": now_iso(),
-                        "finished_at": now_iso(),
-                        "error": f"{type(exc).__name__}: {exc}",
-                        "traceback": traceback.format_exc(),
-                    }
-
-                try:
-                    core.publish_result(task_id, result)
-                except Exception as exc:
-                    log(f"result publish failed for {task_id}: {exc}")
-                    continue
-
-                release_task_claim(task_id)
-
+                execute_task(task)
         except SystemExit:
             raise
         except Exception as exc:
             log(f"poll loop error: {type(exc).__name__}: {exc}")
             traceback.print_exc()
-
+            publish_daemon_status(
+                "error",
+                force_remote=True,
+                error=f"{type(exc).__name__}: {exc}",
+            )
         time.sleep(POLL_SECONDS)
 
 
