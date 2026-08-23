@@ -90,6 +90,8 @@ tail -f ~/Library/Logs/local-agent.log
 
 Stop live following with `Ctrl+C`. When the daemon prints `no pending task`, the queue is currently empty; use `agentctl.py status` or the remote `.agent/status/daemon.json` for authoritative daemon state.
 
+Large unified diffs are compacted in the live daemon log after a bounded threshold, while small diffs remain visible. Compaction affects only the live log: raw command output is still retained in the existing bounded task-result buffer (`MAX_OUTPUT`) for diagnostics.
+
 ## Tests
 
 ```bash

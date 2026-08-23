@@ -20,6 +20,113 @@ DEFAULT_TASK_TIMEOUT = 3600
 MAX_TASK_TIMEOUT = 14400
 PROGRESS_INTERVAL = 30
 MAX_OUTPUT = 60000
+LIVE_DIFF_MAX_LINES = 80
+LIVE_DIFF_MAX_CHARS = 12_000
+
+_DIFF_METADATA_PREFIXES = (
+    "index ",
+    "--- ",
+    "+++ ",
+    "@@ ",
+    "new file mode ",
+    "deleted file mode ",
+    "old mode ",
+    "new mode ",
+    "similarity index ",
+    "dissimilarity index ",
+    "rename from ",
+    "rename to ",
+    "copy from ",
+    "copy to ",
+    "Binary files ",
+    "GIT binary patch",
+    "literal ",
+    "delta ",
+    "\\ No newline at end of file",
+)
+
+
+def _looks_like_unified_diff_line(line: str) -> bool:
+    text = line.rstrip("\r\n")
+    if not text:
+        return False
+    if text.startswith("diff --git ") or text.startswith(_DIFF_METADATA_PREFIXES):
+        return True
+    return text[0] in " +-\\"
+
+
+class LiveCommandOutput:
+    """Keep normal live output readable while retaining raw command output separately."""
+
+    def __init__(self) -> None:
+        self._in_diff = False
+        self._collapsed = False
+        self._buffer: list[str] = []
+        self._files = 0
+        self._lines = 0
+        self._chars = 0
+
+    @staticmethod
+    def _print_line(line: str) -> None:
+        print(f"[CMD] {line}", end="", flush=True)
+
+    def _reset_diff(self) -> None:
+        self._in_diff = False
+        self._collapsed = False
+        self._buffer.clear()
+        self._files = 0
+        self._lines = 0
+        self._chars = 0
+
+    def _record_diff_line(self, line: str) -> None:
+        if line.startswith("diff --git "):
+            self._files += 1
+        self._lines += 1
+        self._chars += len(line)
+        if not self._collapsed:
+            self._buffer.append(line)
+            if self._lines > LIVE_DIFF_MAX_LINES or self._chars > LIVE_DIFF_MAX_CHARS:
+                self._collapsed = True
+                self._buffer.clear()
+                print(
+                    "[CMD] [large unified diff collapsed in live log; "
+                    "raw output remains in bounded task result buffer]",
+                    flush=True,
+                )
+
+    def _flush_diff(self) -> None:
+        if not self._in_diff:
+            return
+        if self._collapsed:
+            kib = self._chars / 1024.0
+            print(
+                f"[CMD] [collapsed unified diff: {self._files} file(s), "
+                f"{self._lines} line(s), {kib:.1f} KiB]",
+                flush=True,
+            )
+        else:
+            for line in self._buffer:
+                self._print_line(line)
+        self._reset_diff()
+
+    def emit(self, line: str) -> None:
+        if not self._in_diff:
+            if line.startswith("diff --git "):
+                self._in_diff = True
+                self._record_diff_line(line)
+                return
+            self._print_line(line)
+            return
+
+        if _looks_like_unified_diff_line(line):
+            self._record_diff_line(line)
+            return
+
+        self._flush_diff()
+        self._print_line(line)
+
+    def finish(self) -> None:
+        self._flush_diff()
 
 
 def task_digest(task: dict[str, Any]) -> str:
@@ -158,6 +265,7 @@ class RuntimeExecutor:
         chunks: list[str] = []
         total_chars = 0
         reader_done = False
+        live_output = LiveCommandOutput()
 
         try:
             while True:
@@ -194,7 +302,7 @@ class RuntimeExecutor:
                         reader_done = True
                     else:
                         last_output = time.monotonic()
-                        print(f"[CMD] {item}", end="", flush=True)
+                        live_output.emit(item)
                         chunks.append(item)
                         total_chars += len(item)
                         while total_chars > MAX_OUTPUT and chunks:
@@ -232,10 +340,11 @@ class RuntimeExecutor:
                             break
                         if item is None:
                             continue
-                        print(f"[CMD] {item}", end="", flush=True)
+                        live_output.emit(item)
                         chunks.append(item)
                     break
         finally:
+            live_output.finish()
             with self._active_lock:
                 if self._active_process is proc:
                     self._active_process = None

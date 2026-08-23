@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import io
 import shlex
 import sys
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 import agent_core as core
@@ -75,6 +77,67 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 0)
         self.assertEqual(events[0]["event"], "command_started")
         self.assertEqual(events[-1]["event"], "command_finished")
+
+
+    def test_large_unified_diff_is_collapsed_only_in_live_log(self) -> None:
+        self.runtime._idle_timeout = 5
+        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._command_count = 1
+        self.runtime._primary_count = 1
+        script = "\n".join(
+            [
+                "print('before-diff')",
+                "print('diff --git a/a.txt b/a.txt')",
+                "print('index 1111111..2222222 100644')",
+                "print('--- a/a.txt')",
+                "print('+++ b/a.txt')",
+                "print('@@ -0,0 +1,120 @@')",
+                "[print(f'+line-{i:03d}') for i in range(120)]",
+                "print()",
+                "print('after-diff')",
+            ]
+        )
+        command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(script)
+        live = io.StringIO()
+        with redirect_stdout(live):
+            result = self.runtime.run_command(command, 5)
+
+        rendered = live.getvalue()
+        self.assertEqual(result["exit_code"], 0)
+        self.assertIn("+line-119", result["output"])
+        self.assertIn("[CMD] before-diff", rendered)
+        self.assertIn("large unified diff collapsed in live log", rendered)
+        self.assertIn("collapsed unified diff: 1 file(s)", rendered)
+        self.assertNotIn("+line-119", rendered)
+        self.assertIn("[CMD] after-diff", rendered)
+
+    def test_small_unified_diff_remains_visible_in_live_log(self) -> None:
+        self.runtime._idle_timeout = 5
+        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._command_count = 1
+        self.runtime._primary_count = 1
+        script = "\n".join(
+            [
+                "print('diff --git a/a.txt b/a.txt')",
+                "print('--- a/a.txt')",
+                "print('+++ b/a.txt')",
+                "print('@@ -1 +1 @@')",
+                "print('-old')",
+                "print('+new')",
+                "print()",
+                "print('done')",
+            ]
+        )
+        command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(script)
+        live = io.StringIO()
+        with redirect_stdout(live):
+            result = self.runtime.run_command(command, 5)
+
+        rendered = live.getvalue()
+        self.assertEqual(result["exit_code"], 0)
+        self.assertIn("[CMD] +new", rendered)
+        self.assertNotIn("collapsed unified diff", rendered)
+        self.assertIn("[CMD] done", rendered)
 
 
 if __name__ == "__main__":
