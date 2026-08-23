@@ -1,6 +1,6 @@
-# Local Agent Autopilot v4.1
+# Local Agent Autopilot
 
-Autopilot means ChatGPT owns the orchestration loop until the requested gates are green or a genuine user-only blocker is reached.
+Autopilot means ChatGPT owns the orchestration loop until the requested gates are green or a genuine user-only blocker is reached. Versioned infrastructure invariants live in `GOLDEN_STANDARD.md`; this file describes the current operating pattern.
 
 The default product target for this repository pair is `MichalMatu/esp32s3_LiteGraph`. Read `SESSION_BOOTSTRAP.md` at the start of a future local-agent session so the user does not need to restate paths, branches, status files or publication rules.
 
@@ -9,7 +9,7 @@ The default product target for this repository pair is `MichalMatu/esp32s3_LiteG
 1. read `SESSION_BOOTSTRAP.md`, then inspect target source and applicable `AGENTS.md` rules;
 2. inspect daemon health on `.agent/status/daemon.json` and any existing run/result relevant to the request;
 3. create an exact deterministic task;
-4. queue it on `agent-control`;
+4. queue it on the remote `agent-control` branch through GitHub/API tooling or another trusted writer checkout;
 5. inspect `.agent/runs/<task-id>.json` for live state instead of asking the user for logs;
 6. follow the same `attempt_id` and `task_digest`; never queue a duplicate merely because output looks repetitive;
 7. read `.agent/results/<task-id>.json` when complete;
@@ -18,6 +18,8 @@ The default product target for this repository pair is `MichalMatu/esp32s3_LiteG
 10. repeat until the targeted gates that correspond to the current diff pass;
 11. add broader verification only when the changed dependency/integration surface gives it a concrete chance to detect a regression;
 12. publish only the validated target diff.
+
+Treat the daemon's local control clone as execution infrastructure, not as the planner's task-authoring checkout during normal operation.
 
 Do not stop merely because a task is running. Remote progress exists specifically so ChatGPT can check state itself.
 
@@ -56,7 +58,7 @@ ChatGPT can inspect:
 .agent/results/<task-id>.json
 ```
 
-The daemon itself enforces command, idle and whole-task watchdogs. A silent or runaway command therefore cannot consume the machine indefinitely.
+The daemon itself enforces command, idle and whole-task watchdogs. A silent or runaway command therefore cannot consume the machine indefinitely within those watchdog boundaries.
 
 `.agent/status/daemon.json` is health/state telemetry. `.agent/runs/<task-id>.json` is the detailed execution stream. Do not duplicate each command boundary into both files.
 
@@ -84,7 +86,7 @@ Do not report completion until the intended source commit is actually on the tar
 
 ## Golden-standard reference
 
-Read `GOLDEN_STANDARD.md` for the final infrastructure invariants and audit disposition. Source publication and ESP32 hardware flashing are separate gates; never infer the running firmware commit from repository `main` or semantic firmware version alone.
+Read `GOLDEN_STANDARD.md` for the current versioned infrastructure invariants and audit disposition. Source publication and ESP32 hardware flashing are separate gates; never infer the running firmware commit from repository `main` or semantic firmware version alone.
 
 ### Invalid task contract
 
