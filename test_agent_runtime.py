@@ -18,6 +18,7 @@ from agent_runtime import (
     collect_host_telemetry,
     idle_timeout_for,
     parse_mac_swapusage,
+    parse_mac_ps_cpu,
     parse_mac_top_cpu,
     parse_mac_vm_stat,
     parse_process_group_ps,
@@ -136,22 +137,85 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
         command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
-            "print('[AGENT_PROGRESS] {broken}'); print('[AGENT_PROGRESS] {\\\"stage_name\\\":\\\"case-run\\\",\\\"message\\\":\\\"case 2\\\"}')"
+            "print('[AGENT_PROGRESS] {broken}'); print('[AGENT_PROGRESS] {\\\"stage_name\\\":\\\"case-run\\\",\\\"message\\\":\\\"case 2\\\",\\\"current\\\":2,\\\"total\\\":5}')"
         )
         result = self.runtime.run_command(command, 5)
         self.assertEqual(result["exit_code"], 0)
         progress_events = [event for event in events if event["event"] == "stage_progress"]
         self.assertEqual(len(progress_events), 1)
         self.assertEqual(progress_events[0]["last_progress_message"], "case 2")
+        self.assertEqual(progress_events[0]["total"], 1)
+        self.assertEqual(progress_events[0]["progress_current"], 2)
+        self.assertEqual(progress_events[0]["progress_total"], 5)
+        self.assertEqual(progress_events[0]["stage_progress"]["total"], 5)
+
+    def test_domain_progress_resets_between_commands(self) -> None:
+        events: list[dict] = []
+        self.runtime._progress = events.append
+        self.runtime._idle_timeout = 5
+        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._command_count = 2
+        self.runtime._primary_count = 2
+        first = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
+            "print('[AGENT_PROGRESS] {\"stage_name\":\"stage-a\",\"message\":\"A\",\"current\":1,\"total\":2}')"
+        )
+        second = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
+            "import time; time.sleep(0.4)"
+        )
+        with mock.patch.object(runtime_module, "PROGRESS_INTERVAL", 0):
+            self.assertEqual(
+                self.runtime.run_command(
+                    first,
+                    5,
+                    stage={
+                        "stage_name": "stage-a",
+                        "stage_index": 1,
+                        "stage_total": 2,
+                        "stage_phase": "commands",
+                    },
+                )["exit_code"],
+                0,
+            )
+            self.assertEqual(
+                self.runtime.run_command(
+                    second,
+                    5,
+                    stage={
+                        "stage_name": "stage-b",
+                        "stage_index": 2,
+                        "stage_total": 2,
+                        "stage_phase": "commands",
+                    },
+                )["exit_code"],
+                0,
+            )
+
+        second_heartbeats = [
+            event
+            for event in events
+            if event["event"] == "command_heartbeat" and event["index"] == 2
+        ]
+        self.assertTrue(second_heartbeats)
+        self.assertTrue(all("stage_progress" not in event for event in second_heartbeats))
+        self.assertTrue(all("last_progress_at" not in event for event in second_heartbeats))
 
     def test_telemetry_parsers_are_deterministic(self) -> None:
-        vm = parse_mac_vm_stat("Pages free: 10\nPages inactive: 20\nPages speculative: 5\n")
-        self.assertEqual(vm["available_bytes"], 35 * 4096)
+        vm = parse_mac_vm_stat(
+            "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n"
+            "Pages free: 10\nPages inactive: 20\nPages speculative: 5\n"
+        )
+        self.assertEqual(vm["available_bytes"], 35 * 16384)
+        fallback_vm = parse_mac_vm_stat(
+            "Pages free: 10\nPages inactive: 20\nPages speculative: 5\n"
+        )
+        self.assertEqual(fallback_vm["available_bytes"], 35 * 4096)
         self.assertEqual(parse_mac_swapusage("total = 4.00G  used = 1.25G  free = 2.75G"), {"total": 4 * 1024**3, "used": int(1.25 * 1024**3), "free": int(2.75 * 1024**3)})
         self.assertEqual(
             parse_mac_top_cpu("CPU usage: 12.50% user, 3.25% sys, 84.25% idle"),
             15.75,
         )
+        self.assertEqual(parse_mac_ps_cpu("50\n75\nnot-a-number\n", 2), 62.5)
+        self.assertEqual(parse_mac_ps_cpu("500\n", 2), 100.0)
         self.assertEqual(
             parse_process_group_ps("1 99 2.0 1000\n2 99 3.5 3000\n3 12 9.0 9000", 99),
             {"command_cpu_percent": 5.5, "command_rss_mb": round(4000 / 1024, 2), "command_children": 1},

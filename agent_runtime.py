@@ -332,6 +332,11 @@ def _safe_command(args: list[str], timeout: float = 2.0) -> str | None:
 
 
 def parse_mac_vm_stat(text: str, *, page_size: int = 4096) -> dict[str, int]:
+    page_size_match = re.search(r"page size of\s+(\d+)\s+bytes", text, re.IGNORECASE)
+    if page_size_match is not None:
+        parsed_page_size = int(page_size_match.group(1))
+        if parsed_page_size > 0:
+            page_size = parsed_page_size
     pages: dict[str, int] = {}
     for line in text.splitlines():
         match = re.match(r"^Pages ([^:]+):\s+(\d+)", line)
@@ -366,6 +371,29 @@ def parse_mac_top_cpu(text: str) -> float | None:
         return round(float(match.group(1)) + float(match.group(2)), 2)
     except ValueError:
         return None
+
+
+def normalize_host_cpu_percent(total_cpu_percent: float, logical_cpu_count: int) -> float:
+    """Normalize summed per-process CPU percentages to host utilization."""
+    divisor = max(1, logical_cpu_count)
+    return round(max(0.0, min(100.0, total_cpu_percent / divisor)), 2)
+
+
+def parse_mac_ps_cpu(text: str, logical_cpu_count: int) -> float | None:
+    total = 0.0
+    parsed = False
+    for line in text.splitlines():
+        try:
+            value = float(line.strip())
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(value):
+            continue
+        total += value
+        parsed = True
+    if not parsed:
+        return None
+    return normalize_host_cpu_percent(total, logical_cpu_count)
 
 
 def parse_process_group_ps(text: str, process_group: int) -> dict[str, Any]:
@@ -428,13 +456,9 @@ def collect_host_telemetry() -> dict[str, Any]:
         else:
             cpu_text = _safe_command(["ps", "-A", "-o", "%cpu="])
         if cpu_text and "host_cpu_percent" not in telemetry:
-            try:
-                telemetry["host_cpu_percent"] = round(
-                    sum(float(line.strip()) for line in cpu_text.splitlines() if line.strip()),
-                    2,
-                )
-            except ValueError:
-                pass
+            host_cpu = parse_mac_ps_cpu(cpu_text, os.cpu_count() or 1)
+            if host_cpu is not None:
+                telemetry["host_cpu_percent"] = host_cpu
     else:
         try:
             memory: dict[str, int] = {}
@@ -526,6 +550,8 @@ class RuntimeExecutor:
         *,
         stage: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        self._domain_progress = None
+        self._last_progress_at = None
         self._command_index += 1
         phase = self._phase()
         if stage is None:
@@ -650,8 +676,8 @@ class RuntimeExecutor:
                                     "stage_total": stage["stage_total"],
                                     "stage_phase": stage["stage_phase"],
                                     "message": marker.get("message"),
-                                    "current": marker.get("current"),
-                                    "total": marker.get("total"),
+                                    "progress_current": marker.get("current"),
+                                    "progress_total": marker.get("total"),
                                     "metrics": marker.get("metrics"),
                                     "last_progress_at": self._last_progress_at,
                                     "last_progress_message": marker.get("message"),
