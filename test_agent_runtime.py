@@ -111,6 +111,68 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.assertNotIn("+line-119", rendered)
         self.assertIn("[CMD] after-diff", rendered)
 
+    def test_indented_output_after_completed_hunk_is_not_collapsed(self) -> None:
+        self.runtime._idle_timeout = 5
+        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._command_count = 1
+        self.runtime._primary_count = 1
+        script = "\n".join(
+            [
+                "print('diff --git a/a.txt b/a.txt')",
+                "print('index 1111111..2222222 100644')",
+                "print('--- a/a.txt')",
+                "print('+++ b/a.txt')",
+                "print('@@ -0,0 +1,81 @@')",
+                "[print(f'+line-{i:03d}') for i in range(81)]",
+                "print('  normal command output')",
+            ]
+        )
+        command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(script)
+        live = io.StringIO()
+        with redirect_stdout(live):
+            result = self.runtime.run_command(command, 5)
+
+        rendered = live.getvalue()
+        self.assertEqual(result["exit_code"], 0)
+        self.assertIn("[CMD]   normal command output", rendered)
+        self.assertIn("collapsed unified diff: 1 file(s), 86 line(s)", rendered)
+        self.assertNotIn("collapsed unified diff: 1 file(s), 87 line(s)", rendered)
+
+    def test_identical_large_diffs_are_aggregated_in_live_log(self) -> None:
+        self.runtime._idle_timeout = 5
+        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._command_count = 1
+        self.runtime._primary_count = 1
+        script = "\n".join(
+            [
+                "def emit_diff():",
+                "    print('diff --git a/a.txt b/a.txt')",
+                "    print('index 1111111..2222222 100644')",
+                "    print('--- a/a.txt')",
+                "    print('+++ b/a.txt')",
+                "    print('@@ -0,0 +1,81 @@')",
+                "    [print(f'+line-{i:03d}') for i in range(81)]",
+                "emit_diff()",
+                "print()",
+                "emit_diff()",
+                "print()",
+                "emit_diff()",
+                "print('after-diffs')",
+            ]
+        )
+        command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(script)
+        live = io.StringIO()
+        with redirect_stdout(live):
+            result = self.runtime.run_command(command, 5)
+
+        rendered = live.getvalue()
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(result["output"].count("diff --git a/a.txt b/a.txt"), 3)
+        self.assertEqual(rendered.count("large unified diff collapsed in live log"), 1)
+        self.assertEqual(rendered.count("collapsed unified diff:"), 1)
+        self.assertIn("suppressed 2 repeated copies of the previous unified diff", rendered)
+        self.assertIn("[CMD] after-diffs", rendered)
+
     def test_small_unified_diff_remains_visible_in_live_log(self) -> None:
         self.runtime._idle_timeout = 5
         self.runtime._deadline = time.monotonic() + 10
