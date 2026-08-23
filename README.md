@@ -11,128 +11,6 @@ ChatGPT decides the code changes and exact commands. `local-agent` executes them
 
 > **The planner decides what to do. The daemon executes exactly what it was given. Real output is the source of truth.**
 
-![local-agent workflow](docs/flow.svg)
-
-## Which repository should I use?
-
-| Repository | Best for |
-| --- | --- |
-| [`MichalMatu/local-agent`](https://github.com/MichalMatu/local-agent) | Inspecting or continuing the working macOS/ESP32 implementation used in practice. |
-| [`MichalMatu/DeterministicRunner`](https://github.com/MichalMatu/DeterministicRunner) | Starting a new, reusable, repository-agnostic setup. |
-
-If you want to reproduce the concept on a different machine or target project, **start with DeterministicRunner**. `local-agent` intentionally contains environment-specific assumptions from the system it currently operates.
-
-## What this repo does
-
-The daemon can:
-
-- consume explicit tasks from a Git control branch;
-- run exact shell commands;
-- build and test code;
-- flash and inspect ESP32 hardware;
-- capture bounded real command output and exit codes;
-- publish remote task progress;
-- publish terminal result JSON;
-- expose daemon health remotely;
-- accept durable `status`, `restart`, and `self_update` control requests;
-- protect dirty disposable-workspace state with checkpoints before destructive cleanup.
-
-The daemon is deliberately **not a coding model**.
-
-## Current role and default target
-
-This repository is execution infrastructure.
-
-For the established workflow, the default product target is:
-
-```text
-MichalMatu/esp32s3_LiteGraph
-```
-
-with:
-
-```text
-target source branch: main
-target control branch: agent-control
-daemon repository: MichalMatu/local-agent
-daemon source branch: main
-```
-
-Future AI sessions should treat `esp32s3_LiteGraph` as the product target unless the user explicitly asks to modify, audit, or debug `local-agent` itself.
-
-## Environment assumptions
-
-The current implementation is intentionally opinionated and is not a general cross-platform package.
-
-It currently assumes:
-
-- macOS / POSIX behavior including `fcntl`;
-- Python 3.11+;
-- Git;
-- local control/work/checkpoint directories under `~/agent-workspace`;
-- a daemon checkout normally at `~/local-agent`;
-- `launchd` as the outer supervisor;
-- a tool path that includes PlatformIO/Homebrew locations used by the current development machine.
-
-The checked-in `com.michal.local-agent.plist` contains machine-specific absolute paths and is a reference for the current installation. **Do not copy it unchanged to another account or machine.**
-
-For a portable/config-driven installation, use [`DeterministicRunner`](https://github.com/MichalMatu/DeterministicRunner).
-
----
-
-## Quick start for development and validation
-
-Clone the daemon:
-
-```bash
-git clone https://github.com/MichalMatu/local-agent.git ~/local-agent
-cd ~/local-agent
-```
-
-Create a virtual environment:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-The daemon code currently uses the Python standard library, so there is no package-install step required for the core runtime.
-
-Validate the checkout:
-
-```bash
-python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py
-python -m unittest discover -q
-```
-
-Useful diagnostics:
-
-```bash
-./.venv/bin/python agentctl.py status
-./.venv/bin/python agentctl.py doctor
-./.venv/bin/python agentctl.py task <task-id>
-./.venv/bin/python agentctl.py validate-task /path/to/task.json
-```
-
-`doctor` and live daemon operation expect the established local workspace/control topology to exist.
-
-## Established local topology
-
-The production workflow currently uses:
-
-```text
-~/local-agent
-~/agent-workspace/control
-~/agent-workspace/work
-~/agent-workspace/checkpoints
-~/Library/Application Support/local-agent
-~/Library/Logs/local-agent.log
-```
-
-The user/project checkout is **not** the disposable agent worktree. The daemon must never reset or clean a human's working checkout as part of normal task execution.
-
-## How the flow works
-
 ```text
 ChatGPT / planner
       |
@@ -154,15 +32,141 @@ local-agent daemon
       v
 machine-readable result + progress
       |
-      v
-planner inspects evidence and chooses the next task
+      +--------> planner inspects evidence and chooses the next task
 ```
 
-## Remote observability
+## Which repository should I use?
+
+| Repository | Best for |
+| --- | --- |
+| [`MichalMatu/local-agent`](https://github.com/MichalMatu/local-agent) | Inspecting or continuing the existing macOS/ESP32 implementation used in practice. |
+| [`MichalMatu/DeterministicRunner`](https://github.com/MichalMatu/DeterministicRunner) | Starting a new, reusable, repository-agnostic and config-driven setup. |
+
+If you want to reproduce the concept on another machine or target project, **start with DeterministicRunner**. `local-agent` intentionally contains environment-specific assumptions from the system it currently operates.
+
+## What this repository is
+
+This repository is **execution infrastructure**, not the product repository and not a coding model.
+
+For the established workflow, the default product target is:
+
+```text
+MichalMatu/esp32s3_LiteGraph
+```
+
+with:
+
+```text
+target source branch: main
+target control branch: agent-control
+daemon repository: MichalMatu/local-agent
+daemon source branch: main
+```
+
+Future AI sessions should treat `esp32s3_LiteGraph` as the product target unless the user explicitly asks to modify, audit, or debug `local-agent` itself.
+
+The daemon can:
+
+- consume explicit tasks from a Git control branch;
+- run exact shell commands;
+- build and test code;
+- flash and inspect ESP32 hardware;
+- capture bounded real command output and exit codes;
+- publish remote task progress and terminal result JSON;
+- expose daemon health remotely;
+- accept durable `status`, `restart`, and `self_update` control requests;
+- checkpoint dirty disposable-workspace state before destructive cleanup.
+
+## Environment truth
+
+`local-agent` is the **working deployment**, not a general cross-platform package.
+
+The established runtime assumes:
+
+- macOS/POSIX behavior including `fcntl`;
+- Git;
+- a local control/work/checkpoint topology under `~/agent-workspace`;
+- a daemon checkout normally at `~/local-agent`;
+- `launchd` as the outer production supervisor;
+- PlatformIO/Homebrew tool paths used by the current development environment.
+
+The core daemon currently uses only the Python standard library. GitHub CI validates compile/unit tests on **Python 3.12 / Ubuntu**, while the deployed workflow is macOS-specific.
+
+The checked-in [`com.michal.local-agent.plist`](com.michal.local-agent.plist) contains machine-specific absolute paths. It documents the current installation; it is **not a portable installer and should not be copied unchanged** to another user account or machine.
+
+For a portable/config-driven installation, use [`DeterministicRunner`](https://github.com/MichalMatu/DeterministicRunner).
+
+---
+
+## Quick start for development and validation
+
+Clone the daemon:
+
+```bash
+git clone https://github.com/MichalMatu/local-agent.git ~/local-agent
+cd ~/local-agent
+```
+
+Create a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+There is currently no third-party package-install step for the core daemon.
+
+Validate the checkout:
+
+```bash
+python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py
+python -m unittest discover -q
+```
+
+Useful diagnostics:
+
+```bash
+./.venv/bin/python agentctl.py status
+./.venv/bin/python agentctl.py doctor
+./.venv/bin/python agentctl.py task <task-id>
+./.venv/bin/python agentctl.py validate-task /path/to/task.json
+```
+
+`doctor` and actual daemon operation expect the established control/work topology to exist.
+
+After that topology is present, the daemon can be run in the foreground with:
+
+```bash
+./.venv/bin/python agentd.py
+```
+
+Do not start a second foreground instance when the production LaunchAgent is already running. The daemon uses an OS file lock to enforce a single active instance.
+
+For the exact established machine/ESP32 setup, read [`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md) rather than treating this repository as a generic installer.
+
+## Established local topology
+
+The working deployment currently uses:
+
+```text
+~/local-agent
+~/agent-workspace/control
+~/agent-workspace/work
+~/agent-workspace/checkpoints
+~/Library/Application Support/local-agent
+~/Library/Logs/local-agent.log
+```
+
+The human/project checkout is **not** the disposable agent worktree. Normal daemon execution must not reset or clean the human working checkout.
+
+Treat `~/agent-workspace/control` as daemon execution infrastructure. During normal operation, publish new tasks/control requests to the remote `agent-control` branch through GitHub/API tooling or another trusted writer checkout rather than manually editing the daemon's control clone.
+
+## Queue and remote observability
 
 On the target repository's `agent-control` branch:
 
 ```text
+.agent/tasks/<task-id>.json
 .agent/status/daemon.json
 .agent/runs/<task-id>.json
 .agent/results/<task-id>.json
@@ -172,17 +176,18 @@ On the target repository's `agent-control` branch:
 
 Use them as follows:
 
+- `.agent/tasks/<task-id>.json` — explicit queued work;
 - `.agent/status/daemon.json` — daemon health/state;
-- `.agent/runs/<task-id>.json` — detailed current task progress;
+- `.agent/runs/<task-id>.json` — current task progress;
 - `.agent/results/<task-id>.json` — terminal execution result;
 - `.agent/daemon/control.json` — remote daemon request;
 - `.agent/daemon/acks/<control-id>.json` — durable acknowledgement.
 
-The user should not need to paste live daemon output during normal operation. An AI planner should inspect the remote status/run/result files directly.
+The user should not need to paste live daemon output during normal operation. An AI planner should inspect the remote status/run/result evidence directly.
 
 ## Remote daemon control
 
-Example:
+Example request:
 
 ```json
 {
@@ -191,34 +196,48 @@ Example:
 }
 ```
 
-Supported actions:
+Supported actions are:
 
 - `status`;
 - `restart`;
 - `self_update`.
 
-A handled command receives a durable acknowledgement so it is not replayed after restart.
+A handled command receives a durable acknowledgement so the same control request is not repeated after restart.
 
-## Golden-standard v4.2 guarantees
+## Current golden-standard contract
 
-The current infrastructure contract is defined in [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md). Important invariants include:
+The authoritative infrastructure invariants are in [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md). The current golden-standard family is **v4.2**, and `agentd.py` currently reports:
+
+```text
+DAEMON_VERSION = 4.2.1
+```
+
+Important invariants include:
 
 - `agentd.py` is the only daemon entry point;
 - the daemon is a deterministic executor, never a coding model;
 - one OS-locked daemon instance is allowed;
-- every task has an immutable payload digest and unique attempt ID;
+- every task is bound to an immutable payload digest and unique attempt ID;
 - a durable claim exists before side-effect-capable execution;
 - a claimed/interrupted task is never automatically replayed;
 - malformed task JSON becomes terminal `invalid_task_file`;
 - corrupt durable claims are quarantined and fail closed;
 - command, no-output, and whole-task watchdogs are mandatory;
-- child processes execute in process groups and are terminated as a group;
+- child commands run in process groups so timeout/shutdown can terminate the group;
 - result publication may be retried, execution may not;
-- self-update accepts only a clean fast-forward candidate that passes validation;
-- target-project verification is impact-driven instead of blindly running unrelated broad suites;
+- self-update is fast-forward-only, validates before the long-running version changes, and fails closed;
+- target-project verification is selected from realistic change impact instead of blindly running unrelated broad suites;
 - secrets never belong in Git-backed task/result/run/control data or repository documentation.
 
-The daemon currently reports `DAEMON_VERSION = 4.2.1`.
+When README wording and operational detail ever diverge, [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) and [`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md) are the authoritative references for the established deployment.
+
+## Replay safety
+
+A task is durably claimed before execution begins. The claim records the task payload digest and attempt ID.
+
+If the daemon or host restarts while a task is claimed, the old task is not automatically executed again. Recovery publishes terminal evidence such as `interrupted_previous_attempt` or, for corrupt durable state, fails closed according to the golden-standard contract.
+
+Do not reuse a task ID for a different payload.
 
 ## Workspace checkpoints
 
@@ -238,7 +257,7 @@ Checkpoints are intentionally not deleted automatically.
 
 ## Time limits
 
-Current defaults include:
+Current defaults are:
 
 ```text
 command timeout:   1200 s
@@ -246,13 +265,21 @@ no-output timeout:  600 s
 whole-task timeout: 3600 s
 ```
 
-Maximums are enforced by the daemon. `idle_timeout=0` disables only the no-output watchdog.
+Current maximums are:
+
+```text
+command timeout:   3600 s
+no-output timeout: 3600 s
+whole-task timeout: 14400 s
+```
+
+`idle_timeout=0` disables only the no-output watchdog.
 
 ## Self-update
 
-When idle, the daemon can check `local-agent/main` for a fast-forward update.
+When idle, the daemon checks `local-agent/main` on its configured interval.
 
-The update path validates the candidate locally, rejects/rolls back a bad update, records the rejected SHA, and restarts by `exec` only after validation succeeds. `launchd` remains the outer supervisor.
+The current update path accepts only a fast-forward update, validates it locally, rejects/rolls back a bad candidate, remembers the rejected SHA, and restarts by `exec` only after validation succeeds. `launchd` remains the outer supervisor.
 
 For non-trivial daemon changes, use the isolated release flow described in [`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md) and [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md). Never prepare a daemon release by mutating the checkout that is currently running `agentd.py`.
 
@@ -272,11 +299,11 @@ tail -n 30 -f ~/Library/Logs/local-agent.log
 
 Stop following with `Ctrl+C`.
 
-Remote `.agent/status`, `.agent/runs`, and `.agent/results` remain the authoritative normal-operation interface for an AI planner.
+Remote `.agent/status`, `.agent/runs`, and `.agent/results` remain the preferred normal-operation interface for an AI planner.
 
 ## For AI assistants and future sessions
 
-`SESSION_BOOTSTRAP.md` is the canonical cross-repository entry point.
+[`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md) is the canonical cross-repository entry point.
 
 Before queueing work, an AI system should read:
 
@@ -285,14 +312,15 @@ Before queueing work, an AI system should read:
 3. [`LOCAL_AGENT_FLOW.md`](LOCAL_AGENT_FLOW.md);
 4. [`LOCAL_AGENT_AUTOPILOT.md`](LOCAL_AGENT_AUTOPILOT.md) when autonomous execution is requested;
 5. [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md);
-6. the target repository's own `AGENTS.md` and relevant path-specific instructions.
+6. the target repository's own root/nearest `AGENTS.md` and relevant documentation/tests.
 
 Then it should:
 
 - inspect remote daemon/task state before queueing anything;
 - follow an existing `attempt_id`/`task_digest` instead of creating a duplicate task;
+- publish task/control files through the remote control branch, not by editing the daemon-owned control clone;
 - select verification from realistic change impact rather than ritual;
-- distinguish tested source from published source;
+- distinguish executed/tested source from source actually published to the target branch;
 - distinguish published firmware source from firmware actually flashed/running on hardware;
 - use exact evidence instead of inference;
 - keep all machine-generated execution content in English;
@@ -307,7 +335,7 @@ Use this order:
 3. remote run/daemon status;
 4. planner analysis.
 
-Do not claim success until the requested gates are actually green and the intended source has been published. Hardware validation requires explicit evidence that the intended firmware was uploaded or an exact build-identity mechanism proves the running revision.
+Do not claim success until the requested gates are actually green and the intended source has been published. Hardware validation additionally requires explicit evidence that the intended firmware was uploaded or an exact build-identity mechanism proves the running revision.
 
 ## Safety
 
@@ -334,6 +362,8 @@ Canonical validation:
 python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py
 python -m unittest discover -q
 ```
+
+GitHub CI currently runs these checks on Python 3.12 / Ubuntu.
 
 For infrastructure changes, follow the release gate in [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md): isolated staging, local validation, green CI on the exact candidate SHA, fast-forward `main`, daemon self-update, remote version verification, and one real queue smoke task.
 
