@@ -225,7 +225,7 @@ Important invariants include:
 - command, no-output, and whole-task watchdogs are mandatory;
 - child commands run in process groups so timeout/shutdown can terminate the group;
 - result publication may be retried, execution may not;
-- self-update is fast-forward-only, validates before the long-running version changes, and fails closed;
+- self-update is fast-forward-only, validates before the new revision becomes the long-running process, and fails closed;
 - target-project verification is selected from realistic change impact instead of blindly running unrelated broad suites;
 - secrets never belong in Git-backed task/result/run/control data or repository documentation.
 
@@ -277,9 +277,11 @@ whole-task timeout: 14400 s
 
 ## Self-update
 
-When idle, the daemon checks `local-agent/main` on its configured interval.
+When idle, the daemon checks `local-agent/main` at most once every **60 seconds**.
 
-The current update path accepts only a fast-forward update, validates it locally, rejects/rolls back a bad candidate, remembers the rejected SHA, and restarts by `exec` only after validation succeeds. `launchd` remains the outer supervisor.
+The current implementation first requires a clean checkout on `main` and a fast-forward remote revision. It then fast-forwards the checkout, runs `py_compile` and the unit suite against the installed revision, resets to the previous SHA if validation fails, remembers the rejected SHA, and only `exec`-restarts after validation succeeds. `launchd` remains the outer supervisor.
+
+This differs from DeterministicRunner's newer detached-candidate self-update design: `local-agent` temporarily moves the checkout before validation, but the already-running Python process is not replaced by the new revision unless validation succeeds.
 
 For non-trivial daemon changes, use the isolated release flow described in [`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md) and [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md). Never prepare a daemon release by mutating the checkout that is currently running `agentd.py`.
 
