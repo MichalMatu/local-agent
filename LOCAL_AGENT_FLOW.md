@@ -4,6 +4,10 @@ This is the canonical deterministic execution workflow.
 
 The canonical future-session entrypoint is `SESSION_BOOTSTRAP.md`. If the user provides only the `local-agent` repository or says to use the established flow, default to working on `MichalMatu/esp32s3_LiteGraph`; do not wait for the user to restate the repository pairing.
 
+## Execution language
+
+All machine-generated execution content must be English. This includes Codex/agent progress narration, final task summaries, source code, comments, identifiers, UI/runtime strings, tests, documentation, prompts, task metadata, shell-visible status messages, and commit messages. Interactive ChatGPT conversation language is independent from execution language. Every newly authored Codex prompt must restate the English-only requirement near the top.
+
 ## Roles
 
 ChatGPT is the architect/programmer. It inspects source, chooses exact edits and exact commands, reads real results, iterates on failures and publishes validated source changes.
