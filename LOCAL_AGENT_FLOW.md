@@ -73,6 +73,40 @@ Typical task:
 }
 ```
 
+For long multi-phase work, prefer named sequential `steps` (and `verify_steps`
+when verification is a separate phase). Do not hide a build/flash/test/stress/
+reboot workflow behind one opaque command when it can be split safely. Each
+step has a stable English `name` and a non-empty shell `command`; steps stop on
+the first failure. A compact example is:
+
+```json
+{
+  "id": "release-validation-014",
+  "mode": "commands",
+  "work_branch": "main",
+  "steps": [
+    {"name": "build", "command": "make build"},
+    {"name": "flash", "command": "make flash"},
+    {"name": "smoke-test", "command": "make smoke-test"}
+  ],
+  "verify_steps": [
+    {"name": "inspect-result", "command": "make inspect-result"}
+  ],
+  "command_timeout": 1200,
+  "idle_timeout": 600,
+  "task_timeout": 3600
+}
+```
+
+For an intentionally long single script, emit periodic machine-readable lines
+such as `[AGENT_PROGRESS] {"stage_name":"stress-run","message":"case 4","current":4,"total":10}`.
+Malformed or oversized markers are ignored safely. Local command heartbeats
+are about every 30 seconds; remote run and daemon progress is normally pushed
+at most every 60 seconds while a command is active, with stage changes and
+failures pushed immediately. Heartbeats may include host and process telemetry
+such as CPU, load, memory, swap, RSS, and child-process counts. Unavailable
+metrics are omitted.
+
 Task ids use letters, digits, dot, underscore and hyphen only. Every payload gets a SHA-256 digest and every execution gets a unique attempt id.
 
 ## Replay safety
@@ -134,7 +168,8 @@ Local execution state is updated for every event. Remote GitHub progress is inte
 - task start/finish, failures, first command and command/verification phase changes are immediate;
 - ordinary successful short-command progress is published at most about once per minute;
 - successful long command completion is immediate once it crosses the progress interval;
-- long command heartbeat is every five minutes;
+- long command heartbeat is every 60 seconds remotely (with local command
+  heartbeats about every 30 seconds);
 - daemon status is health/state telemetry, not a duplicate command stream.
 
 This keeps `.agent/runs/<id>.json` fresh enough for autonomous orchestration without turning a 20-30 command task into dozens of status commits.

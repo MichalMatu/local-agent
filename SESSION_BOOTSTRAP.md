@@ -155,10 +155,16 @@ Local state is updated on every execution transition. GitHub progress is deliber
 - normal command transitions: at most about once per minute;
 - successful long command completion: immediate when the command lasted at least the progress interval;
 - failures: immediate;
-- long-running heartbeat: every five minutes;
-- daemon health: state changes plus a five-minute heartbeat.
+- active-command heartbeat: local about every 30 seconds and remote every 60 seconds;
+- every remote active-command heartbeat also refreshes daemon status with the same progress;
+- daemon health while idle: state changes plus a five-minute heartbeat.
 
 Detailed task progress belongs in `.agent/runs/<task-id>.json`; `.agent/status/daemon.json` is daemon health/state rather than a per-command log.
+
+Long multi-phase tasks should use structured sequential `steps` and `verify_steps`
+with meaningful English names. Intentionally long single scripts should emit
+bounded `[AGENT_PROGRESS] ` JSON lines so their domain stage and message appear
+in the run and daemon progress state.
 
 ## Source of truth
 

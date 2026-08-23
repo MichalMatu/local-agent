@@ -221,10 +221,10 @@ A handled command receives a durable acknowledgement so the same control request
 
 ## Current golden-standard contract
 
-The authoritative infrastructure invariants are in [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md). The current golden-standard family is **v4.2**, and `agentd.py` currently reports:
+The authoritative infrastructure invariants are in [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md). The current golden-standard family is **v4.3**, and `agentd.py` currently reports:
 
 ```text
-DAEMON_VERSION = 4.2.1
+DAEMON_VERSION = 4.3.0
 ```
 
 Important invariants include:
@@ -239,6 +239,10 @@ Important invariants include:
 - corrupt durable claims are quarantined and fail closed;
 - command, no-output, and whole-task watchdogs are mandatory;
 - child commands run in process groups so timeout/shutdown can terminate the group;
+- long workflows should use named sequential `steps`/`verify_steps`; intentionally
+  long single scripts should emit `[AGENT_PROGRESS]` JSON markers;
+- local command heartbeats are about 30 seconds and remote progress is normally
+  refreshed about every 60 seconds, with best-effort host/process telemetry;
 - result publication may be retried, execution may not;
 - self-update is fast-forward-only, validates before the new revision becomes the long-running process, and fails closed;
 - target-project verification is selected from realistic change impact instead of blindly running unrelated broad suites;

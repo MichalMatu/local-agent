@@ -18,7 +18,7 @@ from typing import Any
 import agent_core as core
 from agent_runtime import RuntimeExecutor, task_digest, validate_task
 
-DAEMON_VERSION = "4.2.1"
+DAEMON_VERSION = "4.3.0"
 HOME = Path.home()
 SELF_REPO = Path(__file__).resolve().parent
 SELF_BRANCH = "main"
@@ -26,7 +26,7 @@ SELF_UPDATE_INTERVAL = 60
 POLL_SECONDS = 15
 REMOTE_HEARTBEAT_SECONDS = 300
 RUN_PROGRESS_SECONDS = 60
-RUN_HEARTBEAT_SECONDS = 300
+RUN_HEARTBEAT_SECONDS = 60
 
 STATE_DIR = HOME / "Library" / "Application Support" / "local-agent"
 CLAIMS_DIR = STATE_DIR / "claims"
@@ -714,9 +714,10 @@ def publish_run_state(
 def make_progress_callback(task_id: str, attempt_id: str, digest: str):
     last_remote = 0.0
     last_remote_phase: str | None = None
+    last_remote_stage: str | None = None
 
     def progress(event: dict[str, Any]) -> None:
-        nonlocal last_remote, last_remote_phase
+        nonlocal last_remote, last_remote_phase, last_remote_stage
         global _current_progress
         enriched = dict(event)
         enriched.update(
@@ -732,14 +733,16 @@ def make_progress_callback(task_id: str, attempt_id: str, digest: str):
         _current_progress = enriched
         now = time.monotonic()
         event_name = str(event.get("event", ""))
-        phase = str(event.get("phase", ""))
+        phase = str(event.get("stage_phase", event.get("phase", "")))
+        stage_name = str(event.get("stage_name", ""))
 
         force_remote = event_name in {"task_started", "task_finished"}
-        if event_name == "command_started":
+        if event_name in {"command_started", "stage_progress"}:
             first_command = last_remote_phase is None
             phase_changed = bool(last_remote_phase) and phase != last_remote_phase
+            stage_changed = bool(stage_name) and stage_name != last_remote_stage
             progress_due = now - last_remote >= RUN_PROGRESS_SECONDS
-            force_remote = first_command or phase_changed or progress_due
+            force_remote = first_command or phase_changed or stage_changed or progress_due
         if event_name == "command_finished":
             if int(event.get("exit_code", 0)) != 0:
                 force_remote = True
@@ -753,15 +756,18 @@ def make_progress_callback(task_id: str, attempt_id: str, digest: str):
             last_remote = now
             if phase:
                 last_remote_phase = phase
+            if stage_name:
+                last_remote_stage = stage_name
 
         # Local status tracks every transition. Remote daemon status is health/state
         # telemetry, not a duplicate per-command stream. Detailed execution belongs
         # in .agent/runs/<task-id>.json.
-        publish_daemon_status(
-            "running",
-            force_remote=False,
-            progress=enriched,
-        )
+        status_extra: dict[str, Any] = {"progress": enriched}
+        if enriched.get("last_progress_at") is not None:
+            status_extra["last_progress_at"] = enriched["last_progress_at"]
+        if enriched.get("last_progress_message") is not None:
+            status_extra["last_progress_message"] = enriched["last_progress_message"]
+        publish_daemon_status("running", force_remote=force_remote, **status_extra)
 
     return progress
 

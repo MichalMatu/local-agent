@@ -1,4 +1,4 @@
-# Local Agent Golden Standard v4.2
+# Local Agent Golden Standard v4.3
 
 This is the final infrastructure audit summary for the `MichalMatu/local-agent` + `MichalMatu/esp32s3_LiteGraph` pair. Operational details remain canonical in `SESSION_BOOTSTRAP.md`.
 
@@ -64,7 +64,8 @@ The v4.2 audit:
 - added terminal recovery/quarantine for corrupt durable claims;
 - added terminal handling for malformed task files while preserving historical filename aliases;
 - preserved command, idle and whole-task watchdogs plus process-group termination;
-- preserved v4.1 coalesced progress publication;
+- added structured sequential stages, bounded domain progress markers, 30-second local
+  heartbeats, 60-second active-command remote publication, and best-effort telemetry;
 - formalized isolated release staging and the distinction between published ESP32 source and flashed/running firmware;
 - formalized impact-driven verification so broad test suites are not rerun without a concrete regression-detection rationale;
 - formalized English-only machine-generated execution output independently from the user's conversational language.
