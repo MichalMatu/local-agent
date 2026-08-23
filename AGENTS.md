@@ -11,6 +11,9 @@ This repository is infrastructure. Prefer deterministic behavior, bounded execut
 - `agent_core.py` owns deterministic task execution and result publication.
 - `agent_runtime.py` adds command process-group lifecycle, idle/task watchdogs and progress events without changing the target repository.
 - `agentctl.py` is diagnostics only; the daemon must not depend on it.
+- `local-agent` has a legacy task contract. Do not assume fields supported by `DeterministicRunner` are implemented here merely because the names look compatible.
+- `expected_head` is not implemented by `local-agent`. If exact source identity matters, verify the expected Git SHA explicitly in an early task command before later side effects.
+- Identical command strings within one task may reuse the earlier result through `agent_core.run_command_list`. Do not rely on repeating an identical string to force re-execution; use a new task when a true rerun is required.
 - Never automatically replay a task after a daemon/process interruption.
 - Never silently reuse a task id for a different payload.
 - Never remove or weaken command, idle or whole-task watchdogs without explicit justification.
@@ -19,6 +22,7 @@ This repository is infrastructure. Prefer deterministic behavior, bounded execut
 - Keep Git staging path-exact; never use `git add -A` in publication logic.
 - Preserve ignored build caches unless a task explicitly asks for a clean rebuild.
 - Never destroy a dirty disposable workspace without first creating a recoverable workspace checkpoint outside the worktree; if checkpointing fails, skip destructive cleanup.
+- Treat `~/agent-workspace/control` as daemon execution infrastructure. Queue tasks/control requests through the remote `agent-control` branch via GitHub/API tooling or another trusted writer checkout rather than manually authoring them in the daemon control clone during normal operation.
 - Target-project verification is impact-driven: queue only tests/builds that exercise code, configuration, dependencies or integration boundaries plausibly affected by the current diff.
 - Do not run a broad regression suite merely because it exists or as a default end-of-iteration gate. A broad suite requires a concrete impact rationale: shared/cross-cutting infrastructure changed, dependency impact cannot be bounded confidently, the target repository explicitly requires it for this change class, or the user explicitly requests it.
 - After a focused fix, rerun only the affected gate unless that fix expands the impact surface. Previously green evidence remains valid while the code and relevant dependencies covered by that gate have not changed.
@@ -27,7 +31,7 @@ This repository is infrastructure. Prefer deterministic behavior, bounded execut
 
 ## Golden-standard reference
 
-Read `GOLDEN_STANDARD.md` for the final infrastructure invariants and audit disposition. Source publication and ESP32 hardware flashing are separate gates; never infer the running firmware commit from repository `main` or semantic firmware version alone.
+Read `GOLDEN_STANDARD.md` for the current versioned infrastructure invariants and audit disposition. Source publication and ESP32 hardware flashing are separate gates; never infer the running firmware commit from repository `main` or semantic firmware version alone.
 
 ### Invalid task contract
 
