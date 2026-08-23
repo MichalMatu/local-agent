@@ -6,6 +6,8 @@ This is the final infrastructure audit summary for the `MichalMatu/local-agent` 
 
 - `agentd.py` is the only daemon entry point.
 - The daemon is a deterministic executor, never a coding model.
+- All machine-generated execution content is English-only, including Codex/agent progress narration, task summaries, source code, comments, UI/runtime strings, tests, documentation, prompts, shell-visible status messages, and commit messages. Interactive ChatGPT conversation language is independent from this execution-language contract.
+- Every newly authored Codex prompt restates the English-only execution requirement near the top.
 - One OS-locked daemon instance is allowed.
 - Every task has an immutable payload digest and one durable attempt claim.
 - A claimed, interrupted, or corrupt-claim task is never automatically replayed.
@@ -64,7 +66,8 @@ The v4.2 audit:
 - preserved command, idle and whole-task watchdogs plus process-group termination;
 - preserved v4.1 coalesced progress publication;
 - formalized isolated release staging and the distinction between published ESP32 source and flashed/running firmware;
-- formalized impact-driven verification so broad test suites are not rerun without a concrete regression-detection rationale.
+- formalized impact-driven verification so broad test suites are not rerun without a concrete regression-detection rationale;
+- formalized English-only machine-generated execution output independently from the user's conversational language.
 
 ## Invalid task contract
 
