@@ -1,6 +1,6 @@
-# Local Agent Flow v4.1
+# Local Agent Flow
 
-This is the canonical deterministic execution workflow.
+This is the canonical deterministic execution workflow. Versioned infrastructure invariants live in `GOLDEN_STANDARD.md` so this operational guide does not become stale when the daemon patch/minor version changes.
 
 The canonical future-session entrypoint is `SESSION_BOOTSTRAP.md`. If the user provides only the `local-agent` repository or says to use the established flow, default to working on `MichalMatu/esp32s3_LiteGraph`; do not wait for the user to restate the repository pairing.
 
@@ -28,6 +28,8 @@ Local paths:
 - disposable work clone: `~/agent-workspace/work`
 - daemon checkout: `~/local-agent`
 - daemon log: `~/Library/Logs/local-agent.log`
+
+Treat the local control clone as daemon infrastructure. Queue tasks/control requests by publishing them to the remote `agent-control` branch through GitHub/API tooling or another trusted writer checkout rather than editing the daemon's control clone during normal operation.
 
 ## Queue and observability
 
@@ -156,7 +158,7 @@ Never claim a test passed unless the result says it passed.
 
 ## Golden-standard reference
 
-Read `GOLDEN_STANDARD.md` for the final infrastructure invariants and audit disposition. Source publication and ESP32 hardware flashing are separate gates; never infer the running firmware commit from repository `main` or semantic firmware version alone.
+Read `GOLDEN_STANDARD.md` for the current versioned infrastructure invariants and audit disposition. Source publication and ESP32 hardware flashing are separate gates; never infer the running firmware commit from repository `main` or semantic firmware version alone.
 
 ### Invalid task contract
 
