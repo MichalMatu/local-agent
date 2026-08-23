@@ -4,6 +4,9 @@ This repository is paired by default with `MichalMatu/esp32s3_LiteGraph`. In a f
 
 This repository is infrastructure. Prefer deterministic behavior, bounded execution and explicit failure over clever recovery.
 
+- **English-only execution contract:** every machine-generated artifact and every line that can reach daemon/task logs must be English. This includes agent/Codex progress narration, final task summaries, source code, comments, identifiers, UI strings, runtime log messages, test names/descriptions, documentation, prompts, task titles/descriptions, shell-visible status text, and commit messages. Do not emit Polish or any other non-English prose in execution output unless a task explicitly requires localized user-facing content.
+- Repository/task language requirements apply independently from the language used in the interactive ChatGPT conversation. A user may converse in Polish while all local-agent/Codex execution output remains English.
+- Every newly authored Codex prompt must restate the English-only execution contract near the top so the requirement survives repository-context or instruction changes.
 - `agentd.py` owns queue orchestration, durable claims, remote status/control and self-update.
 - `agent_core.py` owns deterministic task execution and result publication.
 - `agent_runtime.py` adds command process-group lifecycle, idle/task watchdogs and progress events without changing the target repository.
