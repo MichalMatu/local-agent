@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="620" viewBox="0 0 1600 620" role="img" aria-labelledby="title desc">
+<title id="title">local-agent workflow</title>
+<desc id="desc">An LLM plans an explicit task, a transport delivers it to local-agent, local tools execute it, and structured results return to the planner.</desc>
+<rect width="1600" height="620" rx="24" fill="#0b0f14"/>
+<text x="60" y="76" fill="#f4f7fb" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="44" font-weight="700">local-agent</text>
+<text x="60" y="118" fill="#aab7c4" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24">The planner decides. The runner executes. Real output is the source of truth.</text>
+<line x1="268" y1="265" x2="266" y2="265" stroke="#8fa1b3" stroke-width="5" stroke-linecap="round"/>
+<polygon points="266,256 280,265 266,274" fill="#8fa1b3"/>
+<line x1="503" y1="265" x2="501" y2="265" stroke="#8fa1b3" stroke-width="5" stroke-linecap="round"/>
+<polygon points="501,256 515,265 501,274" fill="#8fa1b3"/>
+<line x1="758" y1="265" x2="756" y2="265" stroke="#8fa1b3" stroke-width="5" stroke-linecap="round"/>
+<polygon points="756,256 770,265 756,274" fill="#8fa1b3"/>
+<line x1="1033" y1="265" x2="1031" y2="265" stroke="#8fa1b3" stroke-width="5" stroke-linecap="round"/>
+<polygon points="1031,256 1045,265 1031,274" fill="#8fa1b3"/>
+<line x1="1288" y1="265" x2="1286" y2="265" stroke="#8fa1b3" stroke-width="5" stroke-linecap="round"/>
+<polygon points="1286,256 1300,265 1286,274" fill="#8fa1b3"/>
+<rect x="55" y="190" width="205" height="150" rx="20" fill="#16202a" stroke="#4da3ff" stroke-width="3"/>
+<text x="157.5" y="248" text-anchor="middle" fill="#f7fafc" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24" font-weight="700">ChatGPT / LLM</text>
+<text x="157.5" y="290" text-anchor="middle" fill="#b8c4d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18">plans the change</text>
+<rect x="290" y="190" width="205" height="150" rx="20" fill="#16202a" stroke="#8798aa" stroke-width="3"/>
+<text x="392.5" y="248" text-anchor="middle" fill="#f7fafc" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24" font-weight="700">Task JSON</text>
+<text x="392.5" y="290" text-anchor="middle" fill="#b8c4d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18">explicit edits</text>
+<text x="392.5" y="317" text-anchor="middle" fill="#b8c4d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18">+ commands</text>
+<rect x="525" y="190" width="225" height="150" rx="20" fill="#16202a" stroke="#b08cff" stroke-width="3"/>
+<text x="637.5" y="248" text-anchor="middle" fill="#f7fafc" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24" font-weight="700">Transport</text>
+<text x="637.5" y="290" text-anchor="middle" fill="#b8c4d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18">Git control branch</text>
+<text x="637.5" y="317" text-anchor="middle" fill="#b8c4d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18">today</text>
+<rect x="780" y="190" width="245" height="150" rx="20" fill="#16202a" stroke="#63d18b" stroke-width="3"/>
+<text x="902.5" y="248" text-anchor="middle" fill="#f7fafc" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24" font-weight="700">local-agent</text>
+<text x="902.5" y="290" text-anchor="middle" fill="#b8c4d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18">executes exactly</text>
+<rect x="1055" y="190" width="225" height="150" rx="20" fill="#16202a" stroke="#8798aa" stroke-width="3"/>
+<text x="1167.5" y="248" text-anchor="middle" fill="#f7fafc" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24" font-weight="700">Local tools</text>
+<text x="1167.5" y="290" text-anchor="middle" fill="#b8c4d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18">tests • build</text>
+<text x="1167.5" y="317" text-anchor="middle" fill="#b8c4d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18">flash • inspect</text>
+<rect x="1310" y="190" width="235" height="150" rx="20" fill="#16202a" stroke="#4da3ff" stroke-width="3"/>
+<text x="1427.5" y="248" text-anchor="middle" fill="#f7fafc" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="24" font-weight="700">Result JSON</text>
+<text x="1427.5" y="290" text-anchor="middle" fill="#b8c4d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18">real output</text>
+<text x="1427.5" y="317" text-anchor="middle" fill="#b8c4d0" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="18">+ exit codes</text>
+<path d="M1427 365 V438 H158 V365" fill="none" stroke="#4da3ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="148,380 158,360 168,380" fill="#4da3ff"/>
+<text x="800" y="470" text-anchor="middle" fill="#75b8ff" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="20">feedback loop: inspect result -&gt; plan the next deterministic task</text>
+<rect x="60" y="515" width="1480" height="70" rx="16" fill="#111821" stroke="#263442" stroke-width="2"/>
+<text x="800" y="559" text-anchor="middle" fill="#d8e2ec" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="22">AI-friendly, not AI-dependent  •  explicit  •  auditable  •  reproducible  •  local execution</text>
+<text x="800" y="604" text-anchor="middle" fill="#8191a2" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="15">Current transport: Git. The architecture can support other transports such as HTTP/API, MCP, or queues.</text>
+</svg>

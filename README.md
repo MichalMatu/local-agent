@@ -1,29 +1,162 @@
-# Local Agent
+# local-agent
 
-Deterministic local execution daemon used by ChatGPT to build, test, flash and inspect `MichalMatu/esp32s3_LiteGraph` on the user's Mac.
+[![CI](https://github.com/MichalMatu/local-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/MichalMatu/local-agent/actions/workflows/ci.yml)
+![Status](https://img.shields.io/badge/status-working%20implementation-2ea44f)
 
-The daemon is deliberately **not** a coding model. ChatGPT decides code changes and exact commands; the daemon executes them and publishes machine-readable evidence back to the `agent-control` branch.
+**The working, opinionated deterministic execution daemon used for real local development.**
 
-For future sessions, `SESSION_BOOTSTRAP.md` is the canonical cross-repository entrypoint. Merely providing this repository or asking to use the established local-agent flow means the default product target is `MichalMatu/esp32s3_LiteGraph`, unless the user explicitly asks to modify the daemon itself.
+`local-agent` is the practical implementation of the same planning/execution split that is being generalized in [`DeterministicRunner`](https://github.com/MichalMatu/DeterministicRunner).
 
-## v4.1 guarantees
+ChatGPT decides the code changes and exact commands. `local-agent` executes them on the local machine and publishes machine-readable evidence back to the target repository.
 
-- single daemon instance enforced with an OS file lock;
-- durable per-task claim before any execution;
-- a claimed task is never automatically replayed after a crash/restart;
-- task payload SHA-256 digest and unique attempt id are recorded;
-- per-command timeout, no-output timeout and whole-task timeout;
-- child commands run in their own process groups and are terminated as a group;
-- SIGTERM/SIGINT terminate the active command group before daemon exit;
-- remote progress is published to `.agent/runs/<task-id>.json`;
-- daemon health is published to `.agent/status/daemon.json`;
-- remote daemon commands use `.agent/daemon/control.json` with durable acknowledgements;
-- self-update from `local-agent/main`, local validation, rollback on failure, then `exec` restart;
-- remote progress commits are coalesced so short command chains do not create one or more Git commits per command boundary.
+> **The planner decides what to do. The daemon executes exactly what it was given. Real output is the source of truth.**
 
-## Time limits
+![local-agent workflow](docs/flow.svg)
 
-Defaults are command 1200 s, no-output 600 s and whole task 3600 s. Maximums are 3600 s, 3600 s and 14400 s respectively. `idle_timeout=0` explicitly disables only the no-output watchdog.
+## Which repository should I use?
+
+| Repository | Best for |
+| --- | --- |
+| [`MichalMatu/local-agent`](https://github.com/MichalMatu/local-agent) | Inspecting or continuing the working macOS/ESP32 implementation used in practice. |
+| [`MichalMatu/DeterministicRunner`](https://github.com/MichalMatu/DeterministicRunner) | Starting a new, reusable, repository-agnostic setup. |
+
+If you want to reproduce the concept on a different machine or target project, **start with DeterministicRunner**. `local-agent` intentionally contains environment-specific assumptions from the system it currently operates.
+
+## What this repo does
+
+The daemon can:
+
+- consume explicit tasks from a Git control branch;
+- run exact shell commands;
+- build and test code;
+- flash and inspect ESP32 hardware;
+- capture bounded real command output and exit codes;
+- publish remote task progress;
+- publish terminal result JSON;
+- expose daemon health remotely;
+- accept durable `status`, `restart`, and `self_update` control requests;
+- protect dirty disposable-workspace state with checkpoints before destructive cleanup.
+
+The daemon is deliberately **not a coding model**.
+
+## Current role and default target
+
+This repository is execution infrastructure.
+
+For the established workflow, the default product target is:
+
+```text
+MichalMatu/esp32s3_LiteGraph
+```
+
+with:
+
+```text
+target source branch: main
+target control branch: agent-control
+daemon repository: MichalMatu/local-agent
+daemon source branch: main
+```
+
+Future AI sessions should treat `esp32s3_LiteGraph` as the product target unless the user explicitly asks to modify, audit, or debug `local-agent` itself.
+
+## Environment assumptions
+
+The current implementation is intentionally opinionated and is not a general cross-platform package.
+
+It currently assumes:
+
+- macOS / POSIX behavior including `fcntl`;
+- Python 3.11+;
+- Git;
+- local control/work/checkpoint directories under `~/agent-workspace`;
+- a daemon checkout normally at `~/local-agent`;
+- `launchd` as the outer supervisor;
+- a tool path that includes PlatformIO/Homebrew locations used by the current development machine.
+
+The checked-in `com.michal.local-agent.plist` contains machine-specific absolute paths and is a reference for the current installation. **Do not copy it unchanged to another account or machine.**
+
+For a portable/config-driven installation, use [`DeterministicRunner`](https://github.com/MichalMatu/DeterministicRunner).
+
+---
+
+## Quick start for development and validation
+
+Clone the daemon:
+
+```bash
+git clone https://github.com/MichalMatu/local-agent.git ~/local-agent
+cd ~/local-agent
+```
+
+Create a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+The daemon code currently uses the Python standard library, so there is no package-install step required for the core runtime.
+
+Validate the checkout:
+
+```bash
+python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py
+python -m unittest discover -q
+```
+
+Useful diagnostics:
+
+```bash
+./.venv/bin/python agentctl.py status
+./.venv/bin/python agentctl.py doctor
+./.venv/bin/python agentctl.py task <task-id>
+./.venv/bin/python agentctl.py validate-task /path/to/task.json
+```
+
+`doctor` and live daemon operation expect the established local workspace/control topology to exist.
+
+## Established local topology
+
+The production workflow currently uses:
+
+```text
+~/local-agent
+~/agent-workspace/control
+~/agent-workspace/work
+~/agent-workspace/checkpoints
+~/Library/Application Support/local-agent
+~/Library/Logs/local-agent.log
+```
+
+The user/project checkout is **not** the disposable agent worktree. The daemon must never reset or clean a human's working checkout as part of normal task execution.
+
+## How the flow works
+
+```text
+ChatGPT / planner
+      |
+      v
+explicit task JSON
+      |
+      v
+Git control branch
+      |
+      v
+local-agent daemon
+      |
+      +--> disposable work clone
+      |       exact commands / tests / builds / flash / inspect
+      |
+      +--> durable local state
+      |       claims / checkpoints / status / runs
+      |
+      v
+machine-readable result + progress
+      |
+      v
+planner inspects evidence and chooses the next task
+```
 
 ## Remote observability
 
@@ -33,84 +166,177 @@ On the target repository's `agent-control` branch:
 .agent/status/daemon.json
 .agent/runs/<task-id>.json
 .agent/results/<task-id>.json
+.agent/daemon/control.json
+.agent/daemon/acks/<control-id>.json
 ```
 
-Local command transitions are recorded immediately. Remote task progress is coalesced: task boundaries, failures, the first command and phase changes publish immediately; ordinary short-command progress is limited to about once per minute; long-running commands retain a five-minute heartbeat.
+Use them as follows:
 
-Detailed task execution belongs in `.agent/runs/<task-id>.json`. `.agent/status/daemon.json` is daemon health/state and uses state changes plus a five-minute heartbeat instead of mirroring every command.
+- `.agent/status/daemon.json` — daemon health/state;
+- `.agent/runs/<task-id>.json` — detailed current task progress;
+- `.agent/results/<task-id>.json` — terminal execution result;
+- `.agent/daemon/control.json` — remote daemon request;
+- `.agent/daemon/acks/<control-id>.json` — durable acknowledgement.
+
+The user should not need to paste live daemon output during normal operation. An AI planner should inspect the remote status/run/result files directly.
 
 ## Remote daemon control
 
-Write `.agent/daemon/control.json`, for example:
+Example:
 
 ```json
 {
-  "id": "restart-20260822-001",
+  "id": "restart-20260823-001",
   "action": "restart"
 }
 ```
 
-Supported actions are `restart`, `self_update`, and `status`. Acknowledgements are stored in `.agent/daemon/acks/<id>.json`, so a handled command is not replayed after restart.
+Supported actions:
+
+- `status`;
+- `restart`;
+- `self_update`.
+
+A handled command receives a durable acknowledgement so it is not replayed after restart.
+
+## Golden-standard v4.2 guarantees
+
+The current infrastructure contract is defined in [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md). Important invariants include:
+
+- `agentd.py` is the only daemon entry point;
+- the daemon is a deterministic executor, never a coding model;
+- one OS-locked daemon instance is allowed;
+- every task has an immutable payload digest and unique attempt ID;
+- a durable claim exists before side-effect-capable execution;
+- a claimed/interrupted task is never automatically replayed;
+- malformed task JSON becomes terminal `invalid_task_file`;
+- corrupt durable claims are quarantined and fail closed;
+- command, no-output, and whole-task watchdogs are mandatory;
+- child processes execute in process groups and are terminated as a group;
+- result publication may be retried, execution may not;
+- self-update accepts only a clean fast-forward candidate that passes validation;
+- target-project verification is impact-driven instead of blindly running unrelated broad suites;
+- secrets never belong in Git-backed task/result/run/control data or repository documentation.
+
+The daemon currently reports `DAEMON_VERSION = 4.2.1`.
 
 ## Workspace checkpoints
 
-Before any destructive reset/clean of `~/agent-workspace/work`, the agent now checks for a dirty Git worktree. Dirty state is saved under `~/agent-workspace/checkpoints/<task-id>/...` as a binary Git patch for tracked files plus byte-for-byte copies of non-ignored untracked files and metadata containing the base commit. The checkpoint path is also returned in `workspace_checkpoint` when a task exits dirty.
+Before destructive reset/clean of the disposable worktree, the daemon checks whether it is dirty.
 
-The same safeguard runs before `prepare_work`, so an interrupted daemon cannot silently lose edits on the next task. If checkpoint creation itself fails, cleanup is skipped and the task is marked `workspace_checkpoint_failed` rather than destroying the only remaining copy. Ignored build/cache output is intentionally excluded.
+Dirty state is saved under:
 
-Checkpoints are not automatically deleted. After changes are safely committed/pushed, old checkpoint directories may be removed manually.
+```text
+~/agent-workspace/checkpoints/<task-id>/
+```
+
+Tracked changes are preserved as a binary Git patch, non-ignored untracked files are copied byte-for-byte, and metadata records the base commit.
+
+If checkpoint creation fails, cleanup is skipped and the task fails closed rather than destroying the only remaining copy.
+
+Checkpoints are intentionally not deleted automatically.
+
+## Time limits
+
+Current defaults include:
+
+```text
+command timeout:   1200 s
+no-output timeout:  600 s
+whole-task timeout: 3600 s
+```
+
+Maximums are enforced by the daemon. `idle_timeout=0` disables only the no-output watchdog.
 
 ## Self-update
 
-When idle, the daemon checks `MichalMatu/local-agent/main` every 60 seconds. It accepts only a fast-forward update, runs `py_compile` and the full unit suite, rolls back a failed update, remembers the rejected SHA, and `exec`s a validated daemon in place. `launchd` remains the outer supervisor.
+When idle, the daemon can check `local-agent/main` for a fast-forward update.
 
-For non-trivial daemon changes, stage and validate them before moving `main`. See `SESSION_BOOTSTRAP.md` for the exact staging -> CI -> fast-forward -> self-update -> remote verification sequence.
+The update path validates the candidate locally, rejects/rolls back a bad update, records the rejected SHA, and restarts by `exec` only after validation succeeds. `launchd` remains the outer supervisor.
 
-## Local diagnostics
+For non-trivial daemon changes, use the isolated release flow described in [`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md) and [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md). Never prepare a daemon release by mutating the checkout that is currently running `agentd.py`.
 
-```bash
-cd ~/local-agent
-./.venv/bin/python agentctl.py status
-./.venv/bin/python agentctl.py doctor
-./.venv/bin/python agentctl.py task <task-id>
-./.venv/bin/python agentctl.py validate-task /path/to/task.json
-```
+## Live logs
 
-## Live daemon logs
-
-Show the latest 30 lines once:
+Latest 30 lines:
 
 ```bash
 tail -n 30 ~/Library/Logs/local-agent.log
 ```
 
-Show the latest 30 lines and continue following new output live:
+Follow the log:
 
 ```bash
 tail -n 30 -f ~/Library/Logs/local-agent.log
 ```
 
-Follow only new output from the current end of the log:
+Stop following with `Ctrl+C`.
 
-```bash
-tail -f ~/Library/Logs/local-agent.log
+Remote `.agent/status`, `.agent/runs`, and `.agent/results` remain the authoritative normal-operation interface for an AI planner.
+
+## For AI assistants and future sessions
+
+`SESSION_BOOTSTRAP.md` is the canonical cross-repository entry point.
+
+Before queueing work, an AI system should read:
+
+1. [`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md);
+2. [`AGENTS.md`](AGENTS.md);
+3. [`LOCAL_AGENT_FLOW.md`](LOCAL_AGENT_FLOW.md);
+4. [`LOCAL_AGENT_AUTOPILOT.md`](LOCAL_AGENT_AUTOPILOT.md) when autonomous execution is requested;
+5. [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md);
+6. the target repository's own `AGENTS.md` and relevant path-specific instructions.
+
+Then it should:
+
+- inspect remote daemon/task state before queueing anything;
+- follow an existing `attempt_id`/`task_digest` instead of creating a duplicate task;
+- select verification from realistic change impact rather than ritual;
+- distinguish tested source from published source;
+- distinguish published firmware source from firmware actually flashed/running on hardware;
+- use exact evidence instead of inference;
+- keep all machine-generated execution content in English;
+- keep secrets out of Git-backed control/evidence files.
+
+## Source of truth
+
+Use this order:
+
+1. real local-agent command/result evidence;
+2. target repository source and tests;
+3. remote run/daemon status;
+4. planner analysis.
+
+Do not claim success until the requested gates are actually green and the intended source has been published. Hardware validation requires explicit evidence that the intended firmware was uploaded or an exact build-identity mechanism proves the running revision.
+
+## Safety
+
+`local-agent` executes commands with the permissions of the local user running it.
+
+The Git control branch is therefore trusted-code input. Anyone who can publish accepted task commands can exercise those local privileges.
+
+Never commit passwords, API tokens, bearer tokens, private keys, or session material to:
+
+```text
+.agent/tasks
+.agent/runs
+.agent/results
+.agent/daemon
 ```
 
-Stop live following with `Ctrl+C`. When the daemon prints `no pending task`, the queue is currently empty; use `agentctl.py status` or the remote `.agent/status/daemon.json` for authoritative daemon state.
+Keep authentication material in a local non-versioned secret store such as macOS Keychain or an equivalent mechanism.
 
-Large unified diffs are compacted in the live daemon log after a bounded threshold, while small diffs remain visible. Compaction affects only the live log: raw command output is still retained in the existing bounded task-result buffer (`MAX_OUTPUT`) for diagnostics.
+## Development
 
-## Tests
+Canonical validation:
 
 ```bash
 python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py
 python -m unittest discover -q
 ```
 
-## Golden-standard reference
+For infrastructure changes, follow the release gate in [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md): isolated staging, local validation, green CI on the exact candidate SHA, fast-forward `main`, daemon self-update, remote version verification, and one real queue smoke task.
 
-Read `GOLDEN_STANDARD.md` for the final infrastructure invariants and audit disposition. Source publication and ESP32 hardware flashing are separate gates; never infer the running firmware commit from repository `main` or semantic firmware version alone.
+## Design principle
 
-### Invalid task contract
-
-Malformed task JSON is a terminal queue error, not a retry candidate. The daemon publishes `failure_reason=invalid_task_file` under the filename rejection key, and pending scans check that rejection before parsing so a bad task cannot spam every poll forever. Valid historical filename aliases/prefixes may differ from `task.id`; execution results and claims remain keyed by `task.id`.
+> **The planner decides what to do. The daemon executes exactly what it was given and reports what actually happened.**
