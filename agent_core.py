@@ -22,8 +22,8 @@ CHECKPOINTS = HOME / "agent-workspace" / "checkpoints"
 CONTROL_BRANCH = "agent-control"
 
 POLL_SECONDS = 15
-COMMAND_TIMEOUT = 7200
-MAX_COMMAND_TIMEOUT = 21600
+COMMAND_TIMEOUT = 900
+MAX_COMMAND_TIMEOUT = 1500
 MAX_OUTPUT = 60000
 
 BASE_PATH = [
@@ -510,6 +510,19 @@ def _validate_stage_items(value: Any, field: str) -> None:
             raise ValueError(f"{field} item name must be a non-empty string")
         if not isinstance(command, str) or not command.strip():
             raise ValueError(f"{field} item command must be a non-empty string")
+        if "timeout" in item:
+            raw_timeout = item.get("timeout")
+            if isinstance(raw_timeout, bool):
+                raise ValueError(f"{field} item timeout must be an integer")
+            try:
+                stage_timeout = int(raw_timeout)
+            except (TypeError, ValueError):
+                raise ValueError(f"{field} item timeout must be an integer") from None
+            if stage_timeout < 1 or stage_timeout > MAX_COMMAND_TIMEOUT:
+                raise ValueError(
+                    f"{field} item timeout must be 1..{MAX_COMMAND_TIMEOUT}, "
+                    f"got {stage_timeout}"
+                )
 
 
 def stage_plan_for(task: dict[str, Any]) -> list[dict[str, Any]]:
@@ -526,20 +539,39 @@ def stage_plan_for(task: dict[str, Any]) -> list[dict[str, Any]]:
     if verify_steps and verify_commands:
         raise ValueError("verify_steps and verify_commands cannot both be non-empty")
 
-    primary: list[tuple[str, str]] = []
+    primary: list[dict[str, Any]] = []
     if steps:
-        primary = [(str(item["name"]), str(item["command"])) for item in steps]
+        for item in steps:
+            primary.append(
+                {
+                    "name": str(item["name"]),
+                    "command": str(item["command"]),
+                    "stage_timeout": int(item["timeout"]) if "timeout" in item else None,
+                }
+            )
     else:
-        primary = [(f"command-{index}", str(command)) for index, command in enumerate(commands, 1)]
-
-    verification: list[tuple[str, str]] = []
-    if verify_steps:
-        verification = [
-            (str(item["name"]), str(item["command"])) for item in verify_steps
+        primary = [
+            {"name": f"command-{index}", "command": str(command), "stage_timeout": None}
+            for index, command in enumerate(commands, 1)
         ]
+
+    verification: list[dict[str, Any]] = []
+    if verify_steps:
+        for item in verify_steps:
+            verification.append(
+                {
+                    "name": str(item["name"]),
+                    "command": str(item["command"]),
+                    "stage_timeout": int(item["timeout"]) if "timeout" in item else None,
+                }
+            )
     else:
         verification = [
-            (f"verification-{index}", str(command))
+            {
+                "name": f"verification-{index}",
+                "command": str(command),
+                "stage_timeout": None,
+            }
             for index, command in enumerate(verify_commands, 1)
         ]
 
@@ -547,16 +579,17 @@ def stage_plan_for(task: dict[str, Any]) -> list[dict[str, Any]]:
     plan: list[dict[str, Any]] = []
     stage_index = 1
     for phase, entries in (("commands", primary), ("verification", verification)):
-        for name, command in entries:
-            plan.append(
-                {
-                    "stage_name": name,
-                    "stage_index": stage_index,
-                    "stage_total": total,
-                    "stage_phase": phase,
-                    "command": command,
-                }
-            )
+        for entry in entries:
+            stage = {
+                "stage_name": entry["name"],
+                "stage_index": stage_index,
+                "stage_total": total,
+                "stage_phase": phase,
+                "command": entry["command"],
+            }
+            if entry["stage_timeout"] is not None:
+                stage["stage_timeout"] = entry["stage_timeout"]
+            plan.append(stage)
             stage_index += 1
     return plan
 
@@ -586,7 +619,10 @@ def run_command_list(
                 break
             continue
 
-        result = run_command(command, timeout, stage=stage)
+        effective_timeout = timeout
+        if stage is not None and stage.get("stage_timeout") is not None:
+            effective_timeout = int(stage["stage_timeout"])
+        result = run_command(command, effective_timeout, stage=stage)
         if stage is not None:
             result.update(stage)
         history[command] = result
@@ -739,7 +775,9 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
                 "stage_total": item.get("stage_total"),
                 "stage_phase": item.get("stage_phase"),
                 "outcome": "reused" if item.get("reused") else (
-                    "passed" if item.get("exit_code") == 0 else "failed"
+                    "not_started" if item.get("not_started") else (
+                        "passed" if item.get("exit_code") == 0 else "failed"
+                    )
                 ),
                 "elapsed_seconds": item.get("elapsed_seconds"),
             }

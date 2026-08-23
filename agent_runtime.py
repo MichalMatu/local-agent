@@ -17,10 +17,11 @@ from typing import Any, Callable
 ProgressCallback = Callable[[dict[str, Any]], None]
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-DEFAULT_IDLE_TIMEOUT = 600
-MAX_IDLE_TIMEOUT = 3600
-DEFAULT_TASK_TIMEOUT = 3600
-MAX_TASK_TIMEOUT = 14400
+DEFAULT_IDLE_TIMEOUT = 300
+MAX_IDLE_TIMEOUT = 900
+DEFAULT_TASK_TIMEOUT = 1800
+MAX_TASK_TIMEOUT = 1800
+TASK_FINALIZATION_RESERVE = 60
 PROGRESS_INTERVAL = 30
 MAX_OUTPUT = 60000
 MAX_PROGRESS_MARKER = 4096
@@ -248,7 +249,18 @@ def validate_task(task: dict[str, Any]) -> None:
         if field in task and not isinstance(task[field], list):
             raise ValueError(f"{field} must be a list")
     core_module = __import__("agent_core")
-    core_module.stage_plan_for(task)
+    stage_plan = core_module.stage_plan_for(task)
+    command_timeout = core_module.command_timeout_for(task)
+    idle_timeout_for(task)
+    task_timeout = task_timeout_for(task)
+    for stage in stage_plan:
+        stage_timeout = int(stage.get("stage_timeout", command_timeout))
+        if stage_timeout + TASK_FINALIZATION_RESERVE > task_timeout:
+            raise ValueError(
+                f"stage {stage['stage_name']!r} timeout {stage_timeout}s cannot fit "
+                f"inside task_timeout={task_timeout}s with "
+                f"{TASK_FINALIZATION_RESERVE}s finalization reserve"
+            )
 
 
 def _bounded_int(
@@ -576,6 +588,52 @@ class RuntimeExecutor:
         idle_timed_out = False
         task_timed_out = False
 
+        budget_remaining: float | None = None
+        if self._deadline is not None:
+            budget_remaining = max(0.0, self._deadline - started)
+            required_budget = float(timeout + TASK_FINALIZATION_RESERVE)
+            if budget_remaining < required_budget:
+                self._last_failure_reason = "task_budget_exhausted"
+                elapsed = time.monotonic() - started
+                result = {
+                    "command": command,
+                    "exit_code": 125,
+                    "output": "",
+                    "elapsed_seconds": round(elapsed, 3),
+                    "timed_out": False,
+                    "idle_timed_out": False,
+                    "task_timed_out": False,
+                    "not_started": True,
+                    "budget_exhausted": True,
+                    "budget_remaining_seconds": round(budget_remaining, 3),
+                    "required_budget_seconds": round(required_budget, 3),
+                }
+                self.core.log(
+                    f"TASK BUDGET EXHAUSTED before stage {stage['stage_name']}: "
+                    f"remaining={budget_remaining:.1f}s required={required_budget:.1f}s"
+                )
+                self._emit(
+                    {
+                        "event": "command_finished",
+                        "phase": phase,
+                        "index": self._command_index,
+                        "total": self._command_count,
+                        "command": command,
+                        "exit_code": 125,
+                        "elapsed_seconds": round(elapsed, 3),
+                        "timed_out": False,
+                        "idle_timed_out": False,
+                        "task_timed_out": False,
+                        "not_started": True,
+                        "budget_exhausted": True,
+                        "budget_remaining_seconds": round(budget_remaining, 3),
+                        "required_budget_seconds": round(required_budget, 3),
+                        "finished_at": self.core.now_iso(),
+                        **stage,
+                    }
+                )
+                return result
+
         self.core.log(f"exec: {command}")
         proc = subprocess.Popen(
             command,
@@ -628,12 +686,7 @@ class RuntimeExecutor:
                 now = time.monotonic()
                 elapsed = now - started
                 if proc.poll() is None:
-                    if self._deadline is not None and now >= self._deadline:
-                        task_timed_out = True
-                        self._last_failure_reason = "task_timeout"
-                        self.core.log(f"TASK TIMEOUT while running: {command}")
-                        self.core.kill_process_group(proc)
-                    elif elapsed >= timeout:
+                    if elapsed >= timeout:
                         timed_out = True
                         self._last_failure_reason = (
                             "verification_timeout" if phase == "verification" else "command_timeout"
@@ -707,6 +760,10 @@ class RuntimeExecutor:
                         "updated_at": self.core.now_iso(),
                         **stage,
                     }
+                    if self._deadline is not None:
+                        heartbeat["task_budget_remaining_seconds"] = round(
+                            max(0.0, self._deadline - now), 3
+                        )
                     if self._domain_progress is not None:
                         heartbeat["stage_progress"] = dict(self._domain_progress)
                         heartbeat["last_progress_at"] = self._last_progress_at

@@ -45,6 +45,14 @@ class AgentDaemonSafetyTests(unittest.TestCase):
     def task(self, task_id: str = "task-1") -> dict:
         return {"id": task_id, "mode": "commands", "commands": ["true"]}
 
+    def test_daemon_status_reports_hardened_watchdog_defaults(self) -> None:
+        with mock.patch.object(agentd, "self_revision", return_value="abc"):
+            payload = agentd.daemon_status_payload("idle")
+        self.assertEqual(payload["daemon_version"], "4.4.0")
+        self.assertEqual(payload["command_timeout_default"], 900)
+        self.assertEqual(payload["idle_timeout_default"], 300)
+        self.assertEqual(payload["task_timeout_default"], 1800)
+
     def test_claim_blocks_duplicate_execution_and_records_digest(self) -> None:
         task = self.task()
         claim = agentd.claim_task(task)
@@ -361,9 +369,9 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertIn(".agent/daemon/acks/restart-1.json", calls)
 
     def test_v4_timeout_policy(self) -> None:
-        self.assertEqual(agentd.core.COMMAND_TIMEOUT, 1200)
-        self.assertEqual(agentd.core.MAX_COMMAND_TIMEOUT, 3600)
-        self.assertEqual(agentd.runtime._idle_timeout, 600)
+        self.assertEqual(agentd.core.COMMAND_TIMEOUT, 900)
+        self.assertEqual(agentd.core.MAX_COMMAND_TIMEOUT, 1500)
+        self.assertEqual(agentd.runtime._idle_timeout, 300)
 
 
 if __name__ == "__main__":

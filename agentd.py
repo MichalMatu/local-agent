@@ -16,9 +16,15 @@ from pathlib import Path
 from typing import Any
 
 import agent_core as core
-from agent_runtime import RuntimeExecutor, task_digest, validate_task
+from agent_runtime import (
+    DEFAULT_IDLE_TIMEOUT,
+    DEFAULT_TASK_TIMEOUT,
+    RuntimeExecutor,
+    task_digest,
+    validate_task,
+)
 
-DAEMON_VERSION = "4.3.0"
+DAEMON_VERSION = "4.4.0"
 HOME = Path.home()
 SELF_REPO = Path(__file__).resolve().parent
 SELF_BRANCH = "main"
@@ -41,8 +47,8 @@ REMOTE_CONTROL_REQUEST = ".agent/daemon/control.json"
 REMOTE_CONTROL_ACK_DIR = ".agent/daemon/acks"
 REMOTE_RUNS_DIR = ".agent/runs"
 
-core.COMMAND_TIMEOUT = 1200
-core.MAX_COMMAND_TIMEOUT = 3600
+core.COMMAND_TIMEOUT = 900
+core.MAX_COMMAND_TIMEOUT = 1500
 runtime = RuntimeExecutor(core)
 
 _last_self_update_check = 0.0
@@ -154,8 +160,8 @@ def daemon_status_payload(state: str, **extra: Any) -> dict[str, Any]:
         "poll_seconds": POLL_SECONDS,
         "self_update_seconds": SELF_UPDATE_INTERVAL,
         "command_timeout_default": core.COMMAND_TIMEOUT,
-        "idle_timeout_default": 600,
-        "task_timeout_default": 3600,
+        "idle_timeout_default": DEFAULT_IDLE_TIMEOUT,
+        "task_timeout_default": DEFAULT_TASK_TIMEOUT,
         "current_task_id": _current_task_id,
         "current_attempt_id": _current_attempt_id,
         "current_task_digest": _current_task_digest,

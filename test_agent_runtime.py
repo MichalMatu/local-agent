@@ -54,8 +54,10 @@ class RuntimeExecutorTests(unittest.TestCase):
     def test_structured_steps_validate_and_reject_ambiguous_payloads(self) -> None:
         task = {
             "id": "staged-1",
-            "steps": [{"name": "build", "command": "true"}],
-            "verify_steps": [{"name": "inspect", "command": "true"}],
+            "steps": [{"name": "build", "command": "true", "timeout": 120}],
+            "verify_steps": [{"name": "inspect", "command": "true", "timeout": 90}],
+            "command_timeout": 300,
+            "task_timeout": 600,
         }
         validate_task(task)
         with self.assertRaisesRegex(ValueError, "steps and commands"):
@@ -64,6 +66,13 @@ class RuntimeExecutorTests(unittest.TestCase):
             validate_task({**task, "verify_commands": ["true"]})
         with self.assertRaises(ValueError):
             validate_task({"id": "bad-stage", "steps": [{"name": "", "command": "true"}]})
+        with self.assertRaisesRegex(ValueError, "item timeout"):
+            validate_task(
+                {
+                    "id": "bad-stage-timeout",
+                    "steps": [{"name": "build", "command": "true", "timeout": core.MAX_COMMAND_TIMEOUT + 1}],
+                }
+            )
 
     def test_legacy_and_structured_stage_plans_have_ordered_metadata(self) -> None:
         legacy = core.stage_plan_for(
@@ -75,12 +84,13 @@ class RuntimeExecutorTests(unittest.TestCase):
         )
         self.runtime._progress = (events := []).append
         self.runtime._stage_plan = core.stage_plan_for(
-            {"steps": [{"name": "compile", "command": "printf ok"}]}
+            {"steps": [{"name": "compile", "command": "printf ok", "timeout": 5}]}
         )
+        self.assertEqual(self.runtime._stage_plan[0]["stage_timeout"], 5)
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
         self.runtime._idle_timeout = 5
-        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._deadline = time.monotonic() + 120
         self.runtime.run_command("printf ok", 5)
         for event_name in ("command_started", "command_finished"):
             event = next(item for item in events if item["event"] == event_name)
@@ -133,7 +143,7 @@ class RuntimeExecutorTests(unittest.TestCase):
         events: list[dict] = []
         self.runtime._progress = events.append
         self.runtime._idle_timeout = 5
-        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._deadline = time.monotonic() + 120
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
         command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
@@ -153,7 +163,7 @@ class RuntimeExecutorTests(unittest.TestCase):
         events: list[dict] = []
         self.runtime._progress = events.append
         self.runtime._idle_timeout = 5
-        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._deadline = time.monotonic() + 120
         self.runtime._command_count = 2
         self.runtime._primary_count = 2
         first = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
@@ -225,7 +235,7 @@ class RuntimeExecutorTests(unittest.TestCase):
         events: list[dict] = []
         self.runtime._progress = events.append
         self.runtime._idle_timeout = 5
-        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._deadline = time.monotonic() + 120
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
         with mock.patch.object(runtime_module, "PROGRESS_INTERVAL", 0), mock.patch.object(
@@ -243,15 +253,17 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.assertEqual(heartbeats[0]["host_cpu_percent"], 12.5)
 
     def test_watchdog_defaults_and_bounds(self) -> None:
-        self.assertEqual(idle_timeout_for({}), 600)
-        self.assertEqual(task_timeout_for({}), 3600)
+        self.assertEqual(idle_timeout_for({}), 300)
+        self.assertEqual(task_timeout_for({}), 1800)
         self.assertEqual(idle_timeout_for({"idle_timeout": 0}), 0)
         with self.assertRaises(ValueError):
-            task_timeout_for({"task_timeout": 14401})
+            task_timeout_for({"task_timeout": 1801})
+        with self.assertRaises(ValueError):
+            idle_timeout_for({"idle_timeout": 901})
 
     def test_idle_timeout_kills_silent_command(self) -> None:
         self.runtime._idle_timeout = 1
-        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._deadline = time.monotonic() + 120
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
         command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
@@ -261,23 +273,56 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 124)
         self.assertTrue(result["idle_timed_out"])
 
-    def test_task_deadline_kills_command(self) -> None:
+    def test_task_budget_refuses_stage_before_start(self) -> None:
         self.runtime._idle_timeout = 0
-        self.runtime._deadline = time.monotonic() + 1
+        self.runtime._deadline = time.monotonic() + 100
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
-        command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
-            "import time; time.sleep(5)"
-        )
-        result = self.runtime.run_command(command, 10)
-        self.assertEqual(result["exit_code"], 124)
-        self.assertTrue(result["task_timed_out"])
+        stage = {
+            "stage_name": "too-large",
+            "stage_index": 1,
+            "stage_total": 1,
+            "stage_phase": "commands",
+        }
+        with mock.patch.object(runtime_module.subprocess, "Popen") as popen:
+            result = self.runtime.run_command("printf never-runs", 60, stage=stage)
+        popen.assert_not_called()
+        self.assertEqual(result["exit_code"], 125)
+        self.assertTrue(result["not_started"])
+        self.assertTrue(result["budget_exhausted"])
+        self.assertFalse(result["task_timed_out"])
+        self.assertEqual(self.runtime._last_failure_reason, "task_budget_exhausted")
+
+    def test_structured_stage_timeout_overrides_task_command_timeout(self) -> None:
+        task = {
+            "id": "stage-timeout-override",
+            "steps": [{"name": "short", "command": "one", "timeout": 7}],
+            "command_timeout": 120,
+            "task_timeout": 300,
+        }
+        calls: list[tuple[str, int]] = []
+
+        def fake_run(command: str, timeout: int, *, stage=None):
+            calls.append((command, timeout))
+            return {"command": command, "exit_code": 0, "elapsed_seconds": 0.1}
+
+        with mock.patch.object(core, "prepare_work"), mock.patch.object(
+            core, "cleanup_work"
+        ), mock.patch.object(
+            core, "git_snapshot", return_value=({"exit_code": 0, "output": ""}, {"exit_code": 0, "output": ""})
+        ), mock.patch.object(core, "checkpoint_worktree", return_value=None), mock.patch.object(
+            core, "run_command", side_effect=fake_run
+        ):
+            result = core.process_task(task)
+
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(calls, [("one", 7)])
 
     def test_progress_emits_command_transitions(self) -> None:
         events: list[dict] = []
         self.runtime._progress = events.append
         self.runtime._idle_timeout = 5
-        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._deadline = time.monotonic() + 120
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
         result = self.runtime.run_command("printf 'ok\\n'", 5)
@@ -288,7 +333,7 @@ class RuntimeExecutorTests(unittest.TestCase):
 
     def test_large_unified_diff_is_collapsed_only_in_live_log(self) -> None:
         self.runtime._idle_timeout = 5
-        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._deadline = time.monotonic() + 120
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
         script = "\n".join(
@@ -320,7 +365,7 @@ class RuntimeExecutorTests(unittest.TestCase):
 
     def test_indented_output_after_completed_hunk_is_not_collapsed(self) -> None:
         self.runtime._idle_timeout = 5
-        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._deadline = time.monotonic() + 120
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
         script = "\n".join(
@@ -347,7 +392,7 @@ class RuntimeExecutorTests(unittest.TestCase):
 
     def test_identical_large_diffs_are_aggregated_in_live_log(self) -> None:
         self.runtime._idle_timeout = 5
-        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._deadline = time.monotonic() + 120
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
         script = "\n".join(
@@ -382,7 +427,7 @@ class RuntimeExecutorTests(unittest.TestCase):
 
     def test_small_unified_diff_remains_visible_in_live_log(self) -> None:
         self.runtime._idle_timeout = 5
-        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._deadline = time.monotonic() + 120
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
         script = "\n".join(

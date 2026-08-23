@@ -1,4 +1,4 @@
-# Local Agent Golden Standard v4.3
+# Local Agent Golden Standard v4.4
 
 This is the final infrastructure audit summary for the `MichalMatu/local-agent` + `MichalMatu/esp32s3_LiteGraph` pair. Operational details remain canonical in `SESSION_BOOTSTRAP.md`.
 
@@ -13,7 +13,8 @@ This is the final infrastructure audit summary for the `MichalMatu/local-agent` 
 - A claimed, interrupted, or corrupt-claim task is never automatically replayed.
 - Corrupt durable claims are converted to a terminal `corrupt_claim_state` result for a known queued task and quarantined for evidence.
 - Malformed task JSON is a terminal `invalid_task_file` failure; it is never retried and may not spam every poll forever. Historical filename aliases/prefixes that differ from `task.id` remain valid.
-- Command, no-output, and whole-task watchdogs are mandatory.
+- Command and no-output watchdogs are mandatory. The whole-task watchdog is a 30-minute admission budget: it may refuse to start a stage that cannot fit with finalization headroom, but it must never terminate an already-running stage solely because the task budget expired.
+- Default command timeout is 15 minutes, maximum stage/command timeout is 25 minutes, default no-output timeout is 5 minutes, and the whole-task maximum is 30 minutes with a 60-second finalization reserve. Long work must be split into restartable structured stages with explicit smaller `timeout` values where appropriate.
 - SIGTERM/SIGINT terminate the active process group.
 - Result publication may be retried, execution may not.
 - Self-update is allowed only from a clean `local-agent/main` checkout, accepts fast-forward updates only, validates locally, rolls back failures, then restarts by `exec`.
@@ -56,7 +57,9 @@ For non-trivial daemon changes:
 
 ## Audit disposition
 
-The v4.2 audit:
+The v4.4 hardening adds a stage-boundary task budget so the global deadline cannot kill active work, caps tasks at 30 minutes, lowers default command/no-output limits, supports explicit per-stage timeouts, and records budget refusal as a terminal `task_budget_exhausted` result with the stage left unstarted.
+
+The earlier v4.2/v4.3 audit baseline:
 
 - removed obsolete `agent_OLD.py`;
 - removed the unused v2 daemon loop from `agent_core.py` so `agentd.py` is the only daemon entry point;
