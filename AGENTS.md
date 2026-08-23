@@ -27,6 +27,13 @@ This repository is infrastructure. Prefer deterministic behavior, bounded execut
 - Do not run a broad regression suite merely because it exists or as a default end-of-iteration gate. A broad suite requires a concrete impact rationale: shared/cross-cutting infrastructure changed, dependency impact cannot be bounded confidently, the target repository explicitly requires it for this change class, or the user explicitly requests it.
 - After a focused fix, rerun only the affected gate unless that fix expands the impact surface. Previously green evidence remains valid while the code and relevant dependencies covered by that gate have not changed.
 - New control/progress behavior requires unit coverage.
+- Long multi-phase tasks must prefer structured sequential `steps` with meaningful
+  English stage names. Do not conceal a safely splittable build/flash/test/stress/
+  reboot workflow in one opaque command; intentionally long scripts should emit
+  periodic `[AGENT_PROGRESS] ` JSON markers. Local heartbeats are about 30 seconds
+  and remote run/daemon progress is normally refreshed about every 60 seconds.
+- Heartbeat telemetry is best-effort and may include host CPU/load/memory/swap plus
+  active process-group CPU/RSS/child counts; unavailable metrics are omitted.
 - Before publishing daemon changes run `python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py` and `python -m unittest discover -q`.
 
 ## Golden-standard reference

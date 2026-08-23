@@ -130,7 +130,12 @@ def kill_process_group(proc: subprocess.Popen[str]) -> None:
         pass
 
 
-def run_command(command: str, timeout: int) -> dict[str, Any]:
+def run_command(
+    command: str,
+    timeout: int,
+    *,
+    stage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     log(f"exec: {command}")
     started = time.monotonic()
 
@@ -493,28 +498,97 @@ def command_timeout_for(task: dict[str, Any]) -> int:
     return timeout
 
 
+def _validate_stage_items(value: Any, field: str) -> None:
+    if not isinstance(value, list):
+        raise ValueError(f"{field} must be a list")
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError(f"{field} items must be objects")
+        name = item.get("name")
+        command = item.get("command")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"{field} item name must be a non-empty string")
+        if not isinstance(command, str) or not command.strip():
+            raise ValueError(f"{field} item command must be a non-empty string")
+
+
+def stage_plan_for(task: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return the one ordered execution plan used by legacy and staged tasks."""
+    commands = task.get("commands", [])
+    verify_commands = task.get("verify_commands", [])
+    steps = task.get("steps", [])
+    verify_steps = task.get("verify_steps", [])
+    _validate_stage_items(steps, "steps")
+    _validate_stage_items(verify_steps, "verify_steps")
+
+    if steps and commands:
+        raise ValueError("steps and commands cannot both be non-empty")
+    if verify_steps and verify_commands:
+        raise ValueError("verify_steps and verify_commands cannot both be non-empty")
+
+    primary: list[tuple[str, str]] = []
+    if steps:
+        primary = [(str(item["name"]), str(item["command"])) for item in steps]
+    else:
+        primary = [(f"command-{index}", str(command)) for index, command in enumerate(commands, 1)]
+
+    verification: list[tuple[str, str]] = []
+    if verify_steps:
+        verification = [
+            (str(item["name"]), str(item["command"])) for item in verify_steps
+        ]
+    else:
+        verification = [
+            (f"verification-{index}", str(command))
+            for index, command in enumerate(verify_commands, 1)
+        ]
+
+    total = len(primary) + len(verification)
+    plan: list[dict[str, Any]] = []
+    stage_index = 1
+    for phase, entries in (("commands", primary), ("verification", verification)):
+        for name, command in entries:
+            plan.append(
+                {
+                    "stage_name": name,
+                    "stage_index": stage_index,
+                    "stage_total": total,
+                    "stage_phase": phase,
+                    "command": command,
+                }
+            )
+            stage_index += 1
+    return plan
+
+
 def run_command_list(
     commands: list[str],
     timeout: int,
     previous: dict[str, dict[str, Any]] | None = None,
+    stages: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     history = {} if previous is None else dict(previous)
     results: list[dict[str, Any]] = []
 
-    for command in commands:
+    for offset, command in enumerate(commands):
         if not isinstance(command, str) or not command.strip():
             raise ValueError(f"invalid command: {command!r}")
+        stage = stages[offset] if stages is not None else None
 
         if command in history:
             reused = dict(history[command])
             reused["reused"] = True
+            if stage is not None:
+                reused.update(stage)
             log(f"command reuse: {command}")
             results.append(reused)
             if reused["exit_code"] != 0:
                 break
             continue
 
-        result = run_command(command, timeout)
+        result = run_command(command, timeout, stage=stage)
+        if stage is not None:
+            result.update(stage)
         history[command] = result
         results.append(result)
         if result["exit_code"] != 0:
@@ -544,6 +618,8 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
     deletes = task.get("deletes", [])
     commands = task.get("commands", [])
     verify_commands = task.get("verify_commands", [])
+    steps = task.get("steps", [])
+    verify_steps = task.get("verify_steps", [])
 
     if patch is not None and not isinstance(patch, str):
         raise ValueError("patch must be a string")
@@ -555,6 +631,16 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("commands must be a list")
     if not isinstance(verify_commands, list):
         raise ValueError("verify_commands must be a list")
+    if not isinstance(steps, list):
+        raise ValueError("steps must be a list")
+    if not isinstance(verify_steps, list):
+        raise ValueError("verify_steps must be a list")
+
+    stage_plan = stage_plan_for(task)
+    primary_stages = [stage for stage in stage_plan if stage["stage_phase"] == "commands"]
+    verification_stages = [
+        stage for stage in stage_plan if stage["stage_phase"] == "verification"
+    ]
 
     requested_edit = bool((patch and patch.strip()) or writes or deletes)
     if requested_edit and not allow_write:
@@ -580,6 +666,7 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
         "edits": {},
         "commands": [],
         "verification": [],
+        "stages": [],
     }
 
     command_history: dict[str, dict[str, Any]] = {}
@@ -605,6 +692,18 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
                 [str(item) for item in commands],
                 timeout,
                 command_history,
+                primary_stages,
+            )
+            result["commands"] = command_results
+            if command_results and command_results[-1]["exit_code"] != 0:
+                failure_reason = "command_failed"
+
+        if failure_reason is None and steps:
+            command_results, command_history = run_command_list(
+                [str(item["command"]) for item in steps],
+                timeout,
+                command_history,
+                primary_stages,
             )
             result["commands"] = command_results
             if command_results and command_results[-1]["exit_code"] != 0:
@@ -615,10 +714,37 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
                 [str(item) for item in verify_commands],
                 timeout,
                 command_history,
+                verification_stages,
             )
             result["verification"] = verification_results
             if verification_results and verification_results[-1]["exit_code"] != 0:
                 failure_reason = "verification_failed"
+
+        if failure_reason is None and verify_steps:
+            verification_results, command_history = run_command_list(
+                [str(item["command"]) for item in verify_steps],
+                timeout,
+                command_history,
+                verification_stages,
+            )
+            result["verification"] = verification_results
+            if verification_results and verification_results[-1]["exit_code"] != 0:
+                failure_reason = "verification_failed"
+
+        executed = result["commands"] + result["verification"]
+        result["stages"] = [
+            {
+                "stage_name": item.get("stage_name"),
+                "stage_index": item.get("stage_index"),
+                "stage_total": item.get("stage_total"),
+                "stage_phase": item.get("stage_phase"),
+                "outcome": "reused" if item.get("reused") else (
+                    "passed" if item.get("exit_code") == 0 else "failed"
+                ),
+                "elapsed_seconds": item.get("elapsed_seconds"),
+            }
+            for item in executed
+        ]
 
         status, diff = git_snapshot()
         result["git_status"] = status

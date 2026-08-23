@@ -186,7 +186,7 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertEqual(state["attempt_id"], "attempt")
         self.assertEqual(state["event"], "command_started")
 
-    def test_progress_callback_throttles_successful_command_boundaries(self) -> None:
+    def test_progress_callback_publishes_boundaries_and_status(self) -> None:
         callback = agentd.make_progress_callback("task-5", "attempt", "digest")
         with mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(
             agentd, "publish_daemon_status"
@@ -225,7 +225,76 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         remote_flags = [call.kwargs["force_remote"] for call in publish_run.call_args_list]
         self.assertEqual(remote_flags, [True, True, False, True])
         self.assertTrue(
-            all(call.kwargs["force_remote"] is False for call in publish_status.call_args_list)
+            [call.kwargs["force_remote"] for call in publish_status.call_args_list]
+            == [True, True, False, True]
+        )
+
+    def test_remote_heartbeat_refreshes_daemon_status_at_sixty_seconds(self) -> None:
+        callback = agentd.make_progress_callback("task-heartbeat", "attempt", "digest")
+        with mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(
+            agentd, "publish_daemon_status"
+        ) as publish_status, mock.patch.object(
+            agentd.time, "monotonic", side_effect=[100.0, 101.0, 162.0]
+        ):
+            callback({"event": "task_started"})
+            callback(
+                {
+                    "event": "command_started",
+                    "stage_name": "stress-run",
+                    "stage_index": 1,
+                    "stage_total": 1,
+                    "stage_phase": "commands",
+                    "command": "long-script",
+                }
+            )
+            callback(
+                {
+                    "event": "command_heartbeat",
+                    "stage_name": "stress-run",
+                    "stage_index": 1,
+                    "stage_total": 1,
+                    "stage_phase": "commands",
+                    "command": "long-script",
+                    "host_load_1m": 1.25,
+                }
+            )
+
+        self.assertTrue(publish_run.call_args_list[-1].kwargs["force_remote"])
+        self.assertTrue(publish_status.call_args_list[-1].kwargs["force_remote"])
+        self.assertEqual(
+            publish_status.call_args_list[-1].kwargs["progress"]["host_load_1m"], 1.25
+        )
+
+    def test_marker_stage_change_publishes_remote_progress_immediately(self) -> None:
+        callback = agentd.make_progress_callback("task-marker", "attempt", "digest")
+        with mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(
+            agentd, "publish_daemon_status"
+        ) as publish_status, mock.patch.object(
+            agentd.time, "monotonic", side_effect=[100.0, 101.0, 102.0]
+        ):
+            callback({"event": "task_started"})
+            callback(
+                {
+                    "event": "command_started",
+                    "stage_name": "script",
+                    "stage_index": 1,
+                    "stage_total": 1,
+                    "stage_phase": "commands",
+                }
+            )
+            callback(
+                {
+                    "event": "stage_progress",
+                    "stage_name": "case-2",
+                    "stage_phase": "commands",
+                    "last_progress_at": "2026-08-23T17:00:00+00:00",
+                    "last_progress_message": "case 2",
+                }
+            )
+
+        self.assertTrue(publish_run.call_args_list[-1].kwargs["force_remote"])
+        self.assertEqual(
+            publish_status.call_args_list[-1].kwargs["last_progress_message"], "case 2"
         )
 
     def test_failed_command_is_published_immediately(self) -> None:
