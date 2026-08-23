@@ -2,6 +2,12 @@
 
 This file is the canonical cross-repository bootstrap contract for future ChatGPT sessions.
 
+## Execution language contract
+
+All machine-generated execution content must be English, regardless of the language used in the interactive ChatGPT conversation. This includes local-agent/Codex progress narration, task summaries, source code, comments, identifiers, UI strings, runtime logs, test names/descriptions, documentation, prompts, task metadata, shell-visible status messages, and commit messages. A task may use another language only when it explicitly requires localized user-facing content.
+
+Every newly authored Codex prompt must repeat this English-only requirement near the top. Target repository `AGENTS.md` files must not instruct Codex to narrate progress in Polish or another non-English language.
+
 ## Default project pairing
 
 When the user provides or references `MichalMatu/local-agent`, says to use the local-agent flow, or asks to continue the established autonomous workflow, assume the default development target is:
