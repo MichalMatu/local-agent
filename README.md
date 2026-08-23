@@ -9,7 +9,7 @@
 
 ChatGPT decides the code changes and exact commands. `local-agent` executes them on the local machine and publishes machine-readable evidence back to the target repository.
 
-> **The planner decides what to do. The daemon executes exactly what it was given. Real output is the source of truth.**
+> **The planner decides what to do. The daemon executes the deterministic task and reports what actually happened. Real output is the source of truth.**
 
 ```text
 ChatGPT / planner
@@ -24,7 +24,7 @@ Git control branch
 local-agent daemon
       |
       +--> disposable work clone
-      |       exact commands / tests / builds / flash / inspect
+      |       commands / tests / builds / flash / inspect
       |
       +--> durable local state
       |       claims / checkpoints / status / runs
@@ -42,7 +42,7 @@ machine-readable result + progress
 | [`MichalMatu/local-agent`](https://github.com/MichalMatu/local-agent) | Inspecting or continuing the existing macOS/ESP32 implementation used in practice. |
 | [`MichalMatu/DeterministicRunner`](https://github.com/MichalMatu/DeterministicRunner) | Starting a new, reusable, repository-agnostic and config-driven setup. |
 
-If you want to reproduce the concept on another machine or target project, **start with DeterministicRunner**. `local-agent` intentionally contains environment-specific assumptions from the system it currently operates.
+If you want to reproduce the concept on another machine or target project, **start with DeterministicRunner**. `local-agent` intentionally contains environment-specific and legacy implementation semantics from the system it currently operates.
 
 ## What this repository is
 
@@ -68,10 +68,9 @@ Future AI sessions should treat `esp32s3_LiteGraph` as the product target unless
 The daemon can:
 
 - consume explicit tasks from a Git control branch;
-- run exact shell commands;
-- build and test code;
+- run shell commands, builds and tests;
 - flash and inspect ESP32 hardware;
-- capture bounded real command output and exit codes;
+- capture bounded result output and exit codes;
 - publish remote task progress and terminal result JSON;
 - expose daemon health remotely;
 - accept durable `status`, `restart`, and `self_update` control requests;
@@ -95,6 +94,22 @@ The core daemon currently uses only the Python standard library. GitHub CI valid
 The checked-in [`com.michal.local-agent.plist`](com.michal.local-agent.plist) contains machine-specific absolute paths. It documents the current installation; it is **not a portable installer and should not be copied unchanged** to another user account or machine.
 
 For a portable/config-driven installation, use [`DeterministicRunner`](https://github.com/MichalMatu/DeterministicRunner).
+
+## Important differences from DeterministicRunner
+
+Do not assume that every DeterministicRunner v0.2 feature exists in this older working daemon.
+
+Current `local-agent` semantics include:
+
+- Git control transport and workspace paths are hardcoded for the established deployment rather than YAML-configured;
+- the task validator is a legacy contract and does not reject every unknown field;
+- `expected_head` source-revision guarding is **not implemented** here—an `expected_head` field would not provide DeterministicRunner-style protection;
+- if source identity matters, verify the expected SHA explicitly in an early task command before later side effects;
+- identical command strings inside one task may reuse the earlier command result instead of executing the same string again;
+- disposable-worktree cleanup uses `git clean -fd`, intentionally preserving ignored build caches;
+- self-update validates the fast-forwarded checkout and rolls back on failure; DeterministicRunner uses the newer detached-candidate validation design.
+
+These differences are intentional documentation of the current code, not recommendations for new generic deployments.
 
 ---
 
@@ -321,6 +336,7 @@ Then it should:
 - inspect remote daemon/task state before queueing anything;
 - follow an existing `attempt_id`/`task_digest` instead of creating a duplicate task;
 - publish task/control files through the remote control branch, not by editing the daemon-owned control clone;
+- do not assume DeterministicRunner-only fields such as `expected_head` are enforced by `local-agent`;
 - select verification from realistic change impact rather than ritual;
 - distinguish executed/tested source from source actually published to the target branch;
 - distinguish published firmware source from firmware actually flashed/running on hardware;
@@ -371,4 +387,4 @@ For infrastructure changes, follow the release gate in [`GOLDEN_STANDARD.md`](GO
 
 ## Design principle
 
-> **The planner decides what to do. The daemon executes exactly what it was given and reports what actually happened.**
+> **The planner decides what to do. The daemon executes the deterministic task and reports what actually happened.**
