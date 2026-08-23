@@ -100,11 +100,15 @@ def process(
 
 
 def kill_process_group(proc: subprocess.Popen[str]) -> None:
-    if proc.poll() is not None:
-        return
-    try:
-        pgid = os.getpgid(proc.pid)
-    except ProcessLookupError:
+    pgid = getattr(proc, "_local_agent_process_group", None)
+    if pgid is None:
+        if proc.poll() is not None:
+            return
+        try:
+            pgid = os.getpgid(proc.pid)
+        except ProcessLookupError:
+            return
+    if not isinstance(pgid, int) or pgid <= 1:
         return
 
     log(f"terminating process group pgid={pgid}")
@@ -115,7 +119,6 @@ def kill_process_group(proc: subprocess.Popen[str]) -> None:
 
     try:
         proc.wait(timeout=5)
-        return
     except subprocess.TimeoutExpired:
         pass
 
@@ -145,6 +148,7 @@ def run_command(command: str, timeout: int) -> dict[str, Any]:
         bufsize=1,
         start_new_session=True,
     )
+    setattr(proc, "_local_agent_process_group", proc.pid)
 
     lines: queue.Queue[str | None] = queue.Queue()
 

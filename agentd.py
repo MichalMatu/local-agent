@@ -16,7 +16,12 @@ from pathlib import Path
 from typing import Any
 
 import agent_core as core
-from agent_runtime import RuntimeExecutor, task_digest, validate_task
+from agent_runtime import (
+    DEFAULT_MEMORY_LIMIT_MB,
+    RuntimeExecutor,
+    task_digest,
+    validate_task,
+)
 
 DAEMON_VERSION = "4.2.1"
 HOME = Path.home()
@@ -156,6 +161,7 @@ def daemon_status_payload(state: str, **extra: Any) -> dict[str, Any]:
         "command_timeout_default": core.COMMAND_TIMEOUT,
         "idle_timeout_default": 600,
         "task_timeout_default": 3600,
+        "memory_limit_mb_default": DEFAULT_MEMORY_LIMIT_MB,
         "current_task_id": _current_task_id,
         "current_attempt_id": _current_attempt_id,
         "current_task_digest": _current_task_digest,
@@ -851,7 +857,8 @@ def main() -> None:
     log(
         f"Local Agent daemon v{DAEMON_VERSION} starting; "
         f"command_timeout={core.COMMAND_TIMEOUT}s idle_timeout=600s "
-        f"task_timeout=3600s self_update={SELF_UPDATE_INTERVAL}s"
+        f"task_timeout=3600s memory_limit={DEFAULT_MEMORY_LIMIT_MB}MB "
+        f"self_update={SELF_UPDATE_INTERVAL}s"
     )
 
     core.sync_control()

@@ -18,8 +18,13 @@ DEFAULT_IDLE_TIMEOUT = 600
 MAX_IDLE_TIMEOUT = 3600
 DEFAULT_TASK_TIMEOUT = 3600
 MAX_TASK_TIMEOUT = 14400
+DEFAULT_MEMORY_LIMIT_MB = 2048
+MAX_MEMORY_LIMIT_MB = 16384
 PROGRESS_INTERVAL = 30
 MAX_OUTPUT = 60000
+OUTPUT_QUEUE_CAPACITY = 256
+OUTPUT_READ_SIZE = 8192
+MEMORY_SAMPLE_INTERVAL = 1.0
 LIVE_DIFF_MAX_LINES = 80
 LIVE_DIFF_MAX_CHARS = 12_000
 
@@ -261,14 +266,111 @@ def task_timeout_for(task: dict[str, Any]) -> int:
     return _bounded_int(task, "task_timeout", DEFAULT_TASK_TIMEOUT, 1, MAX_TASK_TIMEOUT)
 
 
+def memory_limit_for(task: dict[str, Any]) -> int:
+    return _bounded_int(
+        task,
+        "memory_limit_mb",
+        DEFAULT_MEMORY_LIMIT_MB,
+        0,
+        MAX_MEMORY_LIMIT_MB,
+    )
+
+
+def _capture_chunk(chunks: list[str], total_chars: int, chunk: str) -> int:
+    """Append output while keeping the raw result buffer strictly bounded."""
+    if len(chunk) >= MAX_OUTPUT:
+        chunks[:] = [chunk[-MAX_OUTPUT:]]
+        return MAX_OUTPUT
+
+    chunks.append(chunk)
+    total_chars += len(chunk)
+    while total_chars > MAX_OUTPUT and chunks:
+        removed = chunks.pop(0)
+        total_chars -= len(removed)
+    return total_chars
+
+
+def parse_process_table(output: str) -> dict[int, tuple[int, int]]:
+    """Parse ps output into pid -> (parent pid, resident KB)."""
+    processes: dict[int, tuple[int, int]] = {}
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) != 3:
+            continue
+        try:
+            pid, ppid, rss_kb = (int(field) for field in fields)
+        except ValueError:
+            continue
+        if pid > 0 and ppid >= 0 and rss_kb >= 0:
+            processes[pid] = (ppid, rss_kb)
+    return processes
+
+
+def process_tree_rss_kb(
+    root_pid: int,
+    processes: dict[int, tuple[int, int]],
+) -> int | None:
+    """Sum RSS for a root process and all descendants in a parsed ps table."""
+    children: dict[int, list[int]] = {}
+    for pid, (ppid, _rss_kb) in processes.items():
+        children.setdefault(ppid, []).append(pid)
+
+    if root_pid not in processes and root_pid not in children:
+        return None
+
+    total = 0
+    pending = [root_pid]
+    visited: set[int] = set()
+    while pending:
+        pid = pending.pop()
+        if pid in visited:
+            continue
+        visited.add(pid)
+        process = processes.get(pid)
+        if process is not None:
+            total += process[1]
+        pending.extend(children.get(pid, []))
+    return total
+
+
+def sample_process_tree_rss_mb(root_pid: int) -> float | None:
+    """Return process-tree RSS in MB, or None when ps data is unavailable."""
+    try:
+        completed = subprocess.run(
+            ["ps", "-axo", "pid=,ppid=,rss="],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0:
+        return None
+    rss_kb = process_tree_rss_kb(root_pid, parse_process_table(completed.stdout))
+    if rss_kb is None:
+        return None
+    return round(rss_kb / 1024.0, 3)
+
+
 class RuntimeExecutor:
-    def __init__(self, core_module: Any):
+    def __init__(
+        self,
+        core_module: Any,
+        *,
+        rss_sampler: Callable[[int], float | None] = sample_process_tree_rss_mb,
+        memory_sample_interval: float = MEMORY_SAMPLE_INTERVAL,
+    ):
         self.core = core_module
+        self._rss_sampler = rss_sampler
+        self._memory_sample_interval = memory_sample_interval
         self._active_process: subprocess.Popen[str] | None = None
         self._active_lock = threading.Lock()
         self._progress: ProgressCallback | None = None
         self._deadline: float | None = None
         self._idle_timeout = DEFAULT_IDLE_TIMEOUT
+        self._memory_limit_mb = DEFAULT_MEMORY_LIMIT_MB
         self._command_index = 0
         self._command_count = 0
         self._primary_count = 0
@@ -285,7 +387,7 @@ class RuntimeExecutor:
     def terminate_active_command(self) -> bool:
         with self._active_lock:
             proc = self._active_process
-        if proc is None or proc.poll() is not None:
+        if proc is None:
             return False
         self.core.kill_process_group(proc)
         return True
@@ -302,6 +404,13 @@ class RuntimeExecutor:
         timed_out = False
         idle_timed_out = False
         task_timed_out = False
+        memory_limited = False
+        command_failure_reason: str | None = None
+        current_rss_mb: float | None = None
+        peak_rss_mb: float | None = None
+        over_limit_samples = 0
+        memory_measurement_warned = False
+        next_memory_sample = started
 
         self.core.log(f"exec: {command}")
         proc = subprocess.Popen(
@@ -315,6 +424,7 @@ class RuntimeExecutor:
             bufsize=1,
             start_new_session=True,
         )
+        setattr(proc, "_local_agent_process_group", proc.pid)
         with self._active_lock:
             self._active_process = proc
 
@@ -328,19 +438,34 @@ class RuntimeExecutor:
                 "pid": proc.pid,
                 "timeout": timeout,
                 "idle_timeout": self._idle_timeout,
+                "memory_limit_mb": self._memory_limit_mb,
                 "started_at": self.core.now_iso(),
             }
         )
 
-        lines: queue.Queue[str | None] = queue.Queue()
+        lines: queue.Queue[str | None] = queue.Queue(maxsize=OUTPUT_QUEUE_CAPACITY)
+        reader_stop = threading.Event()
 
         def reader() -> None:
             assert proc.stdout is not None
             try:
-                for line in iter(proc.stdout.readline, ""):
-                    lines.put(line)
+                while not reader_stop.is_set():
+                    line = proc.stdout.readline(OUTPUT_READ_SIZE)
+                    if line == "":
+                        break
+                    while not reader_stop.is_set():
+                        try:
+                            lines.put(line, timeout=0.25)
+                            break
+                        except queue.Full:
+                            continue
             finally:
-                lines.put(None)
+                while not reader_stop.is_set():
+                    try:
+                        lines.put(None, timeout=0.25)
+                        break
+                    except queue.Full:
+                        continue
 
         thread = threading.Thread(target=reader, daemon=True)
         thread.start()
@@ -378,6 +503,51 @@ class RuntimeExecutor:
                         )
                         self.core.kill_process_group(proc)
 
+                    if now >= next_memory_sample:
+                        try:
+                            current_rss_mb = self._rss_sampler(proc.pid)
+                        except Exception:
+                            current_rss_mb = None
+                        next_memory_sample = (
+                            time.monotonic() + self._memory_sample_interval
+                        )
+                        if current_rss_mb is None:
+                            if not memory_measurement_warned:
+                                self.core.log(
+                                    "RSS memory measurement unavailable; "
+                                    "continuing with existing watchdogs"
+                                )
+                                memory_measurement_warned = True
+                        else:
+                            peak_rss_mb = (
+                                current_rss_mb
+                                if peak_rss_mb is None
+                                else max(peak_rss_mb, current_rss_mb)
+                            )
+                            if (
+                                self._memory_limit_mb > 0
+                                and current_rss_mb > self._memory_limit_mb
+                            ):
+                                over_limit_samples += 1
+                            else:
+                                over_limit_samples = 0
+                            if (
+                                self._memory_limit_mb > 0
+                                and over_limit_samples >= 2
+                            ):
+                                memory_limited = True
+                                command_failure_reason = (
+                                    "verification_memory_limit"
+                                    if phase == "verification"
+                                    else "command_memory_limit"
+                                )
+                                self._last_failure_reason = command_failure_reason
+                                self.core.log(
+                                    f"MEMORY LIMIT after {over_limit_samples} samples "
+                                    f"at {current_rss_mb:.1f} MB: {command}"
+                                )
+                                self.core.kill_process_group(proc)
+
                 try:
                     item = lines.get(timeout=0.25)
                     if item is None:
@@ -385,35 +555,34 @@ class RuntimeExecutor:
                     else:
                         last_output = time.monotonic()
                         live_output.emit(item)
-                        chunks.append(item)
-                        total_chars += len(item)
-                        while total_chars > MAX_OUTPUT and chunks:
-                            removed = chunks.pop(0)
-                            total_chars -= len(removed)
+                        total_chars = _capture_chunk(chunks, total_chars, item)
                 except queue.Empty:
                     pass
 
                 now = time.monotonic()
                 if now - last_progress >= PROGRESS_INTERVAL:
                     last_progress = now
-                    self._emit(
-                        {
-                            "event": "command_heartbeat",
-                            "phase": phase,
-                            "index": self._command_index,
-                            "total": self._command_count,
-                            "command": command,
-                            "pid": proc.pid,
-                            "elapsed_seconds": round(now - started, 3),
-                            "seconds_since_output": round(now - last_output, 3),
-                            "updated_at": self.core.now_iso(),
-                        }
-                    )
+                    heartbeat: dict[str, Any] = {
+                        "event": "command_heartbeat",
+                        "phase": phase,
+                        "index": self._command_index,
+                        "total": self._command_count,
+                        "command": command,
+                        "pid": proc.pid,
+                        "elapsed_seconds": round(now - started, 3),
+                        "seconds_since_output": round(now - last_output, 3),
+                        "updated_at": self.core.now_iso(),
+                    }
+                    if current_rss_mb is not None:
+                        heartbeat["current_rss_mb"] = current_rss_mb
+                    if peak_rss_mb is not None:
+                        heartbeat["peak_rss_mb"] = peak_rss_mb
+                    self._emit(heartbeat)
 
                 if proc.poll() is not None and reader_done:
                     break
                 if (
-                    timed_out or idle_timed_out or task_timed_out
+                    timed_out or idle_timed_out or task_timed_out or memory_limited
                 ) and proc.poll() is not None:
                     while True:
                         try:
@@ -423,9 +592,10 @@ class RuntimeExecutor:
                         if item is None:
                             continue
                         live_output.emit(item)
-                        chunks.append(item)
+                        total_chars = _capture_chunk(chunks, total_chars, item)
                     break
         finally:
+            reader_stop.set()
             live_output.finish()
             with self._active_lock:
                 if self._active_process is proc:
@@ -435,7 +605,7 @@ class RuntimeExecutor:
                 proc.stdout.close()
 
         exit_code = proc.returncode if proc.returncode is not None else 124
-        if timed_out or idle_timed_out or task_timed_out:
+        if timed_out or idle_timed_out or task_timed_out or memory_limited:
             exit_code = 124
         elapsed = time.monotonic() - started
         result = {
@@ -446,23 +616,37 @@ class RuntimeExecutor:
             "timed_out": timed_out,
             "idle_timed_out": idle_timed_out,
             "task_timed_out": task_timed_out,
+            "memory_limit_mb": self._memory_limit_mb,
+            "memory_limited": memory_limited,
+            "peak_rss_mb": peak_rss_mb,
         }
+        if current_rss_mb is not None:
+            result["current_rss_mb"] = current_rss_mb
+        if command_failure_reason is not None:
+            result["failure_reason"] = command_failure_reason
         self.core.log(f"exec finished exit={exit_code} elapsed={elapsed:.1f}s: {command}")
-        self._emit(
-            {
-                "event": "command_finished",
-                "phase": phase,
-                "index": self._command_index,
-                "total": self._command_count,
-                "command": command,
-                "exit_code": exit_code,
-                "elapsed_seconds": round(elapsed, 3),
-                "timed_out": timed_out,
-                "idle_timed_out": idle_timed_out,
-                "task_timed_out": task_timed_out,
-                "finished_at": self.core.now_iso(),
-            }
-        )
+        finished: dict[str, Any] = {
+            "event": "command_finished",
+            "phase": phase,
+            "index": self._command_index,
+            "total": self._command_count,
+            "command": command,
+            "exit_code": exit_code,
+            "elapsed_seconds": round(elapsed, 3),
+            "timed_out": timed_out,
+            "idle_timed_out": idle_timed_out,
+            "task_timed_out": task_timed_out,
+            "memory_limited": memory_limited,
+            "memory_limit_mb": self._memory_limit_mb,
+            "finished_at": self.core.now_iso(),
+        }
+        if current_rss_mb is not None:
+            finished["current_rss_mb"] = current_rss_mb
+        if peak_rss_mb is not None:
+            finished["peak_rss_mb"] = peak_rss_mb
+        if command_failure_reason is not None:
+            finished["failure_reason"] = command_failure_reason
+        self._emit(finished)
         return result
 
     def process_task(
@@ -474,9 +658,11 @@ class RuntimeExecutor:
         validate_task(task)
         idle_timeout = idle_timeout_for(task)
         task_timeout = task_timeout_for(task)
+        memory_limit_mb = memory_limit_for(task)
         digest = task_digest(task)
         self._progress = progress
         self._idle_timeout = idle_timeout
+        self._memory_limit_mb = memory_limit_mb
         self._deadline = time.monotonic() + task_timeout
         self._command_index = 0
         self._primary_count = len(task.get("commands", []))
@@ -492,6 +678,7 @@ class RuntimeExecutor:
                 "task_digest": digest,
                 "idle_timeout": idle_timeout,
                 "task_timeout": task_timeout,
+                "memory_limit_mb": memory_limit_mb,
                 "started_at": self.core.now_iso(),
             }
         )
@@ -500,6 +687,7 @@ class RuntimeExecutor:
             result["task_digest"] = digest
             result["idle_timeout"] = idle_timeout
             result["task_timeout"] = task_timeout
+            result["memory_limit_mb"] = memory_limit_mb
             if self._last_failure_reason and result.get("status") != "done":
                 result["failure_reason"] = self._last_failure_reason
             self._emit(

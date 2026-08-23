@@ -14,6 +14,7 @@ This is the final infrastructure audit summary for the `MichalMatu/local-agent` 
 - Corrupt durable claims are converted to a terminal `corrupt_claim_state` result for a known queued task and quarantined for evidence.
 - Malformed task JSON is a terminal `invalid_task_file` failure; it is never retried and may not spam every poll forever. Historical filename aliases/prefixes that differ from `task.id` remain valid.
 - Command, no-output, and whole-task watchdogs are mandatory.
+- Command execution uses bounded stdout handoff/capture and a process-tree RSS memory watchdog; resource-heavy verification is split into sequential impact-matched commands.
 - SIGTERM/SIGINT terminate the active process group.
 - Result publication may be retried, execution may not.
 - Self-update is allowed only from a clean `local-agent/main` checkout, accepts fast-forward updates only, validates locally, rolls back failures, then restarts by `exec`.

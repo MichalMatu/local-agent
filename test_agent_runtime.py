@@ -10,7 +10,19 @@ from contextlib import redirect_stdout
 from pathlib import Path
 
 import agent_core as core
-from agent_runtime import RuntimeExecutor, idle_timeout_for, task_digest, task_timeout_for, validate_task
+from agent_runtime import (
+    DEFAULT_MEMORY_LIMIT_MB,
+    MAX_MEMORY_LIMIT_MB,
+    MAX_OUTPUT,
+    RuntimeExecutor,
+    idle_timeout_for,
+    memory_limit_for,
+    parse_process_table,
+    process_tree_rss_kb,
+    task_digest,
+    task_timeout_for,
+    validate_task,
+)
 
 
 class RuntimeExecutorTests(unittest.TestCase):
@@ -38,9 +50,65 @@ class RuntimeExecutorTests(unittest.TestCase):
     def test_watchdog_defaults_and_bounds(self) -> None:
         self.assertEqual(idle_timeout_for({}), 600)
         self.assertEqual(task_timeout_for({}), 3600)
+        self.assertEqual(memory_limit_for({}), DEFAULT_MEMORY_LIMIT_MB)
+        self.assertEqual(memory_limit_for({"memory_limit_mb": 0}), 0)
+        self.assertEqual(
+            memory_limit_for({"memory_limit_mb": MAX_MEMORY_LIMIT_MB}),
+            MAX_MEMORY_LIMIT_MB,
+        )
         self.assertEqual(idle_timeout_for({"idle_timeout": 0}), 0)
         with self.assertRaises(ValueError):
             task_timeout_for({"task_timeout": 14401})
+        with self.assertRaises(ValueError):
+            memory_limit_for({"memory_limit_mb": MAX_MEMORY_LIMIT_MB + 1})
+
+    def test_process_tree_rss_parser_sums_root_and_descendants(self) -> None:
+        processes = parse_process_table(
+            """
+              100       1     512
+              101     100     256
+              102     101     128
+              103     100      64
+              999       1    4096
+            """
+        )
+        self.assertEqual(process_tree_rss_kb(100, processes), 960)
+
+    def test_large_output_capture_is_strictly_bounded(self) -> None:
+        self.runtime._idle_timeout = 5
+        self.runtime._memory_limit_mb = 0
+        self.runtime._rss_sampler = lambda _pid: None
+        self.runtime._deadline = time.monotonic() + 10
+        self.runtime._command_count = 1
+        self.runtime._primary_count = 1
+        command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
+            "import sys; sys.stdout.write('x' * 200000)"
+        )
+        with redirect_stdout(io.StringIO()):
+            result = self.runtime.run_command(command, 5)
+        self.assertEqual(result["exit_code"], 0)
+        self.assertLessEqual(len(result["output"]), MAX_OUTPUT)
+
+    def test_memory_watchdog_kills_after_two_over_limit_samples(self) -> None:
+        runtime = RuntimeExecutor(
+            core,
+            rss_sampler=lambda _pid: 2.0,
+            memory_sample_interval=0.0,
+        )
+        runtime._idle_timeout = 0
+        runtime._memory_limit_mb = 1
+        runtime._deadline = time.monotonic() + 10
+        runtime._command_count = 1
+        runtime._primary_count = 1
+        command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
+            "import time; time.sleep(5)"
+        )
+        with redirect_stdout(io.StringIO()):
+            result = runtime.run_command(command, 5)
+        self.assertEqual(result["exit_code"], 124)
+        self.assertTrue(result["memory_limited"])
+        self.assertEqual(result["failure_reason"], "command_memory_limit")
+        self.assertEqual(result["peak_rss_mb"], 2.0)
 
     def test_idle_timeout_kills_silent_command(self) -> None:
         self.runtime._idle_timeout = 1
