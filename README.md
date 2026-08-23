@@ -52,6 +52,14 @@ Write `.agent/daemon/control.json`, for example:
 
 Supported actions are `restart`, `self_update`, and `status`. Acknowledgements are stored in `.agent/daemon/acks/<id>.json`, so a handled command is not replayed after restart.
 
+## Workspace checkpoints
+
+Before any destructive reset/clean of `~/agent-workspace/work`, the agent now checks for a dirty Git worktree. Dirty state is saved under `~/agent-workspace/checkpoints/<task-id>/...` as a binary Git patch for tracked files plus byte-for-byte copies of non-ignored untracked files and metadata containing the base commit. The checkpoint path is also returned in `workspace_checkpoint` when a task exits dirty.
+
+The same safeguard runs before `prepare_work`, so an interrupted daemon cannot silently lose edits on the next task. If checkpoint creation itself fails, cleanup is skipped and the task is marked `workspace_checkpoint_failed` rather than destroying the only remaining copy. Ignored build/cache output is intentionally excluded.
+
+Checkpoints are not automatically deleted. After changes are safely committed/pushed, old checkpoint directories may be removed manually.
+
 ## Self-update
 
 When idle, the daemon checks `MichalMatu/local-agent/main` every 60 seconds. It accepts only a fast-forward update, runs `py_compile` and the full unit suite, rolls back a failed update, remembers the rejected SHA, and `exec`s a validated daemon in place. `launchd` remains the outer supervisor.

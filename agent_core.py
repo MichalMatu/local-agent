@@ -5,6 +5,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import signal
 import subprocess
 import threading
@@ -17,6 +18,7 @@ from typing import Any
 HOME = Path.home()
 CONTROL = HOME / "agent-workspace" / "control"
 WORK = HOME / "agent-workspace" / "work"
+CHECKPOINTS = HOME / "agent-workspace" / "checkpoints"
 CONTROL_BRANCH = "agent-control"
 
 POLL_SECONDS = 15
@@ -243,8 +245,143 @@ def sync_control() -> None:
         raise RuntimeError(result["output"])
 
 
-def prepare_work(branch: str) -> None:
+def _run_git_capture(args: list[str]) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=WORK,
+        env=ENV,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+
+
+def _checkpoint_component(value: str) -> str:
+    clean = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-.")
+    return clean[:160] or "workspace"
+
+
+def checkpoint_worktree(task_id: str, *, reason: str) -> dict[str, Any] | None:
+    """Persist recoverable dirty workspace state before any destructive cleanup."""
+    status_probe = _run_git_capture(["status", "--porcelain=v1", "-z"])
+    if status_probe.returncode != 0:
+        raise RuntimeError(status_probe.stderr.decode("utf-8", errors="replace"))
+    if not status_probe.stdout:
+        return None
+
+    head_probe = _run_git_capture(["rev-parse", "HEAD"])
+    if head_probe.returncode != 0:
+        raise RuntimeError(head_probe.stderr.decode("utf-8", errors="replace"))
+    base_head = head_probe.stdout.decode("ascii", errors="strict").strip()
+
+    branch_probe = _run_git_capture(["branch", "--show-current"])
+    branch = (
+        branch_probe.stdout.decode("utf-8", errors="replace").strip()
+        if branch_probe.returncode == 0
+        else ""
+    )
+
+    task_component = _checkpoint_component(task_id)
+    reason_component = _checkpoint_component(reason)
+    checkpoint_root = CHECKPOINTS / task_component
+    checkpoint_root.mkdir(parents=True, exist_ok=True)
+    final_dir = checkpoint_root / f"{time.time_ns()}-{reason_component}"
+    temp_dir = final_dir.with_name(final_dir.name + ".tmp")
+    temp_dir.mkdir(parents=True, exist_ok=False)
+
+    try:
+        patch_path = temp_dir / "tracked.patch"
+        with patch_path.open("wb") as patch_file:
+            patch = subprocess.run(
+                ["git", "diff", "--binary", "--full-index", "HEAD", "--"],
+                cwd=WORK,
+                env=ENV,
+                stdout=patch_file,
+                stderr=subprocess.PIPE,
+                check=False,
+            )
+        if patch.returncode != 0:
+            raise RuntimeError(patch.stderr.decode("utf-8", errors="replace"))
+
+        untracked_probe = _run_git_capture(
+            ["ls-files", "--others", "--exclude-standard", "-z"]
+        )
+        if untracked_probe.returncode != 0:
+            raise RuntimeError(untracked_probe.stderr.decode("utf-8", errors="replace"))
+
+        untracked_files: list[str] = []
+        untracked_root = temp_dir / "untracked"
+        for raw in untracked_probe.stdout.split(b"\0"):
+            if not raw:
+                continue
+            relative_text = raw.decode("utf-8", errors="surrogateescape")
+            relative = Path(relative_text)
+            if relative.is_absolute() or ".." in relative.parts:
+                raise RuntimeError(f"unsafe untracked path from git: {relative_text!r}")
+            source = WORK / relative
+            target = untracked_root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if source.is_symlink():
+                os.symlink(os.readlink(source), target)
+            elif source.is_file():
+                shutil.copy2(source, target)
+            else:
+                raise RuntimeError(f"unsupported untracked entry: {relative_text!r}")
+            untracked_files.append(relative_text)
+
+        short_status = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=WORK,
+            env=ENV,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        if short_status.returncode != 0:
+            raise RuntimeError(short_status.stdout)
+
+        metadata = {
+            "version": 1,
+            "task_id": task_id,
+            "reason": reason,
+            "created_at": now_iso(),
+            "base_head": base_head,
+            "work_branch": branch,
+            "path": str(final_dir),
+            "tracked_patch": "tracked.patch",
+            "untracked_root": "untracked",
+            "untracked_files": untracked_files,
+            "status": short_status.stdout,
+        }
+        (temp_dir / "metadata.json").write_text(
+            json.dumps(metadata, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        (temp_dir / "RESTORE.txt").write_text(
+            "Checkpoint base HEAD: " + base_head + "\n\n"
+            "From a checkout at that base commit:\n"
+            "  git apply --binary tracked.patch\n"
+            "  cp -a untracked/. <repo>/   # only when untracked/ exists\n",
+            encoding="utf-8",
+        )
+        os.replace(temp_dir, final_dir)
+        log(
+            f"workspace checkpoint saved: {final_dir} "
+            f"untracked={len(untracked_files)}"
+        )
+        return metadata
+    except Exception:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
+
+
+def prepare_work(branch: str, *, task_id: str = "prepare-work") -> None:
     branch = validate_branch(branch)
+
+    safeguard = checkpoint_worktree(task_id, reason="before-prepare")
+    if safeguard is not None:
+        log(f"preserved dirty workspace before prepare: {safeguard['path']}")
 
     for args in (
         ["git", "reset", "--hard"],
@@ -430,7 +567,7 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
         f"mode=commands write={allow_write} timeout={timeout}s"
     )
 
-    prepare_work(branch)
+    prepare_work(branch, task_id=task_id)
 
     result: dict[str, Any] = {
         "id": task_id,
@@ -519,7 +656,22 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
         result["finished_at"] = now_iso()
         return result
     finally:
-        cleanup_work()
+        checkpoint_ok = True
+        try:
+            checkpoint = checkpoint_worktree(task_id, reason="task-exit")
+            if checkpoint is not None:
+                result["workspace_checkpoint"] = checkpoint
+        except Exception as exc:
+            checkpoint_ok = False
+            result["status"] = "failed"
+            result["failure_reason"] = "workspace_checkpoint_failed"
+            result["checkpoint_error"] = f"{type(exc).__name__}: {exc}"
+            log(
+                "workspace checkpoint failed; cleanup skipped to preserve dirty state: "
+                f"{type(exc).__name__}: {exc}"
+            )
+        if checkpoint_ok:
+            cleanup_work()
 
 
 def publish_result(task_id: str, result: dict[str, Any]) -> None:
