@@ -25,6 +25,7 @@ For a new reusable/config-driven deployment, prefer [`MichalMatu/DeterministicRu
 ├── agentd.py                  # daemon orchestration, claims, status/control, self-update
 ├── agent_core.py             # deterministic task execution/publication
 ├── agent_runtime.py          # watchdogs, staged execution, progress/telemetry
+├── agent_process.py          # shared bounded output and process-group lifecycle
 ├── agentctl.py               # diagnostics CLI
 ├── tests/                    # unit tests
 ├── docs/
@@ -38,12 +39,14 @@ For a new reusable/config-driven deployment, prefer [`MichalMatu/DeterministicRu
 
 ## Quick validation
 
-The core daemon has no third-party Python dependency requirement.
+The runtime daemon has no third-party Python dependency requirement. CI additionally installs a pinned Ruff version for lint validation.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py
+python -m py_compile agentd.py agent_core.py agent_runtime.py agent_process.py agentctl.py
+python -m pip install ruff==0.12.11
+ruff check agentd.py agent_core.py agent_runtime.py agent_process.py agentctl.py tests
 python -m unittest discover -q
 ```
 
@@ -60,12 +63,16 @@ Do not start a second foreground daemon when the production LaunchAgent is alrea
 
 ## Current runtime contract
 
-The current canonical code is `main` (daemon v4.4.x baseline). Important behavior:
+The current canonical release line is daemon v4.5.x. Important behavior:
 
 - durable task digest + attempt claim; interrupted tasks are never silently replayed;
 - command timeout default 900 s, maximum 1500 s;
 - no-output timeout default 300 s, maximum 900 s;
 - whole-task budget 1800 s with a 60 s finalization reserve;
+- process-group RSS limit default 4096 MiB, configurable up to 16384 MiB, with `0` disabling that watchdog;
+- command stdout uses bounded read chunks, a bounded handoff queue and a strictly bounded 60,000-character result buffer;
+- process spawning and process-group termination are centralized in `agent_process.py`;
+- runtime execution is explicitly injected into core task processing rather than installed by mutating a global command runner;
 - structured stages may define smaller explicit timeouts;
 - task progress/results/status are published on `agent-control`;
 - broad target-project regression suites are impact-driven, not automatic;
@@ -75,7 +82,7 @@ The current canonical code is `main` (daemon v4.4.x baseline). Important behavio
 
 `expected_head` guarding from DeterministicRunner is not implemented here. If exact source identity matters, verify the expected Git SHA explicitly in an early task command.
 
-A historical `v4.2.4-staging` branch contains experimental bounded-output/RSS-memory safeguards that are not part of the validated `main` code. Keep it as reference until those changes are manually ported and validated against the current runtime.
+The historical `v4.2.4-staging` branch remains as a reference. Its useful bounded-output/RSS ideas were manually adapted to the current v4.5 runtime instead of merging the divergent branch directly.
 
 ## Documentation
 
