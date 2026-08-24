@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Mapping
 
 MIN_TIMEOUT = 1
-MAX_TIMEOUT = 86_400
 
 
 @dataclass(frozen=True)
@@ -44,10 +43,8 @@ def _read_positive_int(name: str, raw: str) -> int:
         value = int(raw.strip())
     except (AttributeError, ValueError):
         raise ValueError(f"{name} must be an integer, got {raw!r}") from None
-    if value < MIN_TIMEOUT or value > MAX_TIMEOUT:
-        raise ValueError(
-            f"{name} must be {MIN_TIMEOUT}..{MAX_TIMEOUT} seconds, got {value}"
-        )
+    if value < MIN_TIMEOUT:
+        raise ValueError(f"{name} must be at least {MIN_TIMEOUT} second, got {value}")
     return value
 
 
