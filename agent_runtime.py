@@ -14,6 +14,8 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from agent_process import BoundedTextBuffer, spawn_shell, start_output_pump
+
 ProgressCallback = Callable[[dict[str, Any]], None]
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -22,6 +24,9 @@ MAX_IDLE_TIMEOUT = 900
 DEFAULT_TASK_TIMEOUT = 1800
 MAX_TASK_TIMEOUT = 1800
 TASK_FINALIZATION_RESERVE = 60
+DEFAULT_MEMORY_LIMIT_MB = 4096
+MAX_MEMORY_LIMIT_MB = 16384
+MEMORY_SAMPLE_INTERVAL = 2.0
 PROGRESS_INTERVAL = 30
 MAX_OUTPUT = 60000
 MAX_PROGRESS_MARKER = 4096
@@ -253,6 +258,7 @@ def validate_task(task: dict[str, Any]) -> None:
     command_timeout = core_module.command_timeout_for(task)
     idle_timeout_for(task)
     task_timeout = task_timeout_for(task)
+    memory_limit_for(task)
     for stage in stage_plan:
         stage_timeout = int(stage.get("stage_timeout", command_timeout))
         if stage_timeout + TASK_FINALIZATION_RESERVE > task_timeout:
@@ -286,6 +292,16 @@ def idle_timeout_for(task: dict[str, Any]) -> int:
 
 def task_timeout_for(task: dict[str, Any]) -> int:
     return _bounded_int(task, "task_timeout", DEFAULT_TASK_TIMEOUT, 1, MAX_TASK_TIMEOUT)
+
+
+def memory_limit_for(task: dict[str, Any]) -> int:
+    return _bounded_int(
+        task,
+        "memory_limit_mb",
+        DEFAULT_MEMORY_LIMIT_MB,
+        0,
+        MAX_MEMORY_LIMIT_MB,
+    )
 
 
 def parse_progress_marker(line: str) -> dict[str, Any] | None:
@@ -520,14 +536,32 @@ def collect_telemetry(pid: int) -> dict[str, Any]:
     return telemetry
 
 
+def sample_process_group_rss_mb(process_group: int) -> float | None:
+    text = _safe_command(["ps", "-axo", "pid=,pgid=,%cpu=,rss="], timeout=5.0)
+    if not text:
+        return None
+    telemetry = parse_process_group_ps(text, process_group)
+    value = telemetry.get("command_rss_mb")
+    return float(value) if isinstance(value, (int, float)) else None
+
+
 class RuntimeExecutor:
-    def __init__(self, core_module: Any):
+    def __init__(
+        self,
+        core_module: Any,
+        *,
+        rss_sampler: Callable[[int], float | None] = sample_process_group_rss_mb,
+        memory_sample_interval: float = MEMORY_SAMPLE_INTERVAL,
+    ) -> None:
         self.core = core_module
+        self._rss_sampler = rss_sampler
+        self._memory_sample_interval = max(0.05, float(memory_sample_interval))
         self._active_process: subprocess.Popen[str] | None = None
         self._active_lock = threading.Lock()
         self._progress: ProgressCallback | None = None
         self._deadline: float | None = None
         self._idle_timeout = DEFAULT_IDLE_TIMEOUT
+        self._memory_limit_mb = DEFAULT_MEMORY_LIMIT_MB
         self._command_index = 0
         self._command_count = 0
         self._primary_count = 0
@@ -547,7 +581,7 @@ class RuntimeExecutor:
     def terminate_active_command(self) -> bool:
         with self._active_lock:
             proc = self._active_process
-        if proc is None or proc.poll() is not None:
+        if proc is None:
             return False
         self.core.kill_process_group(proc)
         return True
@@ -587,6 +621,13 @@ class RuntimeExecutor:
         timed_out = False
         idle_timed_out = False
         task_timed_out = False
+        memory_limited = False
+        command_failure_reason: str | None = None
+        current_rss_mb: float | None = None
+        peak_rss_mb: float | None = None
+        over_limit_samples = 0
+        memory_measurement_warned = False
+        next_memory_sample = started
 
         budget_remaining: float | None = None
         if self._deadline is not None:
@@ -603,6 +644,7 @@ class RuntimeExecutor:
                     "timed_out": False,
                     "idle_timed_out": False,
                     "task_timed_out": False,
+                    "memory_limited": False,
                     "not_started": True,
                     "budget_exhausted": True,
                     "budget_remaining_seconds": round(budget_remaining, 3),
@@ -624,6 +666,7 @@ class RuntimeExecutor:
                         "timed_out": False,
                         "idle_timed_out": False,
                         "task_timed_out": False,
+                        "memory_limited": False,
                         "not_started": True,
                         "budget_exhausted": True,
                         "budget_remaining_seconds": round(budget_remaining, 3),
@@ -635,17 +678,8 @@ class RuntimeExecutor:
                 return result
 
         self.core.log(f"exec: {command}")
-        proc = subprocess.Popen(
-            command,
-            shell=True,
-            cwd=self.core.WORK,
-            env=self.core.ENV,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            start_new_session=True,
-        )
+        proc = spawn_shell(command, cwd=self.core.WORK, env=self.core.ENV)
+        process_group = proc.pid
         with self._active_lock:
             self._active_process = proc
 
@@ -659,25 +693,14 @@ class RuntimeExecutor:
                 "pid": proc.pid,
                 "timeout": timeout,
                 "idle_timeout": self._idle_timeout,
+                "memory_limit_mb": self._memory_limit_mb,
                 "started_at": self.core.now_iso(),
                 **stage,
             }
         )
 
-        lines: queue.Queue[str | None] = queue.Queue()
-
-        def reader() -> None:
-            assert proc.stdout is not None
-            try:
-                for line in iter(proc.stdout.readline, ""):
-                    lines.put(line)
-            finally:
-                lines.put(None)
-
-        thread = threading.Thread(target=reader, daemon=True)
-        thread.start()
-        chunks: list[str] = []
-        total_chars = 0
+        pump = start_output_pump(proc)
+        output = BoundedTextBuffer(MAX_OUTPUT)
         reader_done = False
         live_output = LiveCommandOutput()
 
@@ -686,14 +709,18 @@ class RuntimeExecutor:
                 now = time.monotonic()
                 elapsed = now - started
                 if proc.poll() is None:
-                    if elapsed >= timeout:
+                    if elapsed >= timeout and not timed_out:
                         timed_out = True
                         self._last_failure_reason = (
                             "verification_timeout" if phase == "verification" else "command_timeout"
                         )
                         self.core.log(f"TIMEOUT after {timeout}s: {command}")
                         self.core.kill_process_group(proc)
-                    elif self._idle_timeout > 0 and now - last_output >= self._idle_timeout:
+                    elif (
+                        self._idle_timeout > 0
+                        and now - last_output >= self._idle_timeout
+                        and not idle_timed_out
+                    ):
                         idle_timed_out = True
                         self._last_failure_reason = (
                             "verification_idle_timeout"
@@ -705,8 +732,49 @@ class RuntimeExecutor:
                         )
                         self.core.kill_process_group(proc)
 
+                if (
+                    self._memory_limit_mb > 0
+                    and not memory_limited
+                    and proc.poll() is None
+                    and now >= next_memory_sample
+                ):
+                    try:
+                        current_rss_mb = self._rss_sampler(process_group)
+                    except Exception:
+                        current_rss_mb = None
+                    next_memory_sample = time.monotonic() + self._memory_sample_interval
+                    if current_rss_mb is None:
+                        if not memory_measurement_warned:
+                            self.core.log(
+                                "RSS memory measurement unavailable; continuing with time watchdogs"
+                            )
+                            memory_measurement_warned = True
+                    else:
+                        peak_rss_mb = (
+                            current_rss_mb
+                            if peak_rss_mb is None
+                            else max(peak_rss_mb, current_rss_mb)
+                        )
+                        if current_rss_mb > self._memory_limit_mb:
+                            over_limit_samples += 1
+                        else:
+                            over_limit_samples = 0
+                        if over_limit_samples >= 2:
+                            memory_limited = True
+                            command_failure_reason = (
+                                "verification_memory_limit"
+                                if phase == "verification"
+                                else "command_memory_limit"
+                            )
+                            self._last_failure_reason = command_failure_reason
+                            self.core.log(
+                                f"MEMORY LIMIT after {over_limit_samples} samples "
+                                f"at {current_rss_mb:.1f} MB: {command}"
+                            )
+                            self.core.kill_process_group(proc)
+
                 try:
-                    item = lines.get(timeout=0.25)
+                    item = pump.queue.get(timeout=0.25)
                     if item is None:
                         reader_done = True
                     else:
@@ -737,11 +805,7 @@ class RuntimeExecutor:
                                 }
                             )
                         live_output.emit(item)
-                        chunks.append(item)
-                        total_chars += len(item)
-                        while total_chars > MAX_OUTPUT and chunks:
-                            removed = chunks.pop(0)
-                            total_chars -= len(removed)
+                        output.append(item)
                 except queue.Empty:
                     pass
 
@@ -770,6 +834,10 @@ class RuntimeExecutor:
                         heartbeat["last_progress_message"] = self._domain_progress.get(
                             "message"
                         )
+                    if current_rss_mb is not None:
+                        heartbeat["current_rss_mb"] = current_rss_mb
+                    if peak_rss_mb is not None:
+                        heartbeat["peak_rss_mb"] = peak_rss_mb
                     try:
                         heartbeat.update(collect_telemetry(proc.pid))
                     except Exception:
@@ -778,58 +846,54 @@ class RuntimeExecutor:
 
                 if proc.poll() is not None and reader_done:
                     break
-                if (
-                    timed_out or idle_timed_out or task_timed_out
-                ) and proc.poll() is not None:
-                    while True:
-                        try:
-                            item = lines.get_nowait()
-                        except queue.Empty:
-                            break
-                        if item is None:
-                            continue
-                        live_output.emit(item)
-                        chunks.append(item)
-                    break
         finally:
             live_output.finish()
+            pump.stop()
             with self._active_lock:
                 if self._active_process is proc:
                     self._active_process = None
-            thread.join(timeout=1)
-            if proc.stdout is not None:
-                proc.stdout.close()
 
         exit_code = proc.returncode if proc.returncode is not None else 124
-        if timed_out or idle_timed_out or task_timed_out:
+        if timed_out or idle_timed_out or task_timed_out or memory_limited:
             exit_code = 124
         elapsed = time.monotonic() - started
         result = {
             "command": command,
             "exit_code": exit_code,
-            "output": "".join(chunks),
+            "output": output.text(),
             "elapsed_seconds": round(elapsed, 3),
             "timed_out": timed_out,
             "idle_timed_out": idle_timed_out,
             "task_timed_out": task_timed_out,
+            "memory_limit_mb": self._memory_limit_mb,
+            "memory_limited": memory_limited,
+            "peak_rss_mb": peak_rss_mb,
         }
+        if current_rss_mb is not None:
+            result["current_rss_mb"] = current_rss_mb
+        if command_failure_reason is not None:
+            result["failure_reason"] = command_failure_reason
         self.core.log(f"exec finished exit={exit_code} elapsed={elapsed:.1f}s: {command}")
-        self._emit(
-            {
-                "event": "command_finished",
-                "phase": phase,
-                "index": self._command_index,
-                "total": self._command_count,
-                "command": command,
-                "exit_code": exit_code,
-                "elapsed_seconds": round(elapsed, 3),
-                "timed_out": timed_out,
-                "idle_timed_out": idle_timed_out,
-                "task_timed_out": task_timed_out,
-                "finished_at": self.core.now_iso(),
-                **stage,
-            }
-        )
+        finished_event = {
+            "event": "command_finished",
+            "phase": phase,
+            "index": self._command_index,
+            "total": self._command_count,
+            "command": command,
+            "exit_code": exit_code,
+            "elapsed_seconds": round(elapsed, 3),
+            "timed_out": timed_out,
+            "idle_timed_out": idle_timed_out,
+            "task_timed_out": task_timed_out,
+            "memory_limited": memory_limited,
+            "finished_at": self.core.now_iso(),
+            **stage,
+        }
+        if peak_rss_mb is not None:
+            finished_event["peak_rss_mb"] = peak_rss_mb
+        if command_failure_reason is not None:
+            finished_event["failure_reason"] = command_failure_reason
+        self._emit(finished_event)
         return result
 
     def process_task(
@@ -841,9 +905,11 @@ class RuntimeExecutor:
         validate_task(task)
         idle_timeout = idle_timeout_for(task)
         task_timeout = task_timeout_for(task)
+        memory_limit_mb = memory_limit_for(task)
         digest = task_digest(task)
         self._progress = progress
         self._idle_timeout = idle_timeout
+        self._memory_limit_mb = memory_limit_mb
         self._deadline = time.monotonic() + task_timeout
         self._command_index = 0
         self._stage_plan = self.core.stage_plan_for(task)
@@ -855,8 +921,6 @@ class RuntimeExecutor:
         self._last_progress_at = None
         self._last_failure_reason = None
 
-        original_run_command = self.core.run_command
-        self.core.run_command = self.run_command
         self._emit(
             {
                 "event": "task_started",
@@ -864,14 +928,16 @@ class RuntimeExecutor:
                 "task_digest": digest,
                 "idle_timeout": idle_timeout,
                 "task_timeout": task_timeout,
+                "memory_limit_mb": memory_limit_mb,
                 "started_at": self.core.now_iso(),
             }
         )
         try:
-            result = self.core.process_task(task)
+            result = self.core.process_task(task, command_runner=self.run_command)
             result["task_digest"] = digest
             result["idle_timeout"] = idle_timeout
             result["task_timeout"] = task_timeout
+            result["memory_limit_mb"] = memory_limit_mb
             if self._last_failure_reason and result.get("status") != "done":
                 result["failure_reason"] = self._last_failure_reason
             self._emit(
@@ -886,7 +952,6 @@ class RuntimeExecutor:
             )
             return result
         finally:
-            self.core.run_command = original_run_command
             self._progress = None
             self._deadline = None
             self._stage_plan = []
