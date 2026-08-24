@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "repositories": [
+    {
+      "id": "litegraph",
+      "repository": "MichalMatu/esp32s3_LiteGraph",
+      "legacy_workspace": true
+    },
+    {
+      "id": "photomaps",
+      "repository": "MichalMatu/PhotoMaps"
+    }
+  ]
+}
