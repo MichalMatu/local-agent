@@ -1,12 +1,12 @@
 # Local Agent Operations
 
-This file is the canonical workflow for the established local-agent deployment.
+This file is the canonical workflow for the established local-agent deployment. Multi-repository staging details are defined in `MULTI_REPOSITORY.md`.
 
 ## Roles
 
 The planner chooses exact changes and commands. The daemon executes deterministic tasks, records real output and publishes machine-readable evidence. It does not invent fixes.
 
-Default pairing:
+Validated v4.5 default pairing:
 
 - target repository: `MichalMatu/esp32s3_LiteGraph`
 - target source branch: `main`
@@ -14,11 +14,15 @@ Default pairing:
 - daemon repository: `MichalMatu/local-agent`
 - daemon branch: `main`
 
+v4.6 staging generalizes the target side to a machine-local registry of repositories while preserving the same task format and execution core.
+
 ## Control data
 
-The `agent-control` branch contains queued tasks, live runs, terminal results, daemon status and durable control acknowledgements under `.agent/`.
+Each repository `agent-control` branch contains queued tasks, live runs, terminal results, daemon/repository status and durable control acknowledgements under `.agent/`.
 
-Task ids and payloads are immutable. Claimed or interrupted work is never replayed automatically. Result publication may be retried; execution may not.
+Task ids and payloads are immutable within one repository. Claimed or interrupted work is never replayed automatically. Result publication may be retried; execution may not.
+
+In multi-repository mode, task/result/claim identity is repository-scoped. Two repositories may safely contain the same task id.
 
 ## Runtime limits
 
@@ -42,10 +46,10 @@ Long work should use named sequential stages. The whole-task budget is checked b
 ## Development loop
 
 1. Read `AGENTS.md` and applicable target-repository rules.
-2. Inspect source plus current daemon/run/result evidence.
+2. Inspect source plus current daemon/run/result evidence for the exact repository.
 3. Prepare the smallest deterministic change.
 4. Select verification that can detect realistic regressions from that diff.
-5. Queue a unique task through the remote control branch.
+5. Queue a unique task through that repository's remote `agent-control` branch.
 6. Follow the same attempt id and task digest while it runs.
 7. Diagnose real output and iterate with the next smallest change.
 8. Review the exact diff and publish only validated source.
@@ -53,11 +57,46 @@ Long work should use named sequential stages. The whole-task budget is checked b
 
 Verification is impact-driven. Broad suites are used only for shared/cross-cutting changes, uncertain dependency impact, explicit repository requirements or explicit user requests.
 
+## Multi-repository operation
+
+The v4.6 registry is stored at:
+
+```text
+~/Library/Application Support/local-agent/repositories.json
+```
+
+Inspect and validate it with:
+
+```bash
+python agent_repo_admin.py list
+python agent_repo_admin.py validate
+```
+
+Provision one new repository explicitly with:
+
+```bash
+python agent_repo_admin.py provision --repository-id <id>
+```
+
+Provisioning is never an implicit poll-loop action. It refuses existing non-Git destinations, validates origin identity and may initialize a missing `agent-control` branch only in a newly created control clone.
+
+The multi-repository supervisor schedules repositories round-robin and starts one short-lived worker at a time. Global execution concurrency remains one even when several chats/projects queue tasks concurrently.
+
+Repository-local `status` control is supported. Global `restart` and `self_update` are intentionally not executed by repository workers; use explicit supervisor/launchd administration for those maintenance operations.
+
 ## Release flow
 
 Non-trivial daemon changes are prepared on an isolated `v*-staging` branch. Python compile checks, Ruff lint and unit tests must pass, and GitHub CI must be green on the exact staging SHA before `main` is fast-forwarded. The live daemon checkout is never used as the staging workspace.
 
-After a runtime release, verify the reported daemon revision and run a real queue smoke task when execution behavior changed.
+Multi-repository changes additionally require real temporary-Git integration tests and an isolated macOS two-repository smoke test on the exact candidate SHA. The smoke test must clean up its staging worktree and leave the running production daemon healthy.
+
+After a runtime release, verify the reported daemon revision/status and run a real queue smoke task when execution behavior changed.
+
+## Activation and rollback
+
+The v4.6 launchd file is a replacement template, not a second service. It uses the same launchd label and daemon lock as v4.5.
+
+Do not load v4.5 and v4.6 simultaneously. Stop/unload the existing service before replacing its launchd configuration. Rollback means stopping v4.6, restoring the v4.5 plist and starting the service again; the legacy LiteGraph workspace remains intact.
 
 ## Legacy cautions
 
