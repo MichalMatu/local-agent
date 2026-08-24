@@ -66,11 +66,12 @@ class OutputPump:
     def stop(self, timeout: float = 1.0) -> None:
         self.stop_event.set()
         self.thread.join(timeout=timeout)
-        if self.thread.is_alive() and self.process.stdout is not None:
+        if self.process.stdout is not None:
             try:
                 self.process.stdout.close()
             except (OSError, ValueError):
                 pass
+        if self.thread.is_alive():
             self.thread.join(timeout=timeout)
 
 
@@ -179,10 +180,12 @@ def terminate_process_group(
 
     deadline = time.monotonic() + max(0.0, grace_seconds)
     while time.monotonic() < deadline:
+        proc.poll()
         if not process_group_alive(process_group):
             return
         time.sleep(0.05)
 
+    proc.poll()
     if not process_group_alive(process_group):
         return
     log(f"killing process group pgid={process_group}")
