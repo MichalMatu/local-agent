@@ -15,6 +15,7 @@ from agent_process import terminate_process_group
 from agent_repository import RepositoryContext, load_repository_registry
 from agent_repo_worker import WORKER_IDLE, WORKER_PROCESSED
 
+SUPERVISOR_VERSION = "4.6.0-staging"
 POLL_SECONDS = 15
 _active_worker: subprocess.Popen[str] | None = None
 _daemon_lock_handle: Any | None = None
@@ -61,10 +62,12 @@ def run_worker(
     global _active_worker
     command = worker_command(repository, registry_path=registry_path)
     log(f"polling repository={repository.repository_id}")
+    env = os.environ.copy()
+    env["LOCAL_AGENT_SUPERVISOR_PID"] = str(os.getpid())
     proc = subprocess.Popen(
         command,
         cwd=Path(__file__).resolve().parent,
-        env=os.environ.copy(),
+        env=env,
         text=True,
         start_new_session=True,
     )
@@ -125,13 +128,23 @@ def main() -> int:
     install_signal_handlers()
     registry_path = args.registry
     last_repository: str | None = None
-    log("v4.6 staging supervisor starting; global execution concurrency=1")
+    log(
+        f"supervisor {SUPERVISOR_VERSION} starting; "
+        "global execution concurrency=1"
+    )
 
     while True:
-        processed, last_repository = run_cycle(
-            registry_path=registry_path,
-            start_after=last_repository,
-        )
+        try:
+            processed, last_repository = run_cycle(
+                registry_path=registry_path,
+                start_after=last_repository,
+            )
+        except Exception as exc:
+            log(f"registry/scheduler cycle failed: {type(exc).__name__}: {exc}")
+            if args.once:
+                return 2
+            time.sleep(POLL_SECONDS)
+            continue
         if args.once:
             return 0
         if not processed:
