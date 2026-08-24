@@ -1,45 +1,62 @@
 # Local Agent repository rules
 
-This repository is paired by default with `MichalMatu/esp32s3_LiteGraph`. In a future session, if the user provides this repository or says to use the established local-agent flow, read `SESSION_BOOTSTRAP.md` first and treat ESP32 LiteGraph as the default development target unless the user explicitly asks to work on the daemon itself.
+This repository is execution infrastructure. Prefer deterministic behavior, bounded execution, explicit failure and recoverable state over clever recovery.
 
-This repository is infrastructure. Prefer deterministic behavior, bounded execution and explicit failure over clever recovery.
+## Execution contract
 
-- **English-only execution contract:** every machine-generated artifact and every line that can reach daemon/task logs must be English. This includes agent/Codex progress narration, final task summaries, source code, comments, identifiers, UI strings, runtime log messages, test names/descriptions, documentation, prompts, task titles/descriptions, shell-visible status text, and commit messages. Do not emit Polish or any other non-English prose in execution output unless a task explicitly requires localized user-facing content.
-- Repository/task language requirements apply independently from the language used in the interactive ChatGPT conversation. A user may converse in Polish while all local-agent/Codex execution output remains English.
-- Every newly authored Codex prompt must restate the English-only execution contract near the top so the requirement survives repository-context or instruction changes.
+- All machine-generated execution content is English-only: source, comments, identifiers, tests, documentation, prompts, task metadata, runtime logs, shell-visible status text and commit messages.
+- Interactive ChatGPT conversation language is independent from that execution contract.
+- Every newly authored Codex/agent prompt must restate the English-only execution requirement near the top.
 - `agentd.py` owns queue orchestration, durable claims, remote status/control and self-update.
 - `agent_core.py` owns deterministic task execution and result publication.
-- `agent_runtime.py` adds command process-group lifecycle, idle/task watchdogs and progress events without changing the target repository.
+- `agent_runtime.py` owns staged command lifecycle, watchdogs, progress and telemetry.
 - `agentctl.py` is diagnostics only; the daemon must not depend on it.
-- `local-agent` has a legacy task contract. Do not assume fields supported by `DeterministicRunner` are implemented here merely because the names look compatible.
-- `expected_head` is not implemented by `local-agent`. If exact source identity matters, verify the expected Git SHA explicitly in an early task command before later side effects.
-- Identical command strings within one task may reuse the earlier result through `agent_core.run_command_list`. Do not rely on repeating an identical string to force re-execution; use a new task when a true rerun is required.
-- Never automatically replay a task after a daemon/process interruption.
+
+## Safety invariants
+
+- Never automatically replay a task after daemon/process interruption.
 - Never silently reuse a task id for a different payload.
-- Never remove or weaken command, idle or whole-task watchdogs without explicit justification.
+- Malformed task JSON is terminal `invalid_task_file`, not a retry candidate.
+- Keep command/no-output watchdogs and the whole-task admission budget intact unless a change explicitly replaces them with an equivalent or stronger mechanism.
+- Never terminate an already-running stage solely because the whole-task admission budget expired.
 - All daemon self-updates must validate before restart and roll back on failure.
 - Do not add a local coding LLM to the deterministic execution path.
 - Keep Git staging path-exact; never use `git add -A` in publication logic.
 - Preserve ignored build caches unless a task explicitly asks for a clean rebuild.
-- Never destroy a dirty disposable workspace without first creating a recoverable workspace checkpoint outside the worktree; if checkpointing fails, skip destructive cleanup.
-- Treat `~/agent-workspace/control` as daemon execution infrastructure. Queue tasks/control requests through the remote `agent-control` branch via GitHub/API tooling or another trusted writer checkout rather than manually authoring them in the daemon control clone during normal operation.
-- Target-project verification is impact-driven: queue only tests/builds that exercise code, configuration, dependencies or integration boundaries plausibly affected by the current diff.
-- Do not run a broad regression suite merely because it exists or as a default end-of-iteration gate. A broad suite requires a concrete impact rationale: shared/cross-cutting infrastructure changed, dependency impact cannot be bounded confidently, the target repository explicitly requires it for this change class, or the user explicitly requests it.
-- After a focused fix, rerun only the affected gate unless that fix expands the impact surface. Previously green evidence remains valid while the code and relevant dependencies covered by that gate have not changed.
-- New control/progress behavior requires unit coverage.
-- Long multi-phase tasks must prefer structured sequential `steps` with meaningful
-  English stage names. Do not conceal a safely splittable build/flash/test/stress/
-  reboot workflow in one opaque command; intentionally long scripts should emit
-  periodic `[AGENT_PROGRESS] ` JSON markers. Local heartbeats are about 30 seconds
-  and remote run/daemon progress is normally refreshed about every 60 seconds.
-- Heartbeat telemetry is best-effort and may include host CPU/load/memory/swap plus
-  active process-group CPU/RSS/child counts; unavailable metrics are omitted.
-- Before publishing daemon changes run `python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py` and `python -m unittest discover -q`.
+- Never destroy a dirty disposable workspace without first creating a recoverable checkpoint outside the worktree.
+- Treat `~/agent-workspace/control` as daemon infrastructure. Queue normal work through the remote `agent-control` branch rather than hand-editing that clone.
 
-## Golden-standard reference
+## Legacy semantics
 
-Read `GOLDEN_STANDARD.md` for the current versioned infrastructure invariants and audit disposition. Source publication and ESP32 hardware flashing are separate gates; never infer the running firmware commit from repository `main` or semantic firmware version alone.
+`local-agent` is not feature-identical to DeterministicRunner:
 
-### Invalid task contract
+- `expected_head` is not implemented; verify an expected Git SHA explicitly when source identity matters.
+- Identical command strings within one task may reuse the earlier result instead of executing again.
+- Cleanup intentionally preserves ignored caches.
+- The established deployment is macOS/POSIX-specific and uses `launchd`.
 
-Malformed task JSON is a terminal queue error, not a retry candidate. The daemon publishes `failure_reason=invalid_task_file` under the filename rejection key, and pending scans check that rejection before parsing so a bad task cannot spam every poll forever. Valid historical filename aliases/prefixes may differ from `task.id`; execution results and claims remain keyed by `task.id`.
+## Verification policy
+
+Verification is impact-driven:
+
+- run the narrowest test/build that can detect a realistic regression from the current diff;
+- add broader coverage only for shared/cross-cutting changes, uncertain dependency impact, an explicit repository requirement, or an explicit user request;
+- previously green focused evidence remains valid while the covered code and relevant dependencies remain unchanged;
+- after a focused fix, rerun only the affected gate unless the fix expands the impact surface;
+- new control/progress/watchdog behavior requires unit coverage.
+
+For daemon changes, before publication run:
+
+```bash
+python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py
+python -m unittest discover -q
+```
+
+For non-trivial daemon changes use an isolated `v*-staging` branch, require green GitHub CI on the exact staging SHA, then fast-forward `main` to that validated SHA. Never prepare a release by switching the live daemon checkout onto staging.
+
+## Documentation
+
+Canonical workflow: `docs/OPERATIONS.md`.
+Established Mac/ESP32 deployment: `docs/SESSION_BOOTSTRAP.md`.
+Current invariants/audit state: `docs/GOLDEN_STANDARD.md`.
+Historical design notes under `docs/history/` are non-canonical.
