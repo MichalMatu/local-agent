@@ -58,9 +58,9 @@ class RepositoryAdminIntegrationTests(unittest.TestCase):
                 checkpoints=root / "checkpoints",
             )
 
-            with mock.patch.dict(os.environ, {"HOME": str(home)}), mock.patch.object(
-                admin, "clone_url", return_value=str(remote)
-            ):
+            with mock.patch.dict(os.environ, {"HOME": str(home)}), mock.patch.dict(
+                admin.core.ENV, {"HOME": str(home)}
+            ), mock.patch.object(admin, "clone_url", return_value=str(remote)):
                 result = admin.provision_repository(repository)
 
             self.assertEqual(
