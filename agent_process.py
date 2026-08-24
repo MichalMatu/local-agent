@@ -5,6 +5,7 @@ import os
 import queue
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from collections import deque
@@ -16,6 +17,37 @@ OUTPUT_QUEUE_CAPACITY = 256
 OUTPUT_READ_SIZE = 8192
 
 
+def fsync_directory(path: Path) -> None:
+    """Persist directory entry changes when the platform supports directory fsync."""
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def atomic_write_text(path: Path, text: str) -> None:
+    """Atomically and durably replace one UTF-8 text file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temp_name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        text=True,
+    )
+    temp = Path(temp_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    except Exception:
+        temp.unlink(missing_ok=True)
+        raise
+    fsync_directory(path.parent)
+
+
 class BoundedTextBuffer:
     """Retain only the newest text up to a strict character limit."""
 
@@ -25,10 +57,12 @@ class BoundedTextBuffer:
         self.limit = limit
         self._chunks: deque[str] = deque()
         self._chars = 0
+        self._total_chars = 0
 
     def append(self, text: str) -> None:
         if not text:
             return
+        self._total_chars += len(text)
         if len(text) >= self.limit:
             self._chunks.clear()
             self._chunks.append(text[-self.limit :])
@@ -54,6 +88,10 @@ class BoundedTextBuffer:
 
     def __len__(self) -> int:
         return self._chars
+
+    @property
+    def truncated(self) -> bool:
+        return self._total_chars > self.limit
 
 
 @dataclass
@@ -87,6 +125,7 @@ def spawn_shell(
         shell=True,
         cwd=cwd,
         env=dict(env),
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -95,6 +134,55 @@ def spawn_shell(
     )
     setattr(proc, "_local_agent_process_group", proc.pid)
     return proc
+
+
+def spawn_argv(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: Mapping[str, str],
+    input_text: str | None = None,
+) -> subprocess.Popen[str]:
+    """Start one argument-vector command in its own process group."""
+    proc = subprocess.Popen(
+        args,
+        cwd=cwd,
+        env=dict(env),
+        stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        start_new_session=True,
+    )
+    setattr(proc, "_local_agent_process_group", proc.pid)
+    return proc
+
+
+def start_input_writer(
+    proc: subprocess.Popen[str],
+    input_text: str | None,
+) -> threading.Thread | None:
+    """Feed bounded command input without blocking the watchdog thread."""
+    if input_text is None:
+        return None
+
+    def writer() -> None:
+        assert proc.stdin is not None
+        try:
+            proc.stdin.write(input_text)
+            proc.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            pass
+        finally:
+            try:
+                proc.stdin.close()
+            except (OSError, ValueError):
+                pass
+
+    thread = threading.Thread(target=writer, daemon=True, name="local-agent-input")
+    thread.start()
+    return thread
 
 
 def start_output_pump(
@@ -197,3 +285,86 @@ def terminate_process_group(
         proc.wait(timeout=1)
     except subprocess.TimeoutExpired:
         pass
+
+
+def terminate_remaining_process_group(
+    proc: subprocess.Popen[str],
+    log: Callable[[str], None],
+) -> bool:
+    """Terminate descendants left behind after their direct parent has exited."""
+    process_group = process_group_for(proc)
+    if process_group is None or not process_group_alive(process_group):
+        return False
+    log(f"background process leak detected pgid={process_group}")
+    terminate_process_group(proc, log)
+    return True
+
+
+def run_argv_bounded(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: Mapping[str, str],
+    timeout: float,
+    output_limit: int,
+    log: Callable[[str], None],
+    input_text: str | None = None,
+) -> dict[str, object]:
+    """Run one argv command with bounded output, timeout and descendant cleanup."""
+    started = time.monotonic()
+    proc = spawn_argv(args, cwd=cwd, env=env, input_text=input_text)
+    input_writer = start_input_writer(proc, input_text)
+    pump = start_output_pump(proc)
+    output = BoundedTextBuffer(output_limit)
+    reader_done = False
+    timed_out = False
+    background_process_leak = False
+    direct_process_finished = False
+
+    try:
+        while True:
+            elapsed = time.monotonic() - started
+            if elapsed >= timeout and not timed_out and proc.poll() is None:
+                timed_out = True
+                terminate_process_group(proc, log)
+
+            if proc.poll() is not None and not direct_process_finished:
+                direct_process_finished = True
+                background_process_leak = terminate_remaining_process_group(proc, log)
+
+            try:
+                item = pump.queue.get(timeout=0.05 if direct_process_finished else 0.25)
+                if item is None:
+                    reader_done = True
+                else:
+                    output.append(item)
+            except queue.Empty:
+                pass
+
+            if direct_process_finished and reader_done:
+                break
+    finally:
+        if proc.poll() is None:
+            terminate_process_group(proc, log)
+        pump.stop()
+        if input_writer is not None:
+            input_writer.join(timeout=1)
+
+    exit_code = proc.returncode if proc.returncode is not None else 124
+    if timed_out:
+        exit_code = 124
+    elif background_process_leak:
+        exit_code = 126
+    result: dict[str, object] = {
+        "exit_code": exit_code,
+        "output": output.text(),
+        "elapsed_seconds": round(time.monotonic() - started, 3),
+    }
+    if timed_out:
+        result["timed_out"] = True
+    if output.truncated:
+        result["output_truncated"] = True
+    if background_process_leak:
+        result["background_process_leak"] = True
+        result["failure_reason"] = "background_process_leak"
+    return result

@@ -35,6 +35,7 @@ class RepositoryControlTests(unittest.TestCase):
         self.original_corrupt_claims_dir = agentd.CORRUPT_CLAIMS_DIR
         self.original_local_status_path = agentd.LOCAL_STATUS_PATH
         self.original_local_runs_dir = agentd.LOCAL_RUNS_DIR
+        self.original_result_spool_dir = agentd.RESULT_SPOOL_DIR
         agentd.STATE_DIR = root / "state"
         self.original_last_remote_status = agentd._last_remote_status
         self.original_last_status_state = agentd._last_status_state
@@ -51,6 +52,7 @@ class RepositoryControlTests(unittest.TestCase):
         agentd.CORRUPT_CLAIMS_DIR = self.original_corrupt_claims_dir
         agentd.LOCAL_STATUS_PATH = self.original_local_status_path
         agentd.LOCAL_RUNS_DIR = self.original_local_runs_dir
+        agentd.RESULT_SPOOL_DIR = self.original_result_spool_dir
         agentd._last_remote_status = self.original_last_remote_status
         agentd._last_status_state = self.original_last_status_state
         self.tmp.cleanup()

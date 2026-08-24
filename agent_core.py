@@ -7,17 +7,22 @@ import queue
 import re
 import shutil
 import subprocess
+import threading
 import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Mapping, Protocol
 
 from agent_config import TIMEOUTS
 from agent_process import (
     BoundedTextBuffer,
+    atomic_write_text,
+    fsync_directory,
+    run_argv_bounded,
     spawn_shell,
     start_output_pump,
+    terminate_remaining_process_group,
     terminate_process_group,
 )
 
@@ -31,6 +36,13 @@ POLL_SECONDS = 15
 COMMAND_TIMEOUT = TIMEOUTS.command_default
 MAX_COMMAND_TIMEOUT = TIMEOUTS.command_max
 MAX_OUTPUT = 60000
+CHECKPOINT_TIMEOUT_SECONDS = 600
+CHECKPOINT_MAX_FILES = 10_000
+CHECKPOINT_MAX_BYTES = 5 * 1024**3
+CHECKPOINT_MAX_PATCH_BYTES = 1024**3
+CHECKPOINT_GIT_OUTPUT_BYTES = 16 * 1024**2
+CHECKPOINT_FREE_SPACE_RESERVE_BYTES = 256 * 1024**2
+CHECKPOINT_COPY_CHUNK_BYTES = 1024 * 1024
 
 BASE_PATH = [
     str(HOME / ".platformio" / "penv" / "bin"),
@@ -45,6 +57,7 @@ ENV = os.environ.copy()
 ENV["PATH"] = ":".join(BASE_PATH + [ENV.get("PATH", "")])
 
 _BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+CONTROL_GIT_LOCK = threading.RLock()
 
 
 class CommandRunner(Protocol):
@@ -77,42 +90,31 @@ def process(
     timeout: int = 120,
     *,
     input_text: str | None = None,
+    output_limit: int = MAX_OUTPUT,
+    environment: Mapping[str, str] | None = None,
+    log_commands: bool = True,
 ) -> dict[str, Any]:
-    log(f"exec: {' '.join(args)}")
-    started = time.monotonic()
-    try:
-        completed = subprocess.run(
-            args,
-            cwd=cwd,
-            env=ENV,
-            text=True,
-            input=input_text,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=timeout,
-            check=False,
-        )
-        output = bounded(completed.stdout or "")
-        elapsed = time.monotonic() - started
+    process_log = log if log_commands else lambda _message: None
+    if log_commands:
+        log(f"exec: {' '.join(args)}")
+    result = run_argv_bounded(
+        args,
+        cwd=cwd,
+        env=ENV if environment is None else environment,
+        timeout=timeout,
+        output_limit=output_limit,
+        log=process_log,
+        input_text=input_text,
+    )
+    elapsed = float(result["elapsed_seconds"])
+    if result.get("timed_out"):
+        process_log(f"TIMEOUT after {timeout}s: {' '.join(args)}")
+    if log_commands:
         log(
-            f"exec finished exit={completed.returncode} "
+            f"exec finished exit={result['exit_code']} "
             f"elapsed={elapsed:.1f}s: {' '.join(args)}"
         )
-        return {
-            "exit_code": completed.returncode,
-            "output": output,
-            "elapsed_seconds": round(elapsed, 3),
-        }
-    except subprocess.TimeoutExpired as exc:
-        output = bounded((exc.stdout or "") if isinstance(exc.stdout, str) else "")
-        elapsed = time.monotonic() - started
-        log(f"TIMEOUT after {timeout}s: {' '.join(args)}")
-        return {
-            "exit_code": 124,
-            "output": output,
-            "elapsed_seconds": round(elapsed, 3),
-            "timed_out": True,
-        }
+    return result
 
 
 def kill_process_group(proc: subprocess.Popen[str]) -> None:
@@ -132,6 +134,8 @@ def run_command(
     output = BoundedTextBuffer(MAX_OUTPUT)
     reader_done = False
     timed_out = False
+    background_process_leak = False
+    direct_process_finished = False
 
     try:
         while True:
@@ -141,6 +145,10 @@ def run_command(
                 timed_out = True
                 log(f"TIMEOUT after {timeout}s: {command}")
                 kill_process_group(proc)
+
+            if proc.poll() is not None and not direct_process_finished:
+                direct_process_finished = True
+                background_process_leak = terminate_remaining_process_group(proc, log)
 
             try:
                 item = pump.queue.get(timeout=0.25 if remaining > 0 else 0.05)
@@ -152,14 +160,18 @@ def run_command(
             except queue.Empty:
                 pass
 
-            if proc.poll() is not None and reader_done:
+            if direct_process_finished and reader_done:
                 break
     finally:
+        if proc.poll() is None:
+            kill_process_group(proc)
         pump.stop()
 
     exit_code = proc.returncode if proc.returncode is not None else 124
     if timed_out:
         exit_code = 124
+    elif background_process_leak:
+        exit_code = 126
 
     elapsed = time.monotonic() - started
     log(f"exec finished exit={exit_code} elapsed={elapsed:.1f}s: {command}")
@@ -170,6 +182,12 @@ def run_command(
         "output": output.text(),
         "elapsed_seconds": round(elapsed, 3),
         "timed_out": timed_out,
+        "background_process_leak": background_process_leak,
+        **(
+            {"failure_reason": "background_process_leak"}
+            if background_process_leak
+            else {}
+        ),
     }
 
 
@@ -190,23 +208,23 @@ def validate_branch(branch: str) -> str:
 
 
 def sync_control() -> None:
-    result = process(["git", "checkout", CONTROL_BRANCH], CONTROL)
-    if result["exit_code"] != 0:
-        raise RuntimeError(result["output"])
+    with CONTROL_GIT_LOCK:
+        result = process(["git", "checkout", CONTROL_BRANCH], CONTROL)
+        if result["exit_code"] != 0:
+            raise RuntimeError(result["output"])
 
-    result = process(["git", "pull", "--rebase", "origin", CONTROL_BRANCH], CONTROL)
-    if result["exit_code"] != 0:
-        raise RuntimeError(result["output"])
+        result = process(["git", "pull", "--rebase", "origin", CONTROL_BRANCH], CONTROL)
+        if result["exit_code"] != 0:
+            raise RuntimeError(result["output"])
 
 
-def _run_git_capture(args: list[str]) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run(
+def _run_git_capture(args: list[str], *, timeout: float = 60) -> dict[str, Any]:
+    return process(
         ["git", *args],
         cwd=WORK,
-        env=ENV,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
+        timeout=int(max(1, timeout)),
+        output_limit=CHECKPOINT_GIT_OUTPUT_BYTES,
+        log_commands=False,
     )
 
 
@@ -215,88 +233,203 @@ def _checkpoint_component(value: str) -> str:
     return clean[:160] or "workspace"
 
 
+def _checkpoint_remaining(deadline: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError(
+            f"workspace checkpoint exceeded {CHECKPOINT_TIMEOUT_SECONDS} seconds"
+        )
+    return remaining
+
+
+def _require_complete_git_output(result: dict[str, Any], operation: str) -> str:
+    if result["exit_code"] != 0:
+        raise RuntimeError(f"{operation} failed: {result.get('output', '')}")
+    if result.get("output_truncated"):
+        raise RuntimeError(
+            f"{operation} output exceeds {CHECKPOINT_GIT_OUTPUT_BYTES} characters"
+        )
+    return str(result.get("output", ""))
+
+
+def _copy_checkpoint_file(source: Path, target: Path, deadline: float) -> int:
+    copied = 0
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with source.open("rb") as source_handle, target.open("xb") as target_handle:
+        while True:
+            _checkpoint_remaining(deadline)
+            chunk = source_handle.read(CHECKPOINT_COPY_CHUNK_BYTES)
+            if not chunk:
+                break
+            copied += len(chunk)
+            if copied > CHECKPOINT_MAX_BYTES:
+                raise RuntimeError(
+                    f"workspace checkpoint exceeds {CHECKPOINT_MAX_BYTES} bytes"
+                )
+            target_handle.write(chunk)
+        target_handle.flush()
+        os.fsync(target_handle.fileno())
+    shutil.copystat(source, target, follow_symlinks=False)
+    return copied
+
+
+def _fsync_checkpoint_tree(root: Path) -> None:
+    directories = [path for path in root.rglob("*") if path.is_dir()]
+    for directory in sorted(directories, key=lambda path: len(path.parts), reverse=True):
+        fsync_directory(directory)
+    fsync_directory(root)
+
+
+def _write_tracked_patch(path: Path, deadline: float, reserved_bytes: int) -> int:
+    with path.open("xb") as patch_file:
+        proc = subprocess.Popen(
+            ["git", "diff", "--binary", "--full-index", "HEAD", "--"],
+            cwd=WORK,
+            env=ENV,
+            stdout=patch_file,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        setattr(proc, "_local_agent_process_group", proc.pid)
+        try:
+            while proc.poll() is None:
+                _checkpoint_remaining(deadline)
+                patch_size = patch_file.tell()
+                if patch_size > CHECKPOINT_MAX_PATCH_BYTES:
+                    raise RuntimeError(
+                        f"tracked checkpoint patch exceeds "
+                        f"{CHECKPOINT_MAX_PATCH_BYTES} bytes"
+                    )
+                free = shutil.disk_usage(path.parent).free
+                if free < reserved_bytes + CHECKPOINT_FREE_SPACE_RESERVE_BYTES:
+                    raise RuntimeError(
+                        "insufficient free space while creating tracked patch"
+                    )
+                time.sleep(0.05)
+            stderr = (
+                proc.stderr.read(CHECKPOINT_GIT_OUTPUT_BYTES) if proc.stderr else b""
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(stderr.decode("utf-8", errors="replace"))
+            patch_file.flush()
+            os.fsync(patch_file.fileno())
+            return patch_file.tell()
+        finally:
+            if proc.poll() is None:
+                terminate_process_group(proc, log)
+            if proc.stderr is not None:
+                proc.stderr.close()
+
+
 def checkpoint_worktree(task_id: str, *, reason: str) -> dict[str, Any] | None:
     """Persist recoverable dirty workspace state before any destructive cleanup."""
-    status_probe = _run_git_capture(["status", "--porcelain=v1", "-z"])
-    if status_probe.returncode != 0:
-        raise RuntimeError(status_probe.stderr.decode("utf-8", errors="replace"))
-    if not status_probe.stdout:
+    deadline = time.monotonic() + CHECKPOINT_TIMEOUT_SECONDS
+    status_text = _require_complete_git_output(
+        _run_git_capture(
+            ["status", "--porcelain=v1", "-z"],
+            timeout=_checkpoint_remaining(deadline),
+        ),
+        "git status",
+    )
+    if not status_text:
         return None
 
-    head_probe = _run_git_capture(["rev-parse", "HEAD"])
-    if head_probe.returncode != 0:
-        raise RuntimeError(head_probe.stderr.decode("utf-8", errors="replace"))
-    base_head = head_probe.stdout.decode("ascii", errors="strict").strip()
-
-    branch_probe = _run_git_capture(["branch", "--show-current"])
-    branch = (
-        branch_probe.stdout.decode("utf-8", errors="replace").strip()
-        if branch_probe.returncode == 0
-        else ""
+    base_head = _require_complete_git_output(
+        _run_git_capture(["rev-parse", "HEAD"], timeout=_checkpoint_remaining(deadline)),
+        "git rev-parse",
+    ).strip()
+    branch_result = _run_git_capture(
+        ["branch", "--show-current"],
+        timeout=_checkpoint_remaining(deadline),
     )
+    branch = str(branch_result.get("output", "")).strip() if branch_result["exit_code"] == 0 else ""
+
+    untracked_text = _require_complete_git_output(
+        _run_git_capture(
+            ["ls-files", "--others", "--exclude-standard", "-z"],
+            timeout=_checkpoint_remaining(deadline),
+        ),
+        "git ls-files",
+    )
+    raw_untracked = [item for item in untracked_text.split("\0") if item]
+    if len(raw_untracked) > CHECKPOINT_MAX_FILES:
+        raise RuntimeError(
+            f"workspace checkpoint has {len(raw_untracked)} untracked files; "
+            f"limit is {CHECKPOINT_MAX_FILES}"
+        )
+
+    entries: list[tuple[str, Path, int]] = []
+    untracked_bytes = 0
+    for relative_text in raw_untracked:
+        _checkpoint_remaining(deadline)
+        relative = Path(relative_text)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise RuntimeError(f"unsafe untracked path from git: {relative_text!r}")
+        source = WORK / relative
+        if source.is_symlink():
+            size = len(os.fsencode(os.readlink(source)))
+        elif source.is_file():
+            size = source.stat().st_size
+        else:
+            raise RuntimeError(f"unsupported untracked entry: {relative_text!r}")
+        untracked_bytes += size
+        if untracked_bytes > CHECKPOINT_MAX_BYTES:
+            raise RuntimeError(
+                f"workspace checkpoint exceeds {CHECKPOINT_MAX_BYTES} bytes"
+            )
+        entries.append((relative_text, source, size))
 
     task_component = _checkpoint_component(task_id)
     reason_component = _checkpoint_component(reason)
     checkpoint_root = CHECKPOINTS / task_component
     checkpoint_root.mkdir(parents=True, exist_ok=True)
+    fsync_directory(checkpoint_root.parent)
+    required_free = untracked_bytes + CHECKPOINT_FREE_SPACE_RESERVE_BYTES
+    if shutil.disk_usage(checkpoint_root).free < required_free:
+        raise RuntimeError(
+            f"insufficient free space for workspace checkpoint; required={required_free}"
+        )
     final_dir = checkpoint_root / f"{time.time_ns()}-{reason_component}"
     temp_dir = final_dir.with_name(final_dir.name + ".tmp")
     temp_dir.mkdir(parents=True, exist_ok=False)
 
     try:
         patch_path = temp_dir / "tracked.patch"
-        with patch_path.open("wb") as patch_file:
-            patch = subprocess.run(
-                ["git", "diff", "--binary", "--full-index", "HEAD", "--"],
-                cwd=WORK,
-                env=ENV,
-                stdout=patch_file,
-                stderr=subprocess.PIPE,
-                check=False,
+        patch_bytes = _write_tracked_patch(patch_path, deadline, untracked_bytes)
+        if patch_bytes + untracked_bytes > CHECKPOINT_MAX_BYTES:
+            raise RuntimeError(
+                f"workspace checkpoint exceeds {CHECKPOINT_MAX_BYTES} bytes"
             )
-        if patch.returncode != 0:
-            raise RuntimeError(patch.stderr.decode("utf-8", errors="replace"))
-
-        untracked_probe = _run_git_capture(
-            ["ls-files", "--others", "--exclude-standard", "-z"]
-        )
-        if untracked_probe.returncode != 0:
-            raise RuntimeError(untracked_probe.stderr.decode("utf-8", errors="replace"))
 
         untracked_files: list[str] = []
         untracked_root = temp_dir / "untracked"
-        for raw in untracked_probe.stdout.split(b"\0"):
-            if not raw:
-                continue
-            relative_text = raw.decode("utf-8", errors="surrogateescape")
+        copied_bytes = 0
+        for relative_text, source, expected_size in entries:
+            _checkpoint_remaining(deadline)
             relative = Path(relative_text)
-            if relative.is_absolute() or ".." in relative.parts:
-                raise RuntimeError(f"unsafe untracked path from git: {relative_text!r}")
-            source = WORK / relative
             target = untracked_root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             if source.is_symlink():
                 os.symlink(os.readlink(source), target)
+                copied_bytes += expected_size
             elif source.is_file():
-                shutil.copy2(source, target)
-            else:
-                raise RuntimeError(f"unsupported untracked entry: {relative_text!r}")
+                copied_bytes += _copy_checkpoint_file(source, target, deadline)
+            if patch_bytes + copied_bytes > CHECKPOINT_MAX_BYTES:
+                raise RuntimeError(
+                    f"workspace checkpoint exceeds {CHECKPOINT_MAX_BYTES} bytes"
+                )
             untracked_files.append(relative_text)
 
-        short_status = subprocess.run(
-            ["git", "status", "--short"],
-            cwd=WORK,
-            env=ENV,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            check=False,
+        short_status = _require_complete_git_output(
+            _run_git_capture(
+                ["status", "--short"],
+                timeout=_checkpoint_remaining(deadline),
+            ),
+            "git status --short",
         )
-        if short_status.returncode != 0:
-            raise RuntimeError(short_status.stdout)
 
         metadata = {
-            "version": 1,
+            "version": 2,
             "task_id": task_id,
             "reason": reason,
             "created_at": now_iso(),
@@ -306,20 +439,26 @@ def checkpoint_worktree(task_id: str, *, reason: str) -> dict[str, Any] | None:
             "tracked_patch": "tracked.patch",
             "untracked_root": "untracked",
             "untracked_files": untracked_files,
-            "status": short_status.stdout,
+            "tracked_patch_bytes": patch_bytes,
+            "untracked_bytes": copied_bytes,
+            "total_bytes": patch_bytes + copied_bytes,
+            "status": short_status,
         }
-        (temp_dir / "metadata.json").write_text(
+        atomic_write_text(
+            temp_dir / "metadata.json",
             json.dumps(metadata, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
         )
-        (temp_dir / "RESTORE.txt").write_text(
+        atomic_write_text(
+            temp_dir / "RESTORE.txt",
             "Checkpoint base HEAD: " + base_head + "\n\n"
             "From a checkout at that base commit:\n"
             "  git apply --binary tracked.patch\n"
             "  cp -a untracked/. <repo>/   # only when untracked/ exists\n",
-            encoding="utf-8",
         )
+        _checkpoint_remaining(deadline)
+        _fsync_checkpoint_tree(temp_dir)
         os.replace(temp_dir, final_dir)
+        fsync_directory(checkpoint_root)
         log(
             f"workspace checkpoint saved: {final_dir} "
             f"untracked={len(untracked_files)}"
@@ -359,7 +498,7 @@ def cleanup_work() -> None:
     ):
         result = process(args, WORK, timeout=300)
         if result["exit_code"] != 0:
-            log(f"cleanup warning: {' '.join(args)}\n{result['output']}")
+            raise RuntimeError(f"cleanup failed: {' '.join(args)}\n{result['output']}")
 
 
 def safe_work_path(relative: str) -> Path:
@@ -404,7 +543,11 @@ def apply_patch(patch: str) -> dict[str, Any]:
 def apply_writes(writes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for item in writes:
-        relative = str(item.get("path", ""))
+        if not isinstance(item, dict):
+            raise ValueError("write items must be objects")
+        relative = item.get("path")
+        if not isinstance(relative, str):
+            raise ValueError("write path must be a string")
         content = item.get("content")
         if not isinstance(content, str):
             raise ValueError(f"write content must be string for {relative!r}")
@@ -424,7 +567,9 @@ def apply_writes(writes: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def apply_deletes(deletes: list[str]) -> list[str]:
     results: list[str] = []
     for relative in deletes:
-        target = safe_work_path(str(relative))
+        if not isinstance(relative, str):
+            raise ValueError("delete paths must be strings")
+        target = safe_work_path(relative)
         if target.is_dir():
             raise ValueError(f"refusing directory delete: {relative!r}")
         if target.exists():
@@ -436,10 +581,9 @@ def apply_deletes(deletes: list[str]) -> list[str]:
 
 def command_timeout_for(task: dict[str, Any]) -> int:
     raw = task.get("command_timeout", COMMAND_TIMEOUT)
-    try:
-        timeout = int(raw)
-    except (TypeError, ValueError):
+    if not isinstance(raw, int) or isinstance(raw, bool):
         raise ValueError(f"invalid command_timeout: {raw!r}") from None
+    timeout = raw
     if timeout < 1 or timeout > MAX_COMMAND_TIMEOUT:
         raise ValueError(
             f"command_timeout must be 1..{MAX_COMMAND_TIMEOUT}, got {timeout}"
@@ -461,12 +605,9 @@ def _validate_stage_items(value: Any, field: str) -> None:
             raise ValueError(f"{field} item command must be a non-empty string")
         if "timeout" in item:
             raw_timeout = item.get("timeout")
-            if isinstance(raw_timeout, bool):
+            if not isinstance(raw_timeout, int) or isinstance(raw_timeout, bool):
                 raise ValueError(f"{field} item timeout must be an integer")
-            try:
-                stage_timeout = int(raw_timeout)
-            except (TypeError, ValueError):
-                raise ValueError(f"{field} item timeout must be an integer") from None
+            stage_timeout = raw_timeout
             if stage_timeout < 1 or stage_timeout > MAX_COMMAND_TIMEOUT:
                 raise ValueError(
                     f"{field} item timeout must be 1..{MAX_COMMAND_TIMEOUT}, "
@@ -560,17 +701,6 @@ def run_command_list(
             raise ValueError(f"invalid command: {command!r}")
         stage = stages[offset] if stages is not None else None
 
-        if command in history:
-            reused = dict(history[command])
-            reused["reused"] = True
-            if stage is not None:
-                reused.update(stage)
-            log(f"command reuse: {command}")
-            results.append(reused)
-            if reused["exit_code"] != 0:
-                break
-            continue
-
         effective_timeout = timeout
         if stage is not None and stage.get("stage_timeout") is not None:
             effective_timeout = int(stage["stage_timeout"])
@@ -591,20 +721,47 @@ def git_snapshot() -> tuple[dict[str, Any], dict[str, Any]]:
     return status, diff
 
 
+def _record_finalization_failure(
+    result: dict[str, Any],
+    reason: str,
+    error_field: str,
+    exc: Exception,
+) -> None:
+    error = f"{type(exc).__name__}: {exc}"
+    previous = result.get("primary_failure_reason") or result.get("failure_reason")
+    causes = result.setdefault("failure_causes", [])
+    if previous and not any(item.get("reason") == previous for item in causes):
+        causes.append({"reason": previous})
+    causes.append({"reason": reason, "error": error})
+    if previous:
+        result["primary_failure_reason"] = previous
+    result["status"] = "failed"
+    result["failure_reason"] = reason
+    result[error_field] = error
+    result["finished_at"] = now_iso()
+
+
 def process_task(
     task: dict[str, Any],
     *,
     command_runner: CommandRunner | None = None,
 ) -> dict[str, Any]:
-    task_id = str(task["id"])
-    mode = str(task.get("mode", "commands"))
+    task_id = task.get("id")
+    if not isinstance(task_id, str) or not task_id:
+        raise ValueError("task id must be a non-empty string")
+    mode = task.get("mode", "commands")
     if mode != "commands":
         raise ValueError(
             f"unsupported mode {mode!r}; this daemon executes deterministic commands only"
         )
 
-    branch = str(task.get("work_branch", "main"))
-    allow_write = bool(task.get("allow_write", False))
+    branch = task.get("work_branch", "main")
+    if not isinstance(branch, str):
+        raise ValueError("work_branch must be a string")
+    raw_allow_write = task.get("allow_write", False)
+    if not isinstance(raw_allow_write, bool):
+        raise ValueError("allow_write must be a boolean")
+    allow_write = raw_allow_write
     patch = task.get("patch")
     writes = task.get("writes", [])
     deletes = task.get("deletes", [])
@@ -627,6 +784,12 @@ def process_task(
         raise ValueError("steps must be a list")
     if not isinstance(verify_steps, list):
         raise ValueError("verify_steps must be a list")
+    for field, items in (
+        ("commands", commands),
+        ("verify_commands", verify_commands),
+    ):
+        if any(not isinstance(item, str) or not item.strip() for item in items):
+            raise ValueError(f"{field} items must be non-empty strings")
 
     stage_plan = stage_plan_for(task)
     primary_stages = [stage for stage in stage_plan if stage["stage_phase"] == "commands"]
@@ -677,12 +840,12 @@ def process_task(
 
         if failure_reason is None and deletes:
             result["edits"]["deletes"] = apply_deletes(
-                [str(item) for item in deletes]
+                deletes
             )
 
         if failure_reason is None and commands:
             command_results, command_history = run_command_list(
-                [str(item) for item in commands],
+                commands,
                 timeout,
                 command_history,
                 primary_stages,
@@ -694,7 +857,7 @@ def process_task(
 
         if failure_reason is None and steps:
             command_results, command_history = run_command_list(
-                [str(item["command"]) for item in steps],
+                [item["command"] for item in steps],
                 timeout,
                 command_history,
                 primary_stages,
@@ -706,7 +869,7 @@ def process_task(
 
         if failure_reason is None and verify_commands:
             verification_results, command_history = run_command_list(
-                [str(item) for item in verify_commands],
+                verify_commands,
                 timeout,
                 command_history,
                 verification_stages,
@@ -718,7 +881,7 @@ def process_task(
 
         if failure_reason is None and verify_steps:
             verification_results, command_history = run_command_list(
-                [str(item["command"]) for item in verify_steps],
+                [item["command"] for item in verify_steps],
                 timeout,
                 command_history,
                 verification_stages,
@@ -735,10 +898,8 @@ def process_task(
                 "stage_index": item.get("stage_index"),
                 "stage_total": item.get("stage_total"),
                 "stage_phase": item.get("stage_phase"),
-                "outcome": "reused" if item.get("reused") else (
-                    "not_started" if item.get("not_started") else (
-                        "passed" if item.get("exit_code") == 0 else "failed"
-                    )
+                "outcome": "not_started" if item.get("not_started") else (
+                    "passed" if item.get("exit_code") == 0 else "failed"
                 ),
                 "elapsed_seconds": item.get("elapsed_seconds"),
             }
@@ -788,54 +949,73 @@ def process_task(
                 result["workspace_checkpoint"] = checkpoint
         except Exception as exc:
             checkpoint_ok = False
-            result["status"] = "failed"
-            result["failure_reason"] = "workspace_checkpoint_failed"
-            result["checkpoint_error"] = f"{type(exc).__name__}: {exc}"
+            _record_finalization_failure(
+                result,
+                "workspace_checkpoint_failed",
+                "checkpoint_error",
+                exc,
+            )
             log(
                 "workspace checkpoint failed; cleanup skipped to preserve dirty state: "
                 f"{type(exc).__name__}: {exc}"
             )
         if checkpoint_ok:
-            cleanup_work()
+            try:
+                cleanup_work()
+            except Exception as exc:
+                _record_finalization_failure(
+                    result,
+                    "workspace_cleanup_failed",
+                    "cleanup_error",
+                    exc,
+                )
+                log(
+                    "workspace cleanup failed after checkpoint preservation: "
+                    f"{type(exc).__name__}: {exc}"
+                )
 
 
 def publish_result(task_id: str, result: dict[str, Any]) -> None:
-    results_dir = CONTROL / ".agent" / "results"
-    results_dir.mkdir(parents=True, exist_ok=True)
-    path = results_dir / f"{task_id}.json"
-    path.write_text(
-        json.dumps(result, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    with CONTROL_GIT_LOCK:
+        root = CONTROL.resolve()
+        results_dir = (CONTROL / ".agent" / "results").resolve()
+        if root not in results_dir.parents:
+            raise ValueError("result directory escapes control repository")
+        results_dir.mkdir(parents=True, exist_ok=True)
+        path = results_dir / f"{task_id}.json"
+        atomic_write_text(
+            path,
+            json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+        )
 
-    relative = str(path.relative_to(CONTROL))
-    add = process(["git", "add", "--", relative], CONTROL)
-    if add["exit_code"] != 0:
-        raise RuntimeError(add["output"])
+        relative = str(path.relative_to(root))
+        add = process(["git", "add", "--", relative], CONTROL)
+        if add["exit_code"] != 0:
+            raise RuntimeError(add["output"])
 
-    commit = process(
-        ["git", "commit", "-m", f"Agent result: {task_id}"],
-        CONTROL,
-    )
-    if commit["exit_code"] != 0:
-        status = process(["git", "status", "--short", "--", relative], CONTROL)
-        if status["exit_code"] != 0 or status["output"].strip():
-            raise RuntimeError(commit["output"])
+        commit = process(
+            ["git", "commit", "-m", f"Agent result: {task_id}"],
+            CONTROL,
+        )
+        if commit["exit_code"] != 0:
+            status = process(["git", "status", "--short", "--", relative], CONTROL)
+            if status["exit_code"] != 0 or status["output"].strip():
+                raise RuntimeError(commit["output"])
 
-    pull = process(
-        ["git", "pull", "--rebase", "origin", CONTROL_BRANCH],
-        CONTROL,
-        timeout=180,
-    )
-    if pull["exit_code"] != 0:
-        raise RuntimeError(pull["output"])
+        pull = process(
+            ["git", "pull", "--rebase", "origin", CONTROL_BRANCH],
+            CONTROL,
+            timeout=180,
+        )
+        if pull["exit_code"] != 0:
+            raise RuntimeError(pull["output"])
 
-    push = process(
-        ["git", "push", "origin", CONTROL_BRANCH],
-        CONTROL,
-        timeout=180,
-    )
-    if push["exit_code"] != 0:
-        raise RuntimeError(push["output"])
+        push = process(
+            ["git", "push", "origin", CONTROL_BRANCH],
+            CONTROL,
+            timeout=180,
+        )
+        if push["exit_code"] != 0:
+            raise RuntimeError(push["output"])
 
     log(f"published result {task_id}")

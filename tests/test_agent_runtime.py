@@ -50,6 +50,35 @@ class RuntimeExecutorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_task({"id": "../bad", "commands": ["true"]})
 
+    def test_task_validation_requires_exact_json_types_and_size_limits(self) -> None:
+        invalid_tasks = [
+            {"id": "bad-write-flag", "allow_write": "false"},
+            {"id": "bad-command-timeout", "command_timeout": True},
+            {"id": "bad-idle-timeout", "idle_timeout": 1.5},
+            {"id": "bad-task-timeout", "task_timeout": "120"},
+            {"id": "bad-command", "commands": [7]},
+            {"id": "bad-delete", "deletes": [False]},
+            {"id": "bad-write", "writes": [{"path": "x", "content": 7}]},
+        ]
+        for task in invalid_tasks:
+            with self.subTest(task=task), self.assertRaises(ValueError):
+                validate_task(task)
+
+        with self.assertRaisesRegex(ValueError, "patch exceeds"):
+            validate_task(
+                {
+                    "id": "large-patch",
+                    "patch": "x" * (runtime_module.MAX_PATCH_BYTES + 1),
+                }
+            )
+        with self.assertRaisesRegex(ValueError, "commands exceeds"):
+            validate_task(
+                {
+                    "id": "many-commands",
+                    "commands": ["true"] * (runtime_module.MAX_TASK_LIST_ITEMS + 1),
+                }
+            )
+
     def test_structured_steps_validate_and_reject_ambiguous_payloads(self) -> None:
         task = {
             "id": "staged-1",
@@ -248,13 +277,15 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.runtime._deadline = time.monotonic() + 120
         self.runtime._command_count = 1
         self.runtime._primary_count = 1
+        telemetry = mock.Mock()
+        telemetry.snapshot.return_value = {
+            "host_cpu_percent": 12.5,
+            "command_rss_mb": 4.0,
+        }
         with mock.patch.object(runtime_module, "PROGRESS_INTERVAL", 0), mock.patch.object(
             runtime_module,
-            "collect_telemetry",
-            side_effect=[
-                {"host_cpu_percent": 12.5, "command_rss_mb": 4.0},
-                {},
-            ],
+            "TelemetrySampler",
+            return_value=telemetry,
         ):
             result = self.runtime.run_command("printf ok", 5)
         self.assertEqual(result["exit_code"], 0)
@@ -283,6 +314,75 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 124)
         self.assertTrue(result["idle_timed_out"])
 
+    def test_blocking_rss_sampler_does_not_delay_idle_timeout(self) -> None:
+        def slow_sampler(_process_group: int) -> None:
+            time.sleep(3)
+            return None
+
+        runtime = RuntimeExecutor(core, rss_sampler=slow_sampler)
+        runtime._idle_timeout = 1
+        runtime._deadline = time.monotonic() + 120
+        runtime._command_count = 1
+        runtime._primary_count = 1
+        command = f"{shlex.quote(sys.executable)} -c " + shlex.quote(
+            "import time; time.sleep(5)"
+        )
+        result = runtime.run_command(command, 10)
+        self.assertTrue(result["idle_timed_out"])
+        self.assertLess(result["elapsed_seconds"], 2.5)
+
+    def test_successful_parent_with_surviving_child_is_terminal_failure(self) -> None:
+        marker = Path(self.tmp.name) / "leaked-child.txt"
+        child_code = (
+            "import pathlib,time; time.sleep(1); "
+            f"pathlib.Path({str(marker)!r}).write_text('leaked')"
+        )
+        parent_code = (
+            "import subprocess,sys; "
+            f"subprocess.Popen([sys.executable, '-c', {child_code!r}])"
+        )
+        self.runtime._idle_timeout = 5
+        self.runtime._deadline = time.monotonic() + 120
+        self.runtime._command_count = 1
+        self.runtime._primary_count = 1
+        command = f"{shlex.quote(sys.executable)} -c {shlex.quote(parent_code)}"
+        result = self.runtime.run_command(command, 5)
+        self.assertEqual(result["exit_code"], 126)
+        self.assertTrue(result["background_process_leak"])
+        self.assertEqual(result["failure_reason"], "command_background_process_leak")
+        time.sleep(1.2)
+        self.assertFalse(marker.exists())
+
+    def test_slow_progress_callback_does_not_delay_command_watchdog(self) -> None:
+        task = {
+            "id": "slow-progress-callback",
+            "commands": [
+                f"{shlex.quote(sys.executable)} -c "
+                + shlex.quote("import time; time.sleep(5)")
+            ],
+            "command_timeout": 1,
+            "idle_timeout": 0,
+            "task_timeout": 62,
+        }
+
+        def slow_progress(_event: dict) -> None:
+            time.sleep(1.5)
+
+        with mock.patch.object(core, "prepare_work"), mock.patch.object(
+            core, "cleanup_work"
+        ), mock.patch.object(
+            core,
+            "git_snapshot",
+            return_value=(
+                {"exit_code": 0, "output": ""},
+                {"exit_code": 0, "output": ""},
+            ),
+        ), mock.patch.object(core, "checkpoint_worktree", return_value=None):
+            result = self.runtime.process_task(task, progress=slow_progress)
+
+        self.assertEqual(result["failure_reason"], "command_timeout")
+        self.assertLess(result["commands"][0]["elapsed_seconds"], 2.5)
+
     def test_task_budget_refuses_stage_before_start(self) -> None:
         self.runtime._idle_timeout = 0
         self.runtime._deadline = time.monotonic() + 100
@@ -300,7 +400,7 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 125)
         self.assertTrue(result["not_started"])
         self.assertTrue(result["budget_exhausted"])
-        self.assertFalse(result["task_timed_out"])
+        self.assertNotIn("task_timed_out", result)
         self.assertEqual(self.runtime._last_failure_reason, "task_budget_exhausted")
 
     def test_structured_stage_timeout_overrides_task_command_timeout(self) -> None:
@@ -345,6 +445,52 @@ class RuntimeExecutorTests(unittest.TestCase):
             "checkpoint-after-failure", reason="task-exit"
         )
         cleanup.assert_called_once_with()
+
+    def test_checkpoint_failure_preserves_primary_failure_and_skips_cleanup(self) -> None:
+        with mock.patch.object(core, "prepare_work"), mock.patch.object(
+            core, "cleanup_work"
+        ) as cleanup, mock.patch.object(
+            core, "checkpoint_worktree", side_effect=OSError("checkpoint disk error")
+        ), mock.patch.object(
+            core, "run_command", side_effect=RuntimeError("command infrastructure error")
+        ):
+            result = core.process_task(
+                {"id": "checkpoint-failure", "commands": ["one"]}
+            )
+
+        self.assertEqual(result["failure_reason"], "workspace_checkpoint_failed")
+        self.assertEqual(result["primary_failure_reason"], "exception")
+        self.assertIn("checkpoint disk error", result["checkpoint_error"])
+        cleanup.assert_not_called()
+
+    def test_cleanup_failure_is_reported_without_losing_primary_failure(self) -> None:
+        failed_command = {
+            "command": "false",
+            "exit_code": 1,
+            "output": "",
+            "elapsed_seconds": 0.1,
+        }
+        checkpoint = {"path": "/safe/checkpoint"}
+        with mock.patch.object(core, "prepare_work"), mock.patch.object(
+            core, "cleanup_work", side_effect=OSError("cleanup refused")
+        ), mock.patch.object(
+            core, "checkpoint_worktree", return_value=checkpoint
+        ), mock.patch.object(
+            core,
+            "git_snapshot",
+            return_value=(
+                {"exit_code": 0, "output": ""},
+                {"exit_code": 0, "output": ""},
+            ),
+        ), mock.patch.object(core, "run_command", return_value=failed_command):
+            result = core.process_task(
+                {"id": "cleanup-failure", "commands": ["false"]}
+            )
+
+        self.assertEqual(result["workspace_checkpoint"], checkpoint)
+        self.assertEqual(result["failure_reason"], "workspace_cleanup_failed")
+        self.assertEqual(result["primary_failure_reason"], "command_failed")
+        self.assertIn("cleanup refused", result["cleanup_error"])
 
     def test_progress_emits_command_transitions(self) -> None:
         events: list[dict] = []

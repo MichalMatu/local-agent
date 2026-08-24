@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import agent_core as core
 
@@ -62,6 +63,47 @@ class WorkspaceCheckpointTests(unittest.TestCase):
         shutil.copy2(checkpoint / "untracked" / "new" / "blob.bin", restored)
         self.assertEqual((self.repo / "tracked.txt").read_text(encoding="utf-8"), "changed\n")
         self.assertEqual(restored.read_bytes(), b"\x00\x01checkpoint\xff")
+
+    def test_checkpoint_preflight_limit_preserves_source_and_creates_no_final_checkpoint(self) -> None:
+        source = self.repo / "untracked.txt"
+        source.write_text("preserve me", encoding="utf-8")
+        with mock.patch.object(core, "CHECKPOINT_MAX_FILES", 0):
+            with self.assertRaisesRegex(RuntimeError, "limit is 0"):
+                core.checkpoint_worktree("task-limited", reason="unit")
+        self.assertEqual(source.read_text(encoding="utf-8"), "preserve me")
+        self.assertFalse(self.checkpoints.exists())
+
+    def test_internal_process_output_is_strictly_bounded(self) -> None:
+        result = core.process(
+            ["python", "-c", "print('x' * 100000)"],
+            self.repo,
+            timeout=10,
+            output_limit=1024,
+        )
+        self.assertEqual(result["exit_code"], 0)
+        self.assertTrue(result["output_truncated"])
+        self.assertLessEqual(len(result["output"]), 1024)
+
+    def test_identical_commands_are_executed_each_time(self) -> None:
+        calls: list[str] = []
+
+        def runner(command: str, _timeout: int, *, stage=None):
+            calls.append(command)
+            return {
+                "command": command,
+                "exit_code": 0,
+                "output": "",
+                "elapsed_seconds": 0.1,
+            }
+
+        results, _history = core.run_command_list(
+            ["same", "same"],
+            10,
+            runner=runner,
+        )
+        self.assertEqual(calls, ["same", "same"])
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all("reused" not in result for result in results))
 
 
 if __name__ == "__main__":

@@ -101,6 +101,43 @@ class RepositoryRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "workspace path collision"):
             load_repository_registry(home=self.home, path=self.registry)
 
+    def test_normalized_and_nested_workspace_collisions_are_rejected(self) -> None:
+        shared = self.home / "shared"
+        self.write(
+            [
+                {"id": "one", "repository": "owner/one", "work_dir": str(shared)},
+                {
+                    "id": "two",
+                    "repository": "owner/two",
+                    "control_dir": str(self.home / "parent" / ".." / "shared"),
+                },
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "workspace path collision"):
+            load_repository_registry(home=self.home, path=self.registry)
+
+        self.write(
+            [
+                {
+                    "id": "nested",
+                    "repository": "owner/nested",
+                    "work_dir": str(shared),
+                    "checkpoints_dir": str(shared / "checkpoints"),
+                }
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "workspace path collision"):
+            load_repository_registry(home=self.home, path=self.registry)
+
+    def test_registry_booleans_require_exact_json_boolean_type(self) -> None:
+        for field in ("enabled", "legacy_workspace"):
+            with self.subTest(field=field):
+                self.write(
+                    [{"id": "one", "repository": "owner/one", field: "false"}]
+                )
+                with self.assertRaisesRegex(ValueError, "must be a boolean"):
+                    load_repository_registry(home=self.home, path=self.registry)
+
     def test_invalid_repository_and_relative_paths_are_rejected(self) -> None:
         self.write([{"id": "bad/id", "repository": "owner/repo"}])
         with self.assertRaisesRegex(ValueError, "invalid repository id"):

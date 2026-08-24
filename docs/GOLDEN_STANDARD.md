@@ -1,85 +1,65 @@
-# Local Agent Golden Standard v4.5 + v4.6 staging addendum
+# Local Agent Golden Standard v4.8
 
-This file records the validated v4.5 production invariants for `MichalMatu/local-agent` and the additional invariants required before the v4.6 multi-repository staging line may replace it. Operational details live in `OPERATIONS.md`; multi-repository details live in `MULTI_REPOSITORY.md`; machine-specific setup lives in `SESSION_BOOTSTRAP.md`.
+This file records the current production invariants for `MichalMatu/local-agent`. Operational details live in `OPERATIONS.md`; multi-repository details live in `MULTI_REPOSITORY.md`; machine-specific setup lives in `SESSION_BOOTSTRAP.md`.
 
-## v4.5 production invariants
+## Execution and recovery invariants
 
-- `agentd.py` is the validated production daemon entry point.
 - The daemon is a deterministic executor, not a coding model.
 - Machine-generated execution content is English-only.
-- One OS-locked daemon instance is allowed.
+- One OS-locked daemon or supervisor instance is allowed.
 - Every task has an immutable payload digest and one durable attempt claim.
 - Interrupted tasks are never automatically replayed.
-- Corrupt durable claims are converted to terminal evidence for known queued tasks.
-- Malformed task JSON is terminal `invalid_task_file` and is not retried.
+- Malformed or oversized task JSON is terminal `invalid_task_file`.
+- Task fields use exact JSON types and bounded list, command, patch and write sizes.
 - Command and no-output watchdogs are mandatory.
 - The whole-task limit is an admission budget: a stage that cannot fit with finalization headroom is not started, but an already-running stage is not killed solely because the global budget elapsed.
-- Default command timeout is 900 seconds; maximum command/stage timeout is 7200 seconds.
-- Default no-output timeout is 300 seconds; maximum is 3600 seconds.
-- Whole-task budget is 1800 seconds, maximum 21600 seconds, with a 60-second finalization reserve.
-- Command stdout handoff uses a bounded queue and bounded read chunks; retained raw result output is strictly capped at 60,000 characters.
-- Runtime commands have a configurable process-group RSS limit: 4096 MiB by default, 16384 MiB maximum, and `0` disables the memory watchdog.
-- The RSS watchdog requires two consecutive over-limit samples before terminating a process group.
-- Low-level shell spawning, bounded stdout transport and process-group termination are centralized in `agent_process.py`.
-- Runtime execution is injected explicitly into `agent_core.process_task`; production execution does not replace the global `agent_core.run_command` function.
-- Process-group termination is used for timed-out, interrupted or memory-limited commands and preserves the group identity even if the original shell process exits first.
-- Result publication may be retried; command execution may not.
-- Self-update requires a clean `main` checkout, accepts fast-forward updates only, validates before restart and rolls back validation failure.
-- Release staging happens outside the live daemon checkout.
-- The user's product checkout is never reset or cleaned by normal daemon execution.
-- Dirty disposable workspaces are checkpointed before destructive cleanup.
-- Progress/status/results remain remotely observable on the target control branch.
-- Target verification is impact-driven; broad regression suites are not automatic final gates.
-- Green focused evidence may be reused while covered code and relevant dependencies remain unchanged.
-- Secrets never belong in task/result/run/status files or repository documentation.
-- Publishing source and flashing hardware are separate gates.
+- Default/max timeout pairs are command 900/7200 seconds, no-output 300/3600 seconds and task 1800/21600 seconds.
+- Timeout configuration is loaded from `LOCAL_AGENT_*` environment variables at startup and invalid configuration is terminal.
+- Command stdout transport and retained output are strictly bounded.
+- Runtime commands use process groups. Residual descendants after a successful parent exit are terminated and reported as `background_process_leak`.
+- Host telemetry, RSS sampling and remote progress publication never execute blocking work in the command watchdog loop.
+- Remote progress is asynchronous and coalesced; daemon health status does not duplicate every command transition.
+- Every declared command executes independently, including identical command strings.
+- Final results are atomically and durably spooled before remote publication.
+- Publication failure leaves the claim and spool intact; recovery republishes the result without re-executing commands.
+- Self-update requires a clean `main`, accepts fast-forwards only, validates in an isolated temporary home and rolls back validation failure.
 
-## v4.6 multi-repository staging invariants
+## Workspace checkpoint invariants
 
-All v4.5 execution/watchdog/replay invariants continue to apply inside each repository worker. In addition:
+- Dirty tracked changes and untracked files are checkpointed outside the worktree before destructive cleanup.
+- Checkpointing runs on every task exit, including command failure, timeout, budget exhaustion and daemon exceptions that reach task finalization.
+- Checkpoint creation has bounded time, file count and bytes, checks free space, copies files as streams and durably syncs files and directories.
+- A checkpoint failure skips cleanup and preserves dirty state.
+- A cleanup failure is terminal evidence and preserves both the original task failure and the finalization failure.
+- `prepare_work` checkpoints dirty state before any reset or clean.
+- Ignored caches remain preserved by normal cleanup.
 
-- one long-lived supervisor owns scheduling and the same global daemon lock;
-- v4.5 and v4.6 entry points must never execute concurrently;
-- global local execution concurrency remains exactly one;
-- every configured repository has unique control/work/checkpoint paths;
-- durable claims, corrupt claims, local runs and local status are repository-scoped;
-- the same task id may exist in different repositories without collision;
-- repository paths are bound only inside short-lived worker processes, never by mutating globals in the long-lived supervisor;
-- one repository failure before execution does not block polling of other repositories;
-- scheduling uses deterministic round-robin order after each processed task;
-- polling never implicitly clones, repairs or overwrites a repository checkout;
-- provisioning is explicit, validates `origin`, refuses existing non-Git paths and may safely initialize a missing `agent-control` branch;
-- repository-local `status` is supported and idle remote status is heartbeat-throttled;
-- repository workers reject global `restart` and `self_update` because those operations are supervisor-wide maintenance actions;
-- multiple remote planners/chats may queue work independently, while local execution remains serialized;
-- multi-repository changes require temporary-Git integration coverage in addition to unit tests;
-- activation requires an exact-SHA macOS smoke test without modifying the running production checkout.
+## Multi-repository invariants
 
-## Required daemon release gate
+- One long-lived supervisor owns scheduling and the global daemon lock.
+- Global execution concurrency remains exactly one.
+- Every normalized control/work/checkpoint path is disjoint; equal, aliased and ancestor/descendant overlaps are rejected.
+- Claims, result spools, corrupt claims, runs and status are repository-scoped.
+- Repository globals are bound only inside short-lived workers.
+- One repository control or worker failure does not block polling other repositories.
+- Worker turns are bounded by the configured maximum task budget plus finalization grace.
+- Polling never implicitly clones, repairs or overwrites a checkout.
+- Provisioning is explicit and validates repository identity.
+- Repository workers reject supervisor-wide `restart` and `self_update` actions.
+
+## Required release gate
 
 For non-trivial daemon changes:
 
 1. stage from current `main` on an isolated `v*-staging` branch;
-2. change only intended source/tests/docs;
-3. pass Python compile validation;
-4. pass Ruff lint validation;
-5. pass unit and required integration tests;
-6. review the exact diff;
-7. require green GitHub CI on the exact staging SHA;
-8. for multi-repository changes, pass an isolated macOS two-repository smoke on that same exact SHA;
-9. confirm smoke cleanup and production daemon health;
-10. fast-forward `main` only after an explicit release decision;
-11. activate the matching launchd entry point/configuration;
-12. verify reported daemon/repository status and run a real queued task after activation.
+2. pass compile and pinned Ruff validation for every release module and tests;
+3. pass focused unit/integration tests and full unittest discovery;
+4. review the exact diff;
+5. require green GitHub CI on the exact staging SHA;
+6. pass an isolated macOS two-repository smoke on that exact SHA;
+7. confirm the production daemon/worktree remained unchanged during smoke;
+8. fast-forward and push `main` only after every gate is green;
+9. deploy/restart the matching local installation;
+10. verify live supervisor/worker version, revision and a real queued task.
 
-## Current audit disposition
-
-The v4.5 production hardening removed unbounded stdout handoff and implicit global runner replacement, centralized process lifecycle primitives, added a process-group RSS watchdog and added a pinned Ruff quality gate.
-
-The v4.6 staging line adds process-isolated multi-repository scheduling without rewriting that validated execution core. Its registry, isolated worker, round-robin scheduler, repository-scoped state/control, explicit provisioning and two-repository temporary-Git integration path are implemented and tested. `main` remains v4.5 until the exact final staging SHA completes the release gate and activation is explicitly chosen.
-
-### Historical reference: `v4.2.4-staging`
-
-The historical `v4.2.4-staging` branch contains commit `d11be42` (`Bound command memory and output buffering`). Its useful safeguards were reviewed and manually adapted to the v4.5 architecture rather than cherry-picked across newer runtime-budget work.
-
-Keep the historical branch as reference. It is not the canonical runtime and should not be merged directly into current `main`.
+Historical design notes and staging branches are references only and are not runtime contracts.

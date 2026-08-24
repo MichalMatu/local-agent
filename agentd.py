@@ -9,6 +9,8 @@ import secrets
 import signal
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import traceback
 from datetime import datetime, timezone
@@ -17,14 +19,17 @@ from typing import Any
 
 import agent_core as core
 from agent_config import TIMEOUTS
+from agent_process import atomic_write_text, fsync_directory
 from agent_runtime import (
     DEFAULT_MEMORY_LIMIT_MB,
+    MAX_TASK_FILE_BYTES,
     RuntimeExecutor,
     task_digest,
     validate_task,
 )
+from agent_version import RELEASE_VERSION
 
-DAEMON_VERSION = "4.7.0"
+DAEMON_VERSION = RELEASE_VERSION
 HOME = Path.home()
 SELF_REPO = Path(__file__).resolve().parent
 SELF_BRANCH = "main"
@@ -33,6 +38,8 @@ POLL_SECONDS = 15
 REMOTE_HEARTBEAT_SECONDS = 300
 RUN_PROGRESS_SECONDS = 60
 RUN_HEARTBEAT_SECONDS = 60
+REMOTE_PROGRESS_FLUSH_SECONDS = 65.0
+REMOTE_PROGRESS_COALESCE_SECONDS = 0.25
 
 STATE_DIR = HOME / "Library" / "Application Support" / "local-agent"
 CLAIMS_DIR = STATE_DIR / "claims"
@@ -41,6 +48,7 @@ DAEMON_LOCK_PATH = STATE_DIR / "agentd.lock"
 REJECTED_UPDATE_PATH = STATE_DIR / "rejected-self-update.json"
 LOCAL_STATUS_PATH = STATE_DIR / "status.json"
 LOCAL_RUNS_DIR = STATE_DIR / "runs"
+RESULT_SPOOL_DIR = STATE_DIR / "result-spool"
 
 REMOTE_DAEMON_STATUS = ".agent/status/daemon.json"
 REMOTE_CONTROL_REQUEST = ".agent/daemon/control.json"
@@ -57,6 +65,7 @@ _current_task_id: str | None = None
 _current_attempt_id: str | None = None
 _current_task_digest: str | None = None
 _current_progress: dict[str, Any] = {}
+_remote_progress_publisher: CoalescingRemotePublisher | None = None
 
 
 def now_iso() -> str:
@@ -68,14 +77,85 @@ def log(message: str) -> None:
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_name(path.name + ".tmp")
-    with temp.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2, ensure_ascii=False)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temp, path)
+    atomic_write_text(
+        path,
+        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
+    )
+
+
+class CoalescingRemotePublisher:
+    """Publish the newest remote state per path without blocking local progress."""
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._pending: dict[str, tuple[dict[str, Any], str]] = {}
+        self._active = False
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name="local-agent-remote-progress",
+        )
+        self._thread.start()
+
+    def submit(
+        self,
+        relative: str,
+        payload: dict[str, Any],
+        commit_message: str,
+    ) -> None:
+        with self._condition:
+            self._pending.pop(relative, None)
+            self._pending[relative] = (dict(payload), commit_message)
+            self._condition.notify_all()
+
+    def _run(self) -> None:
+        while True:
+            with self._condition:
+                while not self._pending:
+                    self._condition.wait()
+                self._condition.wait(REMOTE_PROGRESS_COALESCE_SECONDS)
+                relative = next(iter(self._pending))
+                payload, commit_message = self._pending.pop(relative)
+                self._active = True
+            try:
+                publish_control_json(
+                    relative,
+                    payload,
+                    commit_message=commit_message,
+                    timeout=30,
+                    attempts=1,
+                )
+            except Exception as exc:
+                log(
+                    f"remote progress publish failed for {relative}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+            finally:
+                with self._condition:
+                    self._active = False
+                    self._condition.notify_all()
+
+    def flush(self, timeout: float = REMOTE_PROGRESS_FLUSH_SECONDS) -> bool:
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while self._pending or self._active:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._condition.wait(remaining)
+        return True
+
+
+def remote_progress_publisher() -> CoalescingRemotePublisher:
+    global _remote_progress_publisher
+    if _remote_progress_publisher is None:
+        _remote_progress_publisher = CoalescingRemotePublisher()
+    return _remote_progress_publisher
+
+
+def flush_remote_progress() -> bool:
+    publisher = _remote_progress_publisher
+    return True if publisher is None else publisher.flush()
 
 
 def publish_control_json(
@@ -83,68 +163,86 @@ def publish_control_json(
     payload: dict[str, Any],
     *,
     commit_message: str,
+    timeout: int = 180,
+    attempts: int = 2,
 ) -> bool:
-    target = (core.CONTROL / relative).resolve()
-    root = core.CONTROL.resolve()
-    if root not in target.parents:
-        raise ValueError(f"control path escapes repository: {relative!r}")
+    with core.CONTROL_GIT_LOCK:
+        target = (core.CONTROL / relative).resolve()
+        root = core.CONTROL.resolve()
+        if root not in target.parents:
+            raise ValueError(f"control path escapes repository: {relative!r}")
 
-    atomic_write_json(target, payload)
-    add = core.process(["git", "add", "--", relative], core.CONTROL)
-    if add["exit_code"] != 0:
-        raise RuntimeError(add["output"])
+        atomic_write_json(target, payload)
+        add = core.process(["git", "add", "--", relative], core.CONTROL)
+        if add["exit_code"] != 0:
+            raise RuntimeError(add["output"])
 
-    staged = core.process(
-        ["git", "diff", "--cached", "--quiet", "--", relative],
-        core.CONTROL,
-    )
-    if staged["exit_code"] == 0:
-        return False
-    if staged["exit_code"] != 1:
-        raise RuntimeError(staged["output"])
-
-    commit = core.process(
-        ["git", "commit", "-m", commit_message, "--", relative],
-        core.CONTROL,
-    )
-    if commit["exit_code"] != 0:
-        raise RuntimeError(commit["output"])
-
-    for attempt in range(2):
-        pull = core.process(
-            ["git", "pull", "--rebase", "origin", core.CONTROL_BRANCH],
+        staged = core.process(
+            ["git", "diff", "--cached", "--quiet", "--", relative],
             core.CONTROL,
-            timeout=180,
         )
-        if pull["exit_code"] != 0:
-            raise RuntimeError(pull["output"])
-        push = core.process(
-            ["git", "push", "origin", core.CONTROL_BRANCH],
+        if staged["exit_code"] == 0:
+            return False
+        if staged["exit_code"] != 1:
+            raise RuntimeError(staged["output"])
+
+        commit = core.process(
+            ["git", "commit", "-m", commit_message, "--", relative],
             core.CONTROL,
-            timeout=180,
         )
-        if push["exit_code"] == 0:
-            return True
-        if attempt == 1:
-            raise RuntimeError(push["output"])
+        if commit["exit_code"] != 0:
+            raise RuntimeError(commit["output"])
+
+        for attempt in range(attempts):
+            pull = core.process(
+                ["git", "pull", "--rebase", "origin", core.CONTROL_BRANCH],
+                core.CONTROL,
+                timeout=timeout,
+            )
+            if pull["exit_code"] != 0:
+                raise RuntimeError(pull["output"])
+            push = core.process(
+                ["git", "push", "origin", core.CONTROL_BRANCH],
+                core.CONTROL,
+                timeout=timeout,
+            )
+            if push["exit_code"] == 0:
+                return True
+            if attempt == attempts - 1:
+                raise RuntimeError(push["output"])
     return False
 
 
-def self_revision() -> str | None:
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=SELF_REPO,
-            env=core.ENV,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            timeout=10,
-            check=False,
+def load_task_file(path: Path) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise ValueError(f"task path must be a regular file: {path.name}")
+    size = path.stat().st_size
+    if size > MAX_TASK_FILE_BYTES:
+        raise ValueError(
+            f"task file exceeds {MAX_TASK_FILE_BYTES} bytes: {path.name} has {size}"
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    return result.stdout.strip() if result.returncode == 0 else None
+    task = json.loads(path.read_text(encoding="utf-8"))
+    validate_task(task)
+    return task
+
+
+def safe_control_directory(relative: str) -> Path:
+    path = (core.CONTROL / relative).resolve()
+    root = core.CONTROL.resolve()
+    if root not in path.parents:
+        raise ValueError(f"control directory escapes repository: {relative!r}")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def self_revision() -> str | None:
+    result = core.process(
+        ["git", "rev-parse", "HEAD"],
+        SELF_REPO,
+        timeout=10,
+        log_commands=False,
+    )
+    return str(result["output"]).strip() if result["exit_code"] == 0 else None
 
 
 def daemon_status_payload(state: str, **extra: Any) -> dict[str, Any]:
@@ -240,6 +338,7 @@ def claim_task(task: dict[str, Any]) -> dict[str, Any] | None:
         handle.write("\n")
         handle.flush()
         os.fsync(handle.fileno())
+    fsync_directory(CLAIMS_DIR)
     log(f"claimed task {task_id} attempt={attempt_id}")
     return payload
 
@@ -247,9 +346,73 @@ def claim_task(task: dict[str, Any]) -> dict[str, Any] | None:
 def release_task_claim(task_id: str) -> None:
     try:
         task_claim_path(task_id).unlink()
+        fsync_directory(CLAIMS_DIR)
         log(f"released task claim {task_id}")
     except FileNotFoundError:
         pass
+
+
+def result_spool_path(task_id: str) -> Path:
+    digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
+    return RESULT_SPOOL_DIR / f"{digest}.json"
+
+
+def persist_result_spool(task_id: str, result: dict[str, Any]) -> Path:
+    """Durably preserve a final result before attempting network publication."""
+    path = result_spool_path(task_id)
+    atomic_write_json(
+        path,
+        {
+            "version": 1,
+            "task_id": task_id,
+            "persisted_at": now_iso(),
+            "result": result,
+        },
+    )
+    return path
+
+
+def read_result_spool(task_id: str) -> dict[str, Any] | None:
+    path = result_spool_path(task_id)
+    if not path.exists():
+        return None
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or payload.get("version") != 1:
+        raise ValueError(f"invalid result spool format for {task_id}")
+    if payload.get("task_id") != task_id or not isinstance(payload.get("result"), dict):
+        raise ValueError(f"result spool identity mismatch for {task_id}")
+    return payload["result"]
+
+
+def discard_result_spool(task_id: str) -> None:
+    path = result_spool_path(task_id)
+    try:
+        path.unlink()
+        fsync_directory(path.parent)
+    except FileNotFoundError:
+        pass
+
+
+def publish_durable_result(task_id: str, result: dict[str, Any]) -> None:
+    """Publish an already-spooled result and acknowledge its durable delivery."""
+    if read_result_spool(task_id) is None:
+        raise RuntimeError(f"result is not durably spooled for {task_id}")
+    core.publish_result(task_id, result)
+    discard_result_spool(task_id)
+
+
+def has_pending_publications() -> bool:
+    return any(RESULT_SPOOL_DIR.glob("*.json")) or any(CLAIMS_DIR.glob("*.json"))
+
+
+def clear_current_task(task_id: str) -> None:
+    global _current_task_id, _current_attempt_id, _current_task_digest, _current_progress
+    if _current_task_id not in (None, task_id):
+        return
+    _current_task_id = None
+    _current_attempt_id = None
+    _current_task_digest = None
+    _current_progress = {}
 
 
 def invalid_task_result(task_id: str, error: Exception) -> dict[str, Any]:
@@ -265,10 +428,8 @@ def invalid_task_result(task_id: str, error: Exception) -> dict[str, Any]:
 
 
 def recover_invalid_task_files() -> None:
-    tasks_dir = core.CONTROL / ".agent" / "tasks"
-    results_dir = core.CONTROL / ".agent" / "results"
-    tasks_dir.mkdir(parents=True, exist_ok=True)
-    results_dir.mkdir(parents=True, exist_ok=True)
+    tasks_dir = safe_control_directory(".agent/tasks")
+    results_dir = safe_control_directory(".agent/results")
 
     for path in sorted(tasks_dir.glob("*.json")):
         # A malformed file cannot reliably provide task.id, so its filename stem is
@@ -279,8 +440,7 @@ def recover_invalid_task_files() -> None:
         if rejection_result.exists():
             continue
         try:
-            task = json.loads(path.read_text(encoding="utf-8"))
-            validate_task(task)
+            load_task_file(path)
         except Exception as exc:
             log(f"rejecting invalid task file {path.name}: {type(exc).__name__}: {exc}")
             result = invalid_task_result(rejection_id, exc)
@@ -302,10 +462,8 @@ def recover_invalid_task_files() -> None:
 
 
 def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
-    tasks_dir = core.CONTROL / ".agent" / "tasks"
-    results_dir = core.CONTROL / ".agent" / "results"
-    tasks_dir.mkdir(parents=True, exist_ok=True)
-    results_dir.mkdir(parents=True, exist_ok=True)
+    tasks_dir = safe_control_directory(".agent/tasks")
+    results_dir = safe_control_directory(".agent/results")
     pending: list[tuple[Path, dict[str, Any]]] = []
 
     for path in sorted(tasks_dir.glob("*.json")):
@@ -314,8 +472,7 @@ def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
         if (results_dir / f"{task_id_hint}.json").exists():
             continue
         try:
-            task = json.loads(path.read_text(encoding="utf-8"))
-            validate_task(task)
+            task = load_task_file(path)
             task_id = str(task["id"])
         except Exception as exc:
             log(f"invalid task file {path.name}: {type(exc).__name__}: {exc}")
@@ -359,11 +516,10 @@ def interrupted_result(task_id: str, claim: dict[str, Any]) -> dict[str, Any]:
 
 
 def _task_for_claim_path(path: Path) -> dict[str, Any] | None:
-    tasks_dir = core.CONTROL / ".agent" / "tasks"
+    tasks_dir = safe_control_directory(".agent/tasks")
     for task_path in sorted(tasks_dir.glob("*.json")):
         try:
-            task = json.loads(task_path.read_text(encoding="utf-8"))
-            validate_task(task)
+            task = load_task_file(task_path)
             task_id = str(task["id"])
         except Exception:
             continue
@@ -376,6 +532,8 @@ def _quarantine_corrupt_claim(path: Path) -> Path:
     CORRUPT_CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
     target = CORRUPT_CLAIMS_DIR / f"{path.stem}.{time.time_ns()}.json"
     os.replace(path, target)
+    fsync_directory(path.parent)
+    fsync_directory(target.parent)
     return target
 
 
@@ -399,8 +557,7 @@ def corrupt_claim_result(task: dict[str, Any], error: Exception) -> dict[str, An
 
 def recover_stale_claims() -> None:
     CLAIMS_DIR.mkdir(parents=True, exist_ok=True)
-    results_dir = core.CONTROL / ".agent" / "results"
-    results_dir.mkdir(parents=True, exist_ok=True)
+    results_dir = safe_control_directory(".agent/results")
     for path in sorted(CLAIMS_DIR.glob("*.json")):
         try:
             claim = json.loads(path.read_text(encoding="utf-8"))
@@ -416,10 +573,24 @@ def recover_stale_claims() -> None:
                 continue
 
             task_id = str(task["id"])
-            result = corrupt_claim_result(task, exc)
+            try:
+                result = read_result_spool(task_id)
+            except Exception as spool_exc:
+                log(
+                    f"invalid result spool retained for {task_id}: "
+                    f"{type(spool_exc).__name__}: {spool_exc}"
+                )
+                continue
+            if result is None:
+                result = corrupt_claim_result(task, exc)
+                try:
+                    persist_result_spool(task_id, result)
+                except Exception as persist_exc:
+                    log(f"failed to persist corrupt-claim result for {task_id}: {persist_exc}")
+                    continue
             log(f"recovering corrupt claim without replay: {task_id}")
             try:
-                core.publish_result(task_id, result)
+                publish_durable_result(task_id, result)
             except Exception as publish_exc:
                 log(f"failed to publish corrupt-claim result for {task_id}: {publish_exc}")
                 continue
@@ -437,6 +608,38 @@ def recover_stale_claims() -> None:
             )
             quarantined = _quarantine_corrupt_claim(path)
             log(f"quarantined corrupt claim for {task_id}: {quarantined.name}")
+            clear_current_task(task_id)
+            continue
+
+        try:
+            spooled_result = read_result_spool(task_id)
+        except Exception as exc:
+            log(
+                f"invalid result spool retained for {task_id}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            continue
+        if spooled_result is not None:
+            log(f"retrying durable result publication without replay: {task_id}")
+            try:
+                publish_durable_result(task_id, spooled_result)
+            except Exception as exc:
+                log(f"failed to republish durable result for {task_id}: {exc}")
+                continue
+            publish_run_state(
+                task_id,
+                {
+                    "event": "result_republished",
+                    "status": spooled_result.get("status"),
+                    "failure_reason": spooled_result.get("failure_reason"),
+                    "attempt_id": claim.get("attempt_id"),
+                    "task_digest": claim.get("task_digest"),
+                    "updated_at": now_iso(),
+                },
+                force_remote=True,
+            )
+            release_task_claim(task_id)
+            clear_current_task(task_id)
             continue
 
         result_path = results_dir / f"{task_id}.json"
@@ -450,7 +653,8 @@ def recover_stale_claims() -> None:
 
         log(f"recovering interrupted task without replay: {task_id}")
         try:
-            core.publish_result(task_id, result)
+            persist_result_spool(task_id, result)
+            publish_durable_result(task_id, result)
         except Exception as exc:
             log(f"failed to publish interrupted result for {task_id}: {exc}")
             continue
@@ -467,6 +671,7 @@ def recover_stale_claims() -> None:
             force_remote=True,
         )
         release_task_claim(task_id)
+        clear_current_task(task_id)
 
 
 def acquire_daemon_lock() -> Any:
@@ -486,15 +691,12 @@ def acquire_daemon_lock() -> Any:
 
 
 def _git(args: list[str], timeout: int = 60) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        args,
-        cwd=SELF_REPO,
-        env=core.ENV,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        timeout=timeout,
-        check=False,
+    result = core.process(args, SELF_REPO, timeout=timeout, log_commands=False)
+    return subprocess.CompletedProcess(
+        args=args,
+        returncode=int(result["exit_code"]),
+        stdout=str(result.get("output", "")),
+        stderr=None,
     )
 
 
@@ -544,26 +746,28 @@ def _validate_installed_update() -> tuple[bool, str]:
             "agent_core.py",
             "agent_runtime.py",
             "agent_process.py",
+            "agent_repository.py",
+            "agent_repo_worker.py",
+            "agent_multirepo.py",
+            "agent_repo_admin.py",
             "agentctl.py",
+            "agent_version.py",
         ],
         [sys.executable, "-m", "unittest", "discover", "-q"],
     ]
-    for command in commands:
-        try:
-            result = subprocess.run(
+    with tempfile.TemporaryDirectory(prefix="local-agent-update-validation-") as home:
+        validation_env = dict(core.ENV)
+        validation_env["HOME"] = home
+        for command in commands:
+            result = core.process(
                 command,
-                cwd=SELF_REPO,
-                env=core.ENV,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=120,
-                check=False,
+                SELF_REPO,
+                environment=validation_env,
+                timeout=300,
+                log_commands=False,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            return False, f"{command!r}: {exc}"
-        if result.returncode != 0:
-            return False, result.stdout.strip()
+            if result["exit_code"] != 0:
+                return False, str(result.get("output", "")).strip()
     return True, ""
 
 
@@ -702,6 +906,7 @@ def publish_run_state(
     payload: dict[str, Any],
     *,
     force_remote: bool,
+    asynchronous_remote: bool = False,
 ) -> None:
     state = dict(payload)
     state.setdefault("task_id", task_id)
@@ -711,11 +916,18 @@ def publish_run_state(
     atomic_write_json(LOCAL_RUNS_DIR / f"{task_id}.json", state)
     if not force_remote:
         return
+    relative = f"{REMOTE_RUNS_DIR}/{task_id}.json"
+    commit_message = f"Agent progress: {task_id}"
+    if asynchronous_remote:
+        remote_progress_publisher().submit(relative, state, commit_message)
+        return
     try:
         publish_control_json(
-            f"{REMOTE_RUNS_DIR}/{task_id}.json",
+            relative,
             state,
-            commit_message=f"Agent progress: {task_id}",
+            commit_message=commit_message,
+            timeout=30,
+            attempts=1,
         )
     except Exception as exc:
         log(f"remote run state publish failed for {task_id}: {exc}")
@@ -761,7 +973,12 @@ def make_progress_callback(task_id: str, attempt_id: str, digest: str):
         if event_name == "command_heartbeat" and now - last_remote >= RUN_HEARTBEAT_SECONDS:
             force_remote = True
 
-        publish_run_state(task_id, enriched, force_remote=force_remote)
+        publish_run_state(
+            task_id,
+            enriched,
+            force_remote=force_remote,
+            asynchronous_remote=True,
+        )
         if force_remote:
             last_remote = now
             if phase:
@@ -777,7 +994,7 @@ def make_progress_callback(task_id: str, attempt_id: str, digest: str):
             status_extra["last_progress_at"] = enriched["last_progress_at"]
         if enriched.get("last_progress_message") is not None:
             status_extra["last_progress_message"] = enriched["last_progress_message"]
-        publish_daemon_status("running", force_remote=force_remote, **status_extra)
+        publish_daemon_status("running", force_remote=False, **status_extra)
 
     return progress
 
@@ -793,11 +1010,11 @@ def install_signal_handlers() -> None:
     signal.signal(signal.SIGINT, shutdown_handler)
 
 
-def execute_task(task: dict[str, Any]) -> None:
+def execute_task(task: dict[str, Any]) -> str:
     global _current_task_id, _current_attempt_id, _current_task_digest, _current_progress
     claim = claim_task(task)
     if claim is None:
-        return
+        return "not_claimed"
 
     task_id = str(task["id"])
     _current_task_id = task_id
@@ -828,16 +1045,30 @@ def execute_task(task: dict[str, Any]) -> None:
     result["daemon_version"] = DAEMON_VERSION
     result.setdefault("task_digest", _current_task_digest)
 
+    if not flush_remote_progress():
+        log(f"remote progress did not flush before final result for {task_id}")
+
     try:
-        core.publish_result(task_id, result)
+        persist_result_spool(task_id, result)
     except Exception as exc:
-        log(f"result publish failed for {task_id}: {exc}")
+        log(f"result persistence failed for {task_id}: {exc}")
         publish_daemon_status(
-            "result_publish_failed",
+            "result_persistence_failed",
             force_remote=True,
             error=f"{type(exc).__name__}: {exc}",
         )
-        return
+        return "publication_pending"
+
+    try:
+        publish_durable_result(task_id, result)
+    except Exception as exc:
+        log(f"result publish failed for {task_id}: {exc}")
+        publish_daemon_status(
+            "publication_pending",
+            force_remote=True,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return "publication_pending"
 
     publish_run_state(
         task_id,
@@ -853,11 +1084,9 @@ def execute_task(task: dict[str, Any]) -> None:
         force_remote=True,
     )
     release_task_claim(task_id)
-    _current_task_id = None
-    _current_attempt_id = None
-    _current_task_digest = None
-    _current_progress = {}
+    clear_current_task(task_id)
     publish_daemon_status("idle", force_remote=True)
+    return "published"
 
 
 def main() -> None:
@@ -889,7 +1118,9 @@ def main() -> None:
             handle_control_request()
             maybe_self_update()
             tasks = pending_tasks()
-            if not tasks:
+            if not tasks and has_pending_publications():
+                publish_daemon_status("publication_pending")
+            elif not tasks:
                 log("no pending tasks")
                 publish_daemon_status("idle")
             for _, task in tasks:

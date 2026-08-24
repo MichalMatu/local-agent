@@ -16,9 +16,11 @@ import agentd
 from agent_process import terminate_process_group
 from agent_repository import RepositoryContext, load_repository_registry
 from agent_repo_worker import WORKER_IDLE, WORKER_PROCESSED
+from agent_version import RELEASE_VERSION
 
-SUPERVISOR_VERSION = "4.7.0"
+SUPERVISOR_VERSION = RELEASE_VERSION
 POLL_SECONDS = 15
+WORKER_TURN_GRACE_SECONDS = 3600
 _active_worker: subprocess.Popen[str] | None = None
 _daemon_lock_handle: Any | None = None
 
@@ -57,6 +59,18 @@ def service_supervisor_control(repository: RepositoryContext) -> None:
     sync_control_quietly()
     agentd.handle_control_request()
     agentd.maybe_self_update()
+
+
+def service_supervisor_control_safely(repository: RepositoryContext) -> bool:
+    try:
+        service_supervisor_control(repository)
+    except Exception as exc:
+        log(
+            f"supervisor control service degraded repository="
+            f"{repository.repository_id}: {type(exc).__name__}: {exc}"
+        )
+        return False
+    return True
 
 
 def ordered_repositories(
@@ -107,7 +121,17 @@ def run_worker(
     setattr(proc, "_local_agent_process_group", proc.pid)
     _active_worker = proc
     try:
-        return proc.wait()
+        try:
+            return proc.wait(
+                timeout=agentd.TIMEOUTS.task_max + WORKER_TURN_GRACE_SECONDS
+            )
+        except subprocess.TimeoutExpired:
+            log(
+                f"repository worker timed out repository={repository.repository_id} "
+                f"limit={agentd.TIMEOUTS.task_max + WORKER_TURN_GRACE_SECONDS}s"
+            )
+            terminate_process_group(proc, log)
+            return 124
     finally:
         _active_worker = None
 
@@ -147,7 +171,7 @@ def run_cycle(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Experimental v4.6 single-daemon multi-repository supervisor."
+        description="Single-daemon multi-repository local-agent supervisor."
     )
     parser.add_argument("--registry", type=Path)
     parser.add_argument("--once", action="store_true")
@@ -169,19 +193,25 @@ def main() -> int:
         "global execution concurrency=1 "
         f"control_repository={control_repository.repository_id}"
     )
-    sync_control_quietly()
-    agentd.publish_daemon_status(
-        "idle",
-        force_remote=True,
-        execution_model="multi_repository_supervisor",
-        supervisor_pid=os.getpid(),
-        supervisor_control_repository=control_repository.repository_id,
-    )
+    try:
+        sync_control_quietly()
+        agentd.publish_daemon_status(
+            "idle",
+            force_remote=True,
+            execution_model="multi_repository_supervisor",
+            supervisor_pid=os.getpid(),
+            supervisor_control_repository=control_repository.repository_id,
+        )
+    except Exception as exc:
+        log(
+            f"initial supervisor control service degraded: "
+            f"{type(exc).__name__}: {exc}"
+        )
 
     while True:
         try:
             control_repository = supervisor_control_repository(registry_path=registry_path)
-            service_supervisor_control(control_repository)
+            service_supervisor_control_safely(control_repository)
             processed, last_repository = run_cycle(
                 registry_path=registry_path,
                 start_after=last_repository,

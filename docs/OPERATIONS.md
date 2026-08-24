@@ -1,12 +1,12 @@
 # Local Agent Operations
 
-This file is the canonical workflow for the established local-agent deployment. Multi-repository staging details are defined in `MULTI_REPOSITORY.md`.
+This file is the canonical workflow for the established local-agent deployment. Multi-repository details are defined in `MULTI_REPOSITORY.md`.
 
 ## Roles
 
 The planner chooses exact changes and commands. The daemon executes deterministic tasks, records real output and publishes machine-readable evidence. It does not invent fixes.
 
-Validated v4.5 default pairing:
+Validated default pairing:
 
 - target repository: `MichalMatu/esp32s3_LiteGraph`
 - target source branch: `main`
@@ -14,13 +14,13 @@ Validated v4.5 default pairing:
 - daemon repository: `MichalMatu/local-agent`
 - daemon branch: `main`
 
-v4.6 staging generalizes the target side to a machine-local registry of repositories while preserving the same task format and execution core.
+Multi-repository mode generalizes the target side to a machine-local registry while preserving the same task format and execution core.
 
 ## Control data
 
 Each repository `agent-control` branch contains queued tasks, live runs, terminal results, daemon/repository status and durable control acknowledgements under `.agent/`.
 
-Task ids and payloads are immutable within one repository. Claimed or interrupted work is never replayed automatically. Result publication may be retried; execution may not.
+Task ids and payloads are immutable within one repository. Claimed or interrupted work is never replayed automatically. Final results are durably spooled before remote publication. Result publication may be retried; execution may not.
 
 In multi-repository mode, task/result/claim identity is repository-scoped. Two repositories may safely contain the same task id.
 
@@ -61,7 +61,7 @@ Verification is impact-driven. Broad suites are used only for shared/cross-cutti
 
 ## Multi-repository operation
 
-The v4.6 registry is stored at:
+The registry is stored at:
 
 ```text
 ~/Library/Application Support/local-agent/repositories.json
@@ -96,14 +96,14 @@ After a runtime release, verify the reported daemon revision/status and run a re
 
 ## Activation and rollback
 
-The v4.6 launchd file is a replacement template, not a second service. It uses the same launchd label and daemon lock as v4.5.
+The multi-repository launchd file is a replacement template, not a second service. It uses the same launchd label and daemon lock as the single-repository entry point.
 
-Do not load v4.5 and v4.6 simultaneously. Stop/unload the existing service before replacing its launchd configuration. Rollback means stopping v4.6, restoring the v4.5 plist and starting the service again; the legacy LiteGraph workspace remains intact.
+Do not load both entry points simultaneously. Stop/unload the existing service before replacing its launchd configuration. Rollback means stopping the supervisor, restoring the previous plist and starting the service again; the legacy LiteGraph workspace remains intact.
 
 ## Legacy cautions
 
 - `expected_head` is not implemented; verify an expected source SHA explicitly when required.
-- Repeating an identical command string inside one task may reuse the earlier result.
+- Every declared command executes independently, including identical command strings.
 - Disposable-workspace cleanup preserves ignored caches.
 - Historical design documents and historical staging branches are not runtime contracts.
 

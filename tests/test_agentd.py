@@ -21,6 +21,7 @@ class AgentDaemonSafetyTests(unittest.TestCase):
             "REJECTED_UPDATE_PATH": agentd.REJECTED_UPDATE_PATH,
             "LOCAL_STATUS_PATH": agentd.LOCAL_STATUS_PATH,
             "LOCAL_RUNS_DIR": agentd.LOCAL_RUNS_DIR,
+            "RESULT_SPOOL_DIR": agentd.RESULT_SPOOL_DIR,
             "CONTROL": agentd.core.CONTROL,
         }
         agentd.STATE_DIR = root / "state"
@@ -30,6 +31,7 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         agentd.REJECTED_UPDATE_PATH = agentd.STATE_DIR / "rejected-self-update.json"
         agentd.LOCAL_STATUS_PATH = agentd.STATE_DIR / "status.json"
         agentd.LOCAL_RUNS_DIR = agentd.STATE_DIR / "runs"
+        agentd.RESULT_SPOOL_DIR = agentd.STATE_DIR / "result-spool"
         agentd.core.CONTROL = root / "control"
         (agentd.core.CONTROL / ".agent" / "tasks").mkdir(parents=True)
         (agentd.core.CONTROL / ".agent" / "results").mkdir(parents=True)
@@ -81,6 +83,53 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertEqual(len(agentd.pending_tasks()), 1)
         self.assertIsNotNone(agentd.claim_task(task))
         self.assertEqual(agentd.pending_tasks(), [])
+
+    def test_oversized_task_file_is_terminally_rejected_before_json_load(self) -> None:
+        path = agentd.core.CONTROL / ".agent" / "tasks" / "large-task.json"
+        path.write_text("{}" * 20, encoding="utf-8")
+        with mock.patch.object(agentd, "MAX_TASK_FILE_BYTES", 8), mock.patch.object(
+            agentd.core, "publish_result"
+        ) as publish_result, mock.patch.object(agentd, "publish_run_state"):
+            agentd.recover_invalid_task_files()
+        self.assertEqual(publish_result.call_count, 1)
+        result = publish_result.call_args.args[1]
+        self.assertEqual(result["failure_reason"], "invalid_task_file")
+        self.assertIn("task file exceeds", result["error"])
+
+    def test_failed_result_publication_is_retried_from_spool_without_reexecution(self) -> None:
+        task = self.task("publish-retry")
+        completed = {
+            "id": "publish-retry",
+            "status": "done",
+            "finished_at": "2026-08-24T00:00:00+00:00",
+        }
+        with mock.patch.object(
+            agentd.runtime, "process_task", return_value=dict(completed)
+        ) as process_task, mock.patch.object(
+            agentd.core, "publish_result", side_effect=RuntimeError("network down")
+        ), mock.patch.object(agentd, "publish_daemon_status"), mock.patch.object(
+            agentd, "publish_run_state"
+        ):
+            outcome = agentd.execute_task(task)
+
+        self.assertEqual(outcome, "publication_pending")
+        process_task.assert_called_once()
+        self.assertTrue(agentd.task_claim_path("publish-retry").exists())
+        spooled = agentd.read_result_spool("publish-retry")
+        self.assertIsNotNone(spooled)
+        assert spooled is not None
+        self.assertEqual(spooled["status"], "done")
+
+        with mock.patch.object(agentd.core, "publish_result") as publish_result, mock.patch.object(
+            agentd, "publish_run_state"
+        ):
+            agentd.recover_stale_claims()
+
+        publish_result.assert_called_once()
+        self.assertEqual(publish_result.call_args.args[0], "publish-retry")
+        self.assertFalse(agentd.task_claim_path("publish-retry").exists())
+        self.assertIsNone(agentd.read_result_spool("publish-retry"))
+        process_task.assert_called_once()
 
     def test_interrupted_attempt_is_terminal_failure(self) -> None:
         result = agentd.interrupted_result(
@@ -138,6 +187,29 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         with mock.patch.object(agentd, "_git", return_value=staging):
             self.assertFalse(agentd.self_repo_on_main_branch())
 
+    def test_self_update_validation_uses_isolated_home_and_all_release_modules(self) -> None:
+        calls: list[tuple[list[str], dict]] = []
+
+        def fake_process(command, _cwd, **kwargs):
+            calls.append((list(command), dict(kwargs)))
+            return {"exit_code": 0, "output": "", "elapsed_seconds": 0.1}
+
+        with mock.patch.object(agentd.core, "process", side_effect=fake_process):
+            valid, error = agentd._validate_installed_update()
+
+        self.assertTrue(valid)
+        self.assertEqual(error, "")
+        self.assertEqual(len(calls), 2)
+        compile_command, compile_kwargs = calls[0]
+        self.assertIn("agent_config.py", compile_command)
+        self.assertIn("agent_repository.py", compile_command)
+        self.assertIn("agent_version.py", compile_command)
+        self.assertNotEqual(compile_kwargs["environment"]["HOME"], str(agentd.HOME))
+        self.assertEqual(
+            compile_kwargs["environment"]["HOME"],
+            calls[1][1]["environment"]["HOME"],
+        )
+
     def test_invalid_task_file_becomes_terminal_result(self) -> None:
         path = agentd.core.CONTROL / ".agent" / "tasks" / "broken-task.json"
         path.write_text("{broken", encoding="utf-8")
@@ -158,6 +230,20 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertEqual(published[0]["failure_reason"], "invalid_task_file")
         self.assertEqual(agentd.pending_tasks(), [])
         self.assertTrue(publish_run.call_args.kwargs["force_remote"])
+
+    def test_symlinked_task_file_is_rejected_without_reading_its_target(self) -> None:
+        outside = agentd.STATE_DIR / "outside-task.json"
+        outside.parent.mkdir(parents=True, exist_ok=True)
+        outside.write_text(json.dumps(self.task("outside")), encoding="utf-8")
+        path = agentd.core.CONTROL / ".agent" / "tasks" / "linked-task.json"
+        path.symlink_to(outside)
+        with mock.patch.object(agentd.core, "publish_result") as publish_result, mock.patch.object(
+            agentd, "publish_run_state"
+        ):
+            agentd.recover_invalid_task_files()
+        result = publish_result.call_args.args[1]
+        self.assertEqual(result["failure_reason"], "invalid_task_file")
+        self.assertIn("regular file", result["error"])
 
     def test_historical_filename_alias_is_valid(self) -> None:
         task = self.task("payload-id")
@@ -193,6 +279,7 @@ class AgentDaemonSafetyTests(unittest.TestCase):
                     "command": "true",
                 }
             )
+            self.assertTrue(agentd.flush_remote_progress())
         state = json.loads((agentd.LOCAL_RUNS_DIR / "task-4.json").read_text())
         self.assertEqual(state["task_id"], "task-4")
         self.assertEqual(state["attempt_id"], "attempt")
@@ -236,9 +323,9 @@ class AgentDaemonSafetyTests(unittest.TestCase):
 
         remote_flags = [call.kwargs["force_remote"] for call in publish_run.call_args_list]
         self.assertEqual(remote_flags, [True, True, False, True])
-        self.assertTrue(
-            [call.kwargs["force_remote"] for call in publish_status.call_args_list]
-            == [True, True, False, True]
+        self.assertEqual(
+            [call.kwargs["force_remote"] for call in publish_status.call_args_list],
+            [False, False, False, False],
         )
 
     def test_remote_heartbeat_refreshes_daemon_status_at_sixty_seconds(self) -> None:
@@ -272,7 +359,7 @@ class AgentDaemonSafetyTests(unittest.TestCase):
             )
 
         self.assertTrue(publish_run.call_args_list[-1].kwargs["force_remote"])
-        self.assertTrue(publish_status.call_args_list[-1].kwargs["force_remote"])
+        self.assertFalse(publish_status.call_args_list[-1].kwargs["force_remote"])
         self.assertEqual(
             publish_status.call_args_list[-1].kwargs["progress"]["host_load_1m"], 1.25
         )

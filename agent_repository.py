@@ -53,21 +53,27 @@ def legacy_repository(home: Path) -> RepositoryContext:
 
 
 def _validate_id(value: Any) -> str:
-    repository_id = str(value or "")
+    if not isinstance(value, str):
+        raise ValueError(f"invalid repository id: {value!r}")
+    repository_id = value
     if not _ID_RE.fullmatch(repository_id):
         raise ValueError(f"invalid repository id: {repository_id!r}")
     return repository_id
 
 
 def _validate_repository(value: Any) -> str:
-    repository = str(value or "")
+    if not isinstance(value, str):
+        raise ValueError(f"invalid repository name: {value!r}")
+    repository = value
     if not _REPOSITORY_RE.fullmatch(repository):
         raise ValueError(f"invalid repository name: {repository!r}")
     return repository
 
 
 def _validate_branch(value: Any, field: str) -> str:
-    branch = str(value or "")
+    if not isinstance(value, str):
+        raise ValueError(f"invalid {field}: {value!r}")
+    branch = value
     if (
         not branch
         or not _BRANCH_RE.fullmatch(branch)
@@ -83,14 +89,16 @@ def _absolute_path(value: Any, *, home: Path, default: Path) -> Path:
     if value is None:
         path = default
     else:
-        raw = str(value)
+        if not isinstance(value, str):
+            raise ValueError(f"repository workspace path must be a string: {value!r}")
+        raw = value
         if raw.startswith("~/"):
             path = home / raw[2:]
         else:
             path = Path(raw)
     if not path.is_absolute():
         raise ValueError(f"repository workspace path must be absolute: {path}")
-    return path
+    return path.resolve(strict=False)
 
 
 def repository_from_dict(item: dict[str, Any], *, home: Path) -> RepositoryContext:
@@ -105,7 +113,10 @@ def repository_from_dict(item: dict[str, Any], *, home: Path) -> RepositoryConte
         "default_branch",
     )
 
-    if bool(item.get("legacy_workspace", False)):
+    legacy_workspace = item.get("legacy_workspace", False)
+    if not isinstance(legacy_workspace, bool):
+        raise ValueError("legacy_workspace must be a boolean")
+    if legacy_workspace:
         defaults = legacy_repository(home)
         default_control = defaults.control
         default_work = defaults.work
@@ -129,8 +140,6 @@ def repository_from_dict(item: dict[str, Any], *, home: Path) -> RepositoryConte
         control_branch=control_branch,
         default_branch=default_branch,
     )
-    if context.control == context.work:
-        raise ValueError(f"repository {repository_id!r} control and work paths must differ")
     return context
 
 
@@ -150,13 +159,16 @@ def validate_repository_set(repositories: Iterable[RepositoryContext]) -> list[R
             ("work", repository.work),
             ("checkpoints", repository.checkpoints),
         ):
-            previous = paths.get(path)
-            if previous is not None:
-                other_id, other_field = previous
-                raise ValueError(
-                    f"workspace path collision: {repository.repository_id}.{field} "
-                    f"shares {path} with {other_id}.{other_field}"
-                )
+            for previous_path, (other_id, other_field) in paths.items():
+                if (
+                    path == previous_path
+                    or path in previous_path.parents
+                    or previous_path in path.parents
+                ):
+                    raise ValueError(
+                        f"workspace path collision: {repository.repository_id}.{field} "
+                        f"at {path} overlaps {other_id}.{other_field} at {previous_path}"
+                    )
             paths[path] = (repository.repository_id, field)
     return result
 
@@ -174,7 +186,8 @@ def load_repository_registry(
     payload = json.loads(registry_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("repository registry root must be an object")
-    if payload.get("version") != REGISTRY_VERSION:
+    version = payload.get("version")
+    if not isinstance(version, int) or isinstance(version, bool) or version != REGISTRY_VERSION:
         raise ValueError(
             f"unsupported repository registry version: {payload.get('version')!r}"
         )
@@ -186,7 +199,10 @@ def load_repository_registry(
     for item in raw_repositories:
         if not isinstance(item, dict):
             raise ValueError("repository registry entries must be objects")
-        if item.get("enabled", True) is False:
+        enabled = item.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError("repository enabled must be a boolean")
+        if not enabled:
             continue
         repositories.append(repository_from_dict(item, home=resolved_home))
     return validate_repository_set(repositories)

@@ -7,13 +7,13 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - All machine-generated execution content is English-only: source, comments, identifiers, tests, documentation, prompts, task metadata, runtime logs, shell-visible status text and commit messages.
 - Interactive ChatGPT conversation language is independent from that execution contract.
 - Every newly authored Codex/agent prompt must restate the English-only execution requirement near the top.
-- `agentd.py` owns the validated single-repository daemon implementation, durable claims, remote status/control and v4.5 self-update.
+- `agentd.py` owns the validated single-repository daemon implementation, durable claims/results, remote status/control and self-update.
 - `agent_core.py` owns deterministic task execution and result publication.
 - `agent_runtime.py` owns staged command lifecycle, watchdogs, progress and telemetry.
 - `agent_process.py` owns shared shell spawning, bounded stdout handoff/capture and process-group termination primitives.
-- `agent_repository.py` owns v4.6 repository registry parsing and workspace identity.
+- `agent_repository.py` owns repository registry parsing and workspace identity.
 - `agent_repo_worker.py` owns one short-lived, process-isolated repository polling/execution turn.
-- `agent_multirepo.py` owns the v4.6 multi-repository scheduler and the global execution-concurrency boundary.
+- `agent_multirepo.py` owns the multi-repository scheduler and the global execution-concurrency boundary.
 - `agent_repo_admin.py` owns explicit repository workspace provisioning and validation.
 - `agentctl.py` is diagnostics only; the daemon must not depend on it.
 
@@ -46,10 +46,10 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 `local-agent` is not feature-identical to DeterministicRunner:
 
 - `expected_head` is not implemented; verify an expected Git SHA explicitly when source identity matters.
-- Identical command strings within one task may reuse the earlier result instead of executing again.
+- Every declared command executes independently, including identical command strings.
 - Cleanup intentionally preserves ignored caches.
 - The established deployment is macOS/POSIX-specific and uses `launchd`.
-- Without a multi-repository registry, the v4.6 registry layer resolves to the established LiteGraph v4.5 workspace layout.
+- Without a multi-repository registry, the registry layer resolves to the established LiteGraph workspace layout.
 
 ## Verification policy
 

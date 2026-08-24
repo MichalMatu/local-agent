@@ -14,8 +14,9 @@ from typing import Any
 import agent_core as core
 import agentd
 from agent_repository import RepositoryContext, load_repository_registry
+from agent_version import RELEASE_VERSION
 
-MULTIREPO_DAEMON_VERSION = "4.7.0"
+MULTIREPO_DAEMON_VERSION = RELEASE_VERSION
 WORKER_IDLE = 0
 WORKER_PROCESSED = 10
 _CONTROL_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -37,6 +38,7 @@ def bind_repository(repository: RepositoryContext) -> None:
     agentd.CORRUPT_CLAIMS_DIR = state_dir / "corrupt-claims"
     agentd.LOCAL_STATUS_PATH = state_dir / "status.json"
     agentd.LOCAL_RUNS_DIR = state_dir / "runs"
+    agentd.RESULT_SPOOL_DIR = state_dir / "result-spool"
 
 
 def validate_repository_checkouts(repository: RepositoryContext) -> None:
@@ -217,9 +219,10 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
         handle_repository_control(repository)
         pending = agentd.pending_tasks()
         if not pending:
+            state = "publication_pending" if agentd.has_pending_publications() else "idle"
             publish_repository_status(
                 repository,
-                "idle",
+                state,
                 force_remote=False,
             )
             return False
@@ -229,10 +232,11 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
             f"multi-repo dispatch repository={repository.repository_id} "
             f"task={task.get('id')}"
         )
-        agentd.execute_task(task)
+        outcome = agentd.execute_task(task)
+        state = "publication_pending" if outcome == "publication_pending" else "idle"
         publish_repository_status(
             repository,
-            "idle",
+            state,
             force_remote=True,
             last_task_id=str(task.get("id", "")),
         )

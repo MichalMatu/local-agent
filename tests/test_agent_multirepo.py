@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -109,6 +110,24 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
             multi.agentd.DAEMON_VERSION = original_version
             multi.agentd.core.CONTROL = original_control
             multi.agentd.core.CONTROL_BRANCH = original_branch
+
+    def test_control_service_failure_is_degraded_without_raising(self) -> None:
+        target = repository("a")
+        with mock.patch.object(
+            multi, "service_supervisor_control", side_effect=RuntimeError("network down")
+        ):
+            self.assertFalse(multi.service_supervisor_control_safely(target))
+
+    def test_worker_turn_timeout_terminates_the_process_group(self) -> None:
+        target = repository("a")
+        proc = mock.Mock(pid=12345)
+        proc.wait.side_effect = subprocess.TimeoutExpired(["worker"], 1)
+        with mock.patch.object(multi.subprocess, "Popen", return_value=proc), mock.patch.object(
+            multi, "terminate_process_group"
+        ) as terminate:
+            return_code = multi.run_worker(target, registry_path=None)
+        self.assertEqual(return_code, 124)
+        terminate.assert_called_once_with(proc, multi.log)
 
     def test_all_idle_preserves_last_repository_cursor(self) -> None:
         repositories = [repository("a"), repository("b")]

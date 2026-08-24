@@ -15,7 +15,13 @@ from pathlib import Path
 from typing import Any, Callable
 
 from agent_config import TIMEOUTS
-from agent_process import BoundedTextBuffer, spawn_shell, start_output_pump
+from agent_process import (
+    BoundedTextBuffer,
+    run_argv_bounded,
+    spawn_shell,
+    start_output_pump,
+    terminate_remaining_process_group,
+)
 
 ProgressCallback = Callable[[dict[str, Any]], None]
 
@@ -35,6 +41,15 @@ MAX_PROGRESS_TEXT = 256
 MAX_PROGRESS_METRICS = 16
 LIVE_DIFF_MAX_LINES = 80
 LIVE_DIFF_MAX_CHARS = 12_000
+PROGRESS_EVENT_QUEUE_CAPACITY = 64
+PROGRESS_FLUSH_TIMEOUT = 65.0
+MAX_TASK_FILE_BYTES = 4 * 1024 * 1024
+MAX_TASK_LIST_ITEMS = 256
+MAX_COMMAND_CHARS = 32_768
+MAX_PATCH_BYTES = 2 * 1024 * 1024
+MAX_WRITE_BYTES = 2 * 1024 * 1024
+MAX_TOTAL_WRITE_BYTES = 8 * 1024 * 1024
+MAX_TASK_PATH_CHARS = 1024
 
 _DIFF_METADATA_PREFIXES = (
     "index ",
@@ -242,8 +257,19 @@ def validate_task(task: dict[str, Any]) -> None:
         raise ValueError("task id must be a non-empty string up to 200 characters")
     if not _TASK_ID_RE.fullmatch(task_id):
         raise ValueError("task id contains unsupported characters")
-    if str(task.get("mode", "commands")) != "commands":
+    mode = task.get("mode", "commands")
+    if not isinstance(mode, str) or mode != "commands":
         raise ValueError("only mode=commands is supported")
+    if "allow_write" in task and not isinstance(task["allow_write"], bool):
+        raise ValueError("allow_write must be a boolean")
+    if "work_branch" in task and not isinstance(task["work_branch"], str):
+        raise ValueError("work_branch must be a string")
+    patch = task.get("patch")
+    if patch is not None:
+        if not isinstance(patch, str):
+            raise ValueError("patch must be a string")
+        if len(patch.encode("utf-8")) > MAX_PATCH_BYTES:
+            raise ValueError(f"patch exceeds {MAX_PATCH_BYTES} bytes")
     for field in (
         "writes",
         "deletes",
@@ -254,6 +280,44 @@ def validate_task(task: dict[str, Any]) -> None:
     ):
         if field in task and not isinstance(task[field], list):
             raise ValueError(f"{field} must be a list")
+        if len(task.get(field, [])) > MAX_TASK_LIST_ITEMS:
+            raise ValueError(f"{field} exceeds {MAX_TASK_LIST_ITEMS} items")
+
+    total_write_bytes = 0
+    for item in task.get("writes", []):
+        if not isinstance(item, dict):
+            raise ValueError("writes items must be objects")
+        path = item.get("path")
+        content = item.get("content")
+        if not isinstance(path, str) or not path or len(path) > MAX_TASK_PATH_CHARS:
+            raise ValueError("write path must be a non-empty bounded string")
+        if not isinstance(content, str):
+            raise ValueError(f"write content must be a string for {path!r}")
+        write_bytes = len(content.encode("utf-8"))
+        if write_bytes > MAX_WRITE_BYTES:
+            raise ValueError(f"write content for {path!r} exceeds {MAX_WRITE_BYTES} bytes")
+        total_write_bytes += write_bytes
+    if total_write_bytes > MAX_TOTAL_WRITE_BYTES:
+        raise ValueError(f"writes exceed {MAX_TOTAL_WRITE_BYTES} total bytes")
+
+    for path in task.get("deletes", []):
+        if not isinstance(path, str) or not path or len(path) > MAX_TASK_PATH_CHARS:
+            raise ValueError("delete paths must be non-empty bounded strings")
+
+    for field in ("commands", "verify_commands"):
+        for command in task.get(field, []):
+            if not isinstance(command, str) or not command.strip():
+                raise ValueError(f"{field} items must be non-empty strings")
+            if len(command) > MAX_COMMAND_CHARS:
+                raise ValueError(f"{field} item exceeds {MAX_COMMAND_CHARS} characters")
+
+    for field in ("steps", "verify_steps"):
+        for item in task.get(field, []):
+            if not isinstance(item, dict):
+                raise ValueError(f"{field} items must be objects")
+            command = item.get("command")
+            if isinstance(command, str) and len(command) > MAX_COMMAND_CHARS:
+                raise ValueError(f"{field} item command exceeds {MAX_COMMAND_CHARS} characters")
     core_module = __import__("agent_core")
     stage_plan = core_module.stage_plan_for(task)
     command_timeout = core_module.command_timeout_for(task)
@@ -278,10 +342,9 @@ def _bounded_int(
     maximum: int,
 ) -> int:
     raw = task.get(field, default)
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
+    if not isinstance(raw, int) or isinstance(raw, bool):
         raise ValueError(f"invalid {field}: {raw!r}") from None
+    value = raw
     if value < minimum or value > maximum:
         raise ValueError(f"{field} must be {minimum}..{maximum}, got {value}")
     return value
@@ -347,17 +410,17 @@ def parse_progress_marker(line: str) -> dict[str, Any] | None:
 
 def _safe_command(args: list[str], timeout: float = 2.0) -> str | None:
     try:
-        completed = subprocess.run(
+        result = run_argv_bounded(
             args,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            cwd=Path.cwd(),
+            env=os.environ,
             timeout=timeout,
-            check=False,
+            output_limit=1024 * 1024,
+            log=lambda _message: None,
         )
-    except (OSError, subprocess.SubprocessError):
+    except OSError:
         return None
-    return completed.stdout if completed.returncode == 0 else None
+    return str(result["output"]) if result["exit_code"] == 0 else None
 
 
 def parse_mac_vm_stat(text: str, *, page_size: int = 4096) -> dict[str, int]:
@@ -537,6 +600,155 @@ def collect_telemetry(pid: int) -> dict[str, Any]:
     return telemetry
 
 
+class ProgressDispatcher:
+    """Keep progress publication outside command watchdog loops with bounded handoff."""
+
+    def __init__(self, callback: ProgressCallback, log: Callable[[str], None]) -> None:
+        self._callback = callback
+        self._log = log
+        self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue(
+            maxsize=PROGRESS_EVENT_QUEUE_CAPACITY
+        )
+        self._closed = False
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name="local-agent-progress",
+        )
+        self._thread.start()
+
+    def _run(self) -> None:
+        while True:
+            event = self._queue.get()
+            try:
+                if event is None:
+                    return
+                try:
+                    self._callback(event)
+                except Exception as exc:
+                    self._log(
+                        f"progress callback failed: {type(exc).__name__}: {exc}"
+                    )
+            finally:
+                self._queue.task_done()
+
+    def submit(self, event: dict[str, Any]) -> None:
+        if self._closed:
+            return
+        try:
+            self._queue.put_nowait(event)
+            return
+        except queue.Full:
+            pass
+        try:
+            dropped = self._queue.get_nowait()
+            self._queue.task_done()
+            if dropped is None:
+                self._closed = True
+                return
+        except queue.Empty:
+            pass
+        try:
+            self._queue.put_nowait(event)
+        except queue.Full:
+            self._log("progress event dropped because the bounded queue is full")
+
+    def close(self, timeout: float = PROGRESS_FLUSH_TIMEOUT) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        while True:
+            try:
+                self._queue.put_nowait(None)
+                break
+            except queue.Full:
+                try:
+                    self._queue.get_nowait()
+                    self._queue.task_done()
+                except queue.Empty:
+                    continue
+        self._thread.join(timeout=max(0.0, timeout))
+        if self._thread.is_alive():
+            self._log("progress publication did not drain within its bounded deadline")
+
+
+class TelemetrySampler:
+    """Collect optional host telemetry without delaying command watchdog checks."""
+
+    def __init__(self, pid: int) -> None:
+        self._pid = pid
+        self._latest: dict[str, Any] = {}
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name="local-agent-telemetry",
+        )
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                sample = collect_telemetry(self._pid)
+            except Exception:
+                sample = {}
+            with self._lock:
+                self._latest = sample
+            self._stop.wait(PROGRESS_INTERVAL)
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return dict(self._latest)
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=0.1)
+
+
+class RssSampler:
+    """Sample process-group RSS without blocking command timeout enforcement."""
+
+    def __init__(
+        self,
+        process_group: int,
+        sampler: Callable[[int], float | None],
+        interval: float,
+    ) -> None:
+        self._process_group = process_group
+        self._sampler = sampler
+        self._interval = interval
+        self._latest: float | None = None
+        self._generation = 0
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name="local-agent-rss",
+        )
+        self._thread.start()
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                sample = self._sampler(self._process_group)
+            except Exception:
+                sample = None
+            with self._lock:
+                self._latest = sample
+                self._generation += 1
+            self._stop.wait(self._interval)
+
+    def snapshot(self) -> tuple[int, float | None]:
+        with self._lock:
+            return self._generation, self._latest
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=0.1)
+
+
 def sample_process_group_rss_mb(process_group: int) -> float | None:
     text = _safe_command(["ps", "-axo", "pid=,pgid=,%cpu=,rss="], timeout=5.0)
     if not text:
@@ -621,14 +833,15 @@ class RuntimeExecutor:
         last_progress = started
         timed_out = False
         idle_timed_out = False
-        task_timed_out = False
         memory_limited = False
+        background_process_leak = False
+        direct_process_finished = False
         command_failure_reason: str | None = None
         current_rss_mb: float | None = None
         peak_rss_mb: float | None = None
         over_limit_samples = 0
         memory_measurement_warned = False
-        next_memory_sample = started
+        last_memory_generation = 0
 
         budget_remaining: float | None = None
         if self._deadline is not None:
@@ -644,7 +857,6 @@ class RuntimeExecutor:
                     "elapsed_seconds": round(elapsed, 3),
                     "timed_out": False,
                     "idle_timed_out": False,
-                    "task_timed_out": False,
                     "memory_limited": False,
                     "not_started": True,
                     "budget_exhausted": True,
@@ -666,7 +878,6 @@ class RuntimeExecutor:
                         "elapsed_seconds": round(elapsed, 3),
                         "timed_out": False,
                         "idle_timed_out": False,
-                        "task_timed_out": False,
                         "memory_limited": False,
                         "not_started": True,
                         "budget_exhausted": True,
@@ -701,6 +912,12 @@ class RuntimeExecutor:
         )
 
         pump = start_output_pump(proc)
+        telemetry_sampler = TelemetrySampler(proc.pid)
+        rss_sampler = RssSampler(
+            process_group,
+            self._rss_sampler,
+            self._memory_sample_interval,
+        )
         output = BoundedTextBuffer(MAX_OUTPUT)
         reader_done = False
         live_output = LiveCommandOutput()
@@ -733,46 +950,59 @@ class RuntimeExecutor:
                         )
                         self.core.kill_process_group(proc)
 
+                if proc.poll() is not None and not direct_process_finished:
+                    direct_process_finished = True
+                    background_process_leak = terminate_remaining_process_group(
+                        proc,
+                        self.core.log,
+                    )
+                    if background_process_leak:
+                        command_failure_reason = (
+                            "verification_background_process_leak"
+                            if phase == "verification"
+                            else "command_background_process_leak"
+                        )
+                        self._last_failure_reason = command_failure_reason
+
                 if (
                     self._memory_limit_mb > 0
                     and not memory_limited
                     and proc.poll() is None
-                    and now >= next_memory_sample
                 ):
-                    try:
-                        current_rss_mb = self._rss_sampler(process_group)
-                    except Exception:
-                        current_rss_mb = None
-                    next_memory_sample = time.monotonic() + self._memory_sample_interval
-                    if current_rss_mb is None:
-                        if not memory_measurement_warned:
-                            self.core.log(
-                                "RSS memory measurement unavailable; continuing with time watchdogs"
-                            )
-                            memory_measurement_warned = True
-                    else:
-                        peak_rss_mb = (
-                            current_rss_mb
-                            if peak_rss_mb is None
-                            else max(peak_rss_mb, current_rss_mb)
-                        )
-                        if current_rss_mb > self._memory_limit_mb:
-                            over_limit_samples += 1
+                    generation, sampled_rss_mb = rss_sampler.snapshot()
+                    if generation != last_memory_generation:
+                        last_memory_generation = generation
+                        current_rss_mb = sampled_rss_mb
+                        if current_rss_mb is None:
+                            if not memory_measurement_warned:
+                                self.core.log(
+                                    "RSS memory measurement unavailable; "
+                                    "continuing with time watchdogs"
+                                )
+                                memory_measurement_warned = True
                         else:
-                            over_limit_samples = 0
-                        if over_limit_samples >= 2:
-                            memory_limited = True
-                            command_failure_reason = (
-                                "verification_memory_limit"
-                                if phase == "verification"
-                                else "command_memory_limit"
+                            peak_rss_mb = (
+                                current_rss_mb
+                                if peak_rss_mb is None
+                                else max(peak_rss_mb, current_rss_mb)
                             )
-                            self._last_failure_reason = command_failure_reason
-                            self.core.log(
-                                f"MEMORY LIMIT after {over_limit_samples} samples "
-                                f"at {current_rss_mb:.1f} MB: {command}"
-                            )
-                            self.core.kill_process_group(proc)
+                            if current_rss_mb > self._memory_limit_mb:
+                                over_limit_samples += 1
+                            else:
+                                over_limit_samples = 0
+                            if over_limit_samples >= 2:
+                                memory_limited = True
+                                command_failure_reason = (
+                                    "verification_memory_limit"
+                                    if phase == "verification"
+                                    else "command_memory_limit"
+                                )
+                                self._last_failure_reason = command_failure_reason
+                                self.core.log(
+                                    f"MEMORY LIMIT after {over_limit_samples} samples "
+                                    f"at {current_rss_mb:.1f} MB: {command}"
+                                )
+                                self.core.kill_process_group(proc)
 
                 try:
                     item = pump.queue.get(timeout=0.25)
@@ -839,24 +1069,27 @@ class RuntimeExecutor:
                         heartbeat["current_rss_mb"] = current_rss_mb
                     if peak_rss_mb is not None:
                         heartbeat["peak_rss_mb"] = peak_rss_mb
-                    try:
-                        heartbeat.update(collect_telemetry(proc.pid))
-                    except Exception:
-                        pass
+                    heartbeat.update(telemetry_sampler.snapshot())
                     self._emit(heartbeat)
 
-                if proc.poll() is not None and reader_done:
+                if direct_process_finished and reader_done:
                     break
         finally:
+            if proc.poll() is None:
+                self.core.kill_process_group(proc)
             live_output.finish()
             pump.stop()
+            telemetry_sampler.stop()
+            rss_sampler.stop()
             with self._active_lock:
                 if self._active_process is proc:
                     self._active_process = None
 
         exit_code = proc.returncode if proc.returncode is not None else 124
-        if timed_out or idle_timed_out or task_timed_out or memory_limited:
+        if timed_out or idle_timed_out or memory_limited:
             exit_code = 124
+        elif background_process_leak:
+            exit_code = 126
         elapsed = time.monotonic() - started
         result = {
             "command": command,
@@ -865,9 +1098,9 @@ class RuntimeExecutor:
             "elapsed_seconds": round(elapsed, 3),
             "timed_out": timed_out,
             "idle_timed_out": idle_timed_out,
-            "task_timed_out": task_timed_out,
             "memory_limit_mb": self._memory_limit_mb,
             "memory_limited": memory_limited,
+            "background_process_leak": background_process_leak,
             "peak_rss_mb": peak_rss_mb,
         }
         if current_rss_mb is not None:
@@ -885,8 +1118,8 @@ class RuntimeExecutor:
             "elapsed_seconds": round(elapsed, 3),
             "timed_out": timed_out,
             "idle_timed_out": idle_timed_out,
-            "task_timed_out": task_timed_out,
             "memory_limited": memory_limited,
+            "background_process_leak": background_process_leak,
             "finished_at": self.core.now_iso(),
             **stage,
         }
@@ -908,7 +1141,10 @@ class RuntimeExecutor:
         task_timeout = task_timeout_for(task)
         memory_limit_mb = memory_limit_for(task)
         digest = task_digest(task)
-        self._progress = progress
+        progress_dispatcher = (
+            ProgressDispatcher(progress, self.core.log) if progress is not None else None
+        )
+        self._progress = progress_dispatcher.submit if progress_dispatcher else None
         self._idle_timeout = idle_timeout
         self._memory_limit_mb = memory_limit_mb
         self._deadline = time.monotonic() + task_timeout
@@ -953,6 +1189,8 @@ class RuntimeExecutor:
             )
             return result
         finally:
+            if progress_dispatcher is not None:
+                progress_dispatcher.close()
             self._progress = None
             self._deadline = None
             self._stage_plan = []

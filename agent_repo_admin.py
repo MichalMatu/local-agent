@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Iterable
 
+import agent_core as core
 from agent_repository import RepositoryContext, load_repository_registry
 
 _AGENT_CONTROL_DIRS = (
@@ -46,14 +47,17 @@ def run_git(
     cwd: Path | None = None,
     timeout: int = 300,
 ) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    result = core.process(
         ["git", *args],
-        cwd=cwd,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        cwd or Path.cwd(),
         timeout=timeout,
-        check=False,
+        log_commands=False,
+    )
+    return subprocess.CompletedProcess(
+        args=["git", *args],
+        returncode=int(result["exit_code"]),
+        stdout=str(result.get("output", "")),
+        stderr=None,
     )
 
 
