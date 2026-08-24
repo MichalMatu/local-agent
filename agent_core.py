@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -147,7 +148,7 @@ def run_command(
                 else:
                     print(f"[CMD] {item}", end="", flush=True)
                     output.append(item)
-            except __import__("queue").Empty:
+            except queue.Empty:
                 pass
 
             if proc.poll() is not None and reader_done:
