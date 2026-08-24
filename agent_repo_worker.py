@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
 import re
@@ -110,6 +112,12 @@ def publish_repository_status(
         )
 
 
+def sync_control_quietly() -> None:
+    """Run routine control-branch sync without printing low-level Git commands."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        core.sync_control()
+
+
 def _control_ack_path(control_id: str) -> Path:
     return core.CONTROL / agentd.REMOTE_CONTROL_ACK_DIR / f"{control_id}.json"
 
@@ -203,11 +211,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
     previous_version = agentd.DAEMON_VERSION
     agentd.DAEMON_VERSION = MULTIREPO_DAEMON_VERSION
     try:
-        core.log(
-            f"multi-repo poll repository={repository.repository_id} "
-            f"remote={repository.repository}"
-        )
-        core.sync_control()
+        sync_control_quietly()
         agentd.recover_stale_claims()
         agentd.recover_invalid_task_files()
         handle_repository_control(repository)
