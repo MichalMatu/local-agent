@@ -32,12 +32,20 @@ class TimeoutConfigTests(unittest.TestCase):
         self.assertEqual(configured.command_default, 3600)
         self.assertEqual(configured.task_default, 7200)
 
-    def test_rejects_malformed_non_positive_and_out_of_range_values(self) -> None:
-        for value in ("nope", "0", "-1", "86401"):
+    def test_rejects_malformed_and_non_positive_values(self) -> None:
+        for value in ("nope", "0", "-1"):
             with self.subTest(value=value), self.assertRaisesRegex(
                 ValueError, "LOCAL_AGENT"
             ):
                 load_timeout_config({"LOCAL_AGENT_TASK_TIMEOUT_MAX": value})
+
+    def test_configured_maximum_has_no_hidden_absolute_ceiling(self) -> None:
+        configured = load_timeout_config(
+            {
+                "LOCAL_AGENT_TASK_TIMEOUT_MAX": "1000000",
+            }
+        )
+        self.assertEqual(configured.task_max, 1_000_000)
 
     def test_rejects_default_above_its_maximum(self) -> None:
         with self.assertRaisesRegex(ValueError, "cannot exceed"):
