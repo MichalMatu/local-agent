@@ -101,7 +101,7 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
             ) as handle, mock.patch.object(multi.agentd, "maybe_self_update") as update:
                 multi.service_supervisor_control(target)
             self.assertEqual(multi.agentd.core.CONTROL, target.control)
-            self.assertEqual(multi.agentd.DAEMON_VERSION, "4.6.0")
+            self.assertEqual(multi.agentd.DAEMON_VERSION, multi.SUPERVISOR_VERSION)
             sync.assert_called_once_with()
             handle.assert_called_once_with()
             update.assert_called_once_with()

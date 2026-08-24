@@ -12,6 +12,9 @@ from agent_repository import RepositoryContext
 
 
 class RepositoryWorkerTests(unittest.TestCase):
+    def test_worker_version_matches_agent_release(self) -> None:
+        self.assertEqual(worker.MULTIREPO_DAEMON_VERSION, agentd.DAEMON_VERSION)
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)

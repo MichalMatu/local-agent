@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from agent_repo_worker import MULTIREPO_DAEMON_VERSION
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -144,7 +146,7 @@ def assert_repository_result(
     case.assertTrue(result_path.exists())
     payload = json.loads(result_path.read_text(encoding="utf-8"))
     case.assertEqual(payload["status"], "done")
-    case.assertEqual(payload["daemon_version"], "4.6.0")
+    case.assertEqual(payload["daemon_version"], MULTIREPO_DAEMON_VERSION)
     case.assertIn(f"{item['id']}-ok", payload["commands"][0]["output"])
 
     claim_root = (

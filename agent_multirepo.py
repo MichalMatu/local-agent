@@ -17,7 +17,7 @@ from agent_process import terminate_process_group
 from agent_repository import RepositoryContext, load_repository_registry
 from agent_repo_worker import WORKER_IDLE, WORKER_PROCESSED
 
-SUPERVISOR_VERSION = "4.6.0"
+SUPERVISOR_VERSION = "4.7.0"
 POLL_SECONDS = 15
 _active_worker: subprocess.Popen[str] | None = None
 _daemon_lock_handle: Any | None = None
