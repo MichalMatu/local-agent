@@ -101,39 +101,74 @@ def create_repository_fixture(root: Path, repository_id: str) -> dict[str, Path 
     }
 
 
+def write_registry(root: Path, repositories: tuple[dict[str, Path | str], ...]) -> Path:
+    registry = root / "repositories.json"
+    registry.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "repositories": [
+                    {
+                        "id": item["id"],
+                        "repository": item["repository"],
+                        "control_dir": str(item["control"]),
+                        "work_dir": str(item["work"]),
+                        "checkpoints_dir": str(item["checkpoints"]),
+                    }
+                    for item in repositories
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return registry
+
+
+def test_environment(root: Path) -> tuple[Path, dict[str, str]]:
+    home = root / "home"
+    home.mkdir()
+    env = os.environ.copy()
+    env["HOME"] = str(home)
+    env["PYTHONPATH"] = str(REPO_ROOT)
+    return home, env
+
+
+def assert_repository_result(
+    case: unittest.TestCase,
+    item: dict[str, Path | str],
+    home: Path,
+) -> dict:
+    result_path = Path(item["control"]) / ".agent" / "results" / "shared-task-id.json"
+    case.assertTrue(result_path.exists())
+    payload = json.loads(result_path.read_text(encoding="utf-8"))
+    case.assertEqual(payload["status"], "done")
+    case.assertEqual(payload["daemon_version"], "4.6.0-staging")
+    case.assertIn(f"{item['id']}-ok", payload["commands"][0]["output"])
+
+    claim_root = (
+        home
+        / "Library"
+        / "Application Support"
+        / "local-agent"
+        / "repositories"
+        / str(item["id"])
+        / "claims"
+    )
+    case.assertEqual(list(claim_root.glob("*.json")), [])
+    case.assertEqual(git(["status", "--porcelain"], cwd=Path(item["work"])), "")
+    return payload
+
+
 class MultiRepositoryIntegrationTests(unittest.TestCase):
-    def test_two_repositories_with_same_task_id_are_isolated(self) -> None:
+    def test_two_repository_workers_with_same_task_id_are_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             first = create_repository_fixture(root, "project-a")
             second = create_repository_fixture(root, "project-b")
-            registry = root / "repositories.json"
-            registry.write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "repositories": [
-                            {
-                                "id": item["id"],
-                                "repository": item["repository"],
-                                "control_dir": str(item["control"]),
-                                "work_dir": str(item["work"]),
-                                "checkpoints_dir": str(item["checkpoints"]),
-                            }
-                            for item in (first, second)
-                        ],
-                    },
-                    indent=2,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
-
-            home = root / "home"
-            home.mkdir()
-            env = os.environ.copy()
-            env["HOME"] = str(home)
-            env["PYTHONPATH"] = str(REPO_ROOT)
+            registry = write_registry(root, (first, second))
+            home, env = test_environment(root)
 
             for item in (first, second):
                 result = subprocess.run(
@@ -155,36 +190,42 @@ class MultiRepositoryIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 10, result.stdout)
 
-            for item in (first, second):
-                result_path = Path(item["control"]) / ".agent" / "results" / "shared-task-id.json"
-                self.assertTrue(result_path.exists())
-                payload = json.loads(result_path.read_text(encoding="utf-8"))
-                self.assertEqual(payload["status"], "done")
-                self.assertEqual(payload["daemon_version"], "4.6.0-staging")
-                self.assertIn(f"{item['id']}-ok", payload["commands"][0]["output"])
-
-                claim_root = (
-                    home
-                    / "Library"
-                    / "Application Support"
-                    / "local-agent"
-                    / "repositories"
-                    / str(item["id"])
-                    / "claims"
-                )
-                self.assertEqual(list(claim_root.glob("*.json")), [])
-                self.assertEqual(git(["status", "--porcelain"], cwd=Path(item["work"])), "")
-
-            first_result = json.loads(
-                (Path(first["control"]) / ".agent/results/shared-task-id.json").read_text(
-                    encoding="utf-8"
-                )
+            first_result = assert_repository_result(self, first, home)
+            second_result = assert_repository_result(self, second, home)
+            self.assertNotEqual(
+                first_result["commands"][0]["output"],
+                second_result["commands"][0]["output"],
             )
-            second_result = json.loads(
-                (Path(second["control"]) / ".agent/results/shared-task-id.json").read_text(
-                    encoding="utf-8"
+
+    def test_supervisor_processes_two_repositories_across_serial_cycles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = create_repository_fixture(root, "project-a")
+            second = create_repository_fixture(root, "project-b")
+            registry = write_registry(root, (first, second))
+            home, env = test_environment(root)
+
+            for _ in range(2):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(REPO_ROOT / "agent_multirepo.py"),
+                        "--registry",
+                        str(registry),
+                        "--once",
+                    ],
+                    cwd=REPO_ROOT,
+                    env=env,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    timeout=90,
+                    check=False,
                 )
-            )
+                self.assertEqual(result.returncode, 0, result.stdout)
+
+            first_result = assert_repository_result(self, first, home)
+            second_result = assert_repository_result(self, second, home)
             self.assertNotEqual(
                 first_result["commands"][0]["output"],
                 second_result["commands"][0]["output"],
