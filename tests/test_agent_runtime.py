@@ -15,7 +15,6 @@ import agent_core as core
 import agent_runtime as runtime_module
 from agent_runtime import (
     RuntimeExecutor,
-    collect_host_telemetry,
     idle_timeout_for,
     parse_mac_swapusage,
     parse_mac_ps_cpu,
