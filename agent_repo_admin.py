@@ -26,6 +26,8 @@ def normalize_remote_url(value: str) -> str:
     prefixes = (
         "https://github.com/",
         "http://github.com/",
+        "ssh://git@ssh.github.com:443/",
+        "ssh://git@ssh.github.com/",
         "ssh://git@github.com/",
         "git@github.com:",
     )
