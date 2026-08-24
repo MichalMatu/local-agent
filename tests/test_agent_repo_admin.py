@@ -26,6 +26,14 @@ class RepositoryAdminTests(unittest.TestCase):
         self.assertEqual(admin.normalize_remote_url("https://github.com/owner/project-a.git"), expected)
         self.assertEqual(admin.normalize_remote_url("git@github.com:owner/project-a.git"), expected)
         self.assertEqual(admin.normalize_remote_url("ssh://git@github.com/owner/project-a.git"), expected)
+        self.assertEqual(
+            admin.normalize_remote_url("ssh://git@ssh.github.com:443/owner/project-a.git"),
+            expected,
+        )
+        self.assertEqual(
+            admin.normalize_remote_url("ssh://git@ssh.github.com/owner/project-a.git"),
+            expected,
+        )
 
     def test_validate_checkout_rejects_wrong_origin(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
