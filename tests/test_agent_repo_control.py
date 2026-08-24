@@ -88,13 +88,26 @@ class RepositoryControlTests(unittest.TestCase):
         self.assertEqual(fields["supervisor_pid"], 1234)
         self.assertEqual(fields["execution_model"], "multi_repository_worker")
 
+    def test_idle_status_is_persisted_without_repeated_remote_commit(self) -> None:
+        worker.bind_repository(self.repository)
+        agentd.DAEMON_VERSION = worker.MULTIREPO_DAEMON_VERSION
+        with mock.patch.object(agentd, "publish_control_json") as publish:
+            worker.publish_repository_status(self.repository, "idle", force_remote=False)
+            worker.publish_repository_status(self.repository, "idle", force_remote=False)
+        self.assertEqual(publish.call_count, 1)
+        payload = json.loads(agentd.LOCAL_STATUS_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(payload["repository_id"], "project-a")
+        self.assertEqual(payload["state"], "idle")
+
     def test_worker_turn_restores_legacy_daemon_version(self) -> None:
         original = agentd.DAEMON_VERSION
         with mock.patch.object(core, "sync_control"), mock.patch.object(
             agentd, "recover_stale_claims"
         ), mock.patch.object(agentd, "recover_invalid_task_files"), mock.patch.object(
             worker, "handle_repository_control"
-        ), mock.patch.object(agentd, "pending_tasks", return_value=[]):
+        ), mock.patch.object(agentd, "pending_tasks", return_value=[]), mock.patch.object(
+            worker, "publish_repository_status"
+        ):
             self.assertFalse(worker.poll_repository_once(self.repository))
         self.assertEqual(agentd.DAEMON_VERSION, original)
 
