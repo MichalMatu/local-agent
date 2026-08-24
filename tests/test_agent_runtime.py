@@ -263,8 +263,8 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.assertEqual(heartbeats[0]["host_cpu_percent"], 12.5)
 
     def test_watchdog_defaults_and_bounds(self) -> None:
-        self.assertEqual(idle_timeout_for({}), 300)
-        self.assertEqual(task_timeout_for({}), 1800)
+        self.assertEqual(idle_timeout_for({}), runtime_module.DEFAULT_IDLE_TIMEOUT)
+        self.assertEqual(task_timeout_for({}), runtime_module.DEFAULT_TASK_TIMEOUT)
         self.assertEqual(idle_timeout_for({"idle_timeout": 0}), 0)
         with self.assertRaises(ValueError):
             task_timeout_for({"task_timeout": runtime_module.MAX_TASK_TIMEOUT + 1})
