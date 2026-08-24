@@ -40,10 +40,12 @@ class RepositoryAdminTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "origin mismatch"):
                     admin.validate_checkout(repo.control, repo, "control")
 
-    def test_provision_is_explicit_and_creates_checkpoint_directory(self) -> None:
+    def test_provision_uses_existing_remote_control_branch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = repository(Path(tmp))
             with mock.patch.object(
+                admin, "remote_branch_exists", return_value=True
+            ), mock.patch.object(
                 admin,
                 "_clone_if_missing",
                 side_effect=[True, True],
@@ -52,12 +54,42 @@ class RepositoryAdminTests(unittest.TestCase):
 
             self.assertEqual(
                 result,
-                {"control_created": True, "work_created": True},
+                {
+                    "control_created": True,
+                    "control_branch_created": False,
+                    "work_created": True,
+                },
             )
             self.assertTrue(repo.checkpoints.is_dir())
             self.assertEqual(clone.call_count, 2)
             self.assertTrue(clone.call_args_list[0].kwargs["single_branch"])
             self.assertFalse(clone.call_args_list[1].kwargs["single_branch"])
+
+    def test_provision_initializes_missing_remote_control_branch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = repository(Path(tmp))
+            with mock.patch.object(
+                admin, "remote_branch_exists", return_value=False
+            ), mock.patch.object(
+                admin,
+                "_clone_if_missing",
+                side_effect=[True, True],
+            ) as clone, mock.patch.object(
+                admin, "initialize_control_branch"
+            ) as initialize, mock.patch.object(admin, "validate_repository"):
+                result = admin.provision_repository(repo)
+
+            self.assertEqual(
+                result,
+                {
+                    "control_created": True,
+                    "control_branch_created": True,
+                    "work_created": True,
+                },
+            )
+            initialize.assert_called_once_with(repo)
+            self.assertFalse(clone.call_args_list[0].kwargs["single_branch"])
+            self.assertEqual(clone.call_args_list[0].kwargs["branch"], "main")
 
     def test_existing_non_git_destination_is_never_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
