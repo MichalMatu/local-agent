@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
+import re
 from pathlib import Path
+from typing import Any
 
 import agent_core as core
 import agentd
 from agent_repository import RepositoryContext, load_repository_registry
 
+MULTIREPO_DAEMON_VERSION = "4.6.0-staging"
 WORKER_IDLE = 0
 WORKER_PROCESSED = 10
+_CONTROL_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def repository_state_dir(repository: RepositoryContext) -> Path:
@@ -28,6 +34,7 @@ def bind_repository(repository: RepositoryContext) -> None:
     agentd.CORRUPT_CLAIMS_DIR = state_dir / "corrupt-claims"
     agentd.LOCAL_STATUS_PATH = state_dir / "status.json"
     agentd.LOCAL_RUNS_DIR = state_dir / "runs"
+    agentd.DAEMON_VERSION = MULTIREPO_DAEMON_VERSION
 
 
 def validate_repository_checkouts(repository: RepositoryContext) -> None:
@@ -38,6 +45,122 @@ def validate_repository_checkouts(repository: RepositoryContext) -> None:
         missing.append(f"work checkout missing: {repository.work}")
     if missing:
         raise RuntimeError("; ".join(missing))
+
+
+def repository_status_fields(repository: RepositoryContext) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        **repository.status_fields(),
+        "execution_model": "multi_repository_worker",
+        "worker_pid": os.getpid(),
+    }
+    supervisor_pid = os.environ.get("LOCAL_AGENT_SUPERVISOR_PID")
+    if supervisor_pid:
+        try:
+            fields["supervisor_pid"] = int(supervisor_pid)
+        except ValueError:
+            fields["supervisor_pid"] = supervisor_pid
+    return fields
+
+
+def publish_repository_status(
+    repository: RepositoryContext,
+    state: str,
+    *,
+    force_remote: bool = True,
+    **extra: Any,
+) -> None:
+    agentd.publish_daemon_status(
+        state,
+        force_remote=force_remote,
+        **repository_status_fields(repository),
+        **extra,
+    )
+
+
+def _control_ack_path(control_id: str) -> Path:
+    return core.CONTROL / agentd.REMOTE_CONTROL_ACK_DIR / f"{control_id}.json"
+
+
+def publish_repository_control_ack(
+    repository: RepositoryContext,
+    control_id: str,
+    action: str,
+    status: str,
+    **extra: Any,
+) -> None:
+    payload: dict[str, Any] = {
+        "id": control_id,
+        "action": action,
+        "status": status,
+        "daemon_version": MULTIREPO_DAEMON_VERSION,
+        "updated_at": agentd.now_iso(),
+        **repository.status_fields(),
+        **extra,
+    }
+    agentd.publish_control_json(
+        f"{agentd.REMOTE_CONTROL_ACK_DIR}/{control_id}.json",
+        payload,
+        commit_message=f"Agent repository control ack: {control_id}",
+    )
+
+
+def handle_repository_control(repository: RepositoryContext) -> None:
+    """Handle only controls that are safe inside a short-lived repository worker."""
+    path = core.CONTROL / agentd.REMOTE_CONTROL_REQUEST
+    if not path.exists():
+        return
+    try:
+        request = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        core.log(f"invalid repository control request: {type(exc).__name__}: {exc}")
+        return
+    if not isinstance(request, dict):
+        core.log("invalid repository control request: root must be an object")
+        return
+
+    control_id = str(request.get("id", ""))
+    action = str(request.get("action", ""))
+    if (
+        not control_id
+        or len(control_id) > 120
+        or not _CONTROL_ID_RE.fullmatch(control_id)
+        or _control_ack_path(control_id).exists()
+    ):
+        return
+
+    if action == "status":
+        publish_repository_status(
+            repository,
+            "idle",
+            force_remote=True,
+            control_id=control_id,
+        )
+        publish_repository_control_ack(
+            repository,
+            control_id,
+            action,
+            "completed",
+            result="status_published",
+        )
+        return
+
+    if action in {"restart", "self_update"}:
+        publish_repository_control_ack(
+            repository,
+            control_id,
+            action,
+            "rejected",
+            result="supervisor_action_not_supported_in_repository_worker",
+        )
+        return
+
+    publish_repository_control_ack(
+        repository,
+        control_id,
+        action,
+        "rejected",
+        result="unsupported_action",
+    )
 
 
 def poll_repository_once(repository: RepositoryContext) -> bool:
@@ -51,6 +174,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
     core.sync_control()
     agentd.recover_stale_claims()
     agentd.recover_invalid_task_files()
+    handle_repository_control(repository)
     pending = agentd.pending_tasks()
     if not pending:
         return False
@@ -61,6 +185,12 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
         f"task={task.get('id')}"
     )
     agentd.execute_task(task)
+    publish_repository_status(
+        repository,
+        "idle",
+        force_remote=True,
+        last_task_id=str(task.get("id", "")),
+    )
     return True
 
 
