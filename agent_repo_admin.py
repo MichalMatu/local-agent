@@ -8,6 +8,14 @@ from typing import Iterable
 
 from agent_repository import RepositoryContext, load_repository_registry
 
+_AGENT_CONTROL_DIRS = (
+    ".agent/tasks",
+    ".agent/results",
+    ".agent/runs",
+    ".agent/status",
+    ".agent/daemon/acks",
+)
+
 
 def clone_url(repository: RepositoryContext) -> str:
     return f"https://github.com/{repository.repository}.git"
@@ -47,6 +55,11 @@ def run_git(
     )
 
 
+def _require_git_success(result: subprocess.CompletedProcess[str], operation: str) -> None:
+    if result.returncode != 0:
+        raise RuntimeError(f"{operation} failed: {result.stdout.strip()}")
+
+
 def validate_checkout(path: Path, repository: RepositoryContext, label: str) -> None:
     if not (path / ".git").exists():
         raise RuntimeError(f"{label} checkout missing: {path}")
@@ -65,6 +78,24 @@ def validate_repository(repository: RepositoryContext) -> None:
     validate_checkout(repository.work, repository, "work")
     if repository.control.resolve() == repository.work.resolve():
         raise RuntimeError("control and work checkouts must be different paths")
+
+
+def remote_branch_exists(repository: RepositoryContext, branch: str) -> bool:
+    result = run_git(
+        [
+            "ls-remote",
+            "--exit-code",
+            "--heads",
+            clone_url(repository),
+            f"refs/heads/{branch}",
+        ],
+        timeout=120,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 2:
+        return False
+    raise RuntimeError(f"remote branch probe failed: {result.stdout.strip()}")
 
 
 def _clone_if_missing(
@@ -91,15 +122,73 @@ def _clone_if_missing(
     return True
 
 
+def _require_commit_identity(path: Path) -> None:
+    for key in ("user.name", "user.email"):
+        result = run_git(["config", "--get", key], cwd=path, timeout=30)
+        if result.returncode != 0 or not result.stdout.strip():
+            raise RuntimeError(
+                f"Git {key} is required to initialize an agent-control branch in {path}"
+            )
+
+
+def initialize_control_branch(repository: RepositoryContext) -> None:
+    """Create a new agent-control branch only in a freshly provisioned control clone."""
+    _require_commit_identity(repository.control)
+    switch = run_git(
+        ["switch", "--orphan", repository.control_branch],
+        cwd=repository.control,
+        timeout=120,
+    )
+    _require_git_success(switch, "create control branch")
+
+    clean = run_git(["clean", "-fdx"], cwd=repository.control, timeout=120)
+    _require_git_success(clean, "clean fresh control checkout")
+    for directory in _AGENT_CONTROL_DIRS:
+        target = repository.control / directory
+        target.mkdir(parents=True, exist_ok=True)
+        (target / ".gitkeep").write_text("", encoding="utf-8")
+
+    add = run_git(["add", ".agent"], cwd=repository.control, timeout=120)
+    _require_git_success(add, "stage control branch skeleton")
+    commit = run_git(
+        ["commit", "-m", "Initialize local-agent control branch"],
+        cwd=repository.control,
+        timeout=120,
+    )
+    _require_git_success(commit, "commit control branch skeleton")
+    push = run_git(
+        ["push", "-u", "origin", repository.control_branch],
+        cwd=repository.control,
+        timeout=300,
+    )
+    _require_git_success(push, "publish control branch skeleton")
+
+
 def provision_repository(repository: RepositoryContext) -> dict[str, bool]:
     """Explicitly create missing control/work clones without overwriting existing paths."""
-    control_created = _clone_if_missing(
-        repository,
-        path=repository.control,
-        branch=repository.control_branch,
-        single_branch=True,
-        label="control",
-    )
+    control_branch_created = False
+    if repository.control.exists():
+        validate_checkout(repository.control, repository, "control")
+        control_created = False
+    elif remote_branch_exists(repository, repository.control_branch):
+        control_created = _clone_if_missing(
+            repository,
+            path=repository.control,
+            branch=repository.control_branch,
+            single_branch=True,
+            label="control",
+        )
+    else:
+        control_created = _clone_if_missing(
+            repository,
+            path=repository.control,
+            branch=repository.default_branch,
+            single_branch=False,
+            label="control",
+        )
+        initialize_control_branch(repository)
+        control_branch_created = True
+
     work_created = _clone_if_missing(
         repository,
         path=repository.work,
@@ -111,6 +200,7 @@ def provision_repository(repository: RepositoryContext) -> dict[str, bool]:
     validate_repository(repository)
     return {
         "control_created": control_created,
+        "control_branch_created": control_branch_created,
         "work_created": work_created,
     }
 
@@ -179,6 +269,7 @@ def main() -> int:
         print(
             f"OK {repository.repository_id}: "
             f"control_created={result['control_created']} "
+            f"control_branch_created={result['control_branch_created']} "
             f"work_created={result['work_created']}"
         )
         return 0
