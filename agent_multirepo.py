@@ -15,7 +15,7 @@ from agent_process import terminate_process_group
 from agent_repository import RepositoryContext, load_repository_registry
 from agent_repo_worker import WORKER_IDLE, WORKER_PROCESSED
 
-SUPERVISOR_VERSION = "4.6.0-staging"
+SUPERVISOR_VERSION = "4.6.0"
 POLL_SECONDS = 15
 _active_worker: subprocess.Popen[str] | None = None
 _daemon_lock_handle: Any | None = None
@@ -23,6 +23,27 @@ _daemon_lock_handle: Any | None = None
 
 def log(message: str) -> None:
     agentd.log(f"[multi-repo] {message}")
+
+
+def supervisor_control_repository(
+    *,
+    registry_path: Path | None,
+) -> RepositoryContext:
+    repositories = load_repository_registry(path=registry_path)
+    return repositories[0]
+
+
+def bind_supervisor_control(repository: RepositoryContext) -> None:
+    agentd.core.CONTROL = repository.control
+    agentd.core.CONTROL_BRANCH = repository.control_branch
+    agentd.DAEMON_VERSION = SUPERVISOR_VERSION
+
+
+def service_supervisor_control(repository: RepositoryContext) -> None:
+    bind_supervisor_control(repository)
+    agentd.core.sync_control()
+    agentd.handle_control_request()
+    agentd.maybe_self_update()
 
 
 def ordered_repositories(
@@ -128,13 +149,26 @@ def main() -> int:
     install_signal_handlers()
     registry_path = args.registry
     last_repository: str | None = None
+    control_repository = supervisor_control_repository(registry_path=registry_path)
+    bind_supervisor_control(control_repository)
     log(
         f"supervisor {SUPERVISOR_VERSION} starting; "
-        "global execution concurrency=1"
+        "global execution concurrency=1 "
+        f"control_repository={control_repository.repository_id}"
+    )
+    agentd.core.sync_control()
+    agentd.publish_daemon_status(
+        "idle",
+        force_remote=True,
+        execution_model="multi_repository_supervisor",
+        supervisor_pid=os.getpid(),
+        supervisor_control_repository=control_repository.repository_id,
     )
 
     while True:
         try:
+            control_repository = supervisor_control_repository(registry_path=registry_path)
+            service_supervisor_control(control_repository)
             processed, last_repository = run_cycle(
                 registry_path=registry_path,
                 start_after=last_repository,

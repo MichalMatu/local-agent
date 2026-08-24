@@ -144,7 +144,7 @@ def assert_repository_result(
     case.assertTrue(result_path.exists())
     payload = json.loads(result_path.read_text(encoding="utf-8"))
     case.assertEqual(payload["status"], "done")
-    case.assertEqual(payload["daemon_version"], "4.6.0-staging")
+    case.assertEqual(payload["daemon_version"], "4.6.0")
     case.assertIn(f"{item['id']}-ok", payload["commands"][0]["output"])
 
     claim_root = (

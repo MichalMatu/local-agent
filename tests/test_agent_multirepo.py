@@ -82,6 +82,34 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
             ["b", "c"],
         )
 
+    def test_supervisor_control_uses_first_repository(self) -> None:
+        repositories = [repository("a"), repository("b")]
+        with mock.patch.object(
+            multi, "load_repository_registry", return_value=repositories
+        ):
+            selected = multi.supervisor_control_repository(registry_path=None)
+        self.assertEqual(selected.repository_id, "a")
+
+    def test_service_supervisor_control_syncs_and_handles_global_actions(self) -> None:
+        target = repository("a")
+        original_version = multi.agentd.DAEMON_VERSION
+        original_control = multi.agentd.core.CONTROL
+        original_branch = multi.agentd.core.CONTROL_BRANCH
+        try:
+            with mock.patch.object(multi.agentd.core, "sync_control") as sync, mock.patch.object(
+                multi.agentd, "handle_control_request"
+            ) as handle, mock.patch.object(multi.agentd, "maybe_self_update") as update:
+                multi.service_supervisor_control(target)
+            self.assertEqual(multi.agentd.core.CONTROL, target.control)
+            self.assertEqual(multi.agentd.DAEMON_VERSION, "4.6.0")
+            sync.assert_called_once_with()
+            handle.assert_called_once_with()
+            update.assert_called_once_with()
+        finally:
+            multi.agentd.DAEMON_VERSION = original_version
+            multi.agentd.core.CONTROL = original_control
+            multi.agentd.core.CONTROL_BRANCH = original_branch
+
     def test_all_idle_preserves_last_repository_cursor(self) -> None:
         repositories = [repository("a"), repository("b")]
         with mock.patch.object(

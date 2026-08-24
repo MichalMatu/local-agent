@@ -30,12 +30,29 @@ class RepositoryControlTests(unittest.TestCase):
         self.original_work = core.WORK
         self.original_checkpoints = core.CHECKPOINTS
         self.original_control_branch = core.CONTROL_BRANCH
+        self.original_state_dir = agentd.STATE_DIR
+        self.original_claims_dir = agentd.CLAIMS_DIR
+        self.original_corrupt_claims_dir = agentd.CORRUPT_CLAIMS_DIR
+        self.original_local_status_path = agentd.LOCAL_STATUS_PATH
+        self.original_local_runs_dir = agentd.LOCAL_RUNS_DIR
+        agentd.STATE_DIR = root / "state"
+        self.original_last_remote_status = agentd._last_remote_status
+        self.original_last_status_state = agentd._last_status_state
+        agentd._last_remote_status = 0.0
+        agentd._last_status_state = None
 
     def tearDown(self) -> None:
         core.CONTROL = self.original_control
         core.WORK = self.original_work
         core.CHECKPOINTS = self.original_checkpoints
         core.CONTROL_BRANCH = self.original_control_branch
+        agentd.STATE_DIR = self.original_state_dir
+        agentd.CLAIMS_DIR = self.original_claims_dir
+        agentd.CORRUPT_CLAIMS_DIR = self.original_corrupt_claims_dir
+        agentd.LOCAL_STATUS_PATH = self.original_local_status_path
+        agentd.LOCAL_RUNS_DIR = self.original_local_runs_dir
+        agentd._last_remote_status = self.original_last_remote_status
+        agentd._last_status_state = self.original_last_status_state
         self.tmp.cleanup()
 
     def write_control(self, payload: dict) -> None:

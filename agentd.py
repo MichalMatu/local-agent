@@ -903,5 +903,25 @@ def main() -> None:
         time.sleep(POLL_SECONDS)
 
 
+def multirepo_registry_path() -> Path:
+    return STATE_DIR / "repositories.json"
+
+
+def dispatch_multirepo_if_configured() -> bool:
+    registry = multirepo_registry_path()
+    if not registry.is_file():
+        return False
+    supervisor = SELF_REPO / "agent_multirepo.py"
+    if not supervisor.is_file():
+        raise RuntimeError(f"multi-repository supervisor missing: {supervisor}")
+    log(f"repository registry detected; dispatching supervisor registry={registry}")
+    os.execv(
+        sys.executable,
+        [sys.executable, str(supervisor), "--registry", str(registry)],
+    )
+    return True
+
+
 if __name__ == "__main__":
-    main()
+    if not dispatch_multirepo_if_configured():
+        main()

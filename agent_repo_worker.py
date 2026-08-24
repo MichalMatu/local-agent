@@ -13,7 +13,7 @@ import agent_core as core
 import agentd
 from agent_repository import RepositoryContext, load_repository_registry
 
-MULTIREPO_DAEMON_VERSION = "4.6.0-staging"
+MULTIREPO_DAEMON_VERSION = "4.6.0"
 WORKER_IDLE = 0
 WORKER_PROCESSED = 10
 _CONTROL_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
