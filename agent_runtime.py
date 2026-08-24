@@ -14,15 +14,16 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+from agent_config import TIMEOUTS
 from agent_process import BoundedTextBuffer, spawn_shell, start_output_pump
 
 ProgressCallback = Callable[[dict[str, Any]], None]
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
-DEFAULT_IDLE_TIMEOUT = 300
-MAX_IDLE_TIMEOUT = 900
-DEFAULT_TASK_TIMEOUT = 1800
-MAX_TASK_TIMEOUT = 1800
+DEFAULT_IDLE_TIMEOUT = TIMEOUTS.idle_default
+MAX_IDLE_TIMEOUT = TIMEOUTS.idle_max
+DEFAULT_TASK_TIMEOUT = TIMEOUTS.task_default
+MAX_TASK_TIMEOUT = TIMEOUTS.task_max
 TASK_FINALIZATION_RESERVE = 60
 DEFAULT_MEMORY_LIMIT_MB = 4096
 MAX_MEMORY_LIMIT_MB = 16384

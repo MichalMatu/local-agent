@@ -16,16 +16,15 @@ from pathlib import Path
 from typing import Any
 
 import agent_core as core
+from agent_config import TIMEOUTS
 from agent_runtime import (
-    DEFAULT_IDLE_TIMEOUT,
     DEFAULT_MEMORY_LIMIT_MB,
-    DEFAULT_TASK_TIMEOUT,
     RuntimeExecutor,
     task_digest,
     validate_task,
 )
 
-DAEMON_VERSION = "4.5.0"
+DAEMON_VERSION = "4.7.0"
 HOME = Path.home()
 SELF_REPO = Path(__file__).resolve().parent
 SELF_BRANCH = "main"
@@ -48,8 +47,6 @@ REMOTE_CONTROL_REQUEST = ".agent/daemon/control.json"
 REMOTE_CONTROL_ACK_DIR = ".agent/daemon/acks"
 REMOTE_RUNS_DIR = ".agent/runs"
 
-core.COMMAND_TIMEOUT = 900
-core.MAX_COMMAND_TIMEOUT = 1500
 runtime = RuntimeExecutor(core)
 
 _last_self_update_check = 0.0
@@ -160,9 +157,12 @@ def daemon_status_payload(state: str, **extra: Any) -> dict[str, Any]:
         "self_revision": self_revision(),
         "poll_seconds": POLL_SECONDS,
         "self_update_seconds": SELF_UPDATE_INTERVAL,
-        "command_timeout_default": core.COMMAND_TIMEOUT,
-        "idle_timeout_default": DEFAULT_IDLE_TIMEOUT,
-        "task_timeout_default": DEFAULT_TASK_TIMEOUT,
+        "command_timeout_default": TIMEOUTS.command_default,
+        "command_timeout_max": TIMEOUTS.command_max,
+        "idle_timeout_default": TIMEOUTS.idle_default,
+        "idle_timeout_max": TIMEOUTS.idle_max,
+        "task_timeout_default": TIMEOUTS.task_default,
+        "task_timeout_max": TIMEOUTS.task_max,
         "memory_limit_mb_default": DEFAULT_MEMORY_LIMIT_MB,
         "current_task_id": _current_task_id,
         "current_attempt_id": _current_attempt_id,
@@ -540,6 +540,7 @@ def _validate_installed_update() -> tuple[bool, str]:
             "-m",
             "py_compile",
             "agentd.py",
+            "agent_config.py",
             "agent_core.py",
             "agent_runtime.py",
             "agent_process.py",
@@ -865,9 +866,12 @@ def main() -> None:
     install_signal_handlers()
     log(
         f"Local Agent daemon v{DAEMON_VERSION} starting; "
-        f"command_timeout={core.COMMAND_TIMEOUT}s "
-        f"idle_timeout={DEFAULT_IDLE_TIMEOUT}s "
-        f"task_timeout={DEFAULT_TASK_TIMEOUT}s "
+        f"command_timeout_default={TIMEOUTS.command_default}s "
+        f"command_timeout_max={TIMEOUTS.command_max}s "
+        f"idle_timeout_default={TIMEOUTS.idle_default}s "
+        f"idle_timeout_max={TIMEOUTS.idle_max}s "
+        f"task_timeout_default={TIMEOUTS.task_default}s "
+        f"task_timeout_max={TIMEOUTS.task_max}s "
         f"memory_limit={DEFAULT_MEMORY_LIMIT_MB}MiB "
         f"self_update={SELF_UPDATE_INTERVAL}s"
     )

@@ -29,10 +29,10 @@ In multi-repository mode, task/result/claim identity is repository-scoped. Two r
 Current canonical defaults are:
 
 - command timeout: 900 seconds
-- maximum command/stage timeout: 1500 seconds
+- maximum command/stage timeout: 7200 seconds
 - no-output timeout: 300 seconds
-- maximum no-output timeout: 900 seconds
-- whole-task admission budget: 1800 seconds
+- maximum no-output timeout: 3600 seconds
+- whole-task admission budget: 1800 seconds, maximum 21600 seconds
 - finalization reserve: 60 seconds
 - process-group RSS limit: 4096 MiB
 - maximum configurable RSS limit: 16384 MiB
@@ -40,6 +40,8 @@ Current canonical defaults are:
 Set `memory_limit_mb` to `0` only when a task intentionally needs the RSS watchdog disabled. Memory enforcement requires two consecutive over-limit samples to avoid reacting to a single transient or measurement anomaly.
 
 Command stdout is transported through a bounded handoff queue with bounded read chunks. The raw output retained in each command result is strictly limited to the newest 60,000 characters, while live-log diff collapsing remains independent from result capture.
+
+Runtime timeout configuration is read once at daemon startup; restart the daemon after changing it. The six variables are `LOCAL_AGENT_COMMAND_TIMEOUT_DEFAULT`, `LOCAL_AGENT_COMMAND_TIMEOUT_MAX`, `LOCAL_AGENT_IDLE_TIMEOUT_DEFAULT`, `LOCAL_AGENT_IDLE_TIMEOUT_MAX`, `LOCAL_AGENT_TASK_TIMEOUT_DEFAULT`, and `LOCAL_AGENT_TASK_TIMEOUT_MAX`. Their default/maxima pairs are 900/7200 seconds, 300/3600 seconds, and 1800/21600 seconds. A heavy task can use `command_timeout=3600`, `idle_timeout=1200`, and `task_timeout=7200`.
 
 Long work should use named sequential stages. The whole-task budget is checked before a stage starts and must not terminate an already-running stage solely because the global budget expires.
 

@@ -73,6 +73,17 @@ class RuntimeExecutorTests(unittest.TestCase):
                 }
             )
 
+    def test_validation_accepts_heavy_task_timeout_values(self) -> None:
+        validate_task(
+            {
+                "id": "heavy-task",
+                "commands": ["true"],
+                "command_timeout": 3600,
+                "idle_timeout": 1200,
+                "task_timeout": 7200,
+            }
+        )
+
     def test_legacy_and_structured_stage_plans_have_ordered_metadata(self) -> None:
         legacy = core.stage_plan_for(
             {"commands": ["one", "two"], "verify_commands": ["check"]}
@@ -256,9 +267,9 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.assertEqual(task_timeout_for({}), 1800)
         self.assertEqual(idle_timeout_for({"idle_timeout": 0}), 0)
         with self.assertRaises(ValueError):
-            task_timeout_for({"task_timeout": 1801})
+            task_timeout_for({"task_timeout": runtime_module.MAX_TASK_TIMEOUT + 1})
         with self.assertRaises(ValueError):
-            idle_timeout_for({"idle_timeout": 901})
+            idle_timeout_for({"idle_timeout": runtime_module.MAX_IDLE_TIMEOUT + 1})
 
     def test_idle_timeout_kills_silent_command(self) -> None:
         self.runtime._idle_timeout = 1
@@ -316,6 +327,24 @@ class RuntimeExecutorTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "done")
         self.assertEqual(calls, [("one", 7)])
+
+    def test_process_failure_still_checkpoints_before_cleanup(self) -> None:
+        with mock.patch.object(core, "prepare_work"), mock.patch.object(
+            core, "cleanup_work"
+        ) as cleanup, mock.patch.object(
+            core, "checkpoint_worktree", return_value=None
+        ) as checkpoint, mock.patch.object(
+            core, "run_command", side_effect=RuntimeError("budget exhausted")
+        ):
+            result = core.process_task(
+                {"id": "checkpoint-after-failure", "commands": ["one"]}
+            )
+
+        self.assertEqual(result["status"], "failed")
+        checkpoint.assert_called_once_with(
+            "checkpoint-after-failure", reason="task-exit"
+        )
+        cleanup.assert_called_once_with()
 
     def test_progress_emits_command_transitions(self) -> None:
         events: list[dict] = []

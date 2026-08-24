@@ -14,9 +14,9 @@ This file records the validated v4.5 production invariants for `MichalMatu/local
 - Malformed task JSON is terminal `invalid_task_file` and is not retried.
 - Command and no-output watchdogs are mandatory.
 - The whole-task limit is an admission budget: a stage that cannot fit with finalization headroom is not started, but an already-running stage is not killed solely because the global budget elapsed.
-- Default command timeout is 900 seconds; maximum command/stage timeout is 1500 seconds.
-- Default no-output timeout is 300 seconds; maximum is 900 seconds.
-- Whole-task budget is 1800 seconds with a 60-second finalization reserve.
+- Default command timeout is 900 seconds; maximum command/stage timeout is 7200 seconds.
+- Default no-output timeout is 300 seconds; maximum is 3600 seconds.
+- Whole-task budget is 1800 seconds, maximum 21600 seconds, with a 60-second finalization reserve.
 - Command stdout handoff uses a bounded queue and bounded read chunks; retained raw result output is strictly capped at 60,000 characters.
 - Runtime commands have a configurable process-group RSS limit: 4096 MiB by default, 16384 MiB maximum, and `0` disables the memory watchdog.
 - The RSS watchdog requires two consecutive over-limit samples before terminating a process group.

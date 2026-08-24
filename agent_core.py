@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
+from agent_config import TIMEOUTS
 from agent_process import (
     BoundedTextBuffer,
     spawn_shell,
@@ -27,8 +28,8 @@ CHECKPOINTS = HOME / "agent-workspace" / "checkpoints"
 CONTROL_BRANCH = "agent-control"
 
 POLL_SECONDS = 15
-COMMAND_TIMEOUT = 900
-MAX_COMMAND_TIMEOUT = 1500
+COMMAND_TIMEOUT = TIMEOUTS.command_default
+MAX_COMMAND_TIMEOUT = TIMEOUTS.command_max
 MAX_OUTPUT = 60000
 
 BASE_PATH = [

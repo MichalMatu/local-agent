@@ -21,6 +21,7 @@ For a new reusable/config-driven deployment, prefer [`MichalMatu/DeterministicRu
 ```text
 .
 ├── agentd.py                  # validated v4.5 daemon/runtime orchestration
+├── agent_config.py           # startup-loaded runtime timeout configuration
 ├── agent_core.py             # deterministic task execution/publication
 ├── agent_runtime.py          # watchdogs, staged execution, progress/telemetry
 ├── agent_process.py          # shared bounded output and process-group lifecycle
@@ -49,7 +50,7 @@ The runtime daemon has no third-party Python dependency requirement. CI addition
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m py_compile agentd.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_repo_admin.py agentctl.py
+python -m py_compile agent_config.py agentd.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_repo_admin.py agentctl.py
 python -m pip install ruff==0.12.11
 ruff check agentd.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_repo_admin.py agentctl.py tests
 python -m unittest discover -q
@@ -80,9 +81,9 @@ Do not start a second foreground daemon/supervisor when the production LaunchAge
 The canonical `main` release remains v4.5.x until the v4.6 staging release gate is explicitly completed. Important behavior:
 
 - durable task digest + attempt claim; interrupted tasks are never silently replayed;
-- command timeout default 900 s, maximum 1500 s;
-- no-output timeout default 300 s, maximum 900 s;
-- whole-task budget 1800 s with a 60 s finalization reserve;
+- command timeout default 900 s, maximum 7200 s;
+- no-output timeout default 300 s, maximum 3600 s;
+- whole-task budget default 1800 s, maximum 21600 s with a 60 s finalization reserve;
 - process-group RSS limit default 4096 MiB, configurable up to 16384 MiB, with `0` disabling that watchdog;
 - command stdout uses bounded read chunks, a bounded handoff queue and a strictly bounded 60,000-character result buffer;
 - process spawning and process-group termination are centralized in `agent_process.py`;

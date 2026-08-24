@@ -48,10 +48,13 @@ class AgentDaemonSafetyTests(unittest.TestCase):
     def test_daemon_status_reports_hardened_watchdog_defaults(self) -> None:
         with mock.patch.object(agentd, "self_revision", return_value="abc"):
             payload = agentd.daemon_status_payload("idle")
-        self.assertEqual(payload["daemon_version"], "4.5.0")
+        self.assertEqual(payload["daemon_version"], "4.7.0")
         self.assertEqual(payload["command_timeout_default"], 900)
+        self.assertEqual(payload["command_timeout_max"], 7200)
         self.assertEqual(payload["idle_timeout_default"], 300)
+        self.assertEqual(payload["idle_timeout_max"], 3600)
         self.assertEqual(payload["task_timeout_default"], 1800)
+        self.assertEqual(payload["task_timeout_max"], 21600)
         self.assertEqual(payload["memory_limit_mb_default"], 4096)
 
     def test_claim_blocks_duplicate_execution_and_records_digest(self) -> None:
@@ -371,7 +374,7 @@ class AgentDaemonSafetyTests(unittest.TestCase):
 
     def test_v4_timeout_policy(self) -> None:
         self.assertEqual(agentd.core.COMMAND_TIMEOUT, 900)
-        self.assertEqual(agentd.core.MAX_COMMAND_TIMEOUT, 1500)
+        self.assertEqual(agentd.core.MAX_COMMAND_TIMEOUT, 7200)
         self.assertEqual(agentd.runtime._idle_timeout, 300)
 
 
