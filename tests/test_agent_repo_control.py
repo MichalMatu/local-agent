@@ -90,8 +90,9 @@ class RepositoryControlTests(unittest.TestCase):
 
     def test_idle_status_is_persisted_without_repeated_remote_commit(self) -> None:
         worker.bind_repository(self.repository)
-        agentd.DAEMON_VERSION = worker.MULTIREPO_DAEMON_VERSION
-        with mock.patch.object(agentd, "publish_control_json") as publish:
+        with mock.patch.object(
+            agentd, "DAEMON_VERSION", worker.MULTIREPO_DAEMON_VERSION
+        ), mock.patch.object(agentd, "publish_control_json") as publish:
             worker.publish_repository_status(self.repository, "idle", force_remote=False)
             worker.publish_repository_status(self.repository, "idle", force_remote=False)
         self.assertEqual(publish.call_count, 1)
