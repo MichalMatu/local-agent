@@ -18,13 +18,14 @@ from typing import Any
 import agent_core as core
 from agent_runtime import (
     DEFAULT_IDLE_TIMEOUT,
+    DEFAULT_MEMORY_LIMIT_MB,
     DEFAULT_TASK_TIMEOUT,
     RuntimeExecutor,
     task_digest,
     validate_task,
 )
 
-DAEMON_VERSION = "4.4.0"
+DAEMON_VERSION = "4.5.0"
 HOME = Path.home()
 SELF_REPO = Path(__file__).resolve().parent
 SELF_BRANCH = "main"
@@ -162,6 +163,7 @@ def daemon_status_payload(state: str, **extra: Any) -> dict[str, Any]:
         "command_timeout_default": core.COMMAND_TIMEOUT,
         "idle_timeout_default": DEFAULT_IDLE_TIMEOUT,
         "task_timeout_default": DEFAULT_TASK_TIMEOUT,
+        "memory_limit_mb_default": DEFAULT_MEMORY_LIMIT_MB,
         "current_task_id": _current_task_id,
         "current_attempt_id": _current_attempt_id,
         "current_task_digest": _current_task_digest,
@@ -540,6 +542,7 @@ def _validate_installed_update() -> tuple[bool, str]:
             "agentd.py",
             "agent_core.py",
             "agent_runtime.py",
+            "agent_process.py",
             "agentctl.py",
         ],
         [sys.executable, "-m", "unittest", "discover", "-q"],
@@ -862,8 +865,11 @@ def main() -> None:
     install_signal_handlers()
     log(
         f"Local Agent daemon v{DAEMON_VERSION} starting; "
-        f"command_timeout={core.COMMAND_TIMEOUT}s idle_timeout=600s "
-        f"task_timeout=3600s self_update={SELF_UPDATE_INTERVAL}s"
+        f"command_timeout={core.COMMAND_TIMEOUT}s "
+        f"idle_timeout={DEFAULT_IDLE_TIMEOUT}s "
+        f"task_timeout={DEFAULT_TASK_TIMEOUT}s "
+        f"memory_limit={DEFAULT_MEMORY_LIMIT_MB}MiB "
+        f"self_update={SELF_UPDATE_INTERVAL}s"
     )
 
     core.sync_control()
