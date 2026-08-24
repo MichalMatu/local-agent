@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import os
 import signal
 import subprocess
@@ -25,6 +27,17 @@ def log(message: str) -> None:
     agentd.log(f"[multi-repo] {message}")
 
 
+def sync_control_quietly() -> None:
+    """Run routine control-branch sync without printing low-level Git commands."""
+    with contextlib.redirect_stdout(io.StringIO()):
+        agentd.core.sync_control()
+
+
+def format_idle_summary(repository_count: int) -> str:
+    noun = "repository" if repository_count == 1 else "repositories"
+    return f"no pending task ({repository_count} {noun})"
+
+
 def supervisor_control_repository(
     *,
     registry_path: Path | None,
@@ -41,7 +54,7 @@ def bind_supervisor_control(repository: RepositoryContext) -> None:
 
 def service_supervisor_control(repository: RepositoryContext) -> None:
     bind_supervisor_control(repository)
-    agentd.core.sync_control()
+    sync_control_quietly()
     agentd.handle_control_request()
     agentd.maybe_self_update()
 
@@ -82,7 +95,6 @@ def run_worker(
 ) -> int:
     global _active_worker
     command = worker_command(repository, registry_path=registry_path)
-    log(f"polling repository={repository.repository_id}")
     env = os.environ.copy()
     env["LOCAL_AGENT_SUPERVISOR_PID"] = str(os.getpid())
     proc = subprocess.Popen(
@@ -149,6 +161,7 @@ def main() -> int:
     install_signal_handlers()
     registry_path = args.registry
     last_repository: str | None = None
+    idle_announced = False
     control_repository = supervisor_control_repository(registry_path=registry_path)
     bind_supervisor_control(control_repository)
     log(
@@ -156,7 +169,7 @@ def main() -> int:
         "global execution concurrency=1 "
         f"control_repository={control_repository.repository_id}"
     )
-    agentd.core.sync_control()
+    sync_control_quietly()
     agentd.publish_daemon_status(
         "idle",
         force_remote=True,
@@ -174,6 +187,7 @@ def main() -> int:
                 start_after=last_repository,
             )
         except Exception as exc:
+            idle_announced = False
             log(f"registry/scheduler cycle failed: {type(exc).__name__}: {exc}")
             if args.once:
                 return 2
@@ -181,8 +195,14 @@ def main() -> int:
             continue
         if args.once:
             return 0
-        if not processed:
-            time.sleep(POLL_SECONDS)
+        if processed:
+            idle_announced = False
+            continue
+        if not idle_announced:
+            repository_count = len(load_repository_registry(path=registry_path))
+            log(format_idle_summary(repository_count))
+            idle_announced = True
+        time.sleep(POLL_SECONDS)
 
 
 if __name__ == "__main__":
