@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,16 @@ def repository_status_fields(repository: RepositoryContext) -> dict[str, Any]:
     return fields
 
 
+def _previous_repository_status() -> tuple[str | None, float | None]:
+    path = agentd.LOCAL_STATUS_PATH
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        state = str(payload.get("state", "")) or None
+        return state, path.stat().st_mtime
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError):
+        return None, None
+
+
 def publish_repository_status(
     repository: RepositoryContext,
     state: str,
@@ -68,12 +79,35 @@ def publish_repository_status(
     force_remote: bool = True,
     **extra: Any,
 ) -> None:
-    agentd.publish_daemon_status(
+    """Persist every local status but throttle idle remote commits across worker processes."""
+    previous_state, previous_mtime = _previous_repository_status()
+    payload = agentd.daemon_status_payload(
         state,
-        force_remote=force_remote,
         **repository_status_fields(repository),
         **extra,
     )
+    agentd.atomic_write_json(agentd.LOCAL_STATUS_PATH, payload)
+
+    now = time.time()
+    remote_due = (
+        force_remote
+        or previous_state != state
+        or previous_mtime is None
+        or now - previous_mtime >= agentd.REMOTE_HEARTBEAT_SECONDS
+    )
+    if not remote_due:
+        return
+    try:
+        agentd.publish_control_json(
+            agentd.REMOTE_DAEMON_STATUS,
+            payload,
+            commit_message=f"Agent repository status: {repository.repository_id} {state}",
+        )
+    except Exception as exc:
+        core.log(
+            f"remote repository status publish failed repository={repository.repository_id}: "
+            f"{type(exc).__name__}: {exc}"
+        )
 
 
 def _control_ack_path(control_id: str) -> Path:
@@ -179,6 +213,11 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
         handle_repository_control(repository)
         pending = agentd.pending_tasks()
         if not pending:
+            publish_repository_status(
+                repository,
+                "idle",
+                force_remote=False,
+            )
             return False
 
         _, task = pending[0]
