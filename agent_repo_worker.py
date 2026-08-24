@@ -34,7 +34,6 @@ def bind_repository(repository: RepositoryContext) -> None:
     agentd.CORRUPT_CLAIMS_DIR = state_dir / "corrupt-claims"
     agentd.LOCAL_STATUS_PATH = state_dir / "status.json"
     agentd.LOCAL_RUNS_DIR = state_dir / "runs"
-    agentd.DAEMON_VERSION = MULTIREPO_DAEMON_VERSION
 
 
 def validate_repository_checkouts(repository: RepositoryContext) -> None:
@@ -167,31 +166,36 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
     """Poll one repository and execute at most one task."""
     bind_repository(repository)
     validate_repository_checkouts(repository)
-    core.log(
-        f"multi-repo poll repository={repository.repository_id} "
-        f"remote={repository.repository}"
-    )
-    core.sync_control()
-    agentd.recover_stale_claims()
-    agentd.recover_invalid_task_files()
-    handle_repository_control(repository)
-    pending = agentd.pending_tasks()
-    if not pending:
-        return False
+    previous_version = agentd.DAEMON_VERSION
+    agentd.DAEMON_VERSION = MULTIREPO_DAEMON_VERSION
+    try:
+        core.log(
+            f"multi-repo poll repository={repository.repository_id} "
+            f"remote={repository.repository}"
+        )
+        core.sync_control()
+        agentd.recover_stale_claims()
+        agentd.recover_invalid_task_files()
+        handle_repository_control(repository)
+        pending = agentd.pending_tasks()
+        if not pending:
+            return False
 
-    _, task = pending[0]
-    core.log(
-        f"multi-repo dispatch repository={repository.repository_id} "
-        f"task={task.get('id')}"
-    )
-    agentd.execute_task(task)
-    publish_repository_status(
-        repository,
-        "idle",
-        force_remote=True,
-        last_task_id=str(task.get("id", "")),
-    )
-    return True
+        _, task = pending[0]
+        core.log(
+            f"multi-repo dispatch repository={repository.repository_id} "
+            f"task={task.get('id')}"
+        )
+        agentd.execute_task(task)
+        publish_repository_status(
+            repository,
+            "idle",
+            force_remote=True,
+            last_task_id=str(task.get("id", "")),
+        )
+        return True
+    finally:
+        agentd.DAEMON_VERSION = previous_version
 
 
 def repository_by_id(
