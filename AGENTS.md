@@ -10,6 +10,7 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - `agentd.py` owns queue orchestration, durable claims, remote status/control and self-update.
 - `agent_core.py` owns deterministic task execution and result publication.
 - `agent_runtime.py` owns staged command lifecycle, watchdogs, progress and telemetry.
+- `agent_process.py` owns shared shell spawning, bounded stdout handoff/capture and process-group termination primitives.
 - `agentctl.py` is diagnostics only; the daemon must not depend on it.
 
 ## Safety invariants
@@ -17,8 +18,10 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - Never automatically replay a task after daemon/process interruption.
 - Never silently reuse a task id for a different payload.
 - Malformed task JSON is terminal `invalid_task_file`, not a retry candidate.
-- Keep command/no-output watchdogs and the whole-task admission budget intact unless a change explicitly replaces them with an equivalent or stronger mechanism.
+- Keep command/no-output/RSS watchdogs and the whole-task admission budget intact unless a change explicitly replaces them with an equivalent or stronger mechanism.
+- Command stdout transport and retained result capture must remain strictly bounded.
 - Never terminate an already-running stage solely because the whole-task admission budget expired.
+- Runtime execution must be passed explicitly into core task processing; do not mutate a global command runner to install production runtime behavior.
 - All daemon self-updates must validate before restart and roll back on failure.
 - Do not add a local coding LLM to the deterministic execution path.
 - Keep Git staging path-exact; never use `git add -A` in publication logic.
@@ -43,12 +46,13 @@ Verification is impact-driven:
 - add broader coverage only for shared/cross-cutting changes, uncertain dependency impact, an explicit repository requirement, or an explicit user request;
 - previously green focused evidence remains valid while the covered code and relevant dependencies remain unchanged;
 - after a focused fix, rerun only the affected gate unless the fix expands the impact surface;
-- new control/progress/watchdog behavior requires unit coverage.
+- new control/progress/watchdog/process-lifecycle behavior requires unit coverage.
 
 For daemon changes, before publication run:
 
 ```bash
-python -m py_compile agentd.py agent_core.py agent_runtime.py agentctl.py
+python -m py_compile agentd.py agent_core.py agent_runtime.py agent_process.py agentctl.py
+ruff check agentd.py agent_core.py agent_runtime.py agent_process.py agentctl.py tests
 python -m unittest discover -q
 ```
 
