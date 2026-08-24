@@ -3,17 +3,21 @@ from __future__ import annotations
 
 import json
 import os
-import queue
 import re
 import shutil
-import signal
 import subprocess
-import threading
 import time
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
+
+from agent_process import (
+    BoundedTextBuffer,
+    spawn_shell,
+    start_output_pump,
+    terminate_process_group,
+)
 
 HOME = Path.home()
 CONTROL = HOME / "agent-workspace" / "control"
@@ -39,6 +43,16 @@ ENV = os.environ.copy()
 ENV["PATH"] = ":".join(BASE_PATH + [ENV.get("PATH", "")])
 
 _BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+
+class CommandRunner(Protocol):
+    def __call__(
+        self,
+        command: str,
+        timeout: int,
+        *,
+        stage: dict[str, Any] | None = None,
+    ) -> dict[str, Any]: ...
 
 
 def now_iso() -> str:
@@ -100,34 +114,7 @@ def process(
 
 
 def kill_process_group(proc: subprocess.Popen[str]) -> None:
-    if proc.poll() is not None:
-        return
-    try:
-        pgid = os.getpgid(proc.pid)
-    except ProcessLookupError:
-        return
-
-    log(f"terminating process group pgid={pgid}")
-    try:
-        os.killpg(pgid, signal.SIGTERM)
-    except ProcessLookupError:
-        return
-
-    try:
-        proc.wait(timeout=5)
-        return
-    except subprocess.TimeoutExpired:
-        pass
-
-    log(f"killing process group pgid={pgid}")
-    try:
-        os.killpg(pgid, signal.SIGKILL)
-    except ProcessLookupError:
-        return
-    try:
-        proc.wait(timeout=5)
-    except subprocess.TimeoutExpired:
-        pass
+    terminate_process_group(proc, log)
 
 
 def run_command(
@@ -138,75 +125,35 @@ def run_command(
 ) -> dict[str, Any]:
     log(f"exec: {command}")
     started = time.monotonic()
-
-    proc = subprocess.Popen(
-        command,
-        shell=True,
-        cwd=WORK,
-        env=ENV,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-        start_new_session=True,
-    )
-
-    lines: queue.Queue[str | None] = queue.Queue()
-
-    def reader() -> None:
-        assert proc.stdout is not None
-        try:
-            for line in iter(proc.stdout.readline, ""):
-                lines.put(line)
-        finally:
-            lines.put(None)
-
-    thread = threading.Thread(target=reader, daemon=True)
-    thread.start()
-
-    chunks: list[str] = []
-    total_chars = 0
+    proc = spawn_shell(command, cwd=WORK, env=ENV)
+    pump = start_output_pump(proc)
+    output = BoundedTextBuffer(MAX_OUTPUT)
     reader_done = False
     timed_out = False
 
-    while True:
-        elapsed = time.monotonic() - started
-        remaining = timeout - elapsed
-        if remaining <= 0 and proc.poll() is None:
-            timed_out = True
-            log(f"TIMEOUT after {timeout}s: {command}")
-            kill_process_group(proc)
+    try:
+        while True:
+            elapsed = time.monotonic() - started
+            remaining = timeout - elapsed
+            if remaining <= 0 and proc.poll() is None and not timed_out:
+                timed_out = True
+                log(f"TIMEOUT after {timeout}s: {command}")
+                kill_process_group(proc)
 
-        try:
-            item = lines.get(timeout=0.25 if remaining > 0 else 0.05)
-            if item is None:
-                reader_done = True
-            else:
-                print(f"[CMD] {item}", end="", flush=True)
-                chunks.append(item)
-                total_chars += len(item)
-                while total_chars > MAX_OUTPUT and chunks:
-                    removed = chunks.pop(0)
-                    total_chars -= len(removed)
-        except queue.Empty:
-            pass
-
-        if proc.poll() is not None and reader_done:
-            break
-
-        if timed_out and proc.poll() is not None:
-            while True:
-                try:
-                    item = lines.get_nowait()
-                except queue.Empty:
-                    break
+            try:
+                item = pump.queue.get(timeout=0.25 if remaining > 0 else 0.05)
                 if item is None:
                     reader_done = True
-                    continue
-                print(f"[CMD] {item}", end="", flush=True)
-                chunks.append(item)
-                total_chars += len(item)
-            break
+                else:
+                    print(f"[CMD] {item}", end="", flush=True)
+                    output.append(item)
+            except __import__("queue").Empty:
+                pass
+
+            if proc.poll() is not None and reader_done:
+                break
+    finally:
+        pump.stop()
 
     exit_code = proc.returncode if proc.returncode is not None else 124
     if timed_out:
@@ -218,7 +165,7 @@ def run_command(
     return {
         "command": command,
         "exit_code": exit_code,
-        "output": "".join(chunks),
+        "output": output.text(),
         "elapsed_seconds": round(elapsed, 3),
         "timed_out": timed_out,
     }
@@ -599,9 +546,12 @@ def run_command_list(
     timeout: int,
     previous: dict[str, dict[str, Any]] | None = None,
     stages: list[dict[str, Any]] | None = None,
+    *,
+    runner: CommandRunner | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     history = {} if previous is None else dict(previous)
     results: list[dict[str, Any]] = []
+    command_runner = run_command if runner is None else runner
 
     for offset, command in enumerate(commands):
         if not isinstance(command, str) or not command.strip():
@@ -622,7 +572,7 @@ def run_command_list(
         effective_timeout = timeout
         if stage is not None and stage.get("stage_timeout") is not None:
             effective_timeout = int(stage["stage_timeout"])
-        result = run_command(command, effective_timeout, stage=stage)
+        result = command_runner(command, effective_timeout, stage=stage)
         if stage is not None:
             result.update(stage)
         history[command] = result
@@ -639,7 +589,11 @@ def git_snapshot() -> tuple[dict[str, Any], dict[str, Any]]:
     return status, diff
 
 
-def process_task(task: dict[str, Any]) -> dict[str, Any]:
+def process_task(
+    task: dict[str, Any],
+    *,
+    command_runner: CommandRunner | None = None,
+) -> dict[str, Any]:
     task_id = str(task["id"])
     mode = str(task.get("mode", "commands"))
     if mode != "commands":
@@ -683,6 +637,7 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("task requests edits but allow_write is false")
 
     timeout = command_timeout_for(task)
+    runner = run_command if command_runner is None else command_runner
     started_at = now_iso()
     log(
         f"starting task {task_id} branch={branch} "
@@ -729,6 +684,7 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
                 timeout,
                 command_history,
                 primary_stages,
+                runner=runner,
             )
             result["commands"] = command_results
             if command_results and command_results[-1]["exit_code"] != 0:
@@ -740,6 +696,7 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
                 timeout,
                 command_history,
                 primary_stages,
+                runner=runner,
             )
             result["commands"] = command_results
             if command_results and command_results[-1]["exit_code"] != 0:
@@ -751,6 +708,7 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
                 timeout,
                 command_history,
                 verification_stages,
+                runner=runner,
             )
             result["verification"] = verification_results
             if verification_results and verification_results[-1]["exit_code"] != 0:
@@ -762,6 +720,7 @@ def process_task(task: dict[str, Any]) -> dict[str, Any]:
                 timeout,
                 command_history,
                 verification_stages,
+                runner=runner,
             )
             result["verification"] = verification_results
             if verification_results and verification_results[-1]["exit_code"] != 0:
