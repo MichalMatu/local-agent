@@ -300,6 +300,7 @@ class AgentDaemonSafetyTests(unittest.TestCase):
                     "index": 1,
                     "total": 3,
                     "command": "one",
+                    "verification_level": "work",
                 }
             )
             callback(
@@ -326,6 +327,15 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertEqual(
             [call.kwargs["force_remote"] for call in publish_status.call_args_list],
             [False, False, False, False],
+        )
+        self.assertEqual(
+            publish_run.call_args_list[1].args[1]["verification_level"], "work"
+        )
+        self.assertEqual(
+            publish_status.call_args_list[1].kwargs["progress"][
+                "verification_level"
+            ],
+            "work",
         )
 
     def test_remote_heartbeat_refreshes_daemon_status_at_sixty_seconds(self) -> None:

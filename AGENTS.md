@@ -62,6 +62,20 @@ Verification is impact-driven:
 - new control/progress/watchdog/process-lifecycle behavior requires unit coverage;
 - multi-repository scheduler, isolation or provisioning changes require real temporary-Git integration coverage in addition to unit tests.
 
+Use `workflow_policy: "efficient-verification-v1"` for staged coding tasks that
+must make verification cost explicit. Every `steps` and `verify_steps` item must
+declare `verification_level`. Use `work` for implementation/edit stages and only
+the smallest checks needed while editing. Use `focused` for diff review and
+affected regression or static checks. Use exactly one `full` stage as the final
+`verify_steps` item; that stage runs the repository-mandated broad suite once and
+then the final build or release gate once. Earlier `verify_steps` may be
+`focused`, never `work`, and primary `steps` may not be `full`.
+
+If the final full gate finds a defect, fix it, rerun only the affected focused
+gate first, and then rerun the final full gate because the source changed after
+the prior attempt. The policy classifies declared stages only: never infer cost
+from command text, deduplicate commands or skip an identical declared command.
+
 For daemon changes, before publication run:
 
 ```bash

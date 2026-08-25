@@ -45,6 +45,34 @@ Runtime timeout configuration is read once at daemon startup; restart the daemon
 
 Long work should use named sequential stages. The whole-task budget is checked before a stage starts and must not terminate an already-running stage solely because the global budget expires.
 
+## Efficient verification workflow
+
+Structured staged tasks may opt in with
+`workflow_policy: "efficient-verification-v1"`. Under this policy, every item in
+`steps` and `verify_steps` declares a `verification_level` of `work`, `focused`
+or `full`. Legacy `commands` and `verify_commands` fields are not allowed in an
+opted-in task, including empty declarations of those fields.
+
+The canonical coding workflow is:
+
+1. Use a primary `work` stage for implementation or editing and run only the
+   smallest focused checks needed while editing.
+2. Use a primary `focused` stage to audit the exact diff and run only affected
+   regression and static checks.
+3. Use `focused` for any additional pre-final `verify_steps`. A verification
+   stage may never use `work`.
+4. Declare exactly one `full` stage, as the last `verify_steps` item and therefore
+   the final stage in the plan. Its declared command runs the repository-mandated
+   broad suite once, followed by the final build or release gate once.
+5. If the full gate exposes a defect, fix it and rerun only the affected focused
+   gate first. Then rerun the full gate because source changed after the previous
+   full-gate attempt.
+
+Primary stages may be `work` or `focused`, never `full`. The daemon validates
+declared intent before execution and publishes `verification_level` in stage
+results and live progress/status data. It does not inspect command text to infer
+cost, deduplicate commands or skip identical declarations.
+
 ## Development loop
 
 1. Read `AGENTS.md` and applicable target-repository rules.

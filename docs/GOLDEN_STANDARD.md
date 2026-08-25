@@ -1,4 +1,4 @@
-# Local Agent Golden Standard v4.8
+# Local Agent Golden Standard v4.9
 
 This file records the current production invariants for `MichalMatu/local-agent`. Operational details live in `OPERATIONS.md`; multi-repository details live in `MULTI_REPOSITORY.md`; machine-specific setup lives in `SESSION_BOOTSTRAP.md`.
 
@@ -19,6 +19,9 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - Runtime commands use process groups. Residual descendants after a successful parent exit are terminated and reported as `background_process_leak`.
 - Host telemetry, RSS sampling and remote progress publication never execute blocking work in the command watchdog loop.
 - Remote progress is asynchronous and coalesced; daemon health status does not duplicate every command transition.
+- Opt-in `efficient-verification-v1` tasks use structured stages with explicit
+  `work`, `focused` and `full` intent, exactly one final full verification stage,
+  and visible verification-level metadata.
 - Every declared command executes independently, including identical command strings.
 - Final results are atomically and durably spooled before remote publication.
 - Publication failure leaves the claim and spool intact; recovery republishes the result without re-executing commands.
