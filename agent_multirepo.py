@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import agent_storage as storage
 import agentd
 from agent_process import terminate_process_group
 from agent_repository import RepositoryContext, load_repository_registry
@@ -30,9 +31,9 @@ def log(message: str) -> None:
 
 
 def sync_control_quietly() -> None:
-    """Run routine control-branch sync without printing low-level Git commands."""
+    """Run bounded routine control-branch sync without printing low-level Git commands."""
     with contextlib.redirect_stdout(io.StringIO()):
-        agentd.core.sync_control()
+        storage.sync_control(agentd.core)
 
 
 def format_idle_summary(repository_count: int) -> str:
