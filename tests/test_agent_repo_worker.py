@@ -7,6 +7,7 @@ from unittest import mock
 
 import agent_core as core
 import agent_repo_worker as worker
+import agent_storage as storage
 import agentd
 from agent_repository import RepositoryContext
 
@@ -76,8 +77,13 @@ class RepositoryWorkerTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "checkout missing"):
             worker.validate_repository_checkouts(missing)
 
+    def test_quiet_sync_uses_bounded_storage_policy(self) -> None:
+        with mock.patch.object(storage, "sync_control") as sync:
+            worker.sync_control_quietly()
+        sync.assert_called_once_with(core)
+
     def test_idle_poll_executes_no_task(self) -> None:
-        with mock.patch.object(core, "sync_control"), mock.patch.object(
+        with mock.patch.object(worker, "sync_control_quietly"), mock.patch.object(
             agentd, "recover_stale_claims"
         ), mock.patch.object(agentd, "recover_invalid_task_files"), mock.patch.object(
             agentd, "pending_tasks", return_value=[]
@@ -91,7 +97,7 @@ class RepositoryWorkerTests(unittest.TestCase):
             (Path("one.json"), {"id": "one", "commands": ["true"]}),
             (Path("two.json"), {"id": "two", "commands": ["true"]}),
         ]
-        with mock.patch.object(core, "sync_control"), mock.patch.object(
+        with mock.patch.object(worker, "sync_control_quietly"), mock.patch.object(
             agentd, "recover_stale_claims"
         ), mock.patch.object(agentd, "recover_invalid_task_files"), mock.patch.object(
             agentd, "pending_tasks", return_value=tasks
@@ -102,7 +108,7 @@ class RepositoryWorkerTests(unittest.TestCase):
 
     def test_publication_pending_is_not_overwritten_with_idle(self) -> None:
         tasks = [(Path("one.json"), {"id": "one", "commands": ["true"]})]
-        with mock.patch.object(core, "sync_control"), mock.patch.object(
+        with mock.patch.object(worker, "sync_control_quietly"), mock.patch.object(
             agentd, "recover_stale_claims"
         ), mock.patch.object(agentd, "recover_invalid_task_files"), mock.patch.object(
             agentd, "pending_tasks", return_value=tasks
