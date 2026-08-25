@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Storage policy for local-agent repository workspaces."""
+"""Storage and resilient Git policy for local-agent repository workspaces."""
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,22 @@ CONTROL_WORKTREE_WARNING_BYTES = 256 * 1024**2
 WORKTREE_WARNING_BYTES = 2 * 1024**3
 DIAGNOSTIC_FILE_LIMIT = 100_000
 CONTROL_SPARSE_PATHS = (".agent",)
+GIT_NETWORK_RETRY_DELAYS = (2.0, 5.0, 15.0)
+TRANSIENT_GIT_NETWORK_MARKERS = (
+    "connection closed by",
+    "connection reset by peer",
+    "connection timed out",
+    "operation timed out",
+    "network is unreachable",
+    "could not resolve host",
+    "could not resolve hostname",
+    "remote end hung up unexpectedly",
+    "ssh_exchange_identification: connection closed",
+    "kex_exchange_identification: read: connection reset",
+    "rpc failed; curl 56",
+    "gnutls recv error",
+    "tls connection was non-properly terminated",
+)
 
 
 def bounded_control_pull_args(branch: str) -> list[str]:
@@ -27,6 +44,55 @@ def bounded_control_pull_args(branch: str) -> list[str]:
     ]
 
 
+def is_transient_git_network_failure(result: dict[str, Any]) -> bool:
+    """Return True only for failures that look like temporary network transport errors."""
+    if int(result.get("exit_code", 0)) == 0:
+        return False
+    if bool(result.get("timed_out")):
+        return True
+    output = str(result.get("output", "")).lower()
+    return any(marker in output for marker in TRANSIENT_GIT_NETWORK_MARKERS)
+
+
+def run_git_with_network_retry(
+    core_module: Any,
+    args: list[str],
+    cwd: Path,
+    *,
+    timeout: int = 120,
+    retry_delays: tuple[float, ...] = GIT_NETWORK_RETRY_DELAYS,
+    log_commands: bool = True,
+) -> dict[str, Any]:
+    """Run one Git command, retrying only transient transport failures.
+
+    The delays represent retries after the initial attempt, so the default policy is
+    four total attempts: immediate, then after 2s, 5s and 15s. Authentication,
+    rebase/conflict and other deterministic Git errors are returned immediately.
+    """
+    result: dict[str, Any] = {}
+    for attempt in range(len(retry_delays) + 1):
+        result = core_module.process(
+            args,
+            cwd,
+            timeout=timeout,
+            log_commands=log_commands,
+        )
+        if result["exit_code"] == 0:
+            return result
+        if not is_transient_git_network_failure(result) or attempt >= len(retry_delays):
+            return result
+
+        delay = retry_delays[attempt]
+        logger = getattr(core_module, "log", None)
+        if callable(logger):
+            logger(
+                f"transient Git network failure; retrying in {delay:g}s "
+                f"(attempt {attempt + 2}/{len(retry_delays) + 1})"
+            )
+        time.sleep(delay)
+    return result
+
+
 def sync_control(core_module: Any) -> None:
     """Synchronize the active control checkout while preserving its shallow boundary."""
     with core_module.CONTROL_GIT_LOCK:
@@ -37,7 +103,8 @@ def sync_control(core_module: Any) -> None:
         if result["exit_code"] != 0:
             raise RuntimeError(result["output"])
 
-        result = core_module.process(
+        result = run_git_with_network_retry(
+            core_module,
             ["git", *bounded_control_pull_args(core_module.CONTROL_BRANCH)],
             core_module.CONTROL,
         )

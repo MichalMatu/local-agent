@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import agent_core as core
+import agent_storage as storage
 from agent_config import TIMEOUTS
 from agent_process import atomic_write_text, fsync_directory
 from agent_runtime import (
@@ -194,14 +195,16 @@ def publish_control_json(
             raise RuntimeError(commit["output"])
 
         for attempt in range(attempts):
-            pull = core.process(
-                ["git", "pull", "--rebase", "origin", core.CONTROL_BRANCH],
+            pull = storage.run_git_with_network_retry(
+                core,
+                ["git", *storage.bounded_control_pull_args(core.CONTROL_BRANCH)],
                 core.CONTROL,
                 timeout=timeout,
             )
             if pull["exit_code"] != 0:
                 raise RuntimeError(pull["output"])
-            push = core.process(
+            push = storage.run_git_with_network_retry(
+                core,
                 ["git", "push", "origin", core.CONTROL_BRANCH],
                 core.CONTROL,
                 timeout=timeout,
@@ -691,7 +694,13 @@ def acquire_daemon_lock() -> Any:
 
 
 def _git(args: list[str], timeout: int = 60) -> subprocess.CompletedProcess[str]:
-    result = core.process(args, SELF_REPO, timeout=timeout, log_commands=False)
+    result = storage.run_git_with_network_retry(
+        core,
+        args,
+        SELF_REPO,
+        timeout=timeout,
+        log_commands=False,
+    )
     return subprocess.CompletedProcess(
         args=args,
         returncode=int(result["exit_code"]),
@@ -746,6 +755,7 @@ def _validate_installed_update() -> tuple[bool, str]:
             "agent_core.py",
             "agent_runtime.py",
             "agent_process.py",
+            "agent_storage.py",
             "agent_repository.py",
             "agent_repo_worker.py",
             "agent_multirepo.py",
