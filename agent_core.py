@@ -7,6 +7,7 @@ import queue
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import traceback
@@ -14,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+import agent_storage as storage
 from agent_config import TIMEOUTS
 from agent_process import (
     BoundedTextBuffer,
@@ -210,14 +212,7 @@ def validate_branch(branch: str) -> str:
 
 
 def sync_control() -> None:
-    with CONTROL_GIT_LOCK:
-        result = process(["git", "checkout", CONTROL_BRANCH], CONTROL)
-        if result["exit_code"] != 0:
-            raise RuntimeError(result["output"])
-
-        result = process(["git", "pull", "--rebase", "origin", CONTROL_BRANCH], CONTROL)
-        if result["exit_code"] != 0:
-            raise RuntimeError(result["output"])
+    storage.sync_control(sys.modules[__name__])
 
 
 def _run_git_capture(args: list[str], *, timeout: float = 60) -> dict[str, Any]:
@@ -1060,7 +1055,7 @@ def publish_result(task_id: str, result: dict[str, Any]) -> None:
             raise RuntimeError(add["output"])
 
         commit = process(
-            ["git", "commit", "-m", f"Agent result: {task_id}"],
+            ["git", "commit", "-m", f"Agent result: {task_id}", "--", relative],
             CONTROL,
         )
         if commit["exit_code"] != 0:
@@ -1068,15 +1063,17 @@ def publish_result(task_id: str, result: dict[str, Any]) -> None:
             if status["exit_code"] != 0 or status["output"].strip():
                 raise RuntimeError(commit["output"])
 
-        pull = process(
-            ["git", "pull", "--rebase", "origin", CONTROL_BRANCH],
+        pull = storage.run_git_with_network_retry(
+            sys.modules[__name__],
+            ["git", *storage.bounded_control_pull_args(CONTROL_BRANCH)],
             CONTROL,
             timeout=180,
         )
         if pull["exit_code"] != 0:
             raise RuntimeError(pull["output"])
 
-        push = process(
+        push = storage.run_git_with_network_retry(
+            sys.modules[__name__],
             ["git", "push", "origin", CONTROL_BRANCH],
             CONTROL,
             timeout=180,

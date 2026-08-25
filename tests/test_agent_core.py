@@ -34,6 +34,26 @@ class WorkspaceCheckpointTests(unittest.TestCase):
         core.CHECKPOINTS = self.original_checkpoints
         self.tmp.cleanup()
 
+    def test_single_repo_sync_uses_storage_policy(self) -> None:
+        with mock.patch.object(core.storage, "sync_control") as sync:
+            core.sync_control()
+        sync.assert_called_once_with(core)
+
+    def test_publish_result_uses_bounded_retry_and_scoped_commit(self) -> None:
+        original_control = core.CONTROL
+        core.CONTROL = self.repo
+        try:
+            with mock.patch.object(core, "process", return_value={"exit_code": 0, "output": ""}) as process, mock.patch.object(core.storage, "run_git_with_network_retry", return_value={"exit_code": 0, "output": ""}) as retry:
+                core.publish_result("result-test", {"status": "done"})
+            self.assertEqual(retry.call_count, 2)
+            self.assertEqual(retry.call_args_list[0].args[1], ["git", *core.storage.bounded_control_pull_args(core.CONTROL_BRANCH)])
+            self.assertEqual(retry.call_args_list[1].args[1], ["git", "push", "origin", core.CONTROL_BRANCH])
+            commit_calls=[c for c in process.call_args_list if len(c.args[0]) > 1 and c.args[0][1] == "commit"]
+            self.assertEqual(len(commit_calls), 1)
+            self.assertEqual(commit_calls[0].args[0][-2:], ["--", ".agent/results/result-test.json"])
+        finally:
+            core.CONTROL = original_control
+
     def test_clean_worktree_does_not_create_checkpoint(self) -> None:
         self.assertIsNone(core.checkpoint_worktree("task-clean", reason="unit"))
         self.assertFalse(self.checkpoints.exists())

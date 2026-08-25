@@ -59,6 +59,13 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertEqual(payload["task_timeout_max"], agentd.TIMEOUTS.task_max)
         self.assertEqual(payload["memory_limit_mb_default"], 4096)
 
+    def test_daemon_status_can_be_persisted_without_remote_git(self) -> None:
+        with mock.patch.object(agentd, "self_revision", return_value="abc"), mock.patch.object(agentd, "publish_control_json") as publish:
+            agentd.publish_daemon_status("running", force_remote=True, remote_enabled=False)
+        publish.assert_not_called()
+        payload = json.loads(agentd.LOCAL_STATUS_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(payload["state"], "running")
+
     def test_claim_blocks_duplicate_execution_and_records_digest(self) -> None:
         task = self.task()
         claim = agentd.claim_task(task)
@@ -130,6 +137,16 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertFalse(agentd.task_claim_path("publish-retry").exists())
         self.assertIsNone(agentd.read_result_spool("publish-retry"))
         process_task.assert_called_once()
+
+    def test_execute_task_can_leave_remote_status_to_repository_worker(self) -> None:
+        task = self.task("local-status-only")
+        completed = {"id": "local-status-only", "status": "done", "finished_at": "now"}
+        with mock.patch.object(agentd.runtime, "process_task", return_value=completed), mock.patch.object(agentd, "flush_remote_progress", return_value=True), mock.patch.object(agentd, "persist_result_spool"), mock.patch.object(agentd, "publish_durable_result"), mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(agentd, "publish_daemon_status") as publish_status, mock.patch.object(agentd, "release_task_claim"), mock.patch.object(agentd, "clear_current_task"):
+            outcome = agentd.execute_task(task, remote_daemon_status=False, remote_result_published=False)
+        self.assertEqual(outcome, "published")
+        self.assertFalse(publish_run.call_args.kwargs["force_remote"])
+        self.assertTrue(publish_status.call_args_list)
+        self.assertTrue(all(call.kwargs.get("remote_enabled") is False for call in publish_status.call_args_list))
 
     def test_interrupted_attempt_is_terminal_failure(self) -> None:
         result = agentd.interrupted_result(

@@ -129,7 +129,11 @@ class RepositoryWorkerTests(unittest.TestCase):
         ), mock.patch.object(agentd, "execute_task") as execute_task:
             processed = worker.poll_repository_once(self.repository)
         self.assertTrue(processed)
-        execute_task.assert_called_once_with(tasks[0][1])
+        execute_task.assert_called_once_with(
+            tasks[0][1],
+            remote_daemon_status=False,
+            remote_result_published=False,
+        )
 
     def test_publication_pending_is_not_overwritten_with_idle(self) -> None:
         tasks = [(Path("one.json"), {"id": "one", "commands": ["true"]})]
