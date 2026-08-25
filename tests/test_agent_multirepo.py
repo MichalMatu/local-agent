@@ -35,6 +35,36 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         ordered = multi.ordered_repositories(repositories, "missing")
         self.assertEqual([item.repository_id for item in ordered], ["a", "b"])
 
+    def test_adaptive_poll_tier_moves_hot_warm_idle(self) -> None:
+        self.assertEqual(multi.adaptive_poll_tier(None, 100.0), ("idle", 15.0))
+        self.assertEqual(multi.adaptive_poll_tier(100.0, 100.0), ("hot", 2.0))
+        self.assertEqual(multi.adaptive_poll_tier(100.0, 129.9), ("hot", 2.0))
+        self.assertEqual(multi.adaptive_poll_tier(100.0, 130.0), ("warm", 5.0))
+        self.assertEqual(multi.adaptive_poll_tier(100.0, 219.9), ("warm", 5.0))
+        self.assertEqual(multi.adaptive_poll_tier(100.0, 220.0), ("idle", 15.0))
+
+    def test_scheduler_sleep_uses_active_repository_interval(self) -> None:
+        delay = multi.scheduler_sleep_seconds(
+            active_repository="a",
+            last_activity_at=100.0,
+            last_active_poll_at=100.0,
+            last_full_scan_at=100.0,
+            last_control_service_at=100.0,
+            now=100.5,
+        )
+        self.assertAlmostEqual(delay, 1.5)
+
+    def test_scheduler_sleep_keeps_full_scan_at_idle_cadence(self) -> None:
+        delay = multi.scheduler_sleep_seconds(
+            active_repository="a",
+            last_activity_at=100.0,
+            last_active_poll_at=113.0,
+            last_full_scan_at=100.0,
+            last_control_service_at=113.0,
+            now=114.0,
+        )
+        self.assertAlmostEqual(delay, 1.0)
+
     def test_worker_command_targets_exact_repository(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             registry = Path(tmp) / "repositories.json"
@@ -42,6 +72,28 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         self.assertIn("agent_repo_worker.py", command[1])
         self.assertEqual(command[2:4], ["--repository-id", "a"])
         self.assertEqual(command[-2:], ["--registry", str(registry)])
+
+    def test_active_repository_cycle_polls_only_requested_repository(self) -> None:
+        repositories = [repository("a"), repository("b"), repository("c")]
+        with mock.patch.object(
+            multi, "load_repository_registry", return_value=repositories
+        ), mock.patch.object(
+            multi, "run_worker", return_value=WORKER_IDLE
+        ) as run_worker:
+            processed = multi.run_repository_cycle("b", registry_path=None)
+        self.assertFalse(processed)
+        run_worker.assert_called_once_with(repositories[1], registry_path=None)
+
+    def test_active_repository_cycle_reports_processed_task(self) -> None:
+        repositories = [repository("a"), repository("b")]
+        with mock.patch.object(
+            multi, "load_repository_registry", return_value=repositories
+        ), mock.patch.object(
+            multi, "run_worker", return_value=WORKER_PROCESSED
+        ) as run_worker:
+            processed = multi.run_repository_cycle("a", registry_path=None)
+        self.assertTrue(processed)
+        run_worker.assert_called_once_with(repositories[0], registry_path=None)
 
     def test_cycle_continues_after_repository_worker_failure(self) -> None:
         repositories = [repository("a"), repository("b"), repository("c")]
