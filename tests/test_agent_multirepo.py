@@ -97,13 +97,13 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         original_control = multi.agentd.core.CONTROL
         original_branch = multi.agentd.core.CONTROL_BRANCH
         try:
-            with mock.patch.object(multi.agentd.core, "sync_control") as sync, mock.patch.object(
+            with mock.patch.object(multi.storage, "sync_control") as sync, mock.patch.object(
                 multi.agentd, "handle_control_request"
             ) as handle, mock.patch.object(multi.agentd, "maybe_self_update") as update:
                 multi.service_supervisor_control(target)
             self.assertEqual(multi.agentd.core.CONTROL, target.control)
             self.assertEqual(multi.agentd.DAEMON_VERSION, multi.SUPERVISOR_VERSION)
-            sync.assert_called_once_with()
+            sync.assert_called_once_with(multi.agentd.core)
             handle.assert_called_once_with()
             update.assert_called_once_with()
         finally:
