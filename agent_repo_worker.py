@@ -228,7 +228,11 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
             f"multi-repo dispatch repository={repository.repository_id} "
             f"task={task.get('id')}"
         )
-        outcome = agentd.execute_task(task)
+        outcome = agentd.execute_task(
+            task,
+            remote_daemon_status=False,
+            remote_result_published=False,
+        )
         state = "publication_pending" if outcome == "publication_pending" else "idle"
         publish_repository_status(
             repository,

@@ -277,6 +277,7 @@ def publish_daemon_status(
     state: str,
     *,
     force_remote: bool = False,
+    remote_enabled: bool = True,
     **extra: Any,
 ) -> None:
     global _last_remote_status, _last_status_state
@@ -290,7 +291,7 @@ def publish_daemon_status(
         or now - _last_remote_status >= REMOTE_HEARTBEAT_SECONDS
     )
     _last_status_state = state
-    if not should_publish:
+    if not remote_enabled or not should_publish:
         return
     try:
         publish_control_json(
@@ -943,7 +944,13 @@ def publish_run_state(
         log(f"remote run state publish failed for {task_id}: {exc}")
 
 
-def make_progress_callback(task_id: str, attempt_id: str, digest: str):
+def make_progress_callback(
+    task_id: str,
+    attempt_id: str,
+    digest: str,
+    *,
+    remote_daemon_status: bool = True,
+):
     last_remote = 0.0
     last_remote_phase: str | None = None
     last_remote_stage: str | None = None
@@ -1004,7 +1011,12 @@ def make_progress_callback(task_id: str, attempt_id: str, digest: str):
             status_extra["last_progress_at"] = enriched["last_progress_at"]
         if enriched.get("last_progress_message") is not None:
             status_extra["last_progress_message"] = enriched["last_progress_message"]
-        publish_daemon_status("running", force_remote=False, **status_extra)
+        publish_daemon_status(
+            "running",
+            force_remote=False,
+            remote_enabled=remote_daemon_status,
+            **status_extra,
+        )
 
     return progress
 
@@ -1020,7 +1032,12 @@ def install_signal_handlers() -> None:
     signal.signal(signal.SIGINT, shutdown_handler)
 
 
-def execute_task(task: dict[str, Any]) -> str:
+def execute_task(
+    task: dict[str, Any],
+    *,
+    remote_daemon_status: bool = True,
+    remote_result_published: bool = True,
+) -> str:
     global _current_task_id, _current_attempt_id, _current_task_digest, _current_progress
     claim = claim_task(task)
     if claim is None:
@@ -1035,8 +1052,13 @@ def execute_task(task: dict[str, Any]) -> str:
         task_id,
         _current_attempt_id,
         _current_task_digest,
+        remote_daemon_status=remote_daemon_status,
     )
-    publish_daemon_status("running", force_remote=True)
+    publish_daemon_status(
+        "running",
+        force_remote=remote_daemon_status,
+        remote_enabled=remote_daemon_status,
+    )
 
     try:
         result = runtime.process_task(task, progress=progress)
@@ -1064,7 +1086,8 @@ def execute_task(task: dict[str, Any]) -> str:
         log(f"result persistence failed for {task_id}: {exc}")
         publish_daemon_status(
             "result_persistence_failed",
-            force_remote=True,
+            force_remote=remote_daemon_status,
+            remote_enabled=remote_daemon_status,
             error=f"{type(exc).__name__}: {exc}",
         )
         return "publication_pending"
@@ -1075,7 +1098,8 @@ def execute_task(task: dict[str, Any]) -> str:
         log(f"result publish failed for {task_id}: {exc}")
         publish_daemon_status(
             "publication_pending",
-            force_remote=True,
+            force_remote=remote_daemon_status,
+            remote_enabled=remote_daemon_status,
             error=f"{type(exc).__name__}: {exc}",
         )
         return "publication_pending"
@@ -1091,11 +1115,15 @@ def execute_task(task: dict[str, Any]) -> str:
             "finished_at": result.get("finished_at"),
             "updated_at": now_iso(),
         },
-        force_remote=True,
+        force_remote=remote_result_published,
     )
     release_task_claim(task_id)
     clear_current_task(task_id)
-    publish_daemon_status("idle", force_remote=True)
+    publish_daemon_status(
+        "idle",
+        force_remote=remote_daemon_status,
+        remote_enabled=remote_daemon_status,
+    )
     return "published"
 
 

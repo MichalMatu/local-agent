@@ -28,6 +28,12 @@ TRANSIENT_GIT_NETWORK_MARKERS = (
     "rpc failed; curl 56",
     "gnutls recv error",
     "tls connection was non-properly terminated",
+    "the requested url returned error: 502",
+    "the requested url returned error: 503",
+    "the requested url returned error: 504",
+    "curl 28",
+    "curl 52",
+    "curl 55",
 )
 
 
@@ -96,12 +102,22 @@ def run_git_with_network_retry(
 def sync_control(core_module: Any) -> None:
     """Synchronize the active control checkout while preserving its shallow boundary."""
     with core_module.CONTROL_GIT_LOCK:
-        result = core_module.process(
-            ["git", "checkout", core_module.CONTROL_BRANCH],
+        branch = core_module.process(
+            ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
             core_module.CONTROL,
+            timeout=30,
+            log_commands=False,
         )
-        if result["exit_code"] != 0:
-            raise RuntimeError(result["output"])
+        if (
+            branch["exit_code"] != 0
+            or str(branch.get("output", "")).strip() != core_module.CONTROL_BRANCH
+        ):
+            result = core_module.process(
+                ["git", "checkout", core_module.CONTROL_BRANCH],
+                core_module.CONTROL,
+            )
+            if result["exit_code"] != 0:
+                raise RuntimeError(result["output"])
 
         result = run_git_with_network_retry(
             core_module,

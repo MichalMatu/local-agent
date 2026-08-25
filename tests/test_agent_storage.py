@@ -25,43 +25,28 @@ class StoragePolicyTests(unittest.TestCase):
             ],
         )
 
-    def test_sync_control_checks_out_then_uses_bounded_pull(self) -> None:
-        process = mock.Mock(
-            side_effect=[
-                {"exit_code": 0, "output": ""},
-                {"exit_code": 0, "output": ""},
-            ]
-        )
-        core = SimpleNamespace(
-            CONTROL=Path("/tmp/control"),
-            CONTROL_BRANCH="agent-control",
-            CONTROL_GIT_LOCK=nullcontext(),
-            process=process,
-        )
-
+    def test_sync_control_skips_checkout_when_already_on_control_branch(self) -> None:
+        process = mock.Mock(side_effect=[
+            {"exit_code": 0, "output": "agent-control"},
+            {"exit_code": 0, "output": "Already up to date."},
+        ])
+        core = SimpleNamespace(CONTROL=Path("/tmp/control"), CONTROL_BRANCH="agent-control", CONTROL_GIT_LOCK=nullcontext(), process=process)
         storage.sync_control(core)
-
         self.assertEqual(process.call_count, 2)
-        self.assertEqual(
-            process.call_args_list[0].args,
-            (["git", "checkout", "agent-control"], Path("/tmp/control")),
-        )
-        self.assertEqual(
-            process.call_args_list[1].args,
-            (
-                [
-                    "git",
-                    "pull",
-                    "--rebase",
-                    "--depth",
-                    "256",
-                    "--no-tags",
-                    "origin",
-                    "agent-control",
-                ],
-                Path("/tmp/control"),
-            ),
-        )
+        self.assertEqual(process.call_args_list[0].args[0], ["git", "symbolic-ref", "--quiet", "--short", "HEAD"])
+        self.assertEqual(process.call_args_list[1].args[0], ["git", *storage.bounded_control_pull_args("agent-control")])
+
+    def test_sync_control_checks_out_when_control_branch_is_not_active(self) -> None:
+        process = mock.Mock(side_effect=[
+            {"exit_code": 0, "output": "main"},
+            {"exit_code": 0, "output": ""},
+            {"exit_code": 0, "output": "Already up to date."},
+        ])
+        core = SimpleNamespace(CONTROL=Path("/tmp/control"), CONTROL_BRANCH="agent-control", CONTROL_GIT_LOCK=nullcontext(), process=process)
+        storage.sync_control(core)
+        self.assertEqual(process.call_count, 3)
+        self.assertEqual(process.call_args_list[1].args, (["git", "checkout", "agent-control"], Path("/tmp/control")))
+        self.assertEqual(process.call_args_list[2].args[0], ["git", *storage.bounded_control_pull_args("agent-control")])
 
     def test_transient_ssh_failure_is_retried_and_recovers(self) -> None:
         process = mock.Mock(
@@ -89,6 +74,17 @@ class StoragePolicyTests(unittest.TestCase):
         self.assertEqual(process.call_count, 2)
         sleep.assert_called_once_with(2.0)
         self.assertIn("retrying in 2s", core.log.call_args.args[0])
+
+    def test_transient_https_gateway_failure_is_retried(self) -> None:
+        process = mock.Mock(side_effect=[
+            {"exit_code": 1, "output": "fatal: unable to access URL: The requested URL returned error: 503"},
+            {"exit_code": 0, "output": ""},
+        ])
+        core = SimpleNamespace(process=process, log=mock.Mock())
+        with mock.patch.object(storage.time, "sleep") as sleep:
+            result = storage.run_git_with_network_retry(core, ["git", "fetch", "origin"], Path("/tmp/control"))
+        self.assertEqual(result["exit_code"], 0)
+        sleep.assert_called_once_with(2.0)
 
     def test_deterministic_git_failure_is_not_retried(self) -> None:
         process = mock.Mock(
