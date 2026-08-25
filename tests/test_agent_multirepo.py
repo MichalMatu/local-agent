@@ -54,11 +54,22 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         )
         self.assertAlmostEqual(delay, 1.5)
 
-    def test_scheduler_sleep_keeps_full_scan_at_idle_cadence(self) -> None:
+    def test_scheduler_sleep_does_not_let_overdue_background_preempt_active(self) -> None:
         delay = multi.scheduler_sleep_seconds(
             active_repository="a",
             last_activity_at=100.0,
-            last_active_poll_at=113.0,
+            last_active_poll_at=100.0,
+            last_full_scan_at=0.0,
+            last_control_service_at=0.0,
+            now=100.5,
+        )
+        self.assertAlmostEqual(delay, 1.5)
+
+    def test_scheduler_sleep_uses_background_cadence_when_idle(self) -> None:
+        delay = multi.scheduler_sleep_seconds(
+            active_repository=None,
+            last_activity_at=None,
+            last_active_poll_at=None,
             last_full_scan_at=100.0,
             last_control_service_at=113.0,
             now=114.0,
@@ -135,6 +146,27 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
             ["b", "c"],
         )
 
+    def test_background_cycle_can_exclude_recently_polled_active_repository(self) -> None:
+        repositories = [repository("a"), repository("b"), repository("c")]
+        with mock.patch.object(
+            multi, "load_repository_registry", return_value=repositories
+        ), mock.patch.object(
+            multi,
+            "run_worker",
+            side_effect=[WORKER_IDLE, WORKER_PROCESSED],
+        ) as run_worker:
+            processed, last_repository = multi.run_cycle(
+                registry_path=None,
+                start_after="a",
+                exclude_repository_id="a",
+            )
+        self.assertTrue(processed)
+        self.assertEqual(last_repository, "c")
+        self.assertEqual(
+            [call.args[0].repository_id for call in run_worker.call_args_list],
+            ["b", "c"],
+        )
+
     def test_supervisor_control_uses_first_repository(self) -> None:
         repositories = [repository("a"), repository("b")]
         with mock.patch.object(
@@ -162,6 +194,16 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
             multi.agentd.DAEMON_VERSION = original_version
             multi.agentd.core.CONTROL = original_control
             multi.agentd.core.CONTROL_BRANCH = original_branch
+
+    def test_service_supervisor_control_can_reuse_recent_worker_sync(self) -> None:
+        target = repository("a")
+        with mock.patch.object(multi.storage, "sync_control") as sync, mock.patch.object(
+            multi.agentd, "handle_control_request"
+        ) as handle, mock.patch.object(multi.agentd, "maybe_self_update") as update:
+            multi.service_supervisor_control(target, sync=False)
+        sync.assert_not_called()
+        handle.assert_called_once_with()
+        update.assert_called_once_with()
 
     def test_control_service_failure_is_degraded_without_raising(self) -> None:
         target = repository("a")
