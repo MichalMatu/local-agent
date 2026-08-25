@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -81,6 +82,30 @@ class RepositoryWorkerTests(unittest.TestCase):
         with mock.patch.object(storage, "sync_control") as sync:
             worker.sync_control_quietly()
         sync.assert_called_once_with(core)
+
+    def test_worker_ignores_supervisor_only_self_update_without_ack(self) -> None:
+        worker.bind_repository(self.repository)
+        request = self.repository.control / agentd.REMOTE_CONTROL_REQUEST
+        request.parent.mkdir(parents=True, exist_ok=True)
+        request.write_text(
+            json.dumps({"id": "self-update-test", "action": "self_update"}),
+            encoding="utf-8",
+        )
+        with mock.patch.object(worker, "publish_repository_control_ack") as publish_ack:
+            worker.handle_repository_control(self.repository)
+        publish_ack.assert_not_called()
+
+    def test_worker_ignores_supervisor_only_restart_without_ack(self) -> None:
+        worker.bind_repository(self.repository)
+        request = self.repository.control / agentd.REMOTE_CONTROL_REQUEST
+        request.parent.mkdir(parents=True, exist_ok=True)
+        request.write_text(
+            json.dumps({"id": "restart-test", "action": "restart"}),
+            encoding="utf-8",
+        )
+        with mock.patch.object(worker, "publish_repository_control_ack") as publish_ack:
+            worker.handle_repository_control(self.repository)
+        publish_ack.assert_not_called()
 
     def test_idle_poll_executes_no_task(self) -> None:
         with mock.patch.object(worker, "sync_control_quietly"), mock.patch.object(
