@@ -20,7 +20,12 @@ from agent_repo_worker import WORKER_IDLE, WORKER_PROCESSED
 from agent_version import RELEASE_VERSION
 
 SUPERVISOR_VERSION = RELEASE_VERSION
-POLL_SECONDS = 15
+POLL_SECONDS = 15.0
+HOT_POLL_SECONDS = 2.0
+WARM_POLL_SECONDS = 5.0
+HOT_WINDOW_SECONDS = 30.0
+WARM_WINDOW_SECONDS = 120.0
+SUPERVISOR_CONTROL_POLL_SECONDS = POLL_SECONDS
 WORKER_TURN_GRACE_SECONDS = 3600
 _active_worker: subprocess.Popen[str] | None = None
 _daemon_lock_handle: Any | None = None
@@ -39,6 +44,55 @@ def sync_control_quietly() -> None:
 def format_idle_summary(repository_count: int) -> str:
     noun = "repository" if repository_count == 1 else "repositories"
     return f"no pending task ({repository_count} {noun})"
+
+
+def adaptive_poll_tier(
+    last_activity_at: float | None,
+    now: float,
+) -> tuple[str, float]:
+    """Return the polling tier for one repository from its latest task activity."""
+    if last_activity_at is None:
+        return "idle", POLL_SECONDS
+    age = max(0.0, now - last_activity_at)
+    if age < HOT_WINDOW_SECONDS:
+        return "hot", HOT_POLL_SECONDS
+    if age < WARM_WINDOW_SECONDS:
+        return "warm", WARM_POLL_SECONDS
+    return "idle", POLL_SECONDS
+
+
+def interval_due(last_at: float | None, interval: float, now: float) -> bool:
+    return last_at is None or now - last_at >= interval
+
+
+def interval_remaining(last_at: float | None, interval: float, now: float) -> float:
+    if last_at is None:
+        return 0.0
+    return max(0.0, interval - max(0.0, now - last_at))
+
+
+def scheduler_sleep_seconds(
+    *,
+    active_repository: str | None,
+    last_activity_at: float | None,
+    last_active_poll_at: float | None,
+    last_full_scan_at: float | None,
+    last_control_service_at: float | None,
+    now: float,
+) -> float:
+    """Sleep until the next active-repo poll, full scan, or supervisor-control poll."""
+    waits = [
+        interval_remaining(last_full_scan_at, POLL_SECONDS, now),
+        interval_remaining(
+            last_control_service_at,
+            SUPERVISOR_CONTROL_POLL_SECONDS,
+            now,
+        ),
+    ]
+    if active_repository is not None:
+        _, interval = adaptive_poll_tier(last_activity_at, now)
+        waits.append(interval_remaining(last_active_poll_at, interval, now))
+    return min(waits)
 
 
 def supervisor_control_repository(
@@ -150,6 +204,30 @@ def install_signal_handlers() -> None:
     signal.signal(signal.SIGINT, shutdown_handler)
 
 
+def run_repository_cycle(
+    repository_id: str,
+    *,
+    registry_path: Path | None,
+) -> bool:
+    """Poll exactly one active repository without waking idle repositories."""
+    repositories = load_repository_registry(path=registry_path)
+    matches = [item for item in repositories if item.repository_id == repository_id]
+    if not matches:
+        raise ValueError(f"repository id is not enabled: {repository_id!r}")
+    repository = matches[0]
+    return_code = run_worker(repository, registry_path=registry_path)
+    if return_code == WORKER_PROCESSED:
+        log(f"completed repository turn={repository.repository_id}")
+        return True
+    if return_code == WORKER_IDLE:
+        return False
+    log(
+        f"repository worker failed repository={repository.repository_id} "
+        f"exit={return_code}; keeping scheduler alive"
+    )
+    return False
+
+
 def run_cycle(
     *,
     registry_path: Path | None,
@@ -186,13 +264,21 @@ def main() -> int:
     install_signal_handlers()
     registry_path = args.registry
     last_repository: str | None = None
+    active_repository: str | None = None
+    last_activity_at: float | None = None
+    last_active_poll_at: float | None = None
+    last_full_scan_at: float | None = None
+    last_control_service_at: float | None = None
     idle_announced = False
     control_repository = supervisor_control_repository(registry_path=registry_path)
     bind_supervisor_control(control_repository)
     log(
         f"supervisor {SUPERVISOR_VERSION} starting; "
         "global execution concurrency=1 "
-        f"control_repository={control_repository.repository_id}"
+        f"control_repository={control_repository.repository_id}; "
+        f"adaptive_polling=hot:{HOT_POLL_SECONDS:g}s/{HOT_WINDOW_SECONDS:g}s "
+        f"warm:{WARM_POLL_SECONDS:g}s/{WARM_WINDOW_SECONDS:g}s "
+        f"idle:{POLL_SECONDS:g}s"
     )
     try:
         sync_control_quietly()
@@ -208,15 +294,67 @@ def main() -> int:
             f"initial supervisor control service degraded: "
             f"{type(exc).__name__}: {exc}"
         )
+    last_control_service_at = time.monotonic()
 
     while True:
         try:
-            control_repository = supervisor_control_repository(registry_path=registry_path)
-            service_supervisor_control_safely(control_repository)
-            processed, last_repository = run_cycle(
-                registry_path=registry_path,
-                start_after=last_repository,
-            )
+            now = time.monotonic()
+            if (
+                active_repository is not None
+                and last_activity_at is not None
+                and now - last_activity_at >= WARM_WINDOW_SECONDS
+            ):
+                log(f"adaptive polling repository={active_repository} tier=idle")
+                active_repository = None
+                last_activity_at = None
+                last_active_poll_at = None
+
+            if interval_due(
+                last_control_service_at,
+                SUPERVISOR_CONTROL_POLL_SECONDS,
+                now,
+            ):
+                control_repository = supervisor_control_repository(registry_path=registry_path)
+                service_supervisor_control_safely(control_repository)
+                last_control_service_at = time.monotonic()
+
+            now = time.monotonic()
+            if interval_due(last_full_scan_at, POLL_SECONDS, now):
+                processed, last_repository = run_cycle(
+                    registry_path=registry_path,
+                    start_after=last_repository,
+                )
+                completed_at = time.monotonic()
+                last_full_scan_at = completed_at
+                if processed and last_repository is not None:
+                    active_repository = last_repository
+                    last_activity_at = completed_at
+                    last_active_poll_at = completed_at
+                    log(
+                        f"adaptive polling repository={active_repository} "
+                        f"tier=hot interval={HOT_POLL_SECONDS:g}s"
+                    )
+                elif active_repository is not None:
+                    # A complete idle scan necessarily included the active repository.
+                    last_active_poll_at = completed_at
+            elif active_repository is not None:
+                _, active_interval = adaptive_poll_tier(last_activity_at, now)
+                if interval_due(last_active_poll_at, active_interval, now):
+                    processed = run_repository_cycle(
+                        active_repository,
+                        registry_path=registry_path,
+                    )
+                    completed_at = time.monotonic()
+                    last_active_poll_at = completed_at
+                    if processed:
+                        last_repository = active_repository
+                        last_activity_at = completed_at
+                        idle_announced = False
+                        log(
+                            f"adaptive polling repository={active_repository} "
+                            f"tier=hot interval={HOT_POLL_SECONDS:g}s"
+                        )
+
         except Exception as exc:
             idle_announced = False
             log(f"registry/scheduler cycle failed: {type(exc).__name__}: {exc}")
@@ -224,16 +362,24 @@ def main() -> int:
                 return 2
             time.sleep(POLL_SECONDS)
             continue
+
         if args.once:
             return 0
-        if processed:
-            idle_announced = False
-            continue
-        if not idle_announced:
+        if active_repository is None and not idle_announced:
             repository_count = len(load_repository_registry(path=registry_path))
             log(format_idle_summary(repository_count))
             idle_announced = True
-        time.sleep(POLL_SECONDS)
+
+        now = time.monotonic()
+        delay = scheduler_sleep_seconds(
+            active_repository=active_repository,
+            last_activity_at=last_activity_at,
+            last_active_poll_at=last_active_poll_at,
+            last_full_scan_at=last_full_scan_at,
+            last_control_service_at=last_control_service_at,
+            now=now,
+        )
+        time.sleep(max(0.05, delay))
 
 
 if __name__ == "__main__":
