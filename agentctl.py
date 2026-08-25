@@ -8,15 +8,12 @@ from pathlib import Path
 from typing import Any
 
 import agent_core as core
+import agent_storage as storage
 import agentd
 from agent_repo_admin import validate_repository
 from agent_repository import RepositoryContext, load_repository_registry
 from agent_runtime import idle_timeout_for, task_timeout_for
 from agent_version import RELEASE_VERSION
-
-CONTROL_HISTORY_WARNING_COMMITS = 5_000
-CONTROL_HISTORY_WARNING_BYTES = 100 * 1024**2
-DIAGNOSTIC_FILE_LIMIT = 100_000
 
 
 def print_json(payload: Any) -> None:
@@ -102,7 +99,7 @@ def _bounded_tree_stats(path: Path) -> tuple[int, int, bool]:
     for root, _directories, names in os.walk(path):
         for name in names:
             files += 1
-            if files > DIAGNOSTIC_FILE_LIMIT:
+            if files > storage.DIAGNOSTIC_FILE_LIMIT:
                 return files, size, True
             try:
                 size += (Path(root) / name).lstat().st_size
@@ -124,17 +121,63 @@ def _control_history(repository: RepositoryContext) -> dict[str, Any]:
         else None
     )
     files, size, truncated = _bounded_tree_stats(repository.control / ".git")
+    shallow = storage.git_bool(
+        core,
+        repository.control,
+        ["rev-parse", "--is-shallow-repository"],
+    )
+    sparse = storage.git_bool(
+        core,
+        repository.control,
+        ["config", "--bool", "core.sparseCheckout"],
+    )
+    partial_clone = storage.git_bool(
+        core,
+        repository.control,
+        ["config", "--bool", "remote.origin.promisor"],
+    )
+    warning = bool(
+        (commits is not None and commits > storage.CONTROL_HISTORY_WARNING_COMMITS)
+        or size >= storage.CONTROL_HISTORY_WARNING_BYTES
+        or truncated
+        or shallow is not True
+        or sparse is not True
+        or partial_clone is not True
+    )
     return {
         "repository_id": repository.repository_id,
+        "target_depth": storage.CONTROL_HISTORY_DEPTH,
         "commits": commits,
         "git_bytes": size,
         "git_files": files,
         "scan_truncated": truncated,
-        "warning": bool(
-            (commits is not None and commits >= CONTROL_HISTORY_WARNING_COMMITS)
-            or size >= CONTROL_HISTORY_WARNING_BYTES
-        ),
+        "shallow": shallow,
+        "sparse": sparse,
+        "partial_clone": partial_clone,
+        "warning": warning,
     }
+
+
+def _workspace_storage(repository: RepositoryContext) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for kind, path, warning_bytes in (
+        ("control", repository.control, storage.CONTROL_WORKTREE_WARNING_BYTES),
+        ("work", repository.work, storage.WORKTREE_WARNING_BYTES),
+    ):
+        files, size, truncated = _bounded_tree_stats(path)
+        result.append(
+            {
+                "repository_id": repository.repository_id,
+                "kind": kind,
+                "path": str(path),
+                "files": files,
+                "bytes": size,
+                "scan_truncated": truncated,
+                "warning_threshold_bytes": warning_bytes,
+                "warning": bool(size >= warning_bytes or truncated),
+            }
+        )
+    return result
 
 
 def command_doctor(_args: argparse.Namespace) -> int:
@@ -158,6 +201,7 @@ def command_doctor(_args: argparse.Namespace) -> int:
         checks.append(_check("repository_registry", False, f"{type(exc).__name__}: {exc}"))
 
     history: list[dict[str, Any]] = []
+    workspace_storage: list[dict[str, Any]] = []
     checkpoint_stats: list[dict[str, Any]] = []
     pending_claims = 0
     pending_results = 0
@@ -196,19 +240,37 @@ def command_doctor(_args: argparse.Namespace) -> int:
         history.append(control)
         if control["warning"]:
             warnings.append(
-                f"control history is large for {repository.repository_id}: "
-                f"commits={control['commits']} bytes={control['git_bytes']}"
+                f"control storage policy drift for {repository.repository_id}: "
+                f"commits={control['commits']} bytes={control['git_bytes']} "
+                f"shallow={control['shallow']} sparse={control['sparse']} "
+                f"partial={control['partial_clone']}"
             )
+
+        for workspace in _workspace_storage(repository):
+            workspace_storage.append(workspace)
+            if workspace["warning"]:
+                warnings.append(
+                    f"{workspace['kind']} workspace is large for "
+                    f"{repository.repository_id}: bytes={workspace['bytes']} "
+                    f"files={workspace['files']} "
+                    f"scan_truncated={workspace['scan_truncated']}"
+                )
 
     ok = all(item["ok"] for item in checks)
     print_json(
         {
             "ok": ok,
             "release_version": RELEASE_VERSION,
+            "storage_policy": {
+                "control_history_depth": storage.CONTROL_HISTORY_DEPTH,
+                "control_sparse_paths": list(storage.CONTROL_SPARSE_PATHS),
+                "automatic_destructive_cleanup": False,
+            },
             "checks": checks,
             "pending_claims": pending_claims,
             "pending_result_publications": pending_results,
             "checkpoint_stats": checkpoint_stats,
+            "workspace_storage": workspace_storage,
             "control_history": history,
             "warnings": warnings,
         }
