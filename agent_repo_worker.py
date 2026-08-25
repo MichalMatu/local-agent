@@ -189,13 +189,8 @@ def handle_repository_control(repository: RepositoryContext) -> None:
         return
 
     if action in {"restart", "self_update"}:
-        publish_repository_control_ack(
-            repository,
-            control_id,
-            action,
-            "rejected",
-            result="supervisor_action_not_supported_in_repository_worker",
-        )
+        # These are global supervisor actions. A fast per-repository worker must
+        # leave them unacknowledged so the supervisor can own the request.
         return
 
     publish_repository_control_ack(
