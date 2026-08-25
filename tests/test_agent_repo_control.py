@@ -121,7 +121,7 @@ class RepositoryControlTests(unittest.TestCase):
 
     def test_worker_turn_restores_legacy_daemon_version(self) -> None:
         original = agentd.DAEMON_VERSION
-        with mock.patch.object(core, "sync_control"), mock.patch.object(
+        with mock.patch.object(worker, "sync_control_quietly"), mock.patch.object(
             agentd, "recover_stale_claims"
         ), mock.patch.object(agentd, "recover_invalid_task_files"), mock.patch.object(
             worker, "handle_repository_control"
