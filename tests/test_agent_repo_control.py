@@ -83,7 +83,7 @@ class RepositoryControlTests(unittest.TestCase):
             result="status_published",
         )
 
-    def test_restart_is_rejected_inside_repository_worker(self) -> None:
+    def test_restart_is_left_for_supervisor_without_ack(self) -> None:
         worker.bind_repository(self.repository)
         self.write_control({"id": "restart-1", "action": "restart"})
         with mock.patch.object(worker, "publish_repository_control_ack") as publish_ack, mock.patch.object(
@@ -91,13 +91,17 @@ class RepositoryControlTests(unittest.TestCase):
         ) as restart:
             worker.handle_repository_control(self.repository)
         restart.assert_not_called()
-        publish_ack.assert_called_once_with(
-            self.repository,
-            "restart-1",
-            "restart",
-            "rejected",
-            result="supervisor_action_not_supported_in_repository_worker",
-        )
+        publish_ack.assert_not_called()
+
+    def test_self_update_is_left_for_supervisor_without_ack(self) -> None:
+        worker.bind_repository(self.repository)
+        self.write_control({"id": "self-update-1", "action": "self_update"})
+        with mock.patch.object(worker, "publish_repository_control_ack") as publish_ack, mock.patch.object(
+            agentd, "maybe_self_update"
+        ) as self_update:
+            worker.handle_repository_control(self.repository)
+        self_update.assert_not_called()
+        publish_ack.assert_not_called()
 
     def test_status_fields_include_supervisor_pid_when_present(self) -> None:
         with mock.patch.dict(os.environ, {"LOCAL_AGENT_SUPERVISOR_PID": "1234"}):
