@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 import agent_repo_admin as admin
+import agent_storage as storage
 from agent_repository import RepositoryContext
 
 
@@ -18,6 +19,10 @@ def repository(root: Path) -> RepositoryContext:
         work=root / "work",
         checkpoints=root / "checkpoints",
     )
+
+
+def git_ok(args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(args=args or ["git"], returncode=0, stdout="")
 
 
 class RepositoryAdminTests(unittest.TestCase):
@@ -48,6 +53,49 @@ class RepositoryAdminTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "origin mismatch"):
                     admin.validate_checkout(repo.control, repo, "control")
 
+    def test_control_clone_is_shallow_partial_sparse_and_tagless(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = repository(Path(tmp))
+            with mock.patch.object(
+                admin,
+                "run_git",
+                side_effect=[git_ok(), git_ok()],
+            ) as run_git, mock.patch.object(admin, "validate_checkout"):
+                created = admin._clone_if_missing(
+                    repo,
+                    path=repo.control,
+                    branch=repo.control_branch,
+                    single_branch=True,
+                    label="control",
+                    shallow_depth=storage.CONTROL_HISTORY_DEPTH,
+                    partial_clone=True,
+                    sparse_paths=storage.CONTROL_SPARSE_PATHS,
+                    no_tags=True,
+                )
+
+            self.assertTrue(created)
+            clone_args = run_git.call_args_list[0].args[0]
+            self.assertEqual(
+                clone_args,
+                [
+                    "clone",
+                    "--branch",
+                    "agent-control",
+                    "--single-branch",
+                    "--depth",
+                    "256",
+                    "--filter=blob:none",
+                    "--sparse",
+                    "--no-tags",
+                    "https://github.com/owner/project-a.git",
+                    str(repo.control),
+                ],
+            )
+            self.assertEqual(
+                run_git.call_args_list[1].args[0],
+                ["sparse-checkout", "set", ".agent"],
+            )
+
     def test_provision_uses_existing_remote_control_branch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = repository(Path(tmp))
@@ -70,7 +118,12 @@ class RepositoryAdminTests(unittest.TestCase):
             )
             self.assertTrue(repo.checkpoints.is_dir())
             self.assertEqual(clone.call_count, 2)
-            self.assertTrue(clone.call_args_list[0].kwargs["single_branch"])
+            control_call = clone.call_args_list[0].kwargs
+            self.assertTrue(control_call["single_branch"])
+            self.assertEqual(control_call["shallow_depth"], storage.CONTROL_HISTORY_DEPTH)
+            self.assertTrue(control_call["partial_clone"])
+            self.assertEqual(control_call["sparse_paths"], storage.CONTROL_SPARSE_PATHS)
+            self.assertTrue(control_call["no_tags"])
             self.assertFalse(clone.call_args_list[1].kwargs["single_branch"])
 
     def test_provision_initializes_missing_remote_control_branch(self) -> None:
@@ -96,8 +149,13 @@ class RepositoryAdminTests(unittest.TestCase):
                 },
             )
             initialize.assert_called_once_with(repo)
-            self.assertFalse(clone.call_args_list[0].kwargs["single_branch"])
-            self.assertEqual(clone.call_args_list[0].kwargs["branch"], "main")
+            control_call = clone.call_args_list[0].kwargs
+            self.assertTrue(control_call["single_branch"])
+            self.assertEqual(control_call["branch"], "main")
+            self.assertEqual(control_call["shallow_depth"], 1)
+            self.assertTrue(control_call["partial_clone"])
+            self.assertEqual(control_call["sparse_paths"], storage.CONTROL_SPARSE_PATHS)
+            self.assertTrue(control_call["no_tags"])
 
     def test_existing_non_git_destination_is_never_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
