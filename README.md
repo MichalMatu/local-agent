@@ -10,7 +10,7 @@ Deterministic local execution daemon used for real development work. ChatGPT or 
 
 This repository is execution infrastructure, not the product repository and not a coding model.
 
-The validated production baseline on `main` is release v4.8.x. The established default target remains `MichalMatu/esp32s3_LiteGraph` when no multi-repository registry is configured.
+The release line is v4.9.x. The established default target remains `MichalMatu/esp32s3_LiteGraph` when no multi-repository registry is configured.
 
 For a new reusable/config-driven deployment, prefer [`MichalMatu/DeterministicRunner`](https://github.com/MichalMatu/DeterministicRunner). `local-agent` intentionally preserves environment-specific and legacy behavior from the working macOS/ESP32 setup.
 
@@ -75,7 +75,7 @@ python agent_multirepo.py --once
 
 Do not start a second foreground daemon/supervisor when the production LaunchAgent is already running. All entry points use the same OS daemon lock.
 
-## v4.8 execution contract
+## v4.9 execution contract
 
 Important behavior:
 
@@ -94,6 +94,50 @@ Important behavior:
 - self-update validation uses an isolated temporary home directory;
 - dirty disposable workspaces are durably checkpointed before destructive cleanup, including tracked and untracked content;
 - identical commands always execute independently in their declared order.
+
+### Efficient verification task format
+
+Staged coding tasks can opt in to explicit verification intent with
+`workflow_policy: "efficient-verification-v1"`:
+
+```json
+{
+  "id": "example-efficient-change",
+  "mode": "commands",
+  "workflow_policy": "efficient-verification-v1",
+  "steps": [
+    {
+      "name": "implement-and-check-edited-area",
+      "command": "./scripts/check-edited-area.sh",
+      "verification_level": "work"
+    },
+    {
+      "name": "review-affected-behavior",
+      "command": "./scripts/review-affected-behavior.sh",
+      "verification_level": "focused"
+    }
+  ],
+  "verify_steps": [
+    {
+      "name": "final-verification",
+      "command": "./scripts/final-verification.sh",
+      "verification_level": "full"
+    }
+  ]
+}
+```
+
+Every structured stage must declare `verification_level`. Primary `steps` accept
+`work` or `focused`; `verify_steps` accept `focused` and a single final `full`
+stage. The full stage must occur exactly once and finish the whole plan. The
+final-verification script in the example represents the repository-mandated
+broad suite followed once by its final build or release gate; the daemon does not
+interpret command text.
+
+Tasks without `workflow_policy` retain the legacy `commands`, `verify_commands`
+and structured-stage behavior. Commands are never silently deduplicated. See
+[`docs/OPERATIONS.md`](docs/OPERATIONS.md#efficient-verification-workflow) for
+the canonical edit, review, final-gate and defect-recovery workflow.
 
 ## Multi-repository contract
 

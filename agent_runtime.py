@@ -1027,6 +1027,15 @@ class RuntimeExecutor:
                                     "stage_index": stage["stage_index"],
                                     "stage_total": stage["stage_total"],
                                     "stage_phase": stage["stage_phase"],
+                                    **(
+                                        {
+                                            "verification_level": stage[
+                                                "verification_level"
+                                            ]
+                                        }
+                                        if "verification_level" in stage
+                                        else {}
+                                    ),
                                     "message": marker.get("message"),
                                     "progress_current": marker.get("current"),
                                     "progress_total": marker.get("total"),

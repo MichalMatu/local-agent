@@ -43,6 +43,8 @@ CHECKPOINT_MAX_PATCH_BYTES = 1024**3
 CHECKPOINT_GIT_OUTPUT_BYTES = 16 * 1024**2
 CHECKPOINT_FREE_SPACE_RESERVE_BYTES = 256 * 1024**2
 CHECKPOINT_COPY_CHUNK_BYTES = 1024 * 1024
+EFFICIENT_VERIFICATION_POLICY = "efficient-verification-v1"
+VERIFICATION_LEVELS = frozenset({"work", "focused", "full"})
 
 BASE_PATH = [
     str(HOME / ".platformio" / "penv" / "bin"),
@@ -615,14 +617,69 @@ def _validate_stage_items(value: Any, field: str) -> None:
                 )
 
 
+def _workflow_policy_for(task: dict[str, Any]) -> str | None:
+    if "workflow_policy" not in task:
+        return None
+    policy = task["workflow_policy"]
+    if policy != EFFICIENT_VERIFICATION_POLICY:
+        raise ValueError(f"unsupported workflow_policy: {policy!r}")
+    return policy
+
+
+def _validate_efficient_verification_policy(
+    task: dict[str, Any],
+    steps: list[dict[str, Any]],
+    verify_steps: list[dict[str, Any]],
+) -> None:
+    legacy_fields = [
+        field for field in ("commands", "verify_commands") if field in task
+    ]
+    if legacy_fields:
+        fields = " and ".join(legacy_fields)
+        raise ValueError(
+            f"workflow_policy {EFFICIENT_VERIFICATION_POLICY!r} requires structured "
+            f"stages; {fields} are not allowed"
+        )
+
+    for field, items in (("steps", steps), ("verify_steps", verify_steps)):
+        for item in items:
+            level = item.get("verification_level")
+            if not isinstance(level, str) or level not in VERIFICATION_LEVELS:
+                allowed = ", ".join(sorted(VERIFICATION_LEVELS))
+                raise ValueError(
+                    f"{field} item verification_level must be one of: {allowed}"
+                )
+
+    if any(item["verification_level"] == "full" for item in steps):
+        raise ValueError("steps verification_level must be work or focused, not full")
+    if any(item["verification_level"] == "work" for item in verify_steps):
+        raise ValueError(
+            "verify_steps verification_level must be focused or full, not work"
+        )
+
+    full_count = sum(
+        item["verification_level"] == "full" for item in verify_steps
+    )
+    if full_count != 1:
+        raise ValueError(
+            "efficient-verification-v1 requires exactly one full verification stage"
+        )
+    if verify_steps[-1]["verification_level"] != "full":
+        raise ValueError("the full verification stage must be the final stage")
+
+
 def stage_plan_for(task: dict[str, Any]) -> list[dict[str, Any]]:
     """Return the one ordered execution plan used by legacy and staged tasks."""
+    workflow_policy = _workflow_policy_for(task)
     commands = task.get("commands", [])
     verify_commands = task.get("verify_commands", [])
     steps = task.get("steps", [])
     verify_steps = task.get("verify_steps", [])
     _validate_stage_items(steps, "steps")
     _validate_stage_items(verify_steps, "verify_steps")
+
+    if workflow_policy == EFFICIENT_VERIFICATION_POLICY:
+        _validate_efficient_verification_policy(task, steps, verify_steps)
 
     if steps and commands:
         raise ValueError("steps and commands cannot both be non-empty")
@@ -632,13 +689,14 @@ def stage_plan_for(task: dict[str, Any]) -> list[dict[str, Any]]:
     primary: list[dict[str, Any]] = []
     if steps:
         for item in steps:
-            primary.append(
-                {
-                    "name": str(item["name"]),
-                    "command": str(item["command"]),
-                    "stage_timeout": int(item["timeout"]) if "timeout" in item else None,
-                }
-            )
+            entry = {
+                "name": str(item["name"]),
+                "command": str(item["command"]),
+                "stage_timeout": int(item["timeout"]) if "timeout" in item else None,
+            }
+            if workflow_policy is not None:
+                entry["verification_level"] = str(item["verification_level"])
+            primary.append(entry)
     else:
         primary = [
             {"name": f"command-{index}", "command": str(command), "stage_timeout": None}
@@ -648,13 +706,14 @@ def stage_plan_for(task: dict[str, Any]) -> list[dict[str, Any]]:
     verification: list[dict[str, Any]] = []
     if verify_steps:
         for item in verify_steps:
-            verification.append(
-                {
-                    "name": str(item["name"]),
-                    "command": str(item["command"]),
-                    "stage_timeout": int(item["timeout"]) if "timeout" in item else None,
-                }
-            )
+            entry = {
+                "name": str(item["name"]),
+                "command": str(item["command"]),
+                "stage_timeout": int(item["timeout"]) if "timeout" in item else None,
+            }
+            if workflow_policy is not None:
+                entry["verification_level"] = str(item["verification_level"])
+            verification.append(entry)
     else:
         verification = [
             {
@@ -679,6 +738,8 @@ def stage_plan_for(task: dict[str, Any]) -> list[dict[str, Any]]:
             }
             if entry["stage_timeout"] is not None:
                 stage["stage_timeout"] = entry["stage_timeout"]
+            if "verification_level" in entry:
+                stage["verification_level"] = entry["verification_level"]
             plan.append(stage)
             stage_index += 1
     return plan
@@ -898,6 +959,11 @@ def process_task(
                 "stage_index": item.get("stage_index"),
                 "stage_total": item.get("stage_total"),
                 "stage_phase": item.get("stage_phase"),
+                **(
+                    {"verification_level": item["verification_level"]}
+                    if "verification_level" in item
+                    else {}
+                ),
                 "outcome": "not_started" if item.get("not_started") else (
                     "passed" if item.get("exit_code") == 0 else "failed"
                 ),

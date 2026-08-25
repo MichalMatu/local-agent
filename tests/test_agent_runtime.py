@@ -39,6 +39,29 @@ class RuntimeExecutorTests(unittest.TestCase):
         core.WORK = self.original_work
         self.tmp.cleanup()
 
+    @staticmethod
+    def _efficient_task(**overrides: object) -> dict[str, object]:
+        task: dict[str, object] = {
+            "id": "efficient-task",
+            "workflow_policy": "efficient-verification-v1",
+            "steps": [
+                {
+                    "name": "edit",
+                    "command": "edit-command",
+                    "verification_level": "work",
+                }
+            ],
+            "verify_steps": [
+                {
+                    "name": "final",
+                    "command": "full-command",
+                    "verification_level": "full",
+                }
+            ],
+        }
+        task.update(overrides)
+        return task
+
     def test_task_digest_is_stable_and_payload_sensitive(self) -> None:
         a = {"id": "task-1", "commands": ["true"], "mode": "commands"}
         b = {"mode": "commands", "commands": ["true"], "id": "task-1"}
@@ -102,6 +125,160 @@ class RuntimeExecutorTests(unittest.TestCase):
                 }
             )
 
+    def test_efficient_verification_policy_accepts_valid_structured_plan(self) -> None:
+        task = self._efficient_task(
+            steps=[
+                {
+                    "name": "edit",
+                    "command": "edit-command",
+                    "verification_level": "work",
+                },
+                {
+                    "name": "review",
+                    "command": "review-command",
+                    "verification_level": "focused",
+                },
+            ],
+            verify_steps=[
+                {
+                    "name": "affected-checks",
+                    "command": "focused-command",
+                    "verification_level": "focused",
+                },
+                {
+                    "name": "final-gate",
+                    "command": "full-command",
+                    "verification_level": "full",
+                },
+            ],
+        )
+
+        validate_task(task)
+
+        plan = core.stage_plan_for(task)
+        self.assertEqual(
+            [stage["verification_level"] for stage in plan],
+            ["work", "focused", "focused", "full"],
+        )
+        self.assertEqual(plan[-1]["stage_name"], "final-gate")
+        self.assertEqual(plan[-1]["stage_phase"], "verification")
+
+    def test_efficient_verification_policy_requires_valid_levels(self) -> None:
+        invalid_stages = [
+            {
+                "steps": [{"name": "edit", "command": "edit-command"}],
+            },
+            {
+                "verify_steps": [{"name": "final", "command": "full-command"}],
+            },
+            {
+                "steps": [
+                    {
+                        "name": "edit",
+                        "command": "edit-command",
+                        "verification_level": "quick",
+                    }
+                ],
+            },
+            {
+                "steps": [
+                    {
+                        "name": "edit",
+                        "command": "edit-command",
+                        "verification_level": ["work"],
+                    }
+                ],
+            },
+        ]
+
+        for index, stages in enumerate(invalid_stages):
+            with self.subTest(case=index), self.assertRaisesRegex(
+                ValueError, "verification_level"
+            ):
+                validate_task(self._efficient_task(**stages))
+
+    def test_efficient_verification_policy_rejects_legacy_command_fields(self) -> None:
+        task = self._efficient_task()
+        for field in ("commands", "verify_commands"):
+            for value in ([], ["legacy-command"]):
+                with self.subTest(field=field, value=value), self.assertRaisesRegex(
+                    ValueError, "requires structured stages"
+                ):
+                    validate_task({**task, field: value})
+
+    def test_efficient_verification_policy_rejects_invalid_full_gates(self) -> None:
+        invalid_stages = [
+            {
+                "verify_steps": [
+                    {
+                        "name": "full-one",
+                        "command": "full-one-command",
+                        "verification_level": "full",
+                    },
+                    {
+                        "name": "full-two",
+                        "command": "full-two-command",
+                        "verification_level": "full",
+                    },
+                ],
+            },
+            {
+                "steps": [
+                    {
+                        "name": "wrong-full",
+                        "command": "full-command",
+                        "verification_level": "full",
+                    }
+                ],
+            },
+            {
+                "verify_steps": [
+                    {
+                        "name": "wrong-work",
+                        "command": "work-command",
+                        "verification_level": "work",
+                    },
+                    {
+                        "name": "final",
+                        "command": "full-command",
+                        "verification_level": "full",
+                    },
+                ],
+            },
+            {
+                "verify_steps": [
+                    {
+                        "name": "focused-only",
+                        "command": "focused-command",
+                        "verification_level": "focused",
+                    }
+                ],
+            },
+        ]
+
+        for index, stages in enumerate(invalid_stages):
+            with self.subTest(case=index), self.assertRaises(ValueError):
+                validate_task(self._efficient_task(**stages))
+
+    def test_efficient_verification_policy_requires_full_gate_to_be_final(self) -> None:
+        with self.assertRaisesRegex(ValueError, "final stage"):
+            validate_task(
+                self._efficient_task(
+                    verify_steps=[
+                        {
+                            "name": "full-too-early",
+                            "command": "full-command",
+                            "verification_level": "full",
+                        },
+                        {
+                            "name": "focused-after-full",
+                            "command": "focused-command",
+                            "verification_level": "focused",
+                        },
+                    ]
+                )
+            )
+
     def test_validation_accepts_heavy_task_timeout_values(self) -> None:
         validate_task(
             {
@@ -121,6 +298,14 @@ class RuntimeExecutorTests(unittest.TestCase):
             [(item["stage_name"], item["stage_index"], item["stage_phase"]) for item in legacy],
             [("command-1", 1, "commands"), ("command-2", 2, "commands"), ("verification-1", 3, "verification")],
         )
+        self.assertTrue(all("verification_level" not in item for item in legacy))
+        validate_task(
+            {
+                "id": "legacy-structured",
+                "steps": [{"name": "compile", "command": "true"}],
+                "verify_steps": [{"name": "inspect", "command": "true"}],
+            }
+        )
         self.runtime._progress = (events := []).append
         self.runtime._stage_plan = core.stage_plan_for(
             {"steps": [{"name": "compile", "command": "printf ok", "timeout": 5}]}
@@ -137,6 +322,66 @@ class RuntimeExecutorTests(unittest.TestCase):
             self.assertEqual(event["stage_index"], 1)
             self.assertEqual(event["stage_total"], 1)
             self.assertEqual(event["stage_phase"], "commands")
+            self.assertNotIn("verification_level", event)
+
+    def test_verification_level_reaches_results_and_progress_events(self) -> None:
+        task = self._efficient_task(id="efficient-metadata")
+
+        def fake_run(command: str, _timeout: int, *, stage=None):
+            return {
+                "command": command,
+                "exit_code": 0,
+                "output": "",
+                "elapsed_seconds": 0.1,
+            }
+
+        with mock.patch.object(core, "prepare_work"), mock.patch.object(
+            core, "cleanup_work"
+        ), mock.patch.object(
+            core,
+            "git_snapshot",
+            return_value=(
+                {"exit_code": 0, "output": ""},
+                {"exit_code": 0, "output": ""},
+            ),
+        ), mock.patch.object(core, "checkpoint_worktree", return_value=None):
+            result = core.process_task(task, command_runner=fake_run)
+
+        self.assertEqual(result["commands"][0]["verification_level"], "work")
+        self.assertEqual(result["verification"][0]["verification_level"], "full")
+        self.assertEqual(
+            [stage["verification_level"] for stage in result["stages"]],
+            ["work", "full"],
+        )
+
+        events: list[dict] = []
+        self.runtime._progress = events.append
+        self.runtime._idle_timeout = 5
+        self.runtime._deadline = time.monotonic() + 120
+        self.runtime._command_count = 1
+        self.runtime._primary_count = 1
+        stage = core.stage_plan_for(task)[0]
+        command = "printf '%s\\n' '[AGENT_PROGRESS] {\"message\":\"editing\"}'"
+        with mock.patch.object(runtime_module, "PROGRESS_INTERVAL", 0):
+            command_result = self.runtime.run_command(command, 5, stage=stage)
+
+        self.assertEqual(command_result["exit_code"], 0)
+        relevant_events = [
+            event
+            for event in events
+            if event["event"]
+            in {
+                "command_started",
+                "stage_progress",
+                "command_heartbeat",
+                "command_finished",
+            }
+        ]
+        self.assertTrue(relevant_events)
+        self.assertIn("stage_progress", {event["event"] for event in relevant_events})
+        self.assertTrue(
+            all(event["verification_level"] == "work" for event in relevant_events)
+        )
 
     def test_staged_result_contains_summary_and_stops_after_failure(self) -> None:
         task = {
