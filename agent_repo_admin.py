@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable
 
 import agent_core as core
+import agent_storage as storage
 from agent_repository import RepositoryContext, load_repository_registry
 
 _AGENT_CONTROL_DIRS = (
@@ -111,6 +112,10 @@ def _clone_if_missing(
     branch: str,
     single_branch: bool,
     label: str,
+    shallow_depth: int | None = None,
+    partial_clone: bool = False,
+    sparse_paths: tuple[str, ...] = (),
+    no_tags: bool = False,
 ) -> bool:
     if path.exists():
         validate_checkout(path, repository, label)
@@ -120,11 +125,29 @@ def _clone_if_missing(
     command = ["clone", "--branch", branch]
     if single_branch:
         command.append("--single-branch")
+    if shallow_depth is not None:
+        if shallow_depth < 1:
+            raise ValueError("shallow_depth must be positive")
+        command.extend(["--depth", str(shallow_depth)])
+    if partial_clone:
+        command.append("--filter=blob:none")
+    if sparse_paths:
+        command.append("--sparse")
+    if no_tags:
+        command.append("--no-tags")
     command.extend([clone_url(repository), str(path)])
     result = run_git(command, timeout=900)
     if result.returncode != 0:
         raise RuntimeError(f"{label} clone failed: {result.stdout.strip()}")
     validate_checkout(path, repository, label)
+
+    if sparse_paths:
+        sparse = run_git(
+            ["sparse-checkout", "set", *sparse_paths],
+            cwd=path,
+            timeout=120,
+        )
+        _require_git_success(sparse, f"configure {label} sparse checkout")
     return True
 
 
@@ -183,14 +206,22 @@ def provision_repository(repository: RepositoryContext) -> dict[str, bool]:
             branch=repository.control_branch,
             single_branch=True,
             label="control",
+            shallow_depth=storage.CONTROL_HISTORY_DEPTH,
+            partial_clone=True,
+            sparse_paths=storage.CONTROL_SPARSE_PATHS,
+            no_tags=True,
         )
     else:
         control_created = _clone_if_missing(
             repository,
             path=repository.control,
             branch=repository.default_branch,
-            single_branch=False,
+            single_branch=True,
             label="control",
+            shallow_depth=1,
+            partial_clone=True,
+            sparse_paths=storage.CONTROL_SPARSE_PATHS,
+            no_tags=True,
         )
         initialize_control_branch(repository)
         control_branch_created = True

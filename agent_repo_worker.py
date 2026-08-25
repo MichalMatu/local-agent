@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import agent_core as core
+import agent_storage as storage
 import agentd
 from agent_repository import RepositoryContext, load_repository_registry
 from agent_version import RELEASE_VERSION
@@ -115,9 +116,9 @@ def publish_repository_status(
 
 
 def sync_control_quietly() -> None:
-    """Run routine control-branch sync without printing low-level Git commands."""
+    """Run bounded routine control-branch sync without printing low-level Git commands."""
     with contextlib.redirect_stdout(io.StringIO()):
-        core.sync_control()
+        storage.sync_control(core)
 
 
 def _control_ack_path(control_id: str) -> Path:
