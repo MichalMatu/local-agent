@@ -48,6 +48,7 @@ RUN_PROGRESS_SECONDS = 60
 RUN_HEARTBEAT_SECONDS = 60
 REMOTE_PROGRESS_FLUSH_SECONDS = 65.0
 REMOTE_PROGRESS_COALESCE_SECONDS = 0.25
+REMOTE_PROGRESS_SHUTDOWN_SECONDS = 4.0
 
 STATE_DIR = HOME / "Library" / "Application Support" / "local-agent"
 CLAIMS_DIR = STATE_DIR / "claims"
@@ -98,6 +99,7 @@ class CoalescingRemotePublisher:
         self._condition = threading.Condition()
         self._pending: dict[str, tuple[dict[str, Any], str]] = {}
         self._active = False
+        self._stopping = False
         self._thread = threading.Thread(
             target=self._run,
             daemon=True,
@@ -112,6 +114,8 @@ class CoalescingRemotePublisher:
         commit_message: str,
     ) -> None:
         with self._condition:
+            if self._stopping:
+                return
             self._pending.pop(relative, None)
             self._pending[relative] = (dict(payload), commit_message)
             self._condition.notify_all()
@@ -120,8 +124,14 @@ class CoalescingRemotePublisher:
         while True:
             with self._condition:
                 while not self._pending:
+                    if self._stopping:
+                        return
                     self._condition.wait()
                 self._condition.wait(REMOTE_PROGRESS_COALESCE_SECONDS)
+                if self._stopping:
+                    self._pending.clear()
+                    self._condition.notify_all()
+                    return
                 relative = next(iter(self._pending))
                 payload, commit_message = self._pending.pop(relative)
                 self._active = True
@@ -153,6 +163,20 @@ class CoalescingRemotePublisher:
                 self._condition.wait(remaining)
         return True
 
+    def quiesce(self, timeout: float) -> bool:
+        """Discard queued telemetry and wait boundedly for active Git publication."""
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            self._stopping = True
+            self._pending.clear()
+            self._condition.notify_all()
+            while self._active:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return False
+                self._condition.wait(remaining)
+        return True
+
 
 def remote_progress_publisher() -> CoalescingRemotePublisher:
     global _remote_progress_publisher
@@ -164,6 +188,21 @@ def remote_progress_publisher() -> CoalescingRemotePublisher:
 def flush_remote_progress() -> bool:
     publisher = _remote_progress_publisher
     return True if publisher is None else publisher.flush()
+
+
+def quiesce_remote_progress(
+    timeout: float = REMOTE_PROGRESS_SHUTDOWN_SECONDS,
+) -> bool:
+    publisher = _remote_progress_publisher
+    return True if publisher is None else publisher.quiesce(timeout)
+
+
+def shutdown_runtime_processes() -> None:
+    """Stop task work, settle control Git state, then terminate remaining groups."""
+    runtime.terminate_active_command()
+    if not quiesce_remote_progress():
+        log("remote progress publication did not quiesce before shutdown")
+    terminate_active_processes(log)
 
 
 def publish_control_json(
@@ -1035,7 +1074,7 @@ def shutdown_handler(signum: int, _frame: Any) -> None:
     if defer_termination_during_spawn(signum):
         return
     log(f"received signal {signum}; terminating active processes")
-    terminate_active_processes(log)
+    shutdown_runtime_processes()
     raise SystemExit(128 + signum)
 
 

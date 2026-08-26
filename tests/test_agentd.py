@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -301,6 +302,52 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertEqual(state["task_id"], "task-4")
         self.assertEqual(state["attempt_id"], "attempt")
         self.assertEqual(state["event"], "command_started")
+
+    def test_remote_progress_quiesce_waits_for_active_publish_and_rejects_new_work(
+        self,
+    ) -> None:
+        started = threading.Event()
+        release = threading.Event()
+
+        def blocking_publish(*_args, **_kwargs):
+            started.set()
+            self.assertTrue(release.wait(timeout=2))
+            return True
+
+        with mock.patch.object(
+            agentd, "publish_control_json", side_effect=blocking_publish
+        ) as publish:
+            publisher = agentd.CoalescingRemotePublisher()
+            publisher.submit(".agent/runs/one.json", {}, "progress one")
+            self.assertTrue(started.wait(timeout=2))
+            self.assertFalse(publisher.quiesce(timeout=0.01))
+            release.set()
+            self.assertTrue(publisher.quiesce(timeout=2))
+            publisher.submit(".agent/runs/two.json", {}, "progress two")
+            self.assertTrue(publisher.flush(timeout=0.1))
+
+        self.assertEqual(publish.call_count, 1)
+
+    def test_shutdown_stops_task_before_quiescing_and_terminating_processes(
+        self,
+    ) -> None:
+        calls: list[str] = []
+        with mock.patch.object(
+            agentd.runtime,
+            "terminate_active_command",
+            side_effect=lambda: calls.append("task"),
+        ), mock.patch.object(
+            agentd,
+            "quiesce_remote_progress",
+            side_effect=lambda: calls.append("progress") or True,
+        ), mock.patch.object(
+            agentd,
+            "terminate_active_processes",
+            side_effect=lambda _log: calls.append("remaining"),
+        ):
+            agentd.shutdown_runtime_processes()
+
+        self.assertEqual(calls, ["task", "progress", "remaining"])
 
     def test_progress_callback_publishes_boundaries_and_status(self) -> None:
         callback = agentd.make_progress_callback("task-5", "attempt", "digest")

@@ -118,7 +118,7 @@ Each repository turn holds non-blocking OS execution leases for the case-insensi
 
 Repository ids and remote identities must be unique case-insensitively. Workspace validation rejects normalized, aliased, case-insensitive and ancestor/descendant collisions. Run `python agent_repo_admin.py validate` after every registry edit.
 
-SIGTERM to the supervisor or worker terminates all registered process groups with bounded escalation. SIGKILL cannot run cleanup handlers; inherited repository leases remain the safety boundary until every surviving descendant exits.
+SIGTERM to the supervisor or worker first stops active task work, quiesces asynchronous control-Git publication and then terminates all remaining registered process groups with bounded escalation. This ordering prevents graceful shutdown from leaving a partially published control checkout. SIGKILL cannot run cleanup handlers; inherited repository leases remain the safety boundary until every surviving descendant exits.
 
 Repository-local `status` control is supported. Global `restart` and `self_update` are intentionally not executed by repository workers; use explicit supervisor/launchd administration for those maintenance operations.
 

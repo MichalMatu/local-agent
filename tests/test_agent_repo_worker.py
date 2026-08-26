@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import signal
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,16 @@ from agent_repository import RepositoryContext, repository_config_digest
 class RepositoryWorkerTests(unittest.TestCase):
     def test_worker_version_matches_agent_release(self) -> None:
         self.assertEqual(worker.MULTIREPO_DAEMON_VERSION, agentd.DAEMON_VERSION)
+
+    def test_shutdown_uses_runtime_aware_process_order(self) -> None:
+        with mock.patch.object(
+            worker, "defer_termination_during_spawn", return_value=False
+        ), mock.patch.object(worker.core, "log"), mock.patch.object(
+            agentd, "shutdown_runtime_processes"
+        ) as shutdown:
+            with self.assertRaisesRegex(SystemExit, str(128 + signal.SIGTERM)):
+                worker.shutdown_handler(signal.SIGTERM, None)
+        shutdown.assert_called_once_with()
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()

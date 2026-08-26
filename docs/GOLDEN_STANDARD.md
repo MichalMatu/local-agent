@@ -18,7 +18,7 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - Command stdout transport and retained output are strictly bounded.
 - Runtime commands use process groups. Residual descendants after a successful parent exit are terminated and reported as `background_process_leak`.
 - Every subprocess is registered atomically with shutdown; a termination signal that arrives during spawn is redelivered after the child is registered.
-- Graceful shutdown terminates all registered process groups with one bounded TERM-to-KILL deadline.
+- Graceful worker shutdown stops task work, quiesces asynchronous control-Git publication and then terminates remaining registered process groups with bounded TERM-to-KILL escalation.
 - Host telemetry, RSS sampling and remote progress publication never execute blocking work in the command watchdog loop.
 - Remote progress is asynchronous and coalesced; daemon health status does not duplicate every command transition.
 - Opt-in `efficient-verification-v1` tasks use structured stages with explicit

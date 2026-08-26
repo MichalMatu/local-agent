@@ -24,7 +24,6 @@ from agent_process import (
     execution_lease_path,
     inherited_lease_fds,
     lease_keys_digest,
-    terminate_active_processes,
 )
 from agent_repository import (
     RepositoryContext,
@@ -107,7 +106,7 @@ def shutdown_handler(signum: int, _frame: Any) -> None:
     if defer_termination_during_spawn(signum):
         return
     core.log(f"received signal {signum}; terminating worker subprocesses")
-    terminate_active_processes(core.log)
+    agentd.shutdown_runtime_processes()
     raise SystemExit(128 + signum)
 
 
