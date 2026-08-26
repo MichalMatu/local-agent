@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -14,7 +15,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping, TextIO
+from typing import Any, Callable, Iterator, Mapping, TextIO
 
 OUTPUT_QUEUE_CAPACITY = 256
 OUTPUT_READ_SIZE = 8192
@@ -26,6 +27,8 @@ _active_processes: dict[int, subprocess.Popen[Any]] = {}
 _process_shutdown_requested = False
 _process_spawn_in_progress = False
 _deferred_termination_signal: int | None = None
+_termination_deferral_owner: int | None = None
+_termination_deferral_depth = 0
 
 
 class ExecutionLeaseBusy(RuntimeError):
@@ -143,7 +146,10 @@ def popen_registered(*args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
     deferred_signal: int | None = None
     try:
         with _process_lock:
-            if _process_shutdown_requested:
+            caller_owns_deferral = (
+                _termination_deferral_owner == threading.get_ident()
+            )
+            if _process_shutdown_requested and not caller_owns_deferral:
                 raise RuntimeError("process spawn rejected during shutdown")
             _process_spawn_in_progress = True
             try:
@@ -153,26 +159,67 @@ def popen_registered(*args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
                 _active_processes[proc.pid] = proc
             finally:
                 _process_spawn_in_progress = False
-                deferred_signal = _deferred_termination_signal
+                deferred_signal = _take_deferred_termination_signal()
     except BaseException:
         if deferred_signal is not None:
-            signal.raise_signal(deferred_signal)
+            _redeliver_termination_signal(deferred_signal)
         raise
     if deferred_signal is not None:
-        signal.raise_signal(deferred_signal)
-        raise RuntimeError("termination signal handler returned unexpectedly")
+        _redeliver_termination_signal(deferred_signal)
     return proc
 
 
-def defer_termination_during_spawn(signum: int) -> bool:
-    """Defer a termination signal until an in-flight child is registered."""
+def _take_deferred_termination_signal() -> int | None:
+    global _deferred_termination_signal
+    if _process_spawn_in_progress or _termination_deferral_depth:
+        return None
+    signum = _deferred_termination_signal
+    _deferred_termination_signal = None
+    return signum
+
+
+def _redeliver_termination_signal(signum: int) -> None:
+    if threading.current_thread() is threading.main_thread():
+        signal.raise_signal(signum)
+        raise RuntimeError("termination signal handler returned unexpectedly")
+    os.kill(os.getpid(), signum)
+
+
+def defer_termination(signum: int) -> bool:
+    """Defer termination until process spawn or a critical section is safe."""
     global _deferred_termination_signal, _process_shutdown_requested
-    if not _process_spawn_in_progress:
+    if not _process_spawn_in_progress and not _termination_deferral_depth:
         return False
     _process_shutdown_requested = True
     if _deferred_termination_signal is None:
         _deferred_termination_signal = signum
     return True
+
+
+@contextlib.contextmanager
+def termination_critical_section() -> Iterator[None]:
+    """Allow one thread to finish a bounded subprocess transaction on shutdown."""
+    global _termination_deferral_depth, _termination_deferral_owner
+    deferred_signal: int | None = None
+    owner = threading.get_ident()
+    try:
+        with _process_lock:
+            if _process_shutdown_requested:
+                raise RuntimeError("critical section rejected during shutdown")
+            if _termination_deferral_owner not in (None, owner):
+                raise RuntimeError("critical section ownership conflict")
+            _termination_deferral_owner = owner
+            _termination_deferral_depth += 1
+            try:
+                yield
+            finally:
+                _termination_deferral_depth -= 1
+                if _termination_deferral_depth == 0:
+                    _termination_deferral_owner = None
+                deferred_signal = _take_deferred_termination_signal()
+    finally:
+        if deferred_signal is not None:
+            _redeliver_termination_signal(deferred_signal)
 
 
 def unregister_process(proc: subprocess.Popen[Any]) -> None:
@@ -182,7 +229,8 @@ def unregister_process(proc: subprocess.Popen[Any]) -> None:
 
 def reset_process_lifecycle_for_tests() -> None:
     global _deferred_termination_signal, _process_shutdown_requested
-    global _process_spawn_in_progress
+    global _process_spawn_in_progress, _termination_deferral_depth
+    global _termination_deferral_owner
     with _process_lock:
         live = [proc for proc in _active_processes.values() if proc.poll() is None]
         if live:
@@ -191,6 +239,8 @@ def reset_process_lifecycle_for_tests() -> None:
         _process_shutdown_requested = False
         _process_spawn_in_progress = False
         _deferred_termination_signal = None
+        _termination_deferral_owner = None
+        _termination_deferral_depth = 0
 
 
 def fsync_directory(path: Path) -> None:

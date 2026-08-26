@@ -16,7 +16,7 @@ import agent_storage as storage
 import agentd
 from agent_process import (
     ExecutionLeaseBusy,
-    defer_termination_during_spawn,
+    defer_termination,
     popen_registered,
     terminate_active_processes,
     terminate_process_group,
@@ -263,7 +263,7 @@ def run_worker(
 
 
 def shutdown_handler(signum: int, _frame: Any) -> None:
-    if defer_termination_during_spawn(signum):
+    if defer_termination(signum):
         return
     log(f"received signal {signum}; terminating active processes")
     terminate_active_processes(log)

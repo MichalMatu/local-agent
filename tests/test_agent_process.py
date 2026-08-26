@@ -14,8 +14,10 @@ from agent_process import (
     BoundedTextBuffer,
     ExecutionLeaseBusy,
     acquire_execution_leases,
+    defer_termination,
     process_group_for,
     spawn_shell,
+    termination_critical_section,
     terminate_active_processes,
     terminate_process_group,
     unregister_process,
@@ -109,7 +111,7 @@ class ProcessGroupTests(unittest.TestCase):
         previous = signal.getsignal(signal.SIGUSR1)
 
         def handler(signum: int, _frame: object) -> None:
-            if agent_process.defer_termination_during_spawn(signum):
+            if defer_termination(signum):
                 deliveries.append("deferred")
                 return
             deliveries.append("delivered")
@@ -132,6 +134,36 @@ class ProcessGroupTests(unittest.TestCase):
 
         self.assertEqual(deliveries, ["deferred", "delivered"])
         self.assertEqual(process_group_for(proc), proc.pid)
+
+    def test_signal_is_deferred_across_critical_subprocess_transaction(self) -> None:
+        proc = mock.Mock(spec=subprocess.Popen)
+        proc.pid = 12345
+        proc.poll.return_value = 0
+        deliveries: list[str] = []
+        previous = signal.getsignal(signal.SIGUSR1)
+
+        def handler(signum: int, _frame: object) -> None:
+            if defer_termination(signum):
+                deliveries.append("deferred")
+                return
+            deliveries.append("delivered")
+            raise SystemExit(128 + signum)
+
+        signal.signal(signal.SIGUSR1, handler)
+        try:
+            with mock.patch("agent_process.subprocess.Popen", return_value=proc):
+                with self.assertRaisesRegex(SystemExit, str(128 + signal.SIGUSR1)):
+                    with termination_critical_section():
+                        os.kill(os.getpid(), signal.SIGUSR1)
+                        spawned = agent_process.popen_registered(
+                            ["ignored"],
+                            start_new_session=True,
+                        )
+                        unregister_process(spawned)
+        finally:
+            signal.signal(signal.SIGUSR1, previous)
+
+        self.assertEqual(deliveries, ["deferred", "delivered"])
 
 
 class ExecutionLeaseTests(unittest.TestCase):

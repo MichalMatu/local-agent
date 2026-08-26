@@ -20,7 +20,7 @@ class RepositoryWorkerTests(unittest.TestCase):
 
     def test_shutdown_uses_runtime_aware_process_order(self) -> None:
         with mock.patch.object(
-            worker, "defer_termination_during_spawn", return_value=False
+            worker, "defer_termination", return_value=False
         ), mock.patch.object(worker.core, "log"), mock.patch.object(
             agentd, "shutdown_runtime_processes"
         ) as shutdown:

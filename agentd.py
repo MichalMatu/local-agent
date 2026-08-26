@@ -24,8 +24,9 @@ from agent_process import (
     LEASE_FDS_ENV,
     LEASE_KEYS_DIGEST_ENV,
     atomic_write_text,
-    defer_termination_during_spawn,
+    defer_termination,
     fsync_directory,
+    termination_critical_section,
     terminate_active_processes,
 )
 from agent_runtime import (
@@ -219,26 +220,27 @@ def publish_control_json(
         if root not in target.parents:
             raise ValueError(f"control path escapes repository: {relative!r}")
 
-        atomic_write_json(target, payload)
-        add = core.process(["git", "add", "--", relative], core.CONTROL)
-        if add["exit_code"] != 0:
-            raise RuntimeError(add["output"])
+        with termination_critical_section():
+            atomic_write_json(target, payload)
+            add = core.process(["git", "add", "--", relative], core.CONTROL)
+            if add["exit_code"] != 0:
+                raise RuntimeError(add["output"])
 
-        staged = core.process(
-            ["git", "diff", "--cached", "--quiet", "--", relative],
-            core.CONTROL,
-        )
-        if staged["exit_code"] == 0:
-            return False
-        if staged["exit_code"] != 1:
-            raise RuntimeError(staged["output"])
+            staged = core.process(
+                ["git", "diff", "--cached", "--quiet", "--", relative],
+                core.CONTROL,
+            )
+            if staged["exit_code"] == 0:
+                return False
+            if staged["exit_code"] != 1:
+                raise RuntimeError(staged["output"])
 
-        commit = core.process(
-            ["git", "commit", "-m", commit_message, "--", relative],
-            core.CONTROL,
-        )
-        if commit["exit_code"] != 0:
-            raise RuntimeError(commit["output"])
+            commit = core.process(
+                ["git", "commit", "-m", commit_message, "--", relative],
+                core.CONTROL,
+            )
+            if commit["exit_code"] != 0:
+                raise RuntimeError(commit["output"])
 
         for attempt in range(attempts):
             pull = storage.run_git_with_network_retry(
@@ -1071,7 +1073,7 @@ def make_progress_callback(
 
 
 def shutdown_handler(signum: int, _frame: Any) -> None:
-    if defer_termination_during_spawn(signum):
+    if defer_termination(signum):
         return
     log(f"received signal {signum}; terminating active processes")
     shutdown_runtime_processes()

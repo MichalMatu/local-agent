@@ -138,7 +138,7 @@ Every supervisor repository turn acquires non-blocking `flock` leases under the 
 
 The worker validates both the inherited lease identity and the exact registry-entry digest before it binds repository globals, syncs control state or performs stale-claim recovery. A restarted supervisor that encounters an old live worker or command treats the repository as busy and continues polling other configured repositories. It does not recover the claim, replay the task or mutate that repository.
 
-SIGTERM is handled in the supervisor, worker and legacy daemon. Workers first stop active task work and quiesce asynchronous control-Git publication so a graceful shutdown cannot interrupt its own staged update. Remaining registered process groups receive TERM with bounded escalation to KILL. A signal that arrives inside the process-spawn window is deferred until the child has been registered and is then redelivered. SIGKILL cannot run handlers, so inherited leases provide the recovery boundary until orphaned descendants really exit.
+SIGTERM is handled in the supervisor, worker and legacy daemon. Workers first stop active task work and quiesce asynchronous control-Git publication so a graceful shutdown cannot interrupt its own staged update. Remaining registered process groups receive TERM with bounded escalation to KILL. A signal that arrives inside the process-spawn window is deferred until the child has been registered. A local control-Git mutation extends that deferral through its commit so the checkout is clean before redelivery. SIGKILL cannot run handlers, so inherited leases provide the recovery boundary until orphaned descendants really exit.
 
 ## Isolation requirements
 

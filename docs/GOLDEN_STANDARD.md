@@ -17,7 +17,7 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - Timeout configuration is loaded from `LOCAL_AGENT_*` environment variables at startup and invalid configuration is terminal.
 - Command stdout transport and retained output are strictly bounded.
 - Runtime commands use process groups. Residual descendants after a successful parent exit are terminated and reported as `background_process_leak`.
-- Every subprocess is registered atomically with shutdown; a termination signal that arrives during spawn is redelivered after the child is registered.
+- Every subprocess is registered atomically with shutdown. A termination signal that arrives during spawn is redelivered after the child is registered, while a local control-Git mutation defers redelivery until its commit leaves the checkout clean.
 - Graceful worker shutdown stops task work, quiesces asynchronous control-Git publication and then terminates remaining registered process groups with bounded TERM-to-KILL escalation.
 - Host telemetry, RSS sampling and remote progress publication never execute blocking work in the command watchdog loop.
 - Remote progress is asynchronous and coalesced; daemon health status does not duplicate every command transition.

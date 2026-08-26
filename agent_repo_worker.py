@@ -20,7 +20,7 @@ from agent_process import (
     ExecutionLeaseBusy,
     LEASE_KEYS_DIGEST_ENV,
     acquire_execution_leases,
-    defer_termination_during_spawn,
+    defer_termination,
     execution_lease_path,
     inherited_lease_fds,
     lease_keys_digest,
@@ -103,7 +103,7 @@ def repository_execution_lease(repository: RepositoryContext) -> Iterator[None]:
 
 
 def shutdown_handler(signum: int, _frame: Any) -> None:
-    if defer_termination_during_spawn(signum):
+    if defer_termination(signum):
         return
     core.log(f"received signal {signum}; terminating worker subprocesses")
     agentd.shutdown_runtime_processes()
