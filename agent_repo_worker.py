@@ -7,24 +7,113 @@ import io
 import json
 import os
 import re
+import signal
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import agent_core as core
 import agent_storage as storage
 import agentd
-from agent_repository import RepositoryContext, load_repository_registry
+from agent_process import (
+    ExecutionLeaseBusy,
+    LEASE_KEYS_DIGEST_ENV,
+    acquire_execution_leases,
+    defer_termination_during_spawn,
+    execution_lease_path,
+    inherited_lease_fds,
+    lease_keys_digest,
+    terminate_active_processes,
+)
+from agent_repository import (
+    RepositoryContext,
+    load_repository_registry,
+    repository_config_digest,
+    repository_lease_keys,
+)
 from agent_version import RELEASE_VERSION
 
 MULTIREPO_DAEMON_VERSION = RELEASE_VERSION
 WORKER_IDLE = 0
 WORKER_PROCESSED = 10
+WORKER_BUSY = 11
+WORKER_CONFIG_CHANGED = 12
 _CONTROL_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def repository_state_dir(repository: RepositoryContext) -> Path:
     return agentd.STATE_DIR / "repositories" / repository.repository_id
+
+
+def repository_lease_dir() -> Path:
+    return agentd.STATE_DIR / "locks" / "repositories"
+
+
+def _validate_inherited_repository_leases(repository: RepositoryContext) -> bool:
+    fds = inherited_lease_fds(os.environ)
+    if not fds:
+        return False
+    keys = repository_lease_keys(repository)
+    expected_digest = lease_keys_digest(keys)
+    if os.environ.get(LEASE_KEYS_DIGEST_ENV) != expected_digest:
+        raise RuntimeError("inherited repository lease identity mismatch")
+    paths = tuple(execution_lease_path(repository_lease_dir(), key) for key in keys)
+    if len(fds) != len(paths):
+        raise RuntimeError("inherited repository lease descriptor count mismatch")
+    for fd, path in zip(fds, paths, strict=True):
+        try:
+            descriptor_stat = os.fstat(fd)
+            path_stat = path.stat()
+        except OSError as exc:
+            raise RuntimeError("inherited repository lease is unavailable") from exc
+        if (descriptor_stat.st_dev, descriptor_stat.st_ino) != (
+            path_stat.st_dev,
+            path_stat.st_ino,
+        ):
+            raise RuntimeError("inherited repository lease file mismatch")
+    return True
+
+
+@contextlib.contextmanager
+def repository_execution_lease(repository: RepositoryContext) -> Iterator[None]:
+    """Hold every stable identity lock for one complete repository turn."""
+    if _validate_inherited_repository_leases(repository):
+        yield
+        return
+
+    leases = acquire_execution_leases(
+        repository_lease_dir(),
+        repository_lease_keys(repository),
+    )
+    updates = leases.environment()
+    previous_os = {name: os.environ.get(name) for name in updates}
+    previous_core = {name: core.ENV.get(name) for name in updates}
+    os.environ.update(updates)
+    core.ENV.update(updates)
+    try:
+        yield
+    finally:
+        for target, previous in ((os.environ, previous_os), (core.ENV, previous_core)):
+            for name, value in previous.items():
+                if value is None:
+                    target.pop(name, None)
+                else:
+                    target[name] = value
+        leases.close()
+
+
+def shutdown_handler(signum: int, _frame: Any) -> None:
+    if defer_termination_during_spawn(signum):
+        return
+    core.log(f"received signal {signum}; terminating worker subprocesses")
+    terminate_active_processes(core.log)
+    raise SystemExit(128 + signum)
+
+
+def install_signal_handlers() -> None:
+    signal.signal(signal.SIGTERM, shutdown_handler)
+    signal.signal(signal.SIGINT, shutdown_handler)
 
 
 def bind_repository(repository: RepositoryContext) -> None:
@@ -249,10 +338,16 @@ def repository_by_id(
     repository_id: str,
     *,
     registry_path: Path | None,
+    expected_config_digest: str,
 ) -> RepositoryContext:
     repositories = load_repository_registry(path=registry_path)
     for repository in repositories:
         if repository.repository_id == repository_id:
+            if repository_config_digest(repository) != expected_config_digest:
+                raise ValueError(
+                    f"repository configuration changed before worker start: "
+                    f"{repository_id!r}"
+                )
             return repository
     raise ValueError(f"repository id is not enabled: {repository_id!r}")
 
@@ -261,13 +356,31 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Poll one configured local-agent repository once.")
     parser.add_argument("--repository-id", required=True)
     parser.add_argument("--registry", type=Path)
+    parser.add_argument("--expected-config-digest", required=True)
     return parser.parse_args()
 
 
 def main() -> int:
+    install_signal_handlers()
     args = parse_args()
-    repository = repository_by_id(args.repository_id, registry_path=args.registry)
-    processed = poll_repository_once(repository)
+    try:
+        repository = repository_by_id(
+            args.repository_id,
+            registry_path=args.registry,
+            expected_config_digest=args.expected_config_digest,
+        )
+    except ValueError as exc:
+        core.log(str(exc))
+        return WORKER_CONFIG_CHANGED
+    try:
+        with repository_execution_lease(repository):
+            processed = poll_repository_once(repository)
+    except ExecutionLeaseBusy as exc:
+        core.log(
+            f"repository execution lease busy repository={repository.repository_id} "
+            f"key={exc.key}"
+        )
+        return WORKER_BUSY
     return WORKER_PROCESSED if processed else WORKER_IDLE
 
 

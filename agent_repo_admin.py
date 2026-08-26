@@ -74,7 +74,7 @@ def validate_checkout(path: Path, repository: RepositoryContext, label: str) -> 
     if remote.returncode != 0:
         raise RuntimeError(f"{label} checkout has no readable origin: {remote.stdout.strip()}")
     actual = normalize_remote_url(remote.stdout)
-    if actual != repository.repository:
+    if actual.casefold() != repository.repository.casefold():
         raise RuntimeError(
             f"{label} checkout origin mismatch: expected {repository.repository}, got {actual}"
         )

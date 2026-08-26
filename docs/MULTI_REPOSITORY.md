@@ -1,10 +1,10 @@
-# Multi-Repository Design (v4.8)
+# Multi-Repository Design (v4.10)
 
 This document defines the production design for running one `local-agent` launchd service against multiple repositories without mixing workspaces or task state.
 
 ## Status
 
-The v4.8 multi-repository implementation is active on `main` and includes:
+The v4.10 multi-repository contract includes:
 
 - repository registry and legacy LiteGraph fallback;
 - isolated per-repository workspaces and durable state;
@@ -15,10 +15,15 @@ The v4.8 multi-repository implementation is active on `main` and includes:
 - explicit provisioning and checkout-origin validation;
 - safe creation of a missing `agent-control` branch;
 - unit tests plus real temporary-Git integration tests for two repositories;
-- isolated macOS staging smoke validation.
+- isolated macOS staging smoke validation;
 - durable result spooling and publication-only recovery;
 - bounded worker turns and checkpoint creation;
-- strict normalized workspace-path isolation.
+- strict normalized workspace-path isolation;
+- case-insensitive repository-id and remote-identity isolation;
+- inherited OS execution leases that survive supervisor or worker failure;
+- immutable registry-entry validation at worker dispatch;
+- bounded all-process shutdown and real SIGTERM/SIGKILL recovery tests;
+- full-scan and supervisor-control deadlines that cannot be starved by hot polling.
 
 ## Goals
 
@@ -79,7 +84,7 @@ Default paths for a non-legacy repository are:
 ~/agent-workspace/repos/<id>/checkpoints
 ```
 
-The registry is machine-local and must not contain secrets. Repository ids and all normalized workspace paths must be disjoint; equal, aliased and ancestor/descendant collisions are rejected before scheduling begins.
+The registry is machine-local and must not contain secrets. Repository ids and remote `owner/repository` identities are unique case-insensitively. All normalized workspace paths must be disjoint; equal, symlink-aliased, case-insensitive and ancestor/descendant collisions are rejected before scheduling begins.
 
 ## Process-isolated execution model
 
@@ -91,13 +96,15 @@ The supervisor:
 - loads/reloads the repository registry;
 - polls repositories in deterministic round-robin order;
 - starts only one repository worker at a time;
+- gives due supervisor control and periodic full scans priority over hot polling;
 - passes its PID to the worker for status evidence;
-- forwards termination to the active worker process group;
+- terminates every registered process group on shutdown with bounded escalation;
 - continues to other repositories when one worker fails before processing a task.
 
 The repository worker:
 
-- receives exactly one configured repository id;
+- receives exactly one configured repository id and the immutable digest of the selected registry entry;
+- rejects a changed registry entry before binding paths or executing repository work;
 - validates that the repository control/work checkouts already exist;
 - binds the legacy `agent_core` paths once inside the worker process;
 - scopes claims and local run/status state under a repository-specific state directory;
@@ -121,9 +128,17 @@ Chat B -> PhotoMaps queue ------> one supervisor -> one worker/task at a time
 Chat C -> WreckScanner queue ---/
 ```
 
-After one repository completes a task, the scheduler starts the next scan after that repository in registry order. This prevents a repository with a large queue from permanently starving another repository.
+Each periodic full scan starts after the repository that most recently completed a task. A full scan becomes due every 15 seconds and runs before another hot poll; supervisor control has an independent 15-second cadence and runs first when due. These priorities apply between worker turns and never interrupt an already-running stage. A continuously non-empty repository therefore cannot permanently starve another queue or supervisor maintenance.
 
 This model is intentionally conservative for PlatformIO, serial ports, USB devices and other machine-wide resources.
+
+## Repository lifetime leases and crash recovery
+
+Every supervisor repository turn acquires non-blocking `flock` leases under the daemon state directory for five identities: case-folded repository id, case-folded remote identity, and normalized control, work and checkpoint paths. The supervisor passes the open descriptors to the worker, and the shared spawn path passes them to every descendant command. A lease is released only after the last process holding its descriptor exits.
+
+The worker validates both the inherited lease identity and the exact registry-entry digest before it binds repository globals, syncs control state or performs stale-claim recovery. A restarted supervisor that encounters an old live worker or command treats the repository as busy and continues polling other configured repositories. It does not recover the claim, replay the task or mutate that repository.
+
+SIGTERM is handled in the supervisor, worker and legacy daemon. All registered process groups receive TERM within one bounded shutdown window and remaining groups receive KILL. A signal that arrives inside the process-spawn window is deferred until the child has been registered and is then redelivered. SIGKILL cannot run handlers, so inherited leases provide the recovery boundary until orphaned descendants really exit.
 
 ## Isolation requirements
 
@@ -141,7 +156,7 @@ Daemon-wide state:
 
 - process lock;
 - local-agent source checkout and release state;
-- active worker process;
+- registered subprocess groups and repository execution-lease files;
 - scheduling cursor.
 
 Repository-local `status` control is supported. Worker status contains repository identity, worker PID and, when launched by the supervisor, supervisor PID. Idle status is persisted locally on every poll but remote idle status commits are heartbeat-throttled.
@@ -184,6 +199,8 @@ The two-repository worker integration test proves that:
 
 The provisioning integration test proves that a repository with only `main` can be provisioned into separate control/work checkouts and receive a newly published `agent-control` skeleton safely.
 
+Crash-recovery integration tests use real process groups, temporary Git repositories and external barriers to prove that supervisor SIGTERM terminates the active command, while supervisor or worker SIGKILL cannot cause overlap, premature stale-claim recovery or automatic replay.
+
 An isolated macOS smoke test checks release candidates from a detached local-agent worktree while production remains running. The worktree must be removed after the test and the production daemon must remain healthy.
 
 ## Activation model
@@ -206,7 +223,7 @@ Rollback is straightforward: stop the supervisor, restore the previous launchd c
 A release candidate is acceptable only when all of the following are true:
 
 1. staging is based on current `main` and has no unrelated changes;
-2. compile, Ruff, unit and temporary-Git integration tests are green on the exact staging SHA;
+2. compile, Ruff, unit and temporary-Git integration tests, including real SIGTERM/SIGKILL recovery, are green on the exact staging SHA;
 3. the exact diff is reviewed;
 4. an isolated macOS two-repository smoke test passes on the exact candidate SHA;
 5. the smoke worktree is removed and production remains healthy/idle;

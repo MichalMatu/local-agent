@@ -53,6 +53,18 @@ class RepositoryAdminTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "origin mismatch"):
                     admin.validate_checkout(repo.control, repo, "control")
 
+    def test_validate_checkout_accepts_case_insensitive_origin_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = repository(Path(tmp))
+            (repo.control / ".git").mkdir(parents=True)
+            result = subprocess.CompletedProcess(
+                args=["git"],
+                returncode=0,
+                stdout="https://github.com/OWNER/PROJECT-A.git\n",
+            )
+            with mock.patch.object(admin, "run_git", return_value=result):
+                admin.validate_checkout(repo.control, repo, "control")
+
     def test_control_clone_is_shallow_partial_sparse_and_tagless(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = repository(Path(tmp))

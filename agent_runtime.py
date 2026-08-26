@@ -21,6 +21,7 @@ from agent_process import (
     spawn_shell,
     start_output_pump,
     terminate_remaining_process_group,
+    unregister_process,
 )
 
 ProgressCallback = Callable[[dict[str, Any]], None]
@@ -1093,6 +1094,7 @@ class RuntimeExecutor:
             with self._active_lock:
                 if self._active_process is proc:
                     self._active_process = None
+            unregister_process(proc)
 
         exit_code = proc.returncode if proc.returncode is not None else 124
         if timed_out or idle_timed_out or memory_limited:

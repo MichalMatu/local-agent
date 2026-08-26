@@ -10,7 +10,7 @@ Deterministic local execution daemon used for real development work. ChatGPT or 
 
 This repository is execution infrastructure, not the product repository and not a coding model.
 
-The release line is v4.9.x. The established default target remains `MichalMatu/esp32s3_LiteGraph` when no multi-repository registry is configured.
+The release line is v4.10.x. The established default target remains `MichalMatu/esp32s3_LiteGraph` when no multi-repository registry is configured.
 
 For a new reusable/config-driven deployment, prefer [`MichalMatu/DeterministicRunner`](https://github.com/MichalMatu/DeterministicRunner). `local-agent` intentionally preserves environment-specific and legacy behavior from the working macOS/ESP32 setup.
 
@@ -75,7 +75,7 @@ python agent_multirepo.py --once
 
 Do not start a second foreground daemon/supervisor when the production LaunchAgent is already running. All entry points use the same OS daemon lock.
 
-## v4.9 execution contract
+## v4.10 execution contract
 
 Important behavior:
 
@@ -87,6 +87,8 @@ Important behavior:
 - command stdout uses bounded read chunks, a bounded handoff queue and a strictly bounded 60,000-character result buffer;
 - successful stages may not leave background descendants; a residual process group is terminated and reported as `background_process_leak`;
 - process spawning and process-group termination are centralized in `agent_process.py`;
+- every spawned descendant inherits repository execution leases, so a restarted supervisor cannot recover or enter a repository while an earlier command still owns it;
+- SIGTERM shuts down every registered process group with bounded TERM-to-KILL escalation, including a signal arriving during process creation;
 - task progress publication is asynchronous and coalesced so network Git cannot delay watchdog enforcement;
 - final results are durably spooled before network publication and are republished without re-execution after a publication failure;
 - task progress/results/status are published on `agent-control`;
@@ -148,10 +150,13 @@ Multi-repository mode adds the following without changing the single-task execut
 - isolated `control`, `work`, `checkpoints`, claims, runs and status per repository;
 - one long-lived supervisor plus a short-lived worker process per repository turn;
 - deterministic round-robin scheduling with global execution concurrency fixed at one;
+- periodic full scans and supervisor control deadlines take priority over hot polling, preventing a continuously busy repository from starving other queues or maintenance;
+- case-insensitive repository-id and remote uniqueness plus normalized, aliased and case-insensitive workspace isolation;
+- immutable worker-dispatch configuration digests and OS lifetime leases for repository id, remote and workspace identities;
 - repository-scoped task identity, so identical task ids in different repositories do not collide;
 - explicit provisioning that validates existing paths/origins and can safely create a missing `agent-control` branch;
 - repository-local status control; global `restart`/`self_update` are deliberately rejected inside workers because they are supervisor-wide maintenance actions;
-- temporary-Git two-repository integration coverage, including duplicate task ids and clean claim/workspace recovery.
+- temporary-Git integration coverage, including duplicate task ids, clean claim/workspace recovery and real supervisor/worker SIGTERM/SIGKILL failures.
 
 This means separate ChatGPT conversations can queue work independently to different repositories. The chats may work concurrently, while the Mac executes their queued tasks one at a time to avoid conflicts around PlatformIO, USB, serial ports and other machine-wide resources.
 

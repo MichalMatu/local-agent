@@ -8,7 +8,10 @@ from pathlib import Path
 from agent_repository import (
     DEFAULT_REPOSITORY,
     DEFAULT_REPOSITORY_ID,
+    RepositoryContext,
     load_repository_registry,
+    repository_config_digest,
+    repository_lease_keys,
 )
 
 
@@ -90,12 +93,45 @@ class RepositoryRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate repository id"):
             load_repository_registry(home=self.home, path=self.registry)
 
-    def test_workspace_collision_is_rejected(self) -> None:
-        shared = str(self.home / "shared")
+    def test_case_insensitive_repository_id_is_rejected(self) -> None:
         self.write(
             [
-                {"id": "one", "repository": "owner/one", "work_dir": shared},
-                {"id": "two", "repository": "owner/two", "control_dir": shared},
+                {"id": "Project-A", "repository": "owner/one"},
+                {"id": "project-a", "repository": "owner/two"},
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate repository id"):
+            load_repository_registry(home=self.home, path=self.registry)
+
+    def test_duplicate_remote_repository_is_rejected_case_insensitively(self) -> None:
+        self.write(
+            [
+                {"id": "one", "repository": "Owner/Project"},
+                {"id": "two", "repository": "owner/project"},
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "duplicate remote repository"):
+            load_repository_registry(home=self.home, path=self.registry)
+
+    def test_workspace_collision_is_rejected(self) -> None:
+        shared = self.home / "shared"
+        self.write(
+            [
+                {"id": "one", "repository": "owner/one", "work_dir": str(shared)},
+                {"id": "two", "repository": "owner/two", "control_dir": str(shared)},
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "workspace path collision"):
+            load_repository_registry(home=self.home, path=self.registry)
+
+        self.write(
+            [
+                {
+                    "id": "nested",
+                    "repository": "owner/nested",
+                    "work_dir": str(shared),
+                    "checkpoints_dir": str(shared / "checkpoints"),
+                }
             ]
         )
         with self.assertRaisesRegex(ValueError, "workspace path collision"):
@@ -116,18 +152,85 @@ class RepositoryRegistryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "workspace path collision"):
             load_repository_registry(home=self.home, path=self.registry)
 
+    def test_case_insensitive_workspace_collision_is_rejected_before_creation(self) -> None:
         self.write(
             [
                 {
-                    "id": "nested",
-                    "repository": "owner/nested",
-                    "work_dir": str(shared),
-                    "checkpoints_dir": str(shared / "checkpoints"),
-                }
+                    "id": "one",
+                    "repository": "owner/one",
+                    "work_dir": str(self.home / "Workspace"),
+                },
+                {
+                    "id": "two",
+                    "repository": "owner/two",
+                    "control_dir": str(self.home / "workspace"),
+                },
             ]
         )
         with self.assertRaisesRegex(ValueError, "workspace path collision"):
             load_repository_registry(home=self.home, path=self.registry)
+
+    def test_existing_symlink_workspace_alias_is_rejected(self) -> None:
+        shared = self.home / "shared"
+        shared.mkdir()
+        alias = self.home / "alias"
+        alias.symlink_to(shared, target_is_directory=True)
+        self.write(
+            [
+                {"id": "one", "repository": "owner/one", "work_dir": str(shared)},
+                {"id": "two", "repository": "owner/two", "control_dir": str(alias)},
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "workspace path collision"):
+            load_repository_registry(home=self.home, path=self.registry)
+
+    def test_config_digest_changes_with_execution_configuration(self) -> None:
+        root = self.home / "project"
+        first = RepositoryContext(
+            repository_id="project",
+            repository="owner/project",
+            control=root / "control",
+            work=root / "work",
+            checkpoints=root / "checkpoints",
+        )
+        second = RepositoryContext(
+            repository_id="project",
+            repository="owner/project",
+            control=root / "control",
+            work=root / "work-two",
+            checkpoints=root / "checkpoints",
+        )
+        self.assertNotEqual(
+            repository_config_digest(first),
+            repository_config_digest(second),
+        )
+
+    def test_lease_keys_cover_remote_and_every_workspace_identity(self) -> None:
+        root = self.home / "project"
+        first = RepositoryContext(
+            repository_id="first-id",
+            repository="Owner/Project",
+            control=root / "control",
+            work=root / "work",
+            checkpoints=root / "checkpoints",
+        )
+        renamed = RepositoryContext(
+            repository_id="renamed-id",
+            repository="owner/project",
+            control=root / "control",
+            work=root / "work",
+            checkpoints=root / "checkpoints",
+        )
+        keys = repository_lease_keys(first)
+        renamed_keys = repository_lease_keys(renamed)
+        self.assertEqual(
+            set(keys) - {"id:first-id"},
+            set(renamed_keys) - {"id:renamed-id"},
+        )
+        self.assertEqual(len(keys), 5)
+        self.assertIn("id:first-id", keys)
+        self.assertTrue(any(item.startswith("remote:") for item in keys))
+        self.assertTrue(any(item.startswith("work:") for item in keys))
 
     def test_registry_booleans_require_exact_json_boolean_type(self) -> None:
         for field in ("enabled", "legacy_workspace"):

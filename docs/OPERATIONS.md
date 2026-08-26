@@ -24,6 +24,8 @@ Task ids and payloads are immutable within one repository. Claimed or interrupte
 
 In multi-repository mode, task/result/claim identity is repository-scoped. Two repositories may safely contain the same task id.
 
+Repository stale-claim recovery runs only while the worker owns inherited OS leases for the configured id, remote and workspace identities. If an earlier worker or command is still alive after a crash, a restarted supervisor defers that repository without recovering or replaying its task.
+
 ## Runtime limits
 
 Current canonical defaults are:
@@ -110,7 +112,13 @@ python agent_repo_admin.py provision --repository-id <id>
 
 Provisioning is never an implicit poll-loop action. It refuses existing non-Git destinations, validates origin identity and may initialize a missing `agent-control` branch only in a newly created control clone.
 
-The multi-repository supervisor schedules repositories round-robin and starts one short-lived worker at a time. Global execution concurrency remains one even when several chats/projects queue tasks concurrently.
+The multi-repository supervisor schedules repositories round-robin and starts one short-lived worker at a time. Global execution concurrency remains one even when several chats/projects queue tasks concurrently. Between worker turns, due supervisor control runs first and a periodic full scan runs before another hot poll. Running stages are not preempted, but a continuously active repository cannot permanently starve another repository or maintenance.
+
+Each repository turn holds non-blocking OS execution leases for the case-insensitive repository id and remote plus normalized control, work and checkpoint paths. The descriptors are inherited by the worker and every command. Lease contention is a normal deferral, not a stale-claim recovery opportunity. The worker also rejects a dispatch if the exact registry entry changed after selection.
+
+Repository ids and remote identities must be unique case-insensitively. Workspace validation rejects normalized, aliased, case-insensitive and ancestor/descendant collisions. Run `python agent_repo_admin.py validate` after every registry edit.
+
+SIGTERM to the supervisor or worker terminates all registered process groups with bounded escalation. SIGKILL cannot run cleanup handlers; inherited repository leases remain the safety boundary until every surviving descendant exits.
 
 Repository-local `status` control is supported. Global `restart` and `self_update` are intentionally not executed by repository workers; use explicit supervisor/launchd administration for those maintenance operations.
 
@@ -118,7 +126,7 @@ Repository-local `status` control is supported. Global `restart` and `self_updat
 
 Non-trivial daemon changes are prepared on an isolated `v*-staging` branch. Python compile checks, Ruff lint and unit tests must pass, and GitHub CI must be green on the exact staging SHA before `main` is fast-forwarded. The live daemon checkout is never used as the staging workspace.
 
-Multi-repository changes additionally require real temporary-Git integration tests and an isolated macOS two-repository smoke test on the exact candidate SHA. The smoke test must clean up its staging worktree and leave the running production daemon healthy.
+Multi-repository changes additionally require real temporary-Git integration tests, real SIGTERM/SIGKILL recovery coverage and an isolated macOS two-repository smoke test on the exact candidate SHA. The smoke test must clean up its staging worktree and leave the running production daemon healthy.
 
 After a runtime release, verify the reported daemon revision/status and run a real queue smoke task when execution behavior changed.
 

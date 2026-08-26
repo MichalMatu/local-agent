@@ -21,11 +21,13 @@ from agent_process import (
     BoundedTextBuffer,
     atomic_write_text,
     fsync_directory,
+    popen_registered,
     run_argv_bounded,
     spawn_shell,
     start_output_pump,
     terminate_remaining_process_group,
     terminate_process_group,
+    unregister_process,
 )
 
 HOME = Path.home()
@@ -170,6 +172,7 @@ def run_command(
         if proc.poll() is None:
             kill_process_group(proc)
         pump.stop()
+        unregister_process(proc)
 
     exit_code = proc.returncode if proc.returncode is not None else 124
     if timed_out:
@@ -279,7 +282,7 @@ def _fsync_checkpoint_tree(root: Path) -> None:
 
 def _write_tracked_patch(path: Path, deadline: float, reserved_bytes: int) -> int:
     with path.open("xb") as patch_file:
-        proc = subprocess.Popen(
+        proc = popen_registered(
             ["git", "diff", "--binary", "--full-index", "HEAD", "--"],
             cwd=WORK,
             env=ENV,
@@ -316,6 +319,7 @@ def _write_tracked_patch(path: Path, deadline: float, reserved_bytes: int) -> in
                 terminate_process_group(proc, log)
             if proc.stderr is not None:
                 proc.stderr.close()
+            unregister_process(proc)
 
 
 def checkpoint_worktree(task_id: str, *, reason: str) -> dict[str, Any] | None:

@@ -1,4 +1,4 @@
-# Local Agent Golden Standard v4.9
+# Local Agent Golden Standard v4.10
 
 This file records the current production invariants for `MichalMatu/local-agent`. Operational details live in `OPERATIONS.md`; multi-repository details live in `MULTI_REPOSITORY.md`; machine-specific setup lives in `SESSION_BOOTSTRAP.md`.
 
@@ -17,6 +17,8 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - Timeout configuration is loaded from `LOCAL_AGENT_*` environment variables at startup and invalid configuration is terminal.
 - Command stdout transport and retained output are strictly bounded.
 - Runtime commands use process groups. Residual descendants after a successful parent exit are terminated and reported as `background_process_leak`.
+- Every subprocess is registered atomically with shutdown; a termination signal that arrives during spawn is redelivered after the child is registered.
+- Graceful shutdown terminates all registered process groups with one bounded TERM-to-KILL deadline.
 - Host telemetry, RSS sampling and remote progress publication never execute blocking work in the command watchdog loop.
 - Remote progress is asynchronous and coalesced; daemon health status does not duplicate every command transition.
 - Opt-in `efficient-verification-v1` tasks use structured stages with explicit
@@ -41,7 +43,12 @@ This file records the current production invariants for `MichalMatu/local-agent`
 
 - One long-lived supervisor owns scheduling and the global daemon lock.
 - Global execution concurrency remains exactly one.
-- Every normalized control/work/checkpoint path is disjoint; equal, aliased and ancestor/descendant overlaps are rejected.
+- Periodic full scans and supervisor control service cannot be starved by a continuously hot repository.
+- Repository ids and remote identities are unique case-insensitively.
+- Every normalized control/work/checkpoint path is disjoint; equal, aliased, case-insensitive and ancestor/descendant overlaps are rejected.
+- Every repository turn holds inherited OS execution leases for its id, remote and all workspace paths until its last descendant exits.
+- Lease contention defers polling and stale-claim recovery without mutating repository state.
+- Workers validate an immutable digest of the exact registry entry selected by the supervisor before binding or executing it.
 - Claims, result spools, corrupt claims, runs and status are repository-scoped.
 - Repository globals are bound only inside short-lived workers.
 - One repository control or worker failure does not block polling other repositories.
@@ -56,7 +63,7 @@ For non-trivial daemon changes:
 
 1. stage from current `main` on an isolated `v*-staging` branch;
 2. pass compile and pinned Ruff validation for every release module and tests;
-3. pass focused unit/integration tests and full unittest discovery;
+3. pass focused unit/integration tests, including real SIGTERM/SIGKILL crash recovery, and full unittest discovery;
 4. review the exact diff;
 5. require green GitHub CI on the exact staging SHA;
 6. pass an isolated macOS two-repository smoke on that exact SHA;

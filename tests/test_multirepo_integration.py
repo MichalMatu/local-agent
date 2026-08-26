@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 
 from agent_repo_worker import MULTIREPO_DAEMON_VERSION
+from agent_repository import load_repository_registry, repository_config_digest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -171,14 +172,21 @@ class MultiRepositoryIntegrationTests(unittest.TestCase):
             second = create_repository_fixture(root, "project-b")
             registry = write_registry(root, (first, second))
             home, env = test_environment(root)
+            repositories = {
+                repository.repository_id: repository
+                for repository in load_repository_registry(home=home, path=registry)
+            }
 
             for item in (first, second):
+                repository_id = str(item["id"])
                 result = subprocess.run(
                     [
                         sys.executable,
                         str(REPO_ROOT / "agent_repo_worker.py"),
                         "--repository-id",
-                        str(item["id"]),
+                        repository_id,
+                        "--expected-config-digest",
+                        repository_config_digest(repositories[repository_id]),
                         "--registry",
                         str(registry),
                     ],

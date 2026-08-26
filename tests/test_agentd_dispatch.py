@@ -6,9 +6,29 @@ from pathlib import Path
 from unittest import mock
 
 import agentd
+from agent_process import LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV
 
 
 class AgentEntrypointDispatchTests(unittest.TestCase):
+    def test_restart_drops_inherited_repository_lease_environment(self) -> None:
+        lease_environment = {
+            LEASE_FDS_ENV: "10,11",
+            LEASE_KEYS_DIGEST_ENV: "digest",
+        }
+        with mock.patch.dict(agentd.os.environ, lease_environment, clear=False), mock.patch.dict(
+            agentd.core.ENV,
+            lease_environment,
+            clear=False,
+        ), mock.patch.object(agentd, "publish_daemon_status"), mock.patch.object(
+            agentd, "log"
+        ), mock.patch.object(agentd.os, "execv") as execv:
+            agentd.restart_self("test")
+            self.assertNotIn(LEASE_FDS_ENV, agentd.os.environ)
+            self.assertNotIn(LEASE_KEYS_DIGEST_ENV, agentd.os.environ)
+            self.assertNotIn(LEASE_FDS_ENV, agentd.core.ENV)
+            self.assertNotIn(LEASE_KEYS_DIGEST_ENV, agentd.core.ENV)
+        execv.assert_called_once()
+
     def test_no_registry_keeps_single_repository_daemon(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
             agentd, "STATE_DIR", Path(tmp)

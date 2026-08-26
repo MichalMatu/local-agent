@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -143,28 +145,85 @@ def repository_from_dict(item: dict[str, Any], *, home: Path) -> RepositoryConte
     return context
 
 
+def _normalized_path_identity(path: Path) -> str:
+    resolved = path.resolve(strict=False)
+    return unicodedata.normalize("NFC", str(resolved)).casefold()
+
+
+def _paths_overlap(first: Path, second: Path) -> bool:
+    first_identity = Path(_normalized_path_identity(first))
+    second_identity = Path(_normalized_path_identity(second))
+    if (
+        first_identity == second_identity
+        or first_identity in second_identity.parents
+        or second_identity in first_identity.parents
+    ):
+        return True
+    try:
+        return first.exists() and second.exists() and first.samefile(second)
+    except OSError:
+        return False
+
+
+def repository_config_digest(repository: RepositoryContext) -> str:
+    """Return an immutable worker-dispatch identity for one registry entry."""
+    payload = {
+        "repository_id": repository.repository_id,
+        "repository": repository.repository,
+        "control": str(repository.control),
+        "work": str(repository.work),
+        "checkpoints": str(repository.checkpoints),
+        "control_branch": repository.control_branch,
+        "default_branch": repository.default_branch,
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def repository_lease_keys(repository: RepositoryContext) -> tuple[str, ...]:
+    """Return repository and resource identities for execution exclusion."""
+    keys = (
+        f"id:{repository.repository_id.casefold()}",
+        f"remote:{repository.repository.casefold()}",
+        f"control:{_normalized_path_identity(repository.control)}",
+        f"work:{_normalized_path_identity(repository.work)}",
+        f"checkpoints:{_normalized_path_identity(repository.checkpoints)}",
+    )
+    return tuple(sorted(keys))
+
+
 def validate_repository_set(repositories: Iterable[RepositoryContext]) -> list[RepositoryContext]:
     result = list(repositories)
     if not result:
         raise ValueError("repository registry must contain at least one repository")
 
-    ids: set[str] = set()
+    ids: dict[str, str] = {}
+    remotes: dict[str, str] = {}
     paths: dict[Path, tuple[str, str]] = {}
     for repository in result:
-        if repository.repository_id in ids:
+        normalized_id = repository.repository_id.casefold()
+        if normalized_id in ids:
             raise ValueError(f"duplicate repository id: {repository.repository_id!r}")
-        ids.add(repository.repository_id)
+        ids[normalized_id] = repository.repository_id
+        normalized_remote = repository.repository.casefold()
+        if normalized_remote in remotes:
+            raise ValueError(
+                f"duplicate remote repository: {repository.repository!r} "
+                f"also configured by {remotes[normalized_remote]!r}"
+            )
+        remotes[normalized_remote] = repository.repository_id
         for field, path in (
             ("control", repository.control),
             ("work", repository.work),
             ("checkpoints", repository.checkpoints),
         ):
             for previous_path, (other_id, other_field) in paths.items():
-                if (
-                    path == previous_path
-                    or path in previous_path.parents
-                    or previous_path in path.parents
-                ):
+                if _paths_overlap(path, previous_path):
                     raise ValueError(
                         f"workspace path collision: {repository.repository_id}.{field} "
                         f"at {path} overlaps {other_id}.{other_field} at {previous_path}"

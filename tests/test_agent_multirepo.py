@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import subprocess
 import tempfile
 import unittest
@@ -54,7 +55,7 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         )
         self.assertAlmostEqual(delay, 1.5)
 
-    def test_scheduler_sleep_does_not_let_overdue_background_preempt_active(self) -> None:
+    def test_scheduler_sleep_wakes_for_overdue_background_scan(self) -> None:
         delay = multi.scheduler_sleep_seconds(
             active_repository="a",
             last_activity_at=100.0,
@@ -63,7 +64,7 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
             last_control_service_at=0.0,
             now=100.5,
         )
-        self.assertAlmostEqual(delay, 1.5)
+        self.assertAlmostEqual(delay, 0.0)
 
     def test_scheduler_sleep_uses_background_cadence_when_idle(self) -> None:
         delay = multi.scheduler_sleep_seconds(
@@ -76,12 +77,35 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         )
         self.assertAlmostEqual(delay, 1.0)
 
+    def test_due_full_scan_suppresses_continuously_hot_repository_poll(self) -> None:
+        actions = multi.scheduler_due_actions(
+            active_repository="a",
+            last_activity_at=100.0,
+            last_active_poll_at=100.0,
+            last_full_scan_at=80.0,
+            last_control_service_at=100.0,
+            now=102.0,
+        )
+        self.assertEqual(actions, ("full_scan",))
+
+    def test_due_control_and_full_scan_are_selected_before_hot_poll(self) -> None:
+        actions = multi.scheduler_due_actions(
+            active_repository="a",
+            last_activity_at=100.0,
+            last_active_poll_at=100.0,
+            last_full_scan_at=80.0,
+            last_control_service_at=80.0,
+            now=102.0,
+        )
+        self.assertEqual(actions, ("control", "full_scan"))
+
     def test_worker_command_targets_exact_repository(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             registry = Path(tmp) / "repositories.json"
             command = multi.worker_command(repository("a"), registry_path=registry)
         self.assertIn("agent_repo_worker.py", command[1])
         self.assertEqual(command[2:4], ["--repository-id", "a"])
+        self.assertIn("--expected-config-digest", command)
         self.assertEqual(command[-2:], ["--registry", str(registry)])
 
     def test_active_repository_cycle_polls_only_requested_repository(self) -> None:
@@ -146,27 +170,6 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
             ["b", "c"],
         )
 
-    def test_background_cycle_can_exclude_recently_polled_active_repository(self) -> None:
-        repositories = [repository("a"), repository("b"), repository("c")]
-        with mock.patch.object(
-            multi, "load_repository_registry", return_value=repositories
-        ), mock.patch.object(
-            multi,
-            "run_worker",
-            side_effect=[WORKER_IDLE, WORKER_PROCESSED],
-        ) as run_worker:
-            processed, last_repository = multi.run_cycle(
-                registry_path=None,
-                start_after="a",
-                exclude_repository_id="a",
-            )
-        self.assertTrue(processed)
-        self.assertEqual(last_repository, "c")
-        self.assertEqual(
-            [call.args[0].repository_id for call in run_worker.call_args_list],
-            ["b", "c"],
-        )
-
     def test_supervisor_control_uses_first_repository(self) -> None:
         repositories = [repository("a"), repository("b")]
         with mock.patch.object(
@@ -209,6 +212,10 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         target = repository("a")
         with mock.patch.object(
             multi, "service_supervisor_control", side_effect=RuntimeError("network down")
+        ), mock.patch.object(
+            multi,
+            "repository_execution_lease",
+            return_value=contextlib.nullcontext(),
         ):
             self.assertFalse(multi.service_supervisor_control_safely(target))
 
@@ -216,8 +223,15 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         target = repository("a")
         proc = mock.Mock(pid=12345)
         proc.wait.side_effect = subprocess.TimeoutExpired(["worker"], 1)
-        with mock.patch.object(multi.subprocess, "Popen", return_value=proc), mock.patch.object(
-            multi, "terminate_process_group"
+        with mock.patch.object(
+            multi, "popen_registered", return_value=proc
+        ), mock.patch.object(
+            multi,
+            "repository_execution_lease",
+            return_value=contextlib.nullcontext(),
+        ), mock.patch.object(multi, "unregister_process"), mock.patch.object(
+            multi,
+            "terminate_process_group",
         ) as terminate:
             return_code = multi.run_worker(target, registry_path=None)
         self.assertEqual(return_code, 124)

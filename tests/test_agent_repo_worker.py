@@ -10,7 +10,7 @@ import agent_core as core
 import agent_repo_worker as worker
 import agent_storage as storage
 import agentd
-from agent_repository import RepositoryContext
+from agent_repository import RepositoryContext, repository_config_digest
 
 
 class RepositoryWorkerTests(unittest.TestCase):
@@ -77,6 +77,25 @@ class RepositoryWorkerTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "checkout missing"):
             worker.validate_repository_checkouts(missing)
+
+    def test_repository_lookup_rejects_changed_configuration_digest(self) -> None:
+        with mock.patch.object(
+            worker,
+            "load_repository_registry",
+            return_value=[self.repository],
+        ):
+            with self.assertRaisesRegex(ValueError, "configuration changed"):
+                worker.repository_by_id(
+                    self.repository.repository_id,
+                    registry_path=None,
+                    expected_config_digest="0" * 64,
+                )
+            selected = worker.repository_by_id(
+                self.repository.repository_id,
+                registry_path=None,
+                expected_config_digest=repository_config_digest(self.repository),
+            )
+        self.assertEqual(selected, self.repository)
 
     def test_quiet_sync_uses_bounded_storage_policy(self) -> None:
         with mock.patch.object(storage, "sync_control") as sync:

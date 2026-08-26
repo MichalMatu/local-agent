@@ -14,9 +14,26 @@ from typing import Any
 
 import agent_storage as storage
 import agentd
-from agent_process import terminate_process_group
-from agent_repository import RepositoryContext, load_repository_registry
-from agent_repo_worker import WORKER_IDLE, WORKER_PROCESSED
+from agent_process import (
+    ExecutionLeaseBusy,
+    defer_termination_during_spawn,
+    popen_registered,
+    terminate_active_processes,
+    terminate_process_group,
+    unregister_process,
+)
+from agent_repository import (
+    RepositoryContext,
+    load_repository_registry,
+    repository_config_digest,
+)
+from agent_repo_worker import (
+    WORKER_BUSY,
+    WORKER_CONFIG_CHANGED,
+    WORKER_IDLE,
+    WORKER_PROCESSED,
+    repository_execution_lease,
+)
 from agent_version import RELEASE_VERSION
 
 SUPERVISOR_VERSION = RELEASE_VERSION
@@ -27,7 +44,6 @@ HOT_WINDOW_SECONDS = 30.0
 WARM_WINDOW_SECONDS = 120.0
 SUPERVISOR_CONTROL_POLL_SECONDS = POLL_SECONDS
 WORKER_TURN_GRACE_SECONDS = 3600
-_active_worker: subprocess.Popen[str] | None = None
 _daemon_lock_handle: Any | None = None
 
 
@@ -80,10 +96,18 @@ def scheduler_sleep_seconds(
     last_control_service_at: float | None,
     now: float,
 ) -> float:
-    """Keep an active repository's next poll ahead of overdue background work."""
+    """Wake for the earliest repository, full-scan or supervisor-control deadline."""
     if active_repository is not None:
         _, interval = adaptive_poll_tier(last_activity_at, now)
-        return interval_remaining(last_active_poll_at, interval, now)
+        return min(
+            interval_remaining(last_active_poll_at, interval, now),
+            interval_remaining(last_full_scan_at, POLL_SECONDS, now),
+            interval_remaining(
+                last_control_service_at,
+                SUPERVISOR_CONTROL_POLL_SECONDS,
+                now,
+            ),
+        )
     return min(
         interval_remaining(last_full_scan_at, POLL_SECONDS, now),
         interval_remaining(
@@ -92,6 +116,33 @@ def scheduler_sleep_seconds(
             now,
         ),
     )
+
+
+def scheduler_due_actions(
+    *,
+    active_repository: str | None,
+    last_activity_at: float | None,
+    last_active_poll_at: float | None,
+    last_full_scan_at: float | None,
+    last_control_service_at: float | None,
+    now: float,
+) -> tuple[str, ...]:
+    """Select due work with control and full-scan priority over hot polling."""
+    actions: list[str] = []
+    if interval_due(
+        last_control_service_at,
+        SUPERVISOR_CONTROL_POLL_SECONDS,
+        now,
+    ):
+        actions.append("control")
+    full_scan_due = interval_due(last_full_scan_at, POLL_SECONDS, now)
+    if full_scan_due:
+        actions.append("full_scan")
+    elif active_repository is not None:
+        _, active_interval = adaptive_poll_tier(last_activity_at, now)
+        if interval_due(last_active_poll_at, active_interval, now):
+            actions.append("active_poll")
+    return tuple(actions)
 
 
 def supervisor_control_repository(
@@ -126,7 +177,14 @@ def service_supervisor_control_safely(
     sync: bool = True,
 ) -> bool:
     try:
-        service_supervisor_control(repository, sync=sync)
+        with repository_execution_lease(repository):
+            service_supervisor_control(repository, sync=sync)
+    except ExecutionLeaseBusy:
+        log(
+            f"supervisor control deferred repository="
+            f"{repository.repository_id}: execution lease busy"
+        )
+        return False
     except Exception as exc:
         log(
             f"supervisor control service degraded repository="
@@ -159,6 +217,8 @@ def worker_command(
         str(Path(__file__).resolve().with_name("agent_repo_worker.py")),
         "--repository-id",
         repository.repository_id,
+        "--expected-config-digest",
+        repository_config_digest(repository),
     ]
     if registry_path is not None:
         command.extend(["--registry", str(registry_path)])
@@ -170,40 +230,43 @@ def run_worker(
     *,
     registry_path: Path | None,
 ) -> int:
-    global _active_worker
-    command = worker_command(repository, registry_path=registry_path)
-    env = os.environ.copy()
-    env["LOCAL_AGENT_SUPERVISOR_PID"] = str(os.getpid())
-    proc = subprocess.Popen(
-        command,
-        cwd=Path(__file__).resolve().parent,
-        env=env,
-        text=True,
-        start_new_session=True,
-    )
-    setattr(proc, "_local_agent_process_group", proc.pid)
-    _active_worker = proc
     try:
-        try:
-            return proc.wait(
-                timeout=agentd.TIMEOUTS.task_max + WORKER_TURN_GRACE_SECONDS
+        with repository_execution_lease(repository):
+            command = worker_command(repository, registry_path=registry_path)
+            env = os.environ.copy()
+            env["LOCAL_AGENT_SUPERVISOR_PID"] = str(os.getpid())
+            proc = popen_registered(
+                command,
+                cwd=Path(__file__).resolve().parent,
+                env=env,
+                text=True,
+                start_new_session=True,
             )
-        except subprocess.TimeoutExpired:
-            log(
-                f"repository worker timed out repository={repository.repository_id} "
-                f"limit={agentd.TIMEOUTS.task_max + WORKER_TURN_GRACE_SECONDS}s"
-            )
-            terminate_process_group(proc, log)
-            return 124
-    finally:
-        _active_worker = None
+            setattr(proc, "_local_agent_process_group", proc.pid)
+            try:
+                try:
+                    return proc.wait(
+                        timeout=agentd.TIMEOUTS.task_max + WORKER_TURN_GRACE_SECONDS
+                    )
+                except subprocess.TimeoutExpired:
+                    log(
+                        f"repository worker timed out "
+                        f"repository={repository.repository_id} "
+                        f"limit={agentd.TIMEOUTS.task_max + WORKER_TURN_GRACE_SECONDS}s"
+                    )
+                    terminate_process_group(proc, log)
+                    return 124
+            finally:
+                unregister_process(proc)
+    except ExecutionLeaseBusy:
+        return WORKER_BUSY
 
 
 def shutdown_handler(signum: int, _frame: Any) -> None:
-    proc = _active_worker
-    if proc is not None:
-        log(f"received signal {signum}; terminating repository worker")
-        terminate_process_group(proc, log)
+    if defer_termination_during_spawn(signum):
+        return
+    log(f"received signal {signum}; terminating active processes")
+    terminate_active_processes(log)
     raise SystemExit(128 + signum)
 
 
@@ -229,6 +292,15 @@ def run_repository_cycle(
         return True
     if return_code == WORKER_IDLE:
         return False
+    if return_code == WORKER_BUSY:
+        log(f"repository turn deferred repository={repository.repository_id}: lease busy")
+        return False
+    if return_code == WORKER_CONFIG_CHANGED:
+        log(
+            f"repository turn deferred repository={repository.repository_id}: "
+            "configuration changed"
+        )
+        return False
     log(
         f"repository worker failed repository={repository.repository_id} "
         f"exit={return_code}; keeping scheduler alive"
@@ -240,21 +312,23 @@ def run_cycle(
     *,
     registry_path: Path | None,
     start_after: str | None,
-    exclude_repository_id: str | None = None,
 ) -> tuple[bool, str | None]:
     repositories = load_repository_registry(path=registry_path)
-    if exclude_repository_id is not None:
-        repositories = [
-            repository
-            for repository in repositories
-            if repository.repository_id != exclude_repository_id
-        ]
     for repository in ordered_repositories(repositories, start_after):
         return_code = run_worker(repository, registry_path=registry_path)
         if return_code == WORKER_PROCESSED:
             log(f"completed repository turn={repository.repository_id}")
             return True, repository.repository_id
         if return_code == WORKER_IDLE:
+            continue
+        if return_code == WORKER_BUSY:
+            log(f"repository turn deferred repository={repository.repository_id}: lease busy")
+            continue
+        if return_code == WORKER_CONFIG_CHANGED:
+            log(
+                f"repository turn deferred repository={repository.repository_id}: "
+                "configuration changed"
+            )
             continue
         log(
             f"repository worker failed repository={repository.repository_id} "
@@ -296,13 +370,19 @@ def main() -> int:
         f"idle:{POLL_SECONDS:g}s"
     )
     try:
-        sync_control_quietly()
-        agentd.publish_daemon_status(
-            "idle",
-            force_remote=True,
-            execution_model="multi_repository_supervisor",
-            supervisor_pid=os.getpid(),
-            supervisor_control_repository=control_repository.repository_id,
+        with repository_execution_lease(control_repository):
+            sync_control_quietly()
+            agentd.publish_daemon_status(
+                "idle",
+                force_remote=True,
+                execution_model="multi_repository_supervisor",
+                supervisor_pid=os.getpid(),
+                supervisor_control_repository=control_repository.repository_id,
+            )
+    except ExecutionLeaseBusy:
+        log(
+            f"initial supervisor control service deferred repository="
+            f"{control_repository.repository_id}: execution lease busy"
         )
     except Exception as exc:
         log(
@@ -324,75 +404,59 @@ def main() -> int:
                 last_activity_at = None
                 last_active_poll_at = None
 
-            processed_this_turn = False
-            active_polled_idle = False
+            now = time.monotonic()
+            due_actions = scheduler_due_actions(
+                active_repository=active_repository,
+                last_activity_at=last_activity_at,
+                last_active_poll_at=last_active_poll_at,
+                last_full_scan_at=last_full_scan_at,
+                last_control_service_at=last_control_service_at,
+                now=now,
+            )
+            if "control" in due_actions:
+                control_repository = supervisor_control_repository(
+                    registry_path=registry_path
+                )
+                service_supervisor_control_safely(control_repository)
+                last_control_service_at = time.monotonic()
 
-            if active_repository is not None:
-                now = time.monotonic()
-                _, active_interval = adaptive_poll_tier(last_activity_at, now)
-                if interval_due(last_active_poll_at, active_interval, now):
-                    processed = run_repository_cycle(
-                        active_repository,
-                        registry_path=registry_path,
-                    )
-                    completed_at = time.monotonic()
+            if "full_scan" in due_actions:
+                processed, scanned_repository = run_cycle(
+                    registry_path=registry_path,
+                    start_after=last_repository,
+                )
+                completed_at = time.monotonic()
+                last_full_scan_at = completed_at
+                if processed and scanned_repository is not None:
+                    last_repository = scanned_repository
+                    active_repository = scanned_repository
+                    last_activity_at = completed_at
                     last_active_poll_at = completed_at
-                    if processed:
-                        processed_this_turn = True
-                        last_repository = active_repository
-                        last_activity_at = completed_at
-                        idle_announced = False
-                        log(
-                            f"adaptive polling repository={active_repository} "
-                            f"tier=hot interval={HOT_POLL_SECONDS:g}s"
-                        )
-                    else:
-                        active_polled_idle = True
-
-            background_allowed = active_repository is None or active_polled_idle
-            if not processed_this_turn and background_allowed:
-                now = time.monotonic()
-                if interval_due(last_full_scan_at, POLL_SECONDS, now):
-                    processed, scanned_repository = run_cycle(
-                        registry_path=registry_path,
-                        start_after=last_repository,
-                        exclude_repository_id=(
-                            active_repository if active_polled_idle else None
-                        ),
+                    idle_announced = False
+                    log(
+                        f"adaptive polling repository={active_repository} "
+                        f"tier=hot interval={HOT_POLL_SECONDS:g}s"
                     )
-                    completed_at = time.monotonic()
-                    last_full_scan_at = completed_at
-                    if processed and scanned_repository is not None:
-                        processed_this_turn = True
-                        last_repository = scanned_repository
-                        active_repository = scanned_repository
-                        last_activity_at = completed_at
-                        last_active_poll_at = completed_at
-                        idle_announced = False
-                        log(
-                            f"adaptive polling repository={active_repository} "
-                            f"tier=hot interval={HOT_POLL_SECONDS:g}s"
-                        )
-
-            if not processed_this_turn and background_allowed:
-                now = time.monotonic()
-                if interval_due(
-                    last_control_service_at,
-                    SUPERVISOR_CONTROL_POLL_SECONDS,
-                    now,
-                ):
-                    control_repository = supervisor_control_repository(
-                        registry_path=registry_path
+                elif not processed:
+                    active_repository = None
+                    last_activity_at = None
+                    last_active_poll_at = None
+            elif "active_poll" in due_actions:
+                assert active_repository is not None
+                processed = run_repository_cycle(
+                    active_repository,
+                    registry_path=registry_path,
+                )
+                completed_at = time.monotonic()
+                last_active_poll_at = completed_at
+                if processed:
+                    last_repository = active_repository
+                    last_activity_at = completed_at
+                    idle_announced = False
+                    log(
+                        f"adaptive polling repository={active_repository} "
+                        f"tier=hot interval={HOT_POLL_SECONDS:g}s"
                     )
-                    control_was_just_synced = (
-                        active_polled_idle
-                        and active_repository == control_repository.repository_id
-                    )
-                    service_supervisor_control_safely(
-                        control_repository,
-                        sync=not control_was_just_synced,
-                    )
-                    last_control_service_at = time.monotonic()
 
         except Exception as exc:
             idle_announced = False

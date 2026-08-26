@@ -20,7 +20,14 @@ from typing import Any
 import agent_core as core
 import agent_storage as storage
 from agent_config import TIMEOUTS
-from agent_process import atomic_write_text, fsync_directory
+from agent_process import (
+    LEASE_FDS_ENV,
+    LEASE_KEYS_DIGEST_ENV,
+    atomic_write_text,
+    defer_termination_during_spawn,
+    fsync_directory,
+    terminate_active_processes,
+)
 from agent_runtime import (
     DEFAULT_MEMORY_LIMIT_MB,
     MAX_TASK_FILE_BYTES,
@@ -785,6 +792,9 @@ def _validate_installed_update() -> tuple[bool, str]:
 def restart_self(reason: str) -> None:
     publish_daemon_status("restarting", force_remote=True, reason=reason)
     log(f"restarting daemon: {reason}")
+    for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV):
+        os.environ.pop(name, None)
+        core.ENV.pop(name, None)
     try:
         os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve())])
     except OSError as exc:
@@ -1022,8 +1032,10 @@ def make_progress_callback(
 
 
 def shutdown_handler(signum: int, _frame: Any) -> None:
-    log(f"received signal {signum}; terminating active command")
-    runtime.terminate_active_command()
+    if defer_termination_during_spawn(signum):
+        return
+    log(f"received signal {signum}; terminating active processes")
+    terminate_active_processes(log)
     raise SystemExit(128 + signum)
 
 

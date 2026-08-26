@@ -30,6 +30,11 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - Multi-repository scheduling must keep global execution concurrency at one unless a future design explicitly introduces machine-resource arbitration.
 - Never mutate `agent_core.CONTROL`, `WORK`, `CHECKPOINTS` or equivalent repository globals in the long-lived multi-repository supervisor. Legacy path binding is allowed only inside a short-lived repository worker process.
 - Repository control/work/checkpoint paths must be unique. A registry path collision is terminal configuration failure.
+- Repository ids and remote identities are case-insensitively unique. Existing path aliases, case-insensitive path collisions and ancestor/descendant overlaps are terminal configuration failures.
+- A repository turn holds OS execution leases for its id, remote and every workspace path. The leases must survive the supervisor and worker through every spawned descendant.
+- Stale-claim recovery must not inspect or mutate a repository while an earlier process still owns any matching execution lease.
+- A worker must reject dispatch when its exact repository configuration changed after the supervisor selected it.
+- Every daemon, supervisor and worker subprocess must use the shared registered spawn path so termination is bounded and cannot race an unregistered child.
 - A repository worker failure before task execution must not prevent the supervisor from polling other configured repositories.
 - Repository workers must never execute global daemon restart/self-update directly. Those actions are supervisor-wide maintenance operations, not repository-local controls.
 - Repository polling must never implicitly clone, overwrite or repair a checkout. Provisioning is an explicit administrative operation.
@@ -61,6 +66,7 @@ Verification is impact-driven:
 - after a focused fix, rerun only the affected gate unless the fix expands the impact surface;
 - new control/progress/watchdog/process-lifecycle behavior requires unit coverage;
 - multi-repository scheduler, isolation or provisioning changes require real temporary-Git integration coverage in addition to unit tests.
+- repository lease or process-lifecycle changes require real SIGTERM and SIGKILL process tests in addition to unit coverage.
 
 Use `workflow_policy: "efficient-verification-v1"` for staged coding tasks that
 must make verification cost explicit. Every `steps` and `verify_steps` item must
