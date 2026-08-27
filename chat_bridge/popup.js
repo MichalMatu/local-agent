@@ -41,7 +41,9 @@ async function refresh() {
   elements.fallbackRetry.value = state.fallbackBusyRetryMinutes;
   elements.fallbackPrompt.value = state.fallbackPrompt || "";
   elements.runtimeSource.textContent = runtime.source;
-  elements.runtimeInterval.textContent = `${runtime.intervalMinutes} min`;
+  elements.runtimeInterval.textContent = runtime.intervalOverridden
+    ? `${runtime.intervalMinutes} min (assistant override)`
+    : `${runtime.intervalMinutes} min`;
   elements.lastStatus.textContent = state.lastStatus || "-";
   elements.nextRun.textContent = formatTime(state.nextRunAt);
 }
@@ -67,7 +69,7 @@ async function injectContentScript(tabId) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
-      files: ["content.js"]
+      files: ["control_protocol.js", "content.js"]
     });
   } catch (error) {
     throw new Error(`Cannot activate bridge in this tab: ${error.message}`);
