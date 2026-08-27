@@ -1,16 +1,15 @@
 if (!globalThis.__localAgentChatBridgeLoaded) {
   globalThis.__localAgentChatBridgeLoaded = true;
 
-  function normalizeConversationUrl(rawUrl) {
-    try {
-      const url = new URL(rawUrl);
-      url.search = "";
-      url.hash = "";
-      return `${url.origin}${url.pathname.replace(/\/$/, "")}`;
-    } catch (_error) {
-      return "";
-    }
+  const protocol = globalThis.LocalAgentBridgeProtocol;
+  if (!protocol) {
+    throw new Error("Local Agent Chat Bridge control protocol is unavailable");
   }
+  const {
+    normalizeConversationUrl,
+    parseAssistantControl,
+    controlFingerprint
+  } = protocol;
 
   function findComposer() {
     return (
@@ -141,6 +140,59 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
     sendButton.click();
     return { ok: true, reason: "sent" };
   }
+
+  function latestAssistantText() {
+    const messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+    if (!messages.length) return "";
+    const latest = messages[messages.length - 1];
+    return latest.innerText || latest.textContent || "";
+  }
+
+  let controlScanTimer = null;
+  let lastSubmittedControlFingerprint = "";
+
+  async function scanLatestAssistantControl() {
+    if (assistantIsGenerating()) return;
+    const assistantText = latestAssistantText();
+    const control = parseAssistantControl(assistantText);
+    if (!control) return;
+
+    const fingerprint = controlFingerprint(location.href, assistantText, control);
+    if (fingerprint === lastSubmittedControlFingerprint) return;
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "bridge:assistant-control",
+        conversationUrl: normalizeConversationUrl(location.href),
+        fingerprint,
+        control
+      });
+      if (response?.ok) {
+        lastSubmittedControlFingerprint = fingerprint;
+      }
+    } catch (error) {
+      console.warn("Local Agent Chat Bridge control delivery failed:", error);
+    }
+  }
+
+  function scheduleControlScan() {
+    if (controlScanTimer !== null) clearTimeout(controlScanTimer);
+    controlScanTimer = setTimeout(() => {
+      controlScanTimer = null;
+      scanLatestAssistantControl().catch((error) => console.warn(error));
+    }, 500);
+  }
+
+  const observerTarget = document.body || document.documentElement;
+  if (observerTarget) {
+    const observer = new MutationObserver(scheduleControlScan);
+    observer.observe(observerTarget, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+  }
+  scheduleControlScan();
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== "bridge:feedback") return false;
