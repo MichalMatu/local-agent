@@ -65,8 +65,8 @@ Example multi-repository registry:
       "legacy_workspace": true
     },
     {
-      "id": "photomaps",
-      "repository": "MichalMatu/PhotoMaps"
+      "id": "matrixhub",
+      "repository": "MichalMatu/MatrixHub"
     },
     {
       "id": "wreckscanner",
@@ -124,7 +124,7 @@ Actual local execution remains serialized:
 
 ```text
 Chat A -> LiteGraph queue -----\
-Chat B -> PhotoMaps queue ------> one supervisor -> one worker/task at a time
+Chat B -> MatrixHub queue ------> one supervisor -> one worker/task at a time
 Chat C -> WreckScanner queue ---/
 ```
 
@@ -170,7 +170,7 @@ Provisioning is explicit:
 ```bash
 python agent_repo_admin.py list
 python agent_repo_admin.py validate
-python agent_repo_admin.py provision --repository-id photomaps
+python agent_repo_admin.py provision --repository-id matrixhub
 ```
 
 `provision` never overwrites an existing non-Git path. Existing Git checkouts must have the configured repository as `origin`.
