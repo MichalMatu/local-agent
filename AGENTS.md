@@ -97,6 +97,7 @@ A multi-repository release additionally requires an isolated macOS two-repositor
 ## Documentation
 
 Canonical workflow: `docs/OPERATIONS.md`.
+Autonomous ChatGPT planner/Chat Bridge loop: `docs/AUTONOMOUS_CHAT_LOOP.md`.
 Multi-repository architecture and administration: `docs/MULTI_REPOSITORY.md`.
 Established Mac/ESP32 deployment: `docs/SESSION_BOOTSTRAP.md`.
 Current invariants/audit state: `docs/GOLDEN_STANDARD.md`.

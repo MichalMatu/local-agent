@@ -2,6 +2,8 @@
 
 Chrome Manifest V3 extension that periodically sends one bounded feedback prompt to one explicitly selected ChatGPT conversation. It is intentionally separate from the deterministic local-agent execution path.
 
+The complete planner/executor/autonomous-loop contract is documented in `docs/AUTONOMOUS_CHAT_LOOP.md`. The bridge itself is only a wake-up and control transport; it does not understand the conversation or decide what work should run.
+
 ## Safety model
 
 - Disabled by default.
