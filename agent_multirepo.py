@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,8 @@ import agent_storage as storage
 import agentd
 from agent_process import (
     ExecutionLeaseBusy,
+    LEASE_FDS_ENV,
+    LEASE_KEYS_DIGEST_ENV,
     defer_termination,
     popen_registered,
     terminate_active_processes,
@@ -159,26 +162,89 @@ def bind_supervisor_control(repository: RepositoryContext) -> None:
     agentd.DAEMON_VERSION = SUPERVISOR_VERSION
 
 
+def supervisor_restart_command(
+    *,
+    registry_path: Path | None,
+    once: bool,
+) -> list[str]:
+    """Return the exact supervisor command that must survive restart/self-update."""
+    command = [sys.executable, str(Path(__file__).resolve())]
+    if registry_path is not None:
+        command.extend(["--registry", str(registry_path)])
+    if once:
+        command.append("--once")
+    return command
+
+
+def restart_supervisor(
+    reason: str,
+    *,
+    registry_path: Path | None,
+    once: bool,
+) -> None:
+    """Restart the multi-repository entrypoint without falling through agentd.py."""
+    agentd.publish_daemon_status("restarting", force_remote=True, reason=reason)
+    log(f"restarting supervisor: {reason}")
+    for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV):
+        os.environ.pop(name, None)
+        agentd.core.ENV.pop(name, None)
+    command = supervisor_restart_command(registry_path=registry_path, once=once)
+    try:
+        os.execv(command[0], command)
+    except OSError as exc:
+        log(f"exec restart failed; asking launchd to restart: {exc}")
+        raise SystemExit(75) from exc
+
+
+@contextlib.contextmanager
+def route_supervisor_restarts(
+    *,
+    registry_path: Path | None,
+    once: bool,
+) -> Iterator[None]:
+    """Route shared agentd restart hooks back to this supervisor entrypoint."""
+    original_restart = agentd.restart_self
+
+    def routed_restart(reason: str) -> None:
+        restart_supervisor(reason, registry_path=registry_path, once=once)
+
+    agentd.restart_self = routed_restart
+    try:
+        yield
+    finally:
+        agentd.restart_self = original_restart
+
+
 def service_supervisor_control(
     repository: RepositoryContext,
     *,
+    registry_path: Path | None = None,
+    once: bool = False,
     sync: bool = True,
 ) -> None:
     bind_supervisor_control(repository)
     if sync:
         sync_control_quietly()
-    agentd.handle_control_request()
-    agentd.maybe_self_update()
+    with route_supervisor_restarts(registry_path=registry_path, once=once):
+        agentd.handle_control_request()
+        agentd.maybe_self_update()
 
 
 def service_supervisor_control_safely(
     repository: RepositoryContext,
     *,
+    registry_path: Path | None = None,
+    once: bool = False,
     sync: bool = True,
 ) -> bool:
     try:
         with repository_execution_lease(repository):
-            service_supervisor_control(repository, sync=sync)
+            service_supervisor_control(
+                repository,
+                registry_path=registry_path,
+                once=once,
+                sync=sync,
+            )
     except ExecutionLeaseBusy:
         log(
             f"supervisor control deferred repository="
@@ -417,7 +483,11 @@ def main() -> int:
                 control_repository = supervisor_control_repository(
                     registry_path=registry_path
                 )
-                service_supervisor_control_safely(control_repository)
+                service_supervisor_control_safely(
+                    control_repository,
+                    registry_path=registry_path,
+                    once=args.once,
+                )
                 last_control_service_at = time.monotonic()
 
             if "full_scan" in due_actions:
