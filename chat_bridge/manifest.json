@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Local Agent Chat Bridge",
+  "version": "0.1.0",
+  "description": "Periodically nudges one ChatGPT conversation to inspect local-agent progress.",
+  "permissions": ["alarms", "storage", "tabs"],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://raw.githubusercontent.com/*"
+  ],
+  "background": {
+    "service_worker": "service_worker.js"
+  },
+  "action": {
+    "default_title": "Local Agent Chat Bridge",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

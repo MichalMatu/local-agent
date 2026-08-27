@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Local Agent Chat Bridge</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Local Agent Chat Bridge</h1>
+
+      <label class="toggle-row">
+        <input id="enabled" type="checkbox" />
+        <span>Automatic feedback enabled</span>
+      </label>
+
+      <label for="conversationUrl">Conversation</label>
+      <div class="row">
+        <input id="conversationUrl" type="url" placeholder="https://chatgpt.com/c/..." />
+        <button id="useCurrent" type="button">Use current</button>
+      </div>
+
+      <details>
+        <summary>Runtime configuration</summary>
+        <label for="runtimeUrl">Remote runtime URL</label>
+        <input id="runtimeUrl" type="url" />
+
+        <label for="fallbackInterval">Fallback interval (minutes)</label>
+        <input id="fallbackInterval" type="number" min="1" max="1440" />
+
+        <label for="fallbackRetry">Fallback busy retry (minutes)</label>
+        <input id="fallbackRetry" type="number" min="1" max="60" />
+
+        <label for="fallbackPrompt">Fallback prompt</label>
+        <textarea id="fallbackPrompt" rows="6"></textarea>
+      </details>
+
+      <div class="actions">
+        <button id="save" type="button">Save</button>
+        <button id="runNow" type="button">Run now</button>
+      </div>
+
+      <section class="status">
+        <div><strong>Runtime:</strong> <span id="runtimeSource">-</span></div>
+        <div><strong>Interval:</strong> <span id="runtimeInterval">-</span></div>
+        <div><strong>Last:</strong> <span id="lastStatus">-</span></div>
+        <div><strong>Next:</strong> <span id="nextRun">-</span></div>
+      </section>
+
+      <p id="message" role="status"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
