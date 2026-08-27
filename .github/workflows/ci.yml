@@ -27,6 +27,9 @@ jobs:
         run: ruff check agentd.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_repo_admin.py agent_storage.py agentctl.py agent_version.py tests
       - name: Validate chat bridge
         run: |
+          node --check chat_bridge/control_protocol.js
+          node --check chat_bridge/control_protocol.test.js
+          node chat_bridge/control_protocol.test.js
           node --check chat_bridge/service_worker.js
           node --check chat_bridge/content.js
           node --check chat_bridge/popup.js
