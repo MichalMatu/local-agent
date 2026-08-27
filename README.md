@@ -165,7 +165,7 @@ Example administration:
 ```bash
 python agent_repo_admin.py list
 python agent_repo_admin.py validate
-python agent_repo_admin.py provision --repository-id photomaps
+python agent_repo_admin.py provision --repository-id matrixhub
 python agent_multirepo.py --once
 ```
 
