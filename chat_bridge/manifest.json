@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Local Agent Chat Bridge",
-  "version": "0.1.1",
-  "description": "Periodically nudges one ChatGPT conversation to inspect local-agent progress.",
+  "version": "0.2.0",
+  "description": "Periodically nudges one ChatGPT conversation to inspect local-agent progress and accepts bounded assistant control markers.",
   "permissions": ["alarms", "storage", "tabs", "scripting"],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -19,7 +19,7 @@
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
-      "js": ["content.js"],
+      "js": ["control_protocol.js", "content.js"],
       "run_at": "document_idle"
     }
   ]
