@@ -16,6 +16,14 @@ Validated default pairing:
 
 Multi-repository mode generalizes the target side to a machine-local registry while preserving the same task format and execution core.
 
+## Autonomous ChatGPT planner loop
+
+The optional Chrome Chat Bridge can repeatedly wake one selected ChatGPT conversation so the planner can inspect fresh Git-backed status/result evidence and decide whether to queue the next task. The bridge does not plan, inspect code or execute commands. ChatGPT remains the planner and `local-agent` remains the deterministic executor.
+
+The complete autonomous-loop contract, task/result locations, turn algorithm and assistant control markers are defined in `AUTONOMOUS_CHAT_LOOP.md`. The runtime bridge prompt is intentionally only a wake-up policy; it is not a replacement for this operations contract or `AGENTS.md`.
+
+During autonomous operation, keep the one-task-at-a-time rule: never queue another task while the repository reports an active task. After a terminal result, inspect the exact result and only then decide the next bounded task. Use a new unique task id for every continuation. Stop the bridge when the requested goal is complete and pause it when user/manual action is required.
+
 ## Control data
 
 Each repository `agent-control` branch contains queued tasks, live runs, terminal results, daemon/repository status and durable control acknowledgements under `.agent/`.
