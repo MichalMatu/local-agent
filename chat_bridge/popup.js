@@ -63,16 +63,29 @@ async function save() {
   await refresh();
 }
 
+async function injectContentScript(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["content.js"]
+    });
+  } catch (error) {
+    throw new Error(`Cannot activate bridge in this tab: ${error.message}`);
+  }
+}
+
 async function useCurrentConversation() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.url || !/^https:\/\/(chatgpt\.com|chat\.openai\.com)\//.test(tab.url)) {
+  if (!tab?.id || !tab?.url || !/^https:\/\/(chatgpt\.com|chat\.openai\.com)\//.test(tab.url)) {
     throw new Error("Open the target ChatGPT conversation first.");
   }
   const url = new URL(tab.url);
   url.search = "";
   url.hash = "";
   elements.conversationUrl.value = `${url.origin}${url.pathname.replace(/\/$/, "")}`;
-  showMessage("Current conversation selected. Save to activate it.");
+  await injectContentScript(tab.id);
+  await save();
+  showMessage("Current conversation selected, activated, and saved.");
 }
 
 elements.save.addEventListener("click", () => {
