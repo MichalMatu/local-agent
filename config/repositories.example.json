@@ -7,8 +7,8 @@
       "legacy_workspace": true
     },
     {
-      "id": "photomaps",
-      "repository": "MichalMatu/PhotoMaps"
+      "id": "matrixhub",
+      "repository": "MichalMatu/MatrixHub"
     }
   ]
 }
