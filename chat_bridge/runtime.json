@@ -2,5 +2,5 @@
   "schema_version": 1,
   "interval_minutes": 10,
   "busy_retry_minutes": 1,
-  "prompt": "Check local-agent progress for the active autonomous goal in this conversation. Use the latest GitHub status and result evidence. If local-agent is still running a task, do not queue another task. If the previous task finished and local-agent is idle, analyze its result and continue with the next necessary task. If there is no active autonomous goal or the goal is already complete, do not start more work."
+  "prompt": "Check local-agent progress for the active autonomous goal in this conversation. Use the latest GitHub status and result evidence. If local-agent is still running a task, do not queue another task. If the previous task finished and local-agent is idle, analyze its result and continue with the next necessary task. If the autonomous goal is complete, end your response with [LOCAL_AGENT_BRIDGE:STOP]. If progress requires the user to perform a manual action before automation can continue, end your response with [LOCAL_AGENT_BRIDGE:PAUSE]. Otherwise do not emit a bridge control marker."
 }
