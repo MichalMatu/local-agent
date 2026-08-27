@@ -8,7 +8,7 @@ A planner decides **what should change** and supplies the exact task. `local-age
 
 > The planner decides the work. The executor makes the run deterministic, bounded and observable.
 
-**Current release:** `v4.10.1`
+**Current release:** `v4.10.2`
 
 `local-agent` is the actively developed implementation. It started as execution infrastructure for one ESP32 development workspace and has evolved into a multi-repository supervisor while retaining a compatible single-repository fallback for the established setup.
 

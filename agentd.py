@@ -816,6 +816,8 @@ def _validate_installed_update() -> tuple[bool, str]:
     ]
     with tempfile.TemporaryDirectory(prefix="local-agent-update-validation-") as home:
         validation_env = dict(core.ENV)
+        for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV):
+            validation_env.pop(name, None)
         validation_env["HOME"] = home
         for command in commands:
             result = core.process(
