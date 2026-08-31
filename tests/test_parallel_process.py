@@ -93,6 +93,8 @@ class ParallelResourceProcessTests(unittest.TestCase):
                     os.killpg(holder.pid, signal.SIGKILL)
                 with contextlib.suppress(subprocess.TimeoutExpired):
                     holder.wait(timeout=5)
+                if holder.stdout is not None:
+                    holder.stdout.close()
 
     def test_named_resource_lock_survives_worker_exit_via_descendant_fd(self) -> None:
         holder_code = textwrap.dedent(
@@ -183,6 +185,8 @@ class ParallelResourceProcessTests(unittest.TestCase):
                     holder.kill()
                     with contextlib.suppress(subprocess.TimeoutExpired):
                         holder.wait(timeout=5)
+                if holder.stdout is not None:
+                    holder.stdout.close()
 
 
 if __name__ == "__main__":
