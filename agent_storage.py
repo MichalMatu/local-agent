@@ -60,6 +60,26 @@ def is_transient_git_network_failure(result: dict[str, Any]) -> bool:
     return any(marker in output for marker in TRANSIENT_GIT_NETWORK_MARKERS)
 
 
+def git_failure_diagnostic(result: dict[str, Any]) -> str:
+    """Return non-empty bounded diagnostics even when Git emitted no text."""
+    output = str(result.get("output", "")).strip()
+    if output:
+        return output
+
+    details = [f"exit_code={int(result.get('exit_code', 1))}"]
+    if bool(result.get("timed_out")):
+        details.append("timed_out=true")
+    if bool(result.get("background_process_leak")):
+        details.append("background_process_leak=true")
+    failure_reason = str(result.get("failure_reason", "")).strip()
+    if failure_reason:
+        details.append(f"failure_reason={failure_reason}")
+    elapsed = result.get("elapsed_seconds")
+    if isinstance(elapsed, (int, float)):
+        details.append(f"elapsed_seconds={float(elapsed):.3f}")
+    return "git failed without output (" + ", ".join(details) + ")"
+
+
 def run_git_with_network_retry(
     core_module: Any,
     args: list[str],
@@ -74,6 +94,8 @@ def run_git_with_network_retry(
     The delays represent retries after the initial attempt, so the default policy is
     four total attempts: immediate, then after 2s, 5s and 15s. Authentication,
     rebase/conflict and other deterministic Git errors are returned immediately.
+    Silent terminal failures receive synthetic diagnostic output so callers never
+    emit an empty error line.
     """
     result: dict[str, Any] = {}
     for attempt in range(len(retry_delays) + 1):
@@ -85,7 +107,11 @@ def run_git_with_network_retry(
         )
         if result["exit_code"] == 0:
             return result
-        if not is_transient_git_network_failure(result) or attempt >= len(retry_delays):
+        transient = is_transient_git_network_failure(result)
+        if not transient or attempt >= len(retry_delays):
+            if not str(result.get("output", "")).strip():
+                result = dict(result)
+                result["output"] = git_failure_diagnostic(result)
             return result
 
         delay = retry_delays[attempt]
