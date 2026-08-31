@@ -16,11 +16,16 @@ from typing import Any
 import agent_multirepo as serial
 import agent_repo_worker as serial_worker
 import agentd
-from agent_parallel_worker import WORKER_RESOURCE_BUSY
+from agent_parallel_worker import (
+    PARALLEL_STAGING_VERSION,
+    WORKER_MACHINE_BUSY,
+    WORKER_RESOURCE_BUSY,
+)
 from agent_process import (
     LEASE_FDS_ENV,
     LEASE_KEYS_DIGEST_ENV,
     ExecutionLeaseBusy,
+    acquire_execution_leases,
     defer_termination,
     popen_registered,
     terminate_active_processes,
@@ -31,12 +36,16 @@ from agent_repository import (
     RepositoryContext,
     load_repository_registry,
     repository_config_digest,
+    repository_lease_keys,
 )
 
 MAX_WORKERS_ENV = "LOCAL_AGENT_MAX_PARALLEL_WORKERS"
 DEFAULT_MAX_WORKERS = 1
-MAX_MAX_WORKERS = 8
+MAX_MAX_WORKERS = 3
 REAP_INTERVAL_SECONDS = 0.25
+RESOURCE_RETRY_SECONDS = 1.0
+ERROR_RETRY_SECONDS = 1.0
+PARALLEL_EXECUTION_MODEL = "parallel_repository_supervisor_staging"
 _daemon_lock_handle: Any | None = None
 
 
@@ -44,6 +53,7 @@ _daemon_lock_handle: Any | None = None
 class RepositorySchedule:
     last_poll_at: float | None = None
     last_activity_at: float | None = None
+    retry_not_before: float = 0.0
 
 
 @dataclass
@@ -111,12 +121,19 @@ def start_worker(
             return proc
     except ExecutionLeaseBusy:
         return None
+    except OSError as exc:
+        log(
+            f"repository worker spawn failed repository={repository.repository_id}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        return None
 
 
 def reap_workers(
     running: dict[str, RunningWorker],
     schedules: dict[str, RepositorySchedule],
-) -> None:
+) -> dict[str, int]:
+    completed: dict[str, int] = {}
     now = time.monotonic()
     worker_limit = agentd.TIMEOUTS.task_max + serial.WORKER_TURN_GRACE_SECONDS
     for repository_id, slot in list(running.items()):
@@ -136,29 +153,40 @@ def reap_workers(
 
         unregister_process(slot.proc)
         del running[repository_id]
+        completed[repository_id] = return_code
         schedule = schedules.setdefault(repository_id, RepositorySchedule())
         completed_at = time.monotonic()
 
         if return_code == serial_worker.WORKER_PROCESSED:
             schedule.last_activity_at = completed_at
+            schedule.retry_not_before = 0.0
             log(f"completed repository turn={repository_id}")
+        elif return_code == WORKER_MACHINE_BUSY:
+            schedule.retry_not_before = completed_at + RESOURCE_RETRY_SECONDS
+            log(f"machine exclusion deferred repository={repository_id}")
         elif return_code == WORKER_RESOURCE_BUSY:
-            schedule.last_activity_at = completed_at
-            log(f"resource wait deferred repository={repository_id}")
+            schedule.retry_not_before = completed_at + RESOURCE_RETRY_SECONDS
+            log(f"named resource deferred repository={repository_id}")
         elif return_code == serial_worker.WORKER_IDLE:
-            pass
+            schedule.retry_not_before = 0.0
         elif return_code == serial_worker.WORKER_BUSY:
+            schedule.retry_not_before = completed_at + RESOURCE_RETRY_SECONDS
             log(f"repository turn deferred repository={repository_id}: lease busy")
         elif return_code == serial_worker.WORKER_CONFIG_CHANGED:
+            schedule.retry_not_before = completed_at + RESOURCE_RETRY_SECONDS
             log(f"repository turn deferred repository={repository_id}: config changed")
         else:
+            schedule.retry_not_before = completed_at + RESOURCE_RETRY_SECONDS
             log(
                 f"repository worker failed repository={repository_id} "
                 f"exit={return_code}"
             )
+    return completed
 
 
 def repository_due(schedule: RepositorySchedule, now: float) -> bool:
+    if now < schedule.retry_not_before:
+        return False
     _, interval = serial.adaptive_poll_tier(schedule.last_activity_at, now)
     return serial.interval_due(schedule.last_poll_at, interval, now)
 
@@ -174,8 +202,47 @@ def next_repository_delay(
     for repository in repositories:
         schedule = schedules.setdefault(repository.repository_id, RepositorySchedule())
         _, interval = serial.adaptive_poll_tier(schedule.last_activity_at, now)
-        delays.append(serial.interval_remaining(schedule.last_poll_at, interval, now))
+        poll_delay = serial.interval_remaining(schedule.last_poll_at, interval, now)
+        retry_delay = max(0.0, schedule.retry_not_before - now)
+        delays.append(max(poll_delay, retry_delay))
     return min(delays)
+
+
+def _restore_env_value(target: dict[str, str], name: str, previous: str | None) -> None:
+    if previous is None:
+        target.pop(name, None)
+    else:
+        target[name] = previous
+
+
+@contextlib.contextmanager
+def supervisor_control_leases(
+    repositories: list[RepositoryContext],
+) -> Iterator[None]:
+    """Hold every configured repository identity through global control work."""
+    if not repositories:
+        raise ValueError("supervisor control requires at least one repository")
+    keys = tuple(
+        key
+        for repository in repositories
+        for key in repository_lease_keys(repository)
+    )
+    leases = acquire_execution_leases(serial_worker.repository_lease_dir(), keys)
+    updates = leases.environment()
+    previous_os = {name: os.environ.get(name) for name in updates}
+    previous_core = {name: agentd.core.ENV.get(name) for name in updates}
+    os.environ.update(updates)
+    agentd.core.ENV.update(updates)
+    try:
+        yield
+    finally:
+        for target, previous in (
+            (os.environ, previous_os),
+            (agentd.core.ENV, previous_core),
+        ):
+            for name, value in previous.items():
+                _restore_env_value(target, name, value)
+        leases.close()
 
 
 def restart_parallel_supervisor(
@@ -229,16 +296,28 @@ def route_parallel_restarts(
 
 
 def service_control(
-    repository: RepositoryContext,
+    repositories: list[RepositoryContext],
     *,
     registry_path: Path | None,
     max_workers: int,
     once: bool,
 ) -> bool:
+    if not repositories:
+        return False
+    control_repository = repositories[0]
     try:
-        with serial_worker.repository_execution_lease(repository):
-            serial.bind_supervisor_control(repository)
+        with supervisor_control_leases(repositories):
+            serial.bind_supervisor_control(control_repository)
+            agentd.DAEMON_VERSION = PARALLEL_STAGING_VERSION
             serial.sync_control_quietly()
+            agentd.publish_daemon_status(
+                "idle",
+                force_remote=False,
+                execution_model=PARALLEL_EXECUTION_MODEL,
+                supervisor_pid=os.getpid(),
+                max_parallel_workers=max_workers,
+                supervisor_control_repository=control_repository.repository_id,
+            )
             with route_parallel_restarts(
                 registry_path=registry_path,
                 max_workers=max_workers,
@@ -246,15 +325,40 @@ def service_control(
             ):
                 agentd.handle_control_request()
                 agentd.maybe_self_update()
+            agentd.publish_daemon_status(
+                "idle",
+                force_remote=False,
+                execution_model=PARALLEL_EXECUTION_MODEL,
+                supervisor_pid=os.getpid(),
+                max_parallel_workers=max_workers,
+                supervisor_control_repository=control_repository.repository_id,
+            )
         return True
-    except ExecutionLeaseBusy:
+    except ExecutionLeaseBusy as exc:
+        log(f"supervisor control deferred: repository lease busy key={exc.key}")
         return False
     except Exception as exc:
         log(
-            f"supervisor control degraded repository={repository.repository_id}: "
+            f"supervisor control degraded repository={control_repository.repository_id}: "
             f"{type(exc).__name__}: {exc}"
         )
         return False
+
+
+def publish_local_supervisor_status(
+    running: dict[str, RunningWorker],
+    *,
+    max_workers: int,
+) -> None:
+    state = "running" if running else "idle"
+    payload = agentd.daemon_status_payload(
+        state,
+        execution_model=PARALLEL_EXECUTION_MODEL,
+        supervisor_pid=os.getpid(),
+        max_parallel_workers=max_workers,
+        active_repository_ids=sorted(running),
+    )
+    agentd.atomic_write_json(agentd.LOCAL_STATUS_PATH, payload)
 
 
 def shutdown_handler(signum: int, _frame: Any) -> None:
@@ -296,96 +400,186 @@ def main() -> int:
     schedules: dict[str, RepositorySchedule] = {}
     last_repository: str | None = None
     last_control_at: float | None = None
+    control_pending = True
+    priority_repository: str | None = None
     attempted_once: set[str] = set()
 
-    repositories = load_repository_registry(path=args.registry)
+    try:
+        repositories = load_repository_registry(path=args.registry)
+    except Exception as exc:
+        log(f"initial repository registry load failed: {type(exc).__name__}: {exc}")
+        return 2
     if not repositories:
         log("repository registry is empty")
         return 2
 
-    control_repository = repositories[0]
-    serial.bind_supervisor_control(control_repository)
     log(
-        f"parallel supervisor starting max_workers={max_workers} "
-        f"safe_fallback=agent_multirepo.py control_repository="
-        f"{control_repository.repository_id}"
+        f"parallel supervisor {PARALLEL_STAGING_VERSION} starting "
+        f"max_workers={max_workers} safe_fallback=agent_multirepo.py "
+        f"control_repository={repositories[0].repository_id}"
     )
 
     while True:
-        now = time.monotonic()
-        repositories = load_repository_registry(path=args.registry)
-        schedules = {
-            repository.repository_id: schedules.get(
-                repository.repository_id,
-                RepositorySchedule(),
-            )
-            for repository in repositories
-        }
+        try:
+            completed = reap_workers(running, schedules)
+            if completed:
+                publish_local_supervisor_status(running, max_workers=max_workers)
 
-        reap_workers(running, schedules)
+            repositories = load_repository_registry(path=args.registry)
+            if not repositories:
+                if args.once and not running:
+                    return 2
+                time.sleep(ERROR_RETRY_SECONDS)
+                continue
 
-        if serial.interval_due(
-            last_control_at,
-            serial.SUPERVISOR_CONTROL_POLL_SECONDS,
-            now,
-        ):
-            if repositories:
-                control_repository = repositories[0]
-                service_control(
-                    control_repository,
-                    registry_path=args.registry,
-                    max_workers=max_workers,
-                    once=args.once,
+            schedules = {
+                repository.repository_id: schedules.get(
+                    repository.repository_id,
+                    RepositorySchedule(),
                 )
-            last_control_at = time.monotonic()
-
-        capacity = max_workers - len(running)
-        if capacity > 0:
-            ordered = serial.ordered_repositories(repositories, last_repository)
-            for repository in ordered:
-                if capacity <= 0:
-                    break
-                if repository.repository_id in running:
-                    continue
-                schedule = schedules[repository.repository_id]
-                if args.once:
-                    if repository.repository_id in attempted_once:
-                        continue
-                elif not repository_due(schedule, now):
-                    continue
-
-                proc = start_worker(repository, registry_path=args.registry)
-                schedule.last_poll_at = time.monotonic()
-                if args.once:
-                    attempted_once.add(repository.repository_id)
-                if proc is None:
-                    continue
-
-                running[repository.repository_id] = RunningWorker(
-                    repository_id=repository.repository_id,
-                    proc=proc,
-                    started_at=time.monotonic(),
-                )
-                last_repository = repository.repository_id
-                capacity -= 1
-
-        if args.once:
+                for repository in repositories
+            }
             enabled = {repository.repository_id for repository in repositories}
-            if enabled.issubset(attempted_once) and not running:
-                return 0
 
-        now = time.monotonic()
-        if running:
-            delay = REAP_INTERVAL_SECONDS
-        else:
-            repository_delay = next_repository_delay(schedules, repositories, now)
-            control_delay = serial.interval_remaining(
+            if priority_repository not in enabled:
+                priority_repository = None
+
+            for repository_id, return_code in completed.items():
+                if (
+                    priority_repository == repository_id
+                    and return_code != WORKER_MACHINE_BUSY
+                ):
+                    priority_repository = None
+                if (
+                    return_code == WORKER_MACHINE_BUSY
+                    and not args.once
+                    and priority_repository is None
+                    and repository_id in enabled
+                ):
+                    priority_repository = repository_id
+
+            now = time.monotonic()
+            if serial.interval_due(
                 last_control_at,
                 serial.SUPERVISOR_CONTROL_POLL_SECONDS,
                 now,
-            )
-            delay = min(repository_delay, control_delay, 1.0)
-        time.sleep(max(0.05, delay))
+            ):
+                control_pending = True
+
+            if control_pending:
+                if running:
+                    time.sleep(REAP_INTERVAL_SECONDS)
+                    continue
+                if service_control(
+                    repositories,
+                    registry_path=args.registry,
+                    max_workers=max_workers,
+                    once=args.once,
+                ):
+                    last_control_at = time.monotonic()
+                    control_pending = False
+                else:
+                    time.sleep(ERROR_RETRY_SECONDS)
+                    continue
+
+            started_worker = False
+            now = time.monotonic()
+
+            if priority_repository is not None and not args.once:
+                if priority_repository not in running and not running:
+                    repository = next(
+                        item
+                        for item in repositories
+                        if item.repository_id == priority_repository
+                    )
+                    schedule = schedules[priority_repository]
+                    if now >= schedule.retry_not_before:
+                        proc = start_worker(repository, registry_path=args.registry)
+                        schedule.last_poll_at = time.monotonic()
+                        if proc is not None:
+                            running[priority_repository] = RunningWorker(
+                                repository_id=priority_repository,
+                                proc=proc,
+                                started_at=time.monotonic(),
+                            )
+                            last_repository = priority_repository
+                            started_worker = True
+                        else:
+                            schedule.retry_not_before = (
+                                time.monotonic() + RESOURCE_RETRY_SECONDS
+                            )
+            else:
+                capacity = max_workers - len(running)
+                if capacity > 0:
+                    ordered = serial.ordered_repositories(
+                        repositories,
+                        last_repository,
+                    )
+                    for repository in ordered:
+                        if capacity <= 0:
+                            break
+                        if repository.repository_id in running:
+                            continue
+                        schedule = schedules[repository.repository_id]
+                        if args.once:
+                            if repository.repository_id in attempted_once:
+                                continue
+                        elif not repository_due(schedule, now):
+                            continue
+
+                        proc = start_worker(repository, registry_path=args.registry)
+                        schedule.last_poll_at = time.monotonic()
+                        if args.once:
+                            attempted_once.add(repository.repository_id)
+                        if proc is None:
+                            schedule.retry_not_before = (
+                                time.monotonic() + RESOURCE_RETRY_SECONDS
+                            )
+                            continue
+
+                        running[repository.repository_id] = RunningWorker(
+                            repository_id=repository.repository_id,
+                            proc=proc,
+                            started_at=time.monotonic(),
+                        )
+                        last_repository = repository.repository_id
+                        capacity -= 1
+                        started_worker = True
+
+            if started_worker:
+                publish_local_supervisor_status(running, max_workers=max_workers)
+
+            if args.once:
+                enabled = {repository.repository_id for repository in repositories}
+                if enabled.issubset(attempted_once) and not running:
+                    return 0
+
+            now = time.monotonic()
+            if running or control_pending:
+                delay = REAP_INTERVAL_SECONDS
+            elif priority_repository is not None:
+                retry_at = schedules[priority_repository].retry_not_before
+                delay = max(0.05, min(RESOURCE_RETRY_SECONDS, retry_at - now))
+            else:
+                repository_delay = next_repository_delay(
+                    schedules,
+                    repositories,
+                    now,
+                )
+                control_delay = serial.interval_remaining(
+                    last_control_at,
+                    serial.SUPERVISOR_CONTROL_POLL_SECONDS,
+                    now,
+                )
+                delay = min(repository_delay, control_delay, 1.0)
+            time.sleep(max(0.05, delay))
+        except SystemExit:
+            raise
+        except Exception as exc:
+            log(f"scheduler cycle failed: {type(exc).__name__}: {exc}")
+            if args.once:
+                return 2
+            time.sleep(ERROR_RETRY_SECONDS)
 
 
 if __name__ == "__main__":
