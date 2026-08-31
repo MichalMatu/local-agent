@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import threading
+from contextlib import nullcontext
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -47,6 +48,59 @@ class AgentDaemonSafetyTests(unittest.TestCase):
 
     def task(self, task_id: str = "task-1") -> dict:
         return {"id": task_id, "mode": "commands", "commands": ["true"]}
+
+    def test_publish_control_json_keeps_successful_git_plumbing_quiet(self) -> None:
+        process = mock.Mock(side_effect=[
+            {"exit_code": 0, "output": ""},
+            {"exit_code": 1, "output": ""},
+            {"exit_code": 0, "output": ""},
+        ])
+        retry = mock.Mock(side_effect=[
+            {"exit_code": 0, "output": ""},
+            {"exit_code": 0, "output": ""},
+        ])
+        with mock.patch.object(agentd.core, "process", process), mock.patch.object(
+            agentd.storage,
+            "run_git_with_network_retry",
+            retry,
+        ), mock.patch.object(
+            agentd,
+            "termination_critical_section",
+            return_value=nullcontext(),
+        ):
+            published = agentd.publish_control_json(
+                ".agent/status/daemon.json",
+                {"state": "idle"},
+                commit_message="Agent daemon status: idle",
+            )
+        self.assertTrue(published)
+        self.assertTrue(process.call_args_list)
+        self.assertTrue(
+            all(call.kwargs.get("log_commands") is False for call in process.call_args_list)
+        )
+        self.assertEqual(retry.call_count, 2)
+        self.assertTrue(
+            all(call.kwargs.get("log_commands") is False for call in retry.call_args_list)
+        )
+
+    def test_quiet_control_git_failure_keeps_diagnostic(self) -> None:
+        failure = {
+            "exit_code": 124,
+            "output": "",
+            "timed_out": True,
+            "elapsed_seconds": 30.0,
+        }
+        with mock.patch.object(agentd.core, "process", return_value=failure), mock.patch.object(
+            agentd,
+            "termination_critical_section",
+            return_value=nullcontext(),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "timed_out=true"):
+                agentd.publish_control_json(
+                    ".agent/status/daemon.json",
+                    {"state": "idle"},
+                    commit_message="Agent daemon status: idle",
+                )
 
     def test_daemon_status_reports_hardened_watchdog_defaults(self) -> None:
         with mock.patch.object(agentd, "self_revision", return_value="abc"):

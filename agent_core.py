@@ -1041,6 +1041,7 @@ def process_task(
 
 
 def publish_result(task_id: str, result: dict[str, Any]) -> None:
+    """Publish a durable result with quiet successful control-plane Git plumbing."""
     with CONTROL_GIT_LOCK:
         root = CONTROL.resolve()
         results_dir = (CONTROL / ".agent" / "results").resolve()
@@ -1054,24 +1055,34 @@ def publish_result(task_id: str, result: dict[str, Any]) -> None:
         )
 
         relative = str(path.relative_to(root))
-        add = process(["git", "add", "--", relative], CONTROL)
+        add = process(
+            ["git", "add", "--", relative],
+            CONTROL,
+            log_commands=False,
+        )
         if add["exit_code"] != 0:
-            raise RuntimeError(add["output"])
+            raise RuntimeError(storage.git_failure_diagnostic(add))
 
         commit = process(
             ["git", "commit", "-m", f"Agent result: {task_id}", "--", relative],
             CONTROL,
+            log_commands=False,
         )
         if commit["exit_code"] != 0:
-            status = process(["git", "status", "--short", "--", relative], CONTROL)
+            status = process(
+                ["git", "status", "--short", "--", relative],
+                CONTROL,
+                log_commands=False,
+            )
             if status["exit_code"] != 0 or status["output"].strip():
-                raise RuntimeError(commit["output"])
+                raise RuntimeError(storage.git_failure_diagnostic(commit))
 
         pull = storage.run_git_with_network_retry(
             sys.modules[__name__],
             ["git", *storage.bounded_control_pull_args(CONTROL_BRANCH)],
             CONTROL,
             timeout=180,
+            log_commands=False,
         )
         if pull["exit_code"] != 0:
             raise RuntimeError(pull["output"])
@@ -1081,6 +1092,7 @@ def publish_result(task_id: str, result: dict[str, Any]) -> None:
             ["git", "push", "origin", CONTROL_BRANCH],
             CONTROL,
             timeout=180,
+            log_commands=False,
         )
         if push["exit_code"] != 0:
             raise RuntimeError(push["output"])

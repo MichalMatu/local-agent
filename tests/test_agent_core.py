@@ -51,6 +51,8 @@ class WorkspaceCheckpointTests(unittest.TestCase):
             commit_calls=[c for c in process.call_args_list if len(c.args[0]) > 1 and c.args[0][1] == "commit"]
             self.assertEqual(len(commit_calls), 1)
             self.assertEqual(commit_calls[0].args[0][-2:], ["--", ".agent/results/result-test.json"])
+            self.assertTrue(all(c.kwargs.get("log_commands") is False for c in process.call_args_list))
+            self.assertTrue(all(c.kwargs.get("log_commands") is False for c in retry.call_args_list))
         finally:
             core.CONTROL = original_control
 

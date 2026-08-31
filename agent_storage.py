@@ -131,27 +131,44 @@ def run_git_with_network_retry(
     return result
 
 
-def _control_dirty_paths(core_module: Any) -> tuple[str, ...]:
+def _control_status_entries(core_module: Any) -> tuple[tuple[str, str], ...]:
+    """Return exact porcelain status entries without Git path quoting."""
     status = core_module.process(
-        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
         core_module.CONTROL,
         timeout=30,
         log_commands=False,
     )
     if status["exit_code"] != 0:
-        raise RuntimeError(status["output"])
-    paths: set[str] = set()
-    for line in str(status.get("output", "")).splitlines():
-        if len(line) < 4:
+        raise RuntimeError(git_failure_diagnostic(status))
+
+    fields = str(status.get("output", "")).split("\0")
+    entries: list[tuple[str, str]] = []
+    index = 0
+    while index < len(fields):
+        record = fields[index]
+        if not record:
+            index += 1
             continue
-        path = line[3:].strip()
-        if " -> " in path:
-            before, after = path.split(" -> ", 1)
-            paths.add(before.strip('"'))
-            paths.add(after.strip('"'))
-        elif path:
-            paths.add(path.strip('"'))
-    return tuple(sorted(paths))
+        if len(record) < 4 or record[2] != " ":
+            raise RuntimeError(f"invalid git status porcelain record: {record!r}")
+        code = record[:2]
+        path = record[3:]
+        if not path:
+            raise RuntimeError("invalid git status porcelain path")
+        entries.append((code, path))
+
+        if "R" in code or "C" in code:
+            index += 1
+            if index >= len(fields) or not fields[index]:
+                raise RuntimeError("incomplete git status rename/copy record")
+            entries.append((code, fields[index]))
+        index += 1
+    return tuple(entries)
+
+
+def _control_dirty_paths(core_module: Any) -> tuple[str, ...]:
+    return tuple(sorted({path for _code, path in _control_status_entries(core_module)}))
 
 
 def _recoverable_control_path(path: str) -> bool:
@@ -163,9 +180,11 @@ def _recoverable_control_path(path: str) -> bool:
 
 def recover_daemon_owned_control_changes(core_module: Any) -> None:
     """Discard only interrupted daemon-owned control artifacts before sync."""
-    dirty = _control_dirty_paths(core_module)
-    if not dirty:
+    entries = _control_status_entries(core_module)
+    if not entries:
         return
+
+    dirty = tuple(sorted({path for _code, path in entries}))
     unexpected = tuple(path for path in dirty if not _recoverable_control_path(path))
     if unexpected:
         raise RuntimeError(
@@ -180,30 +199,43 @@ def recover_daemon_owned_control_changes(core_module: Any) -> None:
             + ", ".join(dirty)
         )
 
-    restore = core_module.process(
-        [
-            "git",
-            "restore",
-            "--source=HEAD",
-            "--staged",
-            "--worktree",
-            "--",
-            *CONTROL_RECOVERABLE_DIRS,
-        ],
-        core_module.CONTROL,
-        timeout=30,
-        log_commands=False,
-    )
-    if restore["exit_code"] != 0:
-        raise RuntimeError(restore["output"])
-    clean = core_module.process(
-        ["git", "clean", "-fd", "--", *CONTROL_RECOVERABLE_DIRS],
-        core_module.CONTROL,
-        timeout=30,
-        log_commands=False,
-    )
-    if clean["exit_code"] != 0:
-        raise RuntimeError(clean["output"])
+    tracked = tuple(sorted({path for code, path in entries if code != "??"}))
+    untracked = tuple(sorted({path for code, path in entries if code == "??"}))
+
+    if tracked:
+        restore = core_module.process(
+            [
+                "git",
+                "restore",
+                "--source=HEAD",
+                "--staged",
+                "--worktree",
+                "--",
+                *tracked,
+            ],
+            core_module.CONTROL,
+            timeout=30,
+            log_commands=False,
+        )
+        if restore["exit_code"] != 0:
+            raise RuntimeError(git_failure_diagnostic(restore))
+
+    if untracked:
+        clean = core_module.process(
+            ["git", "clean", "-fd", "--", *untracked],
+            core_module.CONTROL,
+            timeout=30,
+            log_commands=False,
+        )
+        if clean["exit_code"] != 0:
+            raise RuntimeError(git_failure_diagnostic(clean))
+
+    remaining = _control_dirty_paths(core_module)
+    if remaining:
+        raise RuntimeError(
+            "control checkout remained dirty after daemon-owned recovery: "
+            + ", ".join(remaining)
+        )
 
 
 def sync_control(core_module: Any) -> None:

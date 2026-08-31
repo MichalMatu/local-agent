@@ -213,7 +213,9 @@ def publish_control_json(
     commit_message: str,
     timeout: int = 180,
     attempts: int = 2,
+    log_commands: bool = False,
 ) -> bool:
+    """Publish control metadata while keeping successful Git plumbing quiet."""
     with core.CONTROL_GIT_LOCK:
         target = (core.CONTROL / relative).resolve()
         root = core.CONTROL.resolve()
@@ -222,25 +224,31 @@ def publish_control_json(
 
         with termination_critical_section():
             atomic_write_json(target, payload)
-            add = core.process(["git", "add", "--", relative], core.CONTROL)
+            add = core.process(
+                ["git", "add", "--", relative],
+                core.CONTROL,
+                log_commands=log_commands,
+            )
             if add["exit_code"] != 0:
-                raise RuntimeError(add["output"])
+                raise RuntimeError(storage.git_failure_diagnostic(add))
 
             staged = core.process(
                 ["git", "diff", "--cached", "--quiet", "--", relative],
                 core.CONTROL,
+                log_commands=log_commands,
             )
             if staged["exit_code"] == 0:
                 return False
             if staged["exit_code"] != 1:
-                raise RuntimeError(staged["output"])
+                raise RuntimeError(storage.git_failure_diagnostic(staged))
 
             commit = core.process(
                 ["git", "commit", "-m", commit_message, "--", relative],
                 core.CONTROL,
+                log_commands=log_commands,
             )
             if commit["exit_code"] != 0:
-                raise RuntimeError(commit["output"])
+                raise RuntimeError(storage.git_failure_diagnostic(commit))
 
         for attempt in range(attempts):
             pull = storage.run_git_with_network_retry(
@@ -248,6 +256,7 @@ def publish_control_json(
                 ["git", *storage.bounded_control_pull_args(core.CONTROL_BRANCH)],
                 core.CONTROL,
                 timeout=timeout,
+                log_commands=log_commands,
             )
             if pull["exit_code"] != 0:
                 raise RuntimeError(pull["output"])
@@ -256,6 +265,7 @@ def publish_control_json(
                 ["git", "push", "origin", core.CONTROL_BRANCH],
                 core.CONTROL,
                 timeout=timeout,
+                log_commands=log_commands,
             )
             if push["exit_code"] == 0:
                 return True
