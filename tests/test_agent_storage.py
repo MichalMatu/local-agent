@@ -126,6 +126,53 @@ class StoragePolicyTests(unittest.TestCase):
         self.assertEqual(result["exit_code"], 0)
         sleep.assert_called_once_with(2.0)
 
+    def test_silent_terminal_failure_gets_nonempty_diagnostic(self) -> None:
+        process = mock.Mock(
+            return_value={
+                "exit_code": 126,
+                "output": "",
+                "background_process_leak": True,
+                "failure_reason": "background_process_leak",
+                "elapsed_seconds": 0.25,
+            }
+        )
+        core = SimpleNamespace(process=process, log=mock.Mock())
+
+        result = storage.run_git_with_network_retry(
+            core,
+            ["git", "fetch", "origin", "main"],
+            Path("/tmp/repo"),
+            retry_delays=(),
+        )
+
+        self.assertEqual(result["exit_code"], 126)
+        self.assertIn("exit_code=126", result["output"])
+        self.assertIn("background_process_leak=true", result["output"])
+        self.assertIn("failure_reason=background_process_leak", result["output"])
+
+    def test_silent_timeout_after_retries_gets_nonempty_diagnostic(self) -> None:
+        process = mock.Mock(
+            return_value={
+                "exit_code": 124,
+                "output": "",
+                "timed_out": True,
+                "elapsed_seconds": 60.0,
+            }
+        )
+        core = SimpleNamespace(process=process, log=mock.Mock())
+
+        with mock.patch.object(storage.time, "sleep"):
+            result = storage.run_git_with_network_retry(
+                core,
+                ["git", "fetch", "origin", "main"],
+                Path("/tmp/repo"),
+                retry_delays=(0.0,),
+            )
+
+        self.assertEqual(result["exit_code"], 124)
+        self.assertIn("timed_out=true", result["output"])
+        self.assertNotEqual(result["output"].strip(), "")
+
 
 if __name__ == "__main__":
     unittest.main()
