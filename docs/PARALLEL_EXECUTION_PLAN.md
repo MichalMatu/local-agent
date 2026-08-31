@@ -33,6 +33,18 @@ The initial prototype was rejected for live testing until these issues were corr
 10. Silent Git failures could produce `self-update fetch failed:` without diagnostics. Terminal Git failures now synthesize bounded exit/timeout/leak diagnostics when Git emits no text.
 11. Original tests did not prove real overlap or FD lock lifetime. Real temporary-Git and POSIX process tests were added.
 
+## v4.11.1 operational hardening
+
+The patch release re-audited recovery, operator observability and the global control path after the first production deployment. The following additional findings were fixed before the v4.11.1 release was accepted:
+
+1. A daemon interruption could leave tracked, staged-new or untracked daemon-owned control metadata that blocked the next rebase/pull. Recovery now classifies and restores/cleans exact daemon-owned status/run/result/ack paths while refusing to auto-clean task files or daemon control requests.
+2. Successful status/run/result Git plumbing made `tail -f` difficult to read. Routine successful control-plane Git operations are quiet; task boundaries and bounded `IDLE` operator events remain visible, while failure/retry diagnostics are preserved.
+3. A local ACK commit created before a failed push could make the old probe treat a remote request as already handled. ACK durability is now checked against the fetched remote `agent-control` branch.
+4. A busy control-repository lease or transient ACK/probe failure could be collapsed into the same boolean result as a clean "no request" probe. Because the control poll and idle repository poll both use a 15-second cadence, this could phase-lock and starve a global request. Control probing now returns explicit `CLEAR`, `PENDING` or `DEFERRED`; `DEFERRED` is retried promptly and does not advance the normal control-poll clock.
+5. Self-update validation did not explicitly compile the parallel production entrypoints and its 300-second full-test margin was too tight for a loaded Mac. The validator now includes the parallel modules and keeps a bounded 600-second margin.
+
+The v4.11.1 release gate therefore includes exact-SHA Linux CI, macOS smoke, repeated SIGKILL recovery, full local unittest discovery, live control delivery while workers are active, production self-update/restart, readable operator-log verification and the existing real overlap/machine-exclusion checks.
+
 ## Automated evidence
 
 The release test surface includes:
@@ -85,8 +97,7 @@ The temporary detached staging LaunchAgent was useful for live validation but is
 ```text
 checkout: ~/local-agent
 branch:   main
-version:  4.11.0
-tag:      v4.11.0
+version:  4.11.x
 scheduler: agent_parallel.py --max-workers 2
 ```
 
@@ -103,4 +114,4 @@ This restores normal clean-main self-update behavior and keeps `v*-staging` bran
 
 ## Release hygiene
 
-After v4.11 is verified from `main`, remove the obsolete staging worktree/branch. Future non-trivial scheduler changes repeat the same pattern: create a temporary staging candidate, prove exact-SHA CI/macOS/live evidence as warranted, fast-forward `main`, tag the release, deploy from `main`, then clean the staging branch.
+After v4.11 is verified from `main`, remove obsolete staging worktrees/branches. Future non-trivial scheduler changes repeat the same pattern: create a temporary staging candidate, prove exact-SHA CI/macOS/live evidence as warranted, fast-forward `main`, tag the release, deploy from `main`, then clean the staging branch.
