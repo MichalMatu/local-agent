@@ -75,6 +75,14 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - Ordinary self-update waits for natural idle.
 - Active registry identities are not removed/mutated while workers or descendants may remain alive.
 
+## Planner and Chat Bridge invariants
+
+- The Chrome Chat Bridge is wake-up/control transport only; ChatGPT remains the planner and Local Agent remains the deterministic executor.
+- One autonomous conversation follows one active task at a time for its current goal and never queues a duplicate while that task is active.
+- Planner sequencing is not global executor serialization: unrelated conversations/repositories may overlap when the parallel resource contract permits it.
+- Every bridge wake-up re-reads repository-specific status/run/result evidence before deciding whether to wait, queue one next bounded task, pause for user action or stop a completed goal.
+- Bridge `STOP`/`PAUSE` markers control the conversation loop only; they do not stop or reconfigure the Local Agent supervisor.
+
 ## Verification/release gate
 
 A non-trivial runtime release requires:

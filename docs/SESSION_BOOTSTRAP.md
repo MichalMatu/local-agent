@@ -1,33 +1,42 @@
-# Session Bootstrap: ESP32 LiteGraph + Local Agent
+# Session Bootstrap: Local Agent Multi-Repository Mac Deployment
 
 This document records the established machine-specific deployment. It is operational context, not a portable installer.
 
 ## Project pairing
 
-When the established local-agent flow is requested, default to:
+When the established Local Agent flow is requested, derive the target repository and source branch from the active conversation goal plus that repository's own instructions. The current machine registry contains:
 
-- target: `MichalMatu/esp32s3_LiteGraph`
-- target source branch: `main`
-- target control branch: `agent-control`
-- daemon: `MichalMatu/local-agent/main`
+- `litegraph` -> `MichalMatu/esp32s3_LiteGraph`;
+- `growbox-ml-controller` -> `MichalMatu/growbox-ml-controller`;
+- `matrixhub` -> `MichalMatu/MatrixHub`.
 
-Only treat `local-agent` itself as the product target when the request explicitly concerns the daemon/infrastructure.
+Each repository uses its own `agent-control` branch. The production daemon source is `MichalMatu/local-agent/main`. Only treat `local-agent` itself as the product target when the request explicitly concerns the daemon/infrastructure.
 
 ## Local topology
 
 ```text
-/Users/michal/Documents/PlatformIO/Projects/esp32s3_LiteGraph
-~/agent-workspace/control
-~/agent-workspace/work
-~/agent-workspace/checkpoints
-~/local-agent
-~/Library/LaunchAgents/com.michal.local-agent.plist
-~/Library/Logs/local-agent.log
+normal LiteGraph checkout: /Users/michal/Documents/PlatformIO/Projects/esp32s3_LiteGraph
+registry:                  ~/Library/Application Support/local-agent/repositories.json
+LiteGraph control:         ~/agent-workspace/repos/litegraph/control
+LiteGraph work:            ~/agent-workspace/repos/litegraph/work
+LiteGraph checkpoints:     ~/agent-workspace/repos/litegraph/checkpoints
+Growbox control:           ~/agent-workspace/repos/growbox-ml-controller/control
+Growbox work:              ~/agent-workspace/repos/growbox-ml-controller/work
+Growbox checkpoints:       ~/agent-workspace/repos/growbox-ml-controller/checkpoints
+MatrixHub control:         ~/agent-workspace/repos/matrixhub/control
+MatrixHub work:            ~/agent-workspace/repos/matrixhub/work
+MatrixHub checkpoints:     ~/agent-workspace/repos/matrixhub/checkpoints
+daemon checkout:           ~/local-agent
+installed LaunchAgent:     ~/Library/LaunchAgents/com.michal.local-agent.plist
+daemon stdout:             ~/Library/Logs/local-agent.log
+daemon stderr:             ~/Library/Logs/local-agent-error.log
 ```
+
+All three current registry entries use the default non-legacy workspace layout derived from their repository ids. The loaded LaunchAgent runs `~/local-agent/agent_parallel.py --registry "$HOME/Library/Application Support/local-agent/repositories.json" --max-workers 2` from `~/local-agent`.
 
 The user's normal ESP32 checkout is not the disposable agent worktree. Never reset, clean or overwrite it during normal daemon execution.
 
-The repository copy of the LaunchAgent now lives at `deploy/macos/com.michal.local-agent.plist`. It contains machine-specific paths and is documentation of the established installation, not a generic installer.
+The production bounded-parallel LaunchAgent template is `deploy/macos/com.michal.local-agent.parallel.plist`. The installed service remains `~/Library/LaunchAgents/com.michal.local-agent.plist` with label `com.michal.local-agent`; the serial templates are rollback configurations, not additional simultaneous services.
 
 ## Current ESP32 bench
 
@@ -91,10 +100,12 @@ For future work using this deployment:
 1. read root `AGENTS.md`;
 2. read `docs/OPERATIONS.md`;
 3. inspect the target repository's applicable `AGENTS.md` files;
-4. inspect daemon status and any relevant existing run/result on `agent-control`;
-5. follow an existing active attempt instead of queuing a duplicate;
-6. derive verification from the actual diff and affected integration boundaries;
-7. prefer `efficient-verification-v1` with focused incremental verification before any broad final gate;
-8. publish only the exact validated target changes.
+4. inspect daemon status and any relevant existing run/result on the target repository's `agent-control`;
+5. when Chrome Chat Bridge autonomy is active, also read `docs/AUTONOMOUS_CHAT_LOOP.md` and follow one active task for the current conversation goal while allowing unrelated repository work to use normal resource-aware executor concurrency;
+6. follow an existing active attempt instead of queuing a duplicate;
+7. classify task resources conservatively before queueing work;
+8. derive verification from the actual diff and affected integration boundaries;
+9. prefer `efficient-verification-v1` with focused incremental verification before any broad final gate;
+10. publish only the exact validated target changes.
 
 The user should not need to paste live daemon logs during normal operation when remote run/status/result evidence is available.

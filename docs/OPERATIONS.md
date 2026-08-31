@@ -71,6 +71,8 @@ One repository still executes only one claimed task at a time. Different reposit
 
 For substantial staged coding work, prefer `workflow_policy: "efficient-verification-v1"`: `work` stages for implementation, `focused` stages for affected verification, and exactly one final `full` verification stage.
 
+An autonomous Chat Bridge conversation should follow one active task at a time for its current goal. This planner-level sequencing does not reduce the production executor to global concurrency one: unrelated repositories or conversations may still overlap when their effective resources permit it. Always decide from the target repository's current status/run/result evidence.
+
 ## Multi-repository administration
 
 Registry:

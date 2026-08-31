@@ -79,7 +79,7 @@ Every bridge wake-up must follow this order:
 8. If the goal is complete, end the assistant response with the bridge `STOP` marker.
 9. Otherwise leave bridge automation enabled and emit no control marker.
 
-Global execution concurrency is one, so the planner should prefer one small verifiable task at a time even when multiple repositories are configured.
+The autonomous planner loop is sequential per active conversation goal, not globally serial. While this conversation is following a running task for that goal, do not queue another task for the same goal. The production executor may still run unrelated tasks from other conversations or repositories concurrently when resource admission permits it. Resource classification remains conservative, and repository-specific status/run/result evidence determines whether the task this conversation is following is active.
 
 ## Task rules
 

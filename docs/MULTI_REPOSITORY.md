@@ -96,7 +96,7 @@ Interrupted claimed work is not automatically replayed. Completed durable result
 
 ## Planner contract
 
-Separate ChatGPT conversations may queue tasks independently in different repositories. Each conversation still follows one active task at a time for its repository.
+Separate ChatGPT conversations may queue tasks independently in different repositories. An autonomous Chat Bridge conversation follows one active task at a time for its current goal; this planner sequencing does not globally serialize the executor, so unrelated repository tasks may overlap when resource admission permits it.
 
 Planners must classify resources conservatively:
 

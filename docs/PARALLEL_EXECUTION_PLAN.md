@@ -45,6 +45,10 @@ The patch release re-audited recovery, operator observability and the global con
 
 The v4.11.1 release gate therefore includes exact-SHA Linux CI, macOS smoke, repeated SIGKILL recovery, full local unittest discovery, live control delivery while workers are active, production self-update/restart, readable operator-log verification and the existing real overlap/machine-exclusion checks.
 
+## v4.11.2 planner/documentation alignment
+
+The v4.11.2 patch does not change scheduler, resource, lease or execution behavior. It closes documentation drift found after the v4.11.1 live release: the autonomous Chat Bridge contract now distinguishes per-conversation planner sequencing from global executor concurrency, and the machine-specific bootstrap records the current registry-based three-repository workspace layout plus the production parallel LaunchAgent template. The downstream LiteGraph flow/autopilot documentation is synchronized in the same release gate.
+
 ## Automated evidence
 
 The release test surface includes:
