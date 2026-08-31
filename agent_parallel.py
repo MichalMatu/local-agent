@@ -45,6 +45,7 @@ MAX_MAX_WORKERS = 3
 REAP_INTERVAL_SECONDS = 0.25
 RESOURCE_RETRY_SECONDS = 1.0
 ERROR_RETRY_SECONDS = 1.0
+MAX_ONCE_DEFERRALS = 120
 PARALLEL_EXECUTION_MODEL = "parallel_repository_supervisor_staging"
 _daemon_lock_handle: Any | None = None
 
@@ -402,7 +403,9 @@ def main() -> int:
     last_control_at: float | None = None
     control_pending = True
     priority_repository: str | None = None
-    attempted_once: set[str] = set()
+    once_completed: set[str] = set()
+    once_failed: set[str] = set()
+    once_deferrals: dict[str, int] = {}
 
     try:
         repositories = load_repository_registry(path=args.registry)
@@ -419,9 +422,39 @@ def main() -> int:
         f"control_repository={repositories[0].repository_id}"
     )
 
+    def record_once_outcomes(completed: dict[str, int]) -> None:
+        if not args.once:
+            return
+        deferrable = {
+            WORKER_MACHINE_BUSY,
+            WORKER_RESOURCE_BUSY,
+            serial_worker.WORKER_BUSY,
+            serial_worker.WORKER_CONFIG_CHANGED,
+        }
+        for repository_id, return_code in completed.items():
+            if return_code in {
+                serial_worker.WORKER_PROCESSED,
+                serial_worker.WORKER_IDLE,
+            }:
+                once_completed.add(repository_id)
+                once_deferrals.pop(repository_id, None)
+                continue
+            if return_code in deferrable:
+                count = once_deferrals.get(repository_id, 0) + 1
+                once_deferrals[repository_id] = count
+                if count >= MAX_ONCE_DEFERRALS:
+                    once_failed.add(repository_id)
+                    log(
+                        f"one-shot deferral limit exceeded repository={repository_id} "
+                        f"attempts={count}"
+                    )
+                continue
+            once_failed.add(repository_id)
+
     while True:
         try:
             completed = reap_workers(running, schedules)
+            record_once_outcomes(completed)
             if completed:
                 publish_local_supervisor_status(running, max_workers=max_workers)
 
@@ -440,6 +473,13 @@ def main() -> int:
                 for repository in repositories
             }
             enabled = {repository.repository_id for repository in repositories}
+            once_completed.intersection_update(enabled)
+            once_failed.intersection_update(enabled)
+            once_deferrals = {
+                repository_id: count
+                for repository_id, count in once_deferrals.items()
+                if repository_id in enabled
+            }
 
             if priority_repository not in enabled:
                 priority_repository = None
@@ -452,11 +492,14 @@ def main() -> int:
                     priority_repository = None
                 if (
                     return_code == WORKER_MACHINE_BUSY
-                    and not args.once
                     and priority_repository is None
                     and repository_id in enabled
+                    and repository_id not in once_failed
                 ):
                     priority_repository = repository_id
+
+            if args.once and priority_repository in once_failed:
+                priority_repository = None
 
             now = time.monotonic()
             if serial.interval_due(
@@ -485,7 +528,7 @@ def main() -> int:
             started_worker = False
             now = time.monotonic()
 
-            if priority_repository is not None and not args.once:
+            if priority_repository is not None:
                 if priority_repository not in running and not running:
                     repository = next(
                         item
@@ -520,21 +563,27 @@ def main() -> int:
                             break
                         if repository.repository_id in running:
                             continue
+                        if args.once and repository.repository_id in (
+                            once_completed | once_failed
+                        ):
+                            continue
                         schedule = schedules[repository.repository_id]
-                        if args.once:
-                            if repository.repository_id in attempted_once:
-                                continue
-                        elif not repository_due(schedule, now):
+                        if not args.once and not repository_due(schedule, now):
+                            continue
+                        if args.once and now < schedule.retry_not_before:
                             continue
 
                         proc = start_worker(repository, registry_path=args.registry)
                         schedule.last_poll_at = time.monotonic()
-                        if args.once:
-                            attempted_once.add(repository.repository_id)
                         if proc is None:
                             schedule.retry_not_before = (
                                 time.monotonic() + RESOURCE_RETRY_SECONDS
                             )
+                            if args.once:
+                                count = once_deferrals.get(repository.repository_id, 0) + 1
+                                once_deferrals[repository.repository_id] = count
+                                if count >= MAX_ONCE_DEFERRALS:
+                                    once_failed.add(repository.repository_id)
                             continue
 
                         running[repository.repository_id] = RunningWorker(
@@ -550,9 +599,9 @@ def main() -> int:
                 publish_local_supervisor_status(running, max_workers=max_workers)
 
             if args.once:
-                enabled = {repository.repository_id for repository in repositories}
-                if enabled.issubset(attempted_once) and not running:
-                    return 0
+                terminal = once_completed | once_failed
+                if enabled.issubset(terminal) and not running:
+                    return 2 if once_failed else 0
 
             now = time.monotonic()
             if running or control_pending:
