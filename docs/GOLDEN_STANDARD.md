@@ -67,8 +67,10 @@ This file records the current production invariants for `MichalMatu/local-agent`
 
 - Repository workers never execute supervisor-wide restart/self-update.
 - While workers run, maintenance may only probe for pending global control.
+- Daemon control ids are restricted to ASCII letters, digits, `.`, `_` and `-`, with a 120-character maximum; ACK paths must remain under `.agent/daemon/acks/` after normalization.
 - Control probes have explicit `CLEAR`, `PENDING` and `DEFERRED` outcomes; only a successful `CLEAR` probe advances the normal control-poll clock.
 - A busy control-repository lease or transient probe/ACK-read failure is `DEFERRED` and is retried promptly instead of being mistaken for "no request".
+- After the supervisor has completed its initial control service successfully, `DEFERRED` control probing does not drain workers or block unrelated repository admission; only a confirmed `PENDING` request starts the global drain path.
 - A control ACK is durable only when it is visible on the fetched remote `agent-control` branch; a local-only ACK commit never suppresses replay of the remote request.
 - A real global request stops new admission and waits for active workers to drain.
 - Global control acquires all configured repository execution identities before running.
