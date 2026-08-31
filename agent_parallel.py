@@ -186,6 +186,21 @@ def reap_workers(
     return completed
 
 
+def record_once_deferral(
+    counts: dict[str, int],
+    failed: set[str],
+    repository_id: str,
+    *,
+    limit: int = MAX_ONCE_DEFERRALS,
+) -> int:
+    """Count a one-shot deferral and make bounded failure terminal."""
+    count = counts.get(repository_id, 0) + 1
+    counts[repository_id] = count
+    if count >= limit:
+        failed.add(repository_id)
+    return count
+
+
 def repository_due(schedule: RepositorySchedule, now: float) -> bool:
     if now < schedule.retry_not_before:
         return False
@@ -460,6 +475,20 @@ def main() -> int:
         f"control_repository={repositories[0].repository_id}"
     )
 
+    def note_once_deferral(repository_id: str) -> None:
+        if not args.once:
+            return
+        count = record_once_deferral(
+            once_deferrals,
+            once_failed,
+            repository_id,
+        )
+        if count >= MAX_ONCE_DEFERRALS:
+            log(
+                f"one-shot deferral limit exceeded repository={repository_id} "
+                f"attempts={count}"
+            )
+
     def record_once_outcomes(completed: dict[str, int]) -> None:
         if not args.once:
             return
@@ -478,14 +507,7 @@ def main() -> int:
                 once_deferrals.pop(repository_id, None)
                 continue
             if return_code in deferrable:
-                count = once_deferrals.get(repository_id, 0) + 1
-                once_deferrals[repository_id] = count
-                if count >= MAX_ONCE_DEFERRALS:
-                    once_failed.add(repository_id)
-                    log(
-                        f"one-shot deferral limit exceeded repository={repository_id} "
-                        f"attempts={count}"
-                    )
+                note_once_deferral(repository_id)
                 continue
             once_failed.add(repository_id)
 
@@ -606,6 +628,9 @@ def main() -> int:
                             schedule.retry_not_before = (
                                 time.monotonic() + RESOURCE_RETRY_SECONDS
                             )
+                            note_once_deferral(priority_repository)
+                            if args.once and priority_repository in once_failed:
+                                priority_repository = None
             else:
                 capacity = max_workers - len(running)
                 if capacity > 0:
@@ -634,11 +659,7 @@ def main() -> int:
                             schedule.retry_not_before = (
                                 time.monotonic() + RESOURCE_RETRY_SECONDS
                             )
-                            if args.once:
-                                count = once_deferrals.get(repository.repository_id, 0) + 1
-                                once_deferrals[repository.repository_id] = count
-                                if count >= MAX_ONCE_DEFERRALS:
-                                    once_failed.add(repository.repository_id)
+                            note_once_deferral(repository.repository_id)
                             continue
 
                         running[repository.repository_id] = RunningWorker(
