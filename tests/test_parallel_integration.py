@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from agent_version import RELEASE_VERSION
 from tests.test_multirepo_integration import (
     REPO_ROOT,
     create_repository_fixture,
@@ -99,7 +100,7 @@ class ParallelIntegrationTests(unittest.TestCase):
             for item in (first, second):
                 payload = result_for(item)
                 self.assertEqual(payload["status"], "done", result.stdout)
-                self.assertIn("parallel-staging", payload["daemon_version"])
+                self.assertEqual(payload["daemon_version"], RELEASE_VERSION)
                 claim_root = (
                     home
                     / "Library"
