@@ -65,7 +65,9 @@ class RepositoryControlTests(unittest.TestCase):
     def test_status_control_is_repository_scoped(self) -> None:
         worker.bind_repository(self.repository)
         self.write_control({"id": "status-1", "action": "status"})
-        with mock.patch.object(worker, "publish_repository_status") as publish_status, mock.patch.object(
+        with mock.patch.object(agentd, "control_ack_published", return_value=False), mock.patch.object(
+            worker, "publish_repository_status"
+        ) as publish_status, mock.patch.object(
             worker, "publish_repository_control_ack"
         ) as publish_ack:
             worker.handle_repository_control(self.repository)
@@ -82,6 +84,21 @@ class RepositoryControlTests(unittest.TestCase):
             "completed",
             result="status_published",
         )
+
+    def test_status_control_ignores_local_only_ack(self) -> None:
+        worker.bind_repository(self.repository)
+        self.write_control({"id": "status-local", "action": "status"})
+        ack = self.repository.control / agentd.REMOTE_CONTROL_ACK_DIR / "status-local.json"
+        ack.parent.mkdir(parents=True, exist_ok=True)
+        ack.write_text("{}\n", encoding="utf-8")
+        with mock.patch.object(agentd, "control_ack_published", return_value=False), mock.patch.object(
+            worker, "publish_repository_status"
+        ) as publish_status, mock.patch.object(
+            worker, "publish_repository_control_ack"
+        ) as publish_ack:
+            worker.handle_repository_control(self.repository)
+        publish_status.assert_called_once()
+        publish_ack.assert_called_once()
 
     def test_restart_is_left_for_supervisor_without_ack(self) -> None:
         worker.bind_repository(self.repository)

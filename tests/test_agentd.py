@@ -275,7 +275,11 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         compile_command, compile_kwargs = calls[0]
         self.assertIn("agent_config.py", compile_command)
         self.assertIn("agent_repository.py", compile_command)
+        self.assertIn("agent_parallel.py", compile_command)
+        self.assertIn("agent_parallel_worker.py", compile_command)
         self.assertIn("agent_version.py", compile_command)
+        self.assertEqual(compile_kwargs["timeout"], agentd.SELF_UPDATE_VALIDATION_TIMEOUT_SECONDS)
+        self.assertEqual(calls[1][1]["timeout"], agentd.SELF_UPDATE_VALIDATION_TIMEOUT_SECONDS)
         self.assertNotEqual(compile_kwargs["environment"]["HOME"], str(agentd.HOME))
         self.assertEqual(
             compile_kwargs["environment"]["HOME"],
@@ -564,6 +568,38 @@ class AgentDaemonSafetyTests(unittest.TestCase):
 
         self.assertTrue(publish_run.call_args_list[-1].kwargs["force_remote"])
 
+    def test_control_ack_published_checks_remote_tracking_branch(self) -> None:
+        relative = f"{agentd.REMOTE_CONTROL_ACK_DIR}/ack-1.json"
+        with mock.patch.object(
+            agentd.core,
+            "process",
+            return_value={"exit_code": 0, "output": relative + "\n"},
+        ) as process:
+            self.assertTrue(agentd.control_ack_published("ack-1"))
+        self.assertEqual(
+            process.call_args.args[0],
+            [
+                "git",
+                "ls-tree",
+                "--name-only",
+                f"origin/{agentd.core.CONTROL_BRANCH}",
+                "--",
+                relative,
+            ],
+        )
+        self.assertFalse(process.call_args.kwargs["log_commands"])
+
+    def test_control_ack_local_only_is_not_considered_published(self) -> None:
+        ack = agentd._control_ack_path("local-only")
+        ack.parent.mkdir(parents=True, exist_ok=True)
+        ack.write_text("{}\n", encoding="utf-8")
+        with mock.patch.object(
+            agentd.core,
+            "process",
+            return_value={"exit_code": 0, "output": ""},
+        ):
+            self.assertFalse(agentd.control_ack_published("local-only"))
+
     def test_remote_restart_control_is_acknowledged_before_restart(self) -> None:
         request_path = agentd.core.CONTROL / agentd.REMOTE_CONTROL_REQUEST
         request_path.parent.mkdir(parents=True, exist_ok=True)
@@ -580,7 +616,9 @@ class AgentDaemonSafetyTests(unittest.TestCase):
             ack.write_text(json.dumps(payload), encoding="utf-8")
             return True
 
-        with mock.patch.object(agentd, "publish_control_json", side_effect=fake_publish), mock.patch.object(
+        with mock.patch.object(agentd, "control_ack_published", return_value=False), mock.patch.object(
+            agentd, "publish_control_json", side_effect=fake_publish
+        ), mock.patch.object(
             agentd, "restart_self", side_effect=RuntimeError("restart called")
         ):
             with self.assertRaisesRegex(RuntimeError, "restart called"):

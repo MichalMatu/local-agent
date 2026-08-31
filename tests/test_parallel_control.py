@@ -51,7 +51,8 @@ class ParallelControlProbeTests(unittest.TestCase):
             json.dumps({"id": "restart-1", "action": "restart"}),
             encoding="utf-8",
         )
-        self.assertTrue(parallel.pending_control_request_from_bound_checkout())
+        with mock.patch.object(agentd, "control_ack_published", return_value=False):
+            self.assertTrue(parallel.pending_control_request_from_bound_checkout())
 
     def test_acknowledged_request_does_not_trigger_repeat_drain(self) -> None:
         path = self.request_path()
@@ -66,7 +67,8 @@ class ParallelControlProbeTests(unittest.TestCase):
             / "status-1.json"
         )
         ack.write_text("{}\n", encoding="utf-8")
-        self.assertFalse(parallel.pending_control_request_from_bound_checkout())
+        with mock.patch.object(agentd, "control_ack_published", return_value=True):
+            self.assertFalse(parallel.pending_control_request_from_bound_checkout())
 
     def test_malformed_request_is_not_allowed_to_force_drain(self) -> None:
         path = self.request_path()

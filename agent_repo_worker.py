@@ -256,8 +256,22 @@ def handle_repository_control(repository: RepositoryContext) -> None:
         not control_id
         or len(control_id) > 120
         or not _CONTROL_ID_RE.fullmatch(control_id)
-        or _control_ack_path(control_id).exists()
     ):
+        return
+
+    if action in {"restart", "self_update"}:
+        # These are global supervisor actions. A fast per-repository worker must
+        # leave them unacknowledged so the supervisor can own the request.
+        return
+
+    try:
+        if agentd.control_ack_published(control_id):
+            return
+    except Exception as exc:
+        core.log(
+            f"repository control ACK verification failed id={control_id}: "
+            f"{type(exc).__name__}: {exc}"
+        )
         return
 
     if action == "status":
@@ -274,11 +288,6 @@ def handle_repository_control(repository: RepositoryContext) -> None:
             "completed",
             result="status_published",
         )
-        return
-
-    if action in {"restart", "self_update"}:
-        # These are global supervisor actions. A fast per-repository worker must
-        # leave them unacknowledged so the supervisor can own the request.
         return
 
     publish_repository_control_ack(

@@ -43,6 +43,7 @@ HOME = Path.home()
 SELF_REPO = Path(__file__).resolve().parent
 SELF_BRANCH = "main"
 SELF_UPDATE_INTERVAL = 60
+SELF_UPDATE_VALIDATION_TIMEOUT_SECONDS = 600
 POLL_SECONDS = 15
 REMOTE_HEARTBEAT_SECONDS = 300
 RUN_PROGRESS_SECONDS = 60
@@ -818,6 +819,8 @@ def _validate_installed_update() -> tuple[bool, str]:
             "agent_repository.py",
             "agent_repo_worker.py",
             "agent_multirepo.py",
+            "agent_parallel.py",
+            "agent_parallel_worker.py",
             "agent_repo_admin.py",
             "agentctl.py",
             "agent_version.py",
@@ -834,7 +837,7 @@ def _validate_installed_update() -> tuple[bool, str]:
                 command,
                 SELF_REPO,
                 environment=validation_env,
-                timeout=300,
+                timeout=SELF_UPDATE_VALIDATION_TIMEOUT_SECONDS,
                 log_commands=False,
             )
             if result["exit_code"] != 0:
@@ -925,6 +928,27 @@ def _control_ack_path(control_id: str) -> Path:
     return core.CONTROL / REMOTE_CONTROL_ACK_DIR / f"{control_id}.json"
 
 
+def control_ack_published(control_id: str) -> bool:
+    """Return True only when the ACK is visible on the fetched remote control branch."""
+    relative = f"{REMOTE_CONTROL_ACK_DIR}/{control_id}.json"
+    result = core.process(
+        [
+            "git",
+            "ls-tree",
+            "--name-only",
+            f"origin/{core.CONTROL_BRANCH}",
+            "--",
+            relative,
+        ],
+        core.CONTROL,
+        timeout=30,
+        log_commands=False,
+    )
+    if result["exit_code"] != 0:
+        raise RuntimeError(storage.git_failure_diagnostic(result))
+    return relative in str(result.get("output", "")).splitlines()
+
+
 def publish_control_ack(
     control_id: str,
     action: str,
@@ -958,7 +982,13 @@ def handle_control_request() -> None:
     except Exception as exc:
         log(f"invalid daemon control request: {exc}")
         return
-    if not control_id or len(control_id) > 120 or _control_ack_path(control_id).exists():
+    if not control_id or len(control_id) > 120:
+        return
+    try:
+        if control_ack_published(control_id):
+            return
+    except Exception as exc:
+        log(f"control ACK verification failed for {control_id}: {type(exc).__name__}: {exc}")
         return
 
     if action == "restart":

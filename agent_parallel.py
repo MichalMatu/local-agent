@@ -342,8 +342,11 @@ def pending_control_request_from_bound_checkout() -> bool:
         return False
     if not control_id or len(control_id) > 120:
         return False
-    ack = agentd.core.CONTROL / agentd.REMOTE_CONTROL_ACK_DIR / f"{control_id}.json"
-    return not ack.exists()
+    try:
+        return not agentd.control_ack_published(control_id)
+    except Exception as exc:
+        log(f"control ACK probe degraded id={control_id}: {type(exc).__name__}: {exc}")
+        return False
 
 
 def probe_control_request(
