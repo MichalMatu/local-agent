@@ -30,13 +30,15 @@ The default is `1`. Staging is deliberately capped at `3`; the previous prototyp
 limit of eight was rejected during audit because per-task RSS watchdogs do not
 form an aggregate host-memory budget. A live trial must begin with `2`.
 
-Global supervisor control is a quiescent operation. Once supervisor control is
-due, the scheduler stops admitting new workers, waits for tracked workers to
-finish, and acquires the execution identities of every configured repository
-before running status/restart/self-update work. This preserves the serial rule
-that global maintenance occurs between worker turns and also detects surviving
-workers from a previous supervisor process when their repository is still in the
-registry.
+Global supervisor control remains quiescent for actions that can alter daemon
+lifecycle or global state, but normal maintenance polling no longer drains the
+worker pool. While workers are active, the supervisor briefly probes only the
+control repository. A valid unacknowledged remote control request causes admission
+of new workers to stop; already-running workers finish, then the supervisor
+acquires every configured repository execution identity before handling the
+request. Ordinary self-update maintenance waits for a natural idle window. This
+prevents a periodic maintenance check from destroying useful parallelism during
+long-running tasks.
 
 ## Task resource contract
 
@@ -59,7 +61,7 @@ their previous machine-wide safety semantics.
 
 A task known not to use shared machine hardware can opt into parallel execution,
 but staging additionally requires a bounded per-task RSS limit no greater than
-1536 MiB:
+1024 MiB:
 
 ```json
 {
@@ -126,11 +128,29 @@ before task commands are spawned.
 
 This intentionally keeps resource locks alive in descendant commands if the
 worker itself is killed, matching the existing repository-lease crash boundary.
-The process test suite must prove this with a real descendant process rather than
-only mocks.
+The process test suite proves this with a real descendant process rather than only
+mocks.
 
 The arbitration gate serializes the very short lock-admission transaction; it is
 never held while waiting for another task to finish.
+
+## Silent Git failure diagnostics
+
+The production log exposed a case where self-update printed only:
+
+```text
+self-update fetch failed:
+```
+
+The Git runner already retained timeout/background-process metadata, but the
+terminal diagnostic path could return an empty textual output. Staging now
+synthesizes a bounded non-empty diagnostic for any terminal Git failure that
+produces no output, including exit code, timeout state, background-process leak
+state, failure reason and elapsed time when available. Normal Git output is left
+unchanged.
+
+This is a diagnostic hardening change; a failed periodic self-update fetch still
+returns to the scheduler and does not terminate repository execution.
 
 ## Audit findings addressed before live use
 
@@ -139,18 +159,24 @@ following corrections:
 
 1. Remove the one-hour unclaimed resource wait and stale-task window.
 2. Prevent restart/self-update/status maintenance from racing active workers.
-3. Make global control acquire all configured repository execution identities.
-4. Add scheduler exception containment so a transient registry/spawn failure does
+3. Avoid draining the parallel pool merely for periodic maintenance polling.
+4. Make destructive/global control acquire all configured repository execution
+   identities.
+5. Add scheduler exception containment so a transient registry/spawn failure does
    not unnecessarily kill the supervisor.
-5. Cap staging concurrency at three and gate parallel tasks by a conservative RSS
-   limit.
-6. Bound resource declarations.
-7. Mark parallel result evidence as `parallel-staging` instead of presenting the
+6. Cap staging concurrency at three and gate parallel tasks at 1024 MiB RSS.
+7. Bound resource declarations.
+8. Mark parallel result evidence as `parallel-staging` instead of presenting the
    experiment as the released serial executor.
-8. Compile and lint the new modules explicitly in CI.
-9. Add a real two-repository overlap test.
-10. Add real POSIX process tests for machine exclusion and lock-FD survival after
+9. Make one-shot execution retry resource contention rather than incorrectly
+   considering a deferred repository complete.
+10. Compile and lint the new modules explicitly in CI.
+11. Add a real two-repository overlap test.
+12. Add real POSIX process tests for machine exclusion and lock-FD survival after
     the worker process exits.
+13. Close process-test pipes explicitly and require a clean macOS run without
+    `ResourceWarning`.
+14. Preserve actionable diagnostics for silent Git/self-update failures.
 
 ## Remaining limits
 
@@ -166,6 +192,9 @@ following corrections:
   check. Do not edit/remove active registry entries during staging execution.
 - Concurrent worker logs can interleave in the shared launchd output. Durable
   per-repository run/result evidence remains the source of truth.
+- While a repository's own worker holds its execution lease, the lightweight
+  control probe may defer until a later poll. OS-level SIGTERM remains available
+  for immediate local shutdown.
 
 ## Staging sequence
 
@@ -183,6 +212,79 @@ following corrections:
 9. Move to `--max-workers 3` only after clean evidence from the two-worker trial.
 10. Do not fast-forward `main` until all normal release gates and the parallel
     staging gates are green.
+
+## Live macOS two-worker runbook
+
+Do not switch the production checkout away from `main`. Use a separate worktree so
+rollback never depends on changing branches in `~/local-agent`.
+
+Preflight while the serial daemon is still running:
+
+```bash
+cd ~/local-agent
+git status --short
+git fetch origin v4.11-parallel-staging
+git worktree remove --force ~/local-agent-v4.11-parallel-staging 2>/dev/null || true
+git worktree add --detach ~/local-agent-v4.11-parallel-staging origin/v4.11-parallel-staging
+~/local-agent/.venv/bin/python ~/local-agent-v4.11-parallel-staging/agent_repo_admin.py validate
+```
+
+Confirm the staging revision and that the registry is valid before stopping the
+known-good daemon:
+
+```bash
+git -C ~/local-agent-v4.11-parallel-staging rev-parse HEAD
+cat "$HOME/Library/Application Support/local-agent/status.json"
+```
+
+Stop the launchd service by its existing label and verify it is gone:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.michal.local-agent"
+sleep 2
+pgrep -af 'agent_multirepo.py|agent_repo_worker.py|agent_parallel.py|agent_parallel_worker.py' || true
+```
+
+If any old worker remains, do not start staging until its process group has exited
+and the existing task/result evidence has been inspected.
+
+Run staging manually in the foreground with two slots:
+
+```bash
+cd ~/local-agent-v4.11-parallel-staging
+HOME=/Users/michal ~/local-agent/.venv/bin/python agent_parallel.py \
+  --registry "$HOME/Library/Application Support/local-agent/repositories.json" \
+  --max-workers 2 \
+  2>&1 | tee -a "$HOME/Library/Logs/local-agent-parallel-staging.log"
+```
+
+The first live tasks must be two harmless software-only tasks in different
+repositories. Each must explicitly include:
+
+```json
+{
+  "resources": [],
+  "memory_limit_mb": 512
+}
+```
+
+Use commands that do not write source, flash hardware, open serial devices or
+start background daemons. Verify from timestamps and per-repository run evidence
+that both tasks overlap in wall-clock time and that both terminal results are
+correct.
+
+For the first trial, stop the foreground supervisor with Ctrl-C after the two
+results are published. Then restore the known-good launchd service using the
+currently installed LaunchAgent plist, for example:
+
+```bash
+launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.michal.local-agent.plist"
+launchctl kickstart -k "gui/$(id -u)/com.michal.local-agent"
+```
+
+If the installed plist has a different filename, use that existing file; the
+service label remains `com.michal.local-agent`. Confirm the serial startup line in
+`~/Library/Logs/local-agent.log` before queuing normal work again.
 
 ## Rollback
 
