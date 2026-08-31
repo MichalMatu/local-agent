@@ -3,9 +3,13 @@ from __future__ import annotations
 import unittest
 
 import agent_parallel_worker as worker
+from agent_version import RELEASE_VERSION
 
 
 class ParallelWorkerResourceTests(unittest.TestCase):
+    def test_parallel_daemon_version_matches_release(self) -> None:
+        self.assertEqual(worker.PARALLEL_DAEMON_VERSION, RELEASE_VERSION)
+
     def test_missing_resources_preserves_legacy_exclusive_behavior(self) -> None:
         self.assertEqual(worker.task_resources({"id": "a"}), ("machine",))
 
