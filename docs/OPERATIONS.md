@@ -150,7 +150,7 @@ For non-trivial runtime changes:
 
 ## Downstream documentation gate
 
-Current registered targets are LiteGraph, Growbox ML Controller and MatrixHub. Changes to task schema, resources, concurrency, status/control fields, execution model, deployment/self-update or planner flow require a downstream docs audit before release. See `AGENTS.md` for the exact files/branches that must be checked.
+Current registered targets are LiteGraph, Growbox ML Controller, MatrixHub and ESP32-C6 Zigbee (`esp32-c6-zigbee`). Changes to task schema, resources, concurrency, status/control fields, execution model, deployment/self-update or planner flow require a downstream docs audit before release. See `AGENTS.md` for the exact files/branches that must be checked.
 
 ## Source of truth
 
