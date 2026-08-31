@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import agent_parallel as parallel
+import agent_repo_worker as serial_worker
+from agent_process import ExecutionLeaseBusy
 from agent_repository import RepositoryContext
 
 
@@ -38,6 +41,16 @@ class ParallelSupervisorTests(unittest.TestCase):
             parallel.resolve_max_workers(0)
         with self.assertRaises(ValueError):
             parallel.resolve_max_workers(parallel.MAX_MAX_WORKERS + 1)
+        with mock.patch.dict(
+            os.environ,
+            {parallel.MAX_WORKERS_ENV: "not-a-number"},
+            clear=False,
+        ):
+            with self.assertRaises(ValueError):
+                parallel.resolve_max_workers(None)
+
+    def test_staging_concurrency_is_capped_at_three(self) -> None:
+        self.assertEqual(parallel.MAX_MAX_WORKERS, 3)
 
     def test_worker_command_uses_parallel_worker(self) -> None:
         command = parallel.worker_command(repository("a"), registry_path=None)
@@ -53,6 +66,11 @@ class ParallelSupervisorTests(unittest.TestCase):
             )
         )
 
+    def test_retry_deadline_blocks_poll_until_due(self) -> None:
+        schedule = parallel.RepositorySchedule(retry_not_before=101.0)
+        self.assertFalse(parallel.repository_due(schedule, now=100.9))
+        self.assertTrue(parallel.repository_due(schedule, now=101.0))
+
     def test_recently_active_repository_uses_hot_polling(self) -> None:
         schedule = parallel.RepositorySchedule(
             last_poll_at=100.0,
@@ -60,6 +78,18 @@ class ParallelSupervisorTests(unittest.TestCase):
         )
         self.assertFalse(parallel.repository_due(schedule, now=101.9))
         self.assertTrue(parallel.repository_due(schedule, now=102.0))
+
+    def test_global_control_requires_every_repository_lease(self) -> None:
+        repositories = [repository("control-a"), repository("control-b")]
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            parallel.agentd,
+            "STATE_DIR",
+            Path(tmp),
+        ):
+            with serial_worker.repository_execution_lease(repositories[1]):
+                with self.assertRaises(ExecutionLeaseBusy):
+                    with parallel.supervisor_control_leases(repositories):
+                        self.fail("global control acquired a busy repository")
 
 
 if __name__ == "__main__":
