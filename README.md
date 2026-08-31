@@ -8,7 +8,7 @@ A planner decides **what should change** and supplies the exact task. `local-age
 
 > The planner decides the work. The executor makes the run deterministic, bounded and observable.
 
-**Current release:** `v4.11.4`
+**Current release:** `v4.11.5`
 
 ## Production execution model
 
