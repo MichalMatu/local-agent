@@ -19,6 +19,7 @@ CONTROL_RECOVERABLE_DIRS = (
     ".agent/results",
     ".agent/daemon/acks",
 )
+CONTROL_RECOVERABLE_UNTRACKED_BASENAMES = frozenset({".DS_Store"})
 GIT_NETWORK_RETRY_DELAYS = (2.0, 5.0, 15.0)
 TRANSIENT_GIT_NETWORK_MARKERS = (
     "connection closed by",
@@ -178,14 +179,26 @@ def _recoverable_control_path(path: str) -> bool:
     )
 
 
+def _recoverable_untracked_control_noise(code: str, path: str) -> bool:
+    return (
+        code == "??"
+        and Path(path).name in CONTROL_RECOVERABLE_UNTRACKED_BASENAMES
+    )
+
+
 def recover_daemon_owned_control_changes(core_module: Any) -> None:
-    """Discard only interrupted daemon-owned control artifacts before sync."""
+    """Discard interrupted daemon artifacts and explicitly allowlisted host noise."""
     entries = _control_status_entries(core_module)
     if not entries:
         return
 
     dirty = tuple(sorted({path for _code, path in entries}))
-    unexpected = tuple(path for path in dirty if not _recoverable_control_path(path))
+    unexpected = tuple(
+        path
+        for code, path in entries
+        if not _recoverable_control_path(path)
+        and not _recoverable_untracked_control_noise(code, path)
+    )
     if unexpected:
         raise RuntimeError(
             "control checkout has unexpected local changes: "
@@ -195,7 +208,7 @@ def recover_daemon_owned_control_changes(core_module: Any) -> None:
     logger = getattr(core_module, "log", None)
     if callable(logger):
         logger(
-            "recovering interrupted daemon-owned control changes before sync: "
+            "recovering safe control checkout changes before sync: "
             + ", ".join(dirty)
         )
 

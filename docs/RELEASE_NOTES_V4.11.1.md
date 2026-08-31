@@ -11,6 +11,7 @@ v4.11.1 is a logging/readability patch release for the bounded-parallel supervis
 - preserves non-empty Git diagnostics and transient-network retry messages when those quiet operations fail;
 - handles tracked, staged-new and purely untracked interrupted daemon-owned control metadata with exact-path recovery;
 - recovers interrupted daemon-owned control status/run/result/ack files before a control-branch pull, preventing a SIGKILL between write/stage/commit from wedging later recovery;
+- safely removes untracked macOS Finder `.DS_Store` metadata from control checkouts while continuing to reject every other unknown local file;
 - refuses to auto-clean unexpected control changes such as tasks or daemon control requests;
 - treats a control ACK as durable only when it is visible on the fetched remote `agent-control` branch, so a crash after local ACK commit but before push does not suppress the request;
 - retries a deferred control probe promptly without advancing the control-poll clock, preventing a busy control-repository lease or transient probe failure from starving global restart/self-update/status requests;

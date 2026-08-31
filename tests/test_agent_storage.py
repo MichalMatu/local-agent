@@ -86,7 +86,7 @@ class StoragePolicyTests(unittest.TestCase):
             process.call_args_list[2].args[0],
             ["git", "clean", "-fd", "--", ".agent/runs/task.json"],
         )
-        self.assertIn("daemon-owned control changes", core.log.call_args.args[0])
+        self.assertIn("safe control checkout changes", core.log.call_args.args[0])
 
     def test_sync_control_recovers_untracked_only_without_restore(self) -> None:
         process = mock.Mock(side_effect=[
@@ -111,6 +111,44 @@ class StoragePolicyTests(unittest.TestCase):
         self.assertFalse(
             any(call.args[0][1] == "restore" for call in process.call_args_list)
         )
+
+    def test_sync_control_recovers_untracked_ds_store_noise(self) -> None:
+        process = mock.Mock(side_effect=[
+            {"exit_code": 0, "output": "?? .DS_Store\0"},
+            {"exit_code": 0, "output": ""},
+            {"exit_code": 0, "output": ""},
+            {"exit_code": 0, "output": "agent-control"},
+            {"exit_code": 0, "output": "Already up to date."},
+        ])
+        core = SimpleNamespace(
+            CONTROL=Path("/tmp/control"),
+            CONTROL_BRANCH="agent-control",
+            CONTROL_GIT_LOCK=nullcontext(),
+            process=process,
+            log=mock.Mock(),
+        )
+        storage.sync_control(core)
+        self.assertEqual(
+            process.call_args_list[1].args[0],
+            ["git", "clean", "-fd", "--", ".DS_Store"],
+        )
+        self.assertIn("safe control checkout changes", core.log.call_args.args[0])
+
+    def test_sync_control_rejects_other_untracked_host_metadata(self) -> None:
+        process = mock.Mock(return_value={
+            "exit_code": 0,
+            "output": "?? .localized\0",
+        })
+        core = SimpleNamespace(
+            CONTROL=Path("/tmp/control"),
+            CONTROL_BRANCH="agent-control",
+            CONTROL_GIT_LOCK=nullcontext(),
+            process=process,
+            log=mock.Mock(),
+        )
+        with self.assertRaisesRegex(RuntimeError, "unexpected local changes"):
+            storage.sync_control(core)
+        process.assert_called_once()
 
     def test_sync_control_rejects_unexpected_dirty_paths(self) -> None:
         process = mock.Mock(return_value={
@@ -159,6 +197,36 @@ class StoragePolicyTests(unittest.TestCase):
             storage.recover_daemon_owned_control_changes(core)
             self.assertEqual(tracked.read_text(encoding="utf-8"), "old\n")
             self.assertFalse(untracked.exists())
+            status = subprocess.run(
+                ["git", "status", "--porcelain=v1"],
+                cwd=repo,
+                text=True,
+                stdout=subprocess.PIPE,
+                check=True,
+            )
+            self.assertEqual(status.stdout, "")
+
+    def test_control_recovery_removes_real_ds_store_noise(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            noise = repo / ".DS_Store"
+            noise.write_text("finder metadata\n", encoding="utf-8")
+
+            def process(args, cwd, **_kwargs):
+                completed = subprocess.run(
+                    args,
+                    cwd=cwd,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    check=False,
+                )
+                return {"exit_code": completed.returncode, "output": completed.stdout}
+
+            core = SimpleNamespace(CONTROL=repo, process=process, log=mock.Mock())
+            storage.recover_daemon_owned_control_changes(core)
+            self.assertFalse(noise.exists())
             status = subprocess.run(
                 ["git", "status", "--porcelain=v1"],
                 cwd=repo,

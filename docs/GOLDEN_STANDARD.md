@@ -30,6 +30,7 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - Self-update accepts validated fast-forward updates from a clean `main` checkout and rolls back validation failure.
 - Self-update validation explicitly compiles the parallel production entrypoints and uses a bounded 600-second full-test margin.
 - Terminal Git failures produce actionable diagnostics even when Git itself emitted no text.
+- Control checkout recovery may remove only daemon-owned control artifacts plus explicitly allowlisted untracked host metadata (`.DS_Store`); every other unknown local change remains fatal.
 
 ## Operator observability invariants
 
