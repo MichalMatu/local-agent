@@ -18,7 +18,7 @@ import agent_multirepo as serial
 import agent_repo_worker as serial_worker
 import agentd
 from agent_parallel_worker import (
-    PARALLEL_STAGING_VERSION,
+    PARALLEL_DAEMON_VERSION,
     WORKER_MACHINE_BUSY,
     WORKER_RESOURCE_BUSY,
 )
@@ -47,7 +47,7 @@ REAP_INTERVAL_SECONDS = 0.25
 RESOURCE_RETRY_SECONDS = 1.0
 ERROR_RETRY_SECONDS = 1.0
 MAX_ONCE_DEFERRALS = 120
-PARALLEL_EXECUTION_MODEL = "parallel_repository_supervisor_staging"
+PARALLEL_EXECUTION_MODEL = "parallel_repository_supervisor"
 _daemon_lock_handle: Any | None = None
 
 
@@ -362,7 +362,7 @@ def service_control(
     try:
         with supervisor_control_leases(repositories):
             serial.bind_supervisor_control(control_repository)
-            agentd.DAEMON_VERSION = PARALLEL_STAGING_VERSION
+            agentd.DAEMON_VERSION = PARALLEL_DAEMON_VERSION
             serial.sync_control_quietly()
             agentd.publish_daemon_status(
                 "idle",
@@ -430,7 +430,7 @@ def install_signal_handlers() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Experimental bounded parallel multi-repository local-agent supervisor."
+        description="Bounded parallel multi-repository local-agent supervisor."
     )
     parser.add_argument("--registry", type=Path)
     parser.add_argument("--max-workers", type=int)
@@ -470,7 +470,7 @@ def main() -> int:
         return 2
 
     log(
-        f"parallel supervisor {PARALLEL_STAGING_VERSION} starting "
+        f"parallel supervisor {PARALLEL_DAEMON_VERSION} starting "
         f"max_workers={max_workers} safe_fallback=agent_multirepo.py "
         f"control_repository={repositories[0].repository_id}"
     )
