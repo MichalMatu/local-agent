@@ -1,159 +1,202 @@
 # Local Agent Operations
 
-This file is the canonical workflow for the established local-agent deployment. Multi-repository details are defined in `MULTI_REPOSITORY.md`.
+This file is the canonical operational workflow for `MichalMatu/local-agent`. Multi-repository architecture lives in `MULTI_REPOSITORY.md`; bounded parallel staging details and live evidence live in `PARALLEL_EXECUTION_PLAN.md`.
 
-## Roles
+## Roles and deployment tracks
 
 The planner chooses exact changes and commands. The daemon executes deterministic tasks, records real output and publishes machine-readable evidence. It does not invent fixes.
 
-Validated default pairing:
+The stable rollback track remains:
 
-- target repository: `MichalMatu/esp32s3_LiteGraph`
-- target source branch: `main`
-- target control branch: `agent-control`
-- daemon repository: `MichalMatu/local-agent`
-- daemon branch: `main`
+- daemon repository: `MichalMatu/local-agent`;
+- source checkout: `~/local-agent` on `main`;
+- scheduler: `agent_multirepo.py`;
+- global task concurrency: exactly one.
 
-Multi-repository mode generalizes the target side to a machine-local registry while preserving the same task format and execution core.
+The validated v4.11 staging track is separate:
+
+- detached worktree: `~/local-agent-v4.11-parallel-staging`;
+- runtime code candidate validated on macOS: `084e81b792cd01a261a0f0ee1a2a9b46b9964168`;
+- scheduler: `agent_parallel.py`;
+- current live staging setting: `--max-workers 2`;
+- shared daemon lock: the serial and parallel supervisors cannot run simultaneously;
+- launchd label remains `com.michal.local-agent`;
+- serial plist backup: `~/Library/LaunchAgents/com.michal.local-agent.serial-backup.plist`.
+
+Documentation-only commits may advance the staging branch after the validated runtime SHA. The running detached staging worktree must not be silently moved to a newer SHA; runtime changes require their own exact-SHA CI and smoke validation.
 
 ## Autonomous ChatGPT planner loop
 
-The optional Chrome Chat Bridge can repeatedly wake one selected ChatGPT conversation so the planner can inspect fresh Git-backed status/result evidence and decide whether to queue the next task. The bridge does not plan, inspect code or execute commands. ChatGPT remains the planner and `local-agent` remains the deterministic executor.
+The optional Chrome Chat Bridge may wake one selected ChatGPT conversation so the planner can inspect fresh Git-backed status/result evidence and decide whether to queue another task. The bridge does not plan, inspect code or execute commands. ChatGPT remains the planner and `local-agent` remains the deterministic executor.
 
-The complete autonomous-loop contract, task/result locations, turn algorithm and assistant control markers are defined in `AUTONOMOUS_CHAT_LOOP.md`. The runtime bridge prompt is intentionally only a wake-up policy; it is not a replacement for this operations contract or `AGENTS.md`.
+The complete bridge contract is `AUTONOMOUS_CHAT_LOOP.md`. Keep one active task per repository conversation: do not queue another task for a repository while that repository reports an active task. Multiple repositories may have active tasks concurrently only when the parallel resource contract permits it.
 
-During autonomous operation, keep the one-task-at-a-time rule: never queue another task while the repository reports an active task. After a terminal result, inspect the exact result and only then decide the next bounded task. Use a new unique task id for every continuation. Stop the bridge when the requested goal is complete and pause it when user/manual action is required.
+## Control data and replay safety
 
-## Control data
+Each repository `agent-control` branch stores queued tasks, live runs, terminal results, repository status and durable control acknowledgements under `.agent/`.
 
-Each repository `agent-control` branch contains queued tasks, live runs, terminal results, daemon/repository status and durable control acknowledgements under `.agent/`.
+Task ids and payloads are immutable within one repository. Claimed or interrupted work is never replayed automatically. Final results are durably spooled before remote publication. Publication may retry; execution may not.
 
-Task ids and payloads are immutable within one repository. Claimed or interrupted work is never replayed automatically. Final results are durably spooled before remote publication. Result publication may be retried; execution may not.
-
-In multi-repository mode, task/result/claim identity is repository-scoped. Two repositories may safely contain the same task id.
-
-Repository stale-claim recovery runs only while the worker owns inherited OS leases for the configured id, remote and workspace identities. If an earlier worker or command is still alive after a crash, a restarted supervisor defers that repository without recovering or replaying its task.
+Task/result/claim identity is repository-scoped. Stale-claim recovery runs only while the worker owns inherited OS leases for the configured repository id, remote and workspace identities. If an earlier worker or descendant is still alive after a crash, a restarted supervisor defers that repository instead of recovering or replaying it.
 
 ## Runtime limits
 
-Current canonical defaults are:
+Canonical defaults remain:
 
-- command timeout: 900 seconds
-- maximum command/stage timeout: 7200 seconds
-- no-output timeout: 300 seconds
-- maximum no-output timeout: 3600 seconds
-- whole-task admission budget: 1800 seconds, maximum 21600 seconds
-- finalization reserve: 60 seconds
-- process-group RSS limit: 4096 MiB
-- maximum configurable RSS limit: 16384 MiB
+- command timeout: 900 seconds;
+- maximum command/stage timeout: 7200 seconds;
+- no-output timeout: 300 seconds;
+- maximum no-output timeout: 3600 seconds;
+- whole-task admission budget: 1800 seconds, maximum 21600 seconds;
+- finalization reserve: 60 seconds;
+- normal process-group RSS limit: 4096 MiB;
+- maximum configurable RSS limit: 16384 MiB.
 
-Set `memory_limit_mb` to `0` only when a task intentionally needs the RSS watchdog disabled. Memory enforcement requires two consecutive over-limit samples to avoid reacting to a single transient or measurement anomaly.
+The parallel staging admission rule is stricter: a task may run without machine exclusivity only when `memory_limit_mb` is enabled and no greater than 1024 MiB. A disabled, omitted/default 4096 MiB or larger limit falls back to `machine` exclusivity.
 
-Command stdout is transported through a bounded handoff queue with bounded read chunks. The raw output retained in each command result is strictly limited to the newest 60,000 characters, while live-log diff collapsing remains independent from result capture.
+Command output transport and retained result capture remain bounded. Runtime timeout configuration is read at daemon startup; restart the daemon after changing `LOCAL_AGENT_*` timeout settings.
 
-Runtime timeout configuration is read once at daemon startup; restart the daemon after changing it. The six variables are `LOCAL_AGENT_COMMAND_TIMEOUT_DEFAULT`, `LOCAL_AGENT_COMMAND_TIMEOUT_MAX`, `LOCAL_AGENT_IDLE_TIMEOUT_DEFAULT`, `LOCAL_AGENT_IDLE_TIMEOUT_MAX`, `LOCAL_AGENT_TASK_TIMEOUT_DEFAULT`, and `LOCAL_AGENT_TASK_TIMEOUT_MAX`. Their default/maxima pairs are 900/7200 seconds, 300/3600 seconds, and 1800/21600 seconds. A heavy task can use `command_timeout=3600`, `idle_timeout=1200`, and `task_timeout=7200`.
+## Task resource contract
 
-Long work should use named sequential stages. The whole-task budget is checked before a stage starts and must not terminate an already-running stage solely because the global budget expires.
+Legacy and unknown tasks remain safe by default. If `resources` is omitted, malformed or oversized, the parallel worker treats the task as:
 
-## Efficient verification workflow
+```json
+{
+  "resources": ["machine"]
+}
+```
 
-Structured staged tasks may opt in with
-`workflow_policy: "efficient-verification-v1"`. Under this policy, every item in
-`steps` and `verify_steps` declares a `verification_level` of `work`, `focused`
-or `full`. Legacy `commands` and `verify_commands` fields are not allowed in an
-opted-in task, including empty declarations of those fields.
+That task runs exclusively against every other local-agent task.
 
-The canonical coding workflow is:
+Clearly software-only work may opt into overlap:
 
-1. Use a primary `work` stage for implementation or editing and run only the
-   smallest focused checks needed while editing.
-2. Use a primary `focused` stage to audit the exact diff and run only affected
-   regression and static checks.
-3. Use `focused` for any additional pre-final `verify_steps`. A verification
-   stage may never use `work`.
-4. Declare exactly one `full` stage, as the last `verify_steps` item and therefore
-   the final stage in the plan. Its declared command runs the repository-mandated
-   broad suite once, followed by the final build or release gate once.
-5. If the full gate exposes a defect, fix it and rerun only the affected focused
-   gate first. Then rerun the full gate because source changed after the previous
-   full-gate attempt.
+```json
+{
+  "resources": [],
+  "memory_limit_mb": 512
+}
+```
 
-Primary stages may be `work` or `focused`, never `full`. The daemon validates
-declared intent before execution and publishes `verification_level` in stage
-results and live progress/status data. It does not inspect command text to infer
-cost, deduplicate commands or skip identical declarations.
+Named resources may be used for explicit arbitration:
 
-## Development loop
+```json
+{
+  "resources": ["platformio"],
+  "memory_limit_mb": 1024
+}
+```
 
-1. Read `AGENTS.md` and applicable target-repository rules.
-2. Inspect source plus current daemon/run/result evidence for the exact repository.
-3. Prepare the smallest deterministic change.
-4. Select verification that can detect realistic regressions from that diff.
-5. Queue a unique task through that repository's remote `agent-control` branch.
-6. Follow the same attempt id and task digest while it runs.
-7. Diagnose real output and iterate with the next smallest change.
-8. Review the exact diff and publish only validated source.
-9. Treat source publication and hardware flashing as separate gates.
+Tasks sharing a named resource serialize on that resource. Different named resources may overlap. `"machine"` always means full exclusivity.
 
-Verification is impact-driven. Broad suites are used only for shared/cross-cutting changes, uncertain dependency impact, explicit repository requirements or explicit user requests.
+Do not mark a task software-only unless the planner knows it will not use shared machine hardware or unsafe global tooling. USB, serial, flashing and uncertain hardware work should omit `resources` and stay machine-exclusive during staging.
 
-## Multi-repository operation
+## Multi-repository administration
 
-The registry is stored at:
+Registry location:
 
 ```text
 ~/Library/Application Support/local-agent/repositories.json
 ```
 
-Inspect and validate it with:
+Validate after every registry edit:
 
 ```bash
 python agent_repo_admin.py list
 python agent_repo_admin.py validate
 ```
 
-Provision one new repository explicitly with:
+Provisioning is explicit:
 
 ```bash
 python agent_repo_admin.py provision --repository-id <id>
 ```
 
-Provisioning is never an implicit poll-loop action. It refuses existing non-Git destinations, validates origin identity and may initialize a missing `agent-control` branch only in a newly created control clone.
+Polling never implicitly clones, repairs or overwrites a checkout. Repository ids and remote identities must be unique case-insensitively; normalized control/work/checkpoint paths must be disjoint.
 
-The multi-repository supervisor schedules repositories round-robin and starts one short-lived worker at a time. Global execution concurrency remains one even when several chats/projects queue tasks concurrently. Between worker turns, due supervisor control runs first and a periodic full scan runs before another hot poll. Running stages are not preempted, but a continuously active repository cannot permanently starve another repository or maintenance.
+Do not remove or identity-mutate a configured repository while a staging worker or descendant may still be alive. The all-current-repositories global-control lease cannot protect a repository that has been removed from the registry entirely.
 
-Each repository turn holds non-blocking OS execution leases for the case-insensitive repository id and remote plus normalized control, work and checkpoint paths. The descriptors are inherited by the worker and every command. Lease contention is a normal deferral, not a stale-claim recovery opportunity. The worker also rejects a dispatch if the exact registry entry changed after selection.
+## Parallel supervisor maintenance
 
-Repository ids and remote identities must be unique case-insensitively. Workspace validation rejects normalized, aliased, case-insensitive and ancestor/descendant collisions. Run `python agent_repo_admin.py validate` after every registry edit.
+Normal maintenance polling must not destroy useful parallelism. While workers are active, `agent_parallel.py` only probes control state. A real unacknowledged global control request stops admission of new workers, lets current workers finish and then acquires every configured repository execution identity before restart/status/self-update handling.
 
-SIGTERM to the supervisor or worker first stops active task work, quiesces asynchronous control-Git publication and then terminates all remaining registered process groups with bounded escalation. This ordering prevents graceful shutdown from leaving a partially published control checkout. SIGKILL cannot run cleanup handlers; inherited repository leases remain the safety boundary until every surviving descendant exits.
+Ordinary self-update waits for a natural idle window. The detached staging checkout is intentionally not on `main`, so the expected log is:
 
-Repository-local `status` control is supported. Global `restart` and `self_update` are intentionally not executed by repository workers; use explicit supervisor/launchd administration for those maintenance operations.
+```text
+self-update skipped: checkout is not on main
+```
+
+This is not an error. The staging runtime is deliberately pinned to a validated SHA.
+
+Silent terminal Git failures are hardened: if Git produces no textual output, the staging code synthesizes a bounded diagnostic containing exit code and available timeout/background-leak/failure metadata instead of logging an empty `self-update fetch failed:` line.
+
+## Live staging validation on 2026-08-31
+
+The exact runtime candidate `084e81b792cd01a261a0f0ee1a2a9b46b9964168` passed GitHub CI on Linux and macOS before live use.
+
+The manual macOS smoke then proved both sides of the resource contract with real queued tasks:
+
+1. two software-only tasks in different repositories, each using `resources: []` and `memory_limit_mb: 512`, overlapped for approximately 17.5 seconds and both finished `done` with clean worktrees and no process leaks;
+2. a task with no `resources` field ran machine-exclusive, and a software-only task in another repository started only after the exclusive task completed, producing zero overlap.
+
+After Ctrl-C, no `agent_multirepo.py`, `agent_repo_worker.py`, `agent_parallel.py` or `agent_parallel_worker.py` processes remained. The staging LaunchAgent was then activated with `max_workers=2`, and local status reported `execution_model=parallel_repository_supervisor_staging`, the expected runtime SHA and an empty active repository set.
+
+## LaunchAgent operation
+
+Current staging LaunchAgent uses the existing label and plist path:
+
+```text
+~/Library/LaunchAgents/com.michal.local-agent.plist
+```
+
+It launches:
+
+```text
+/Users/michal/local-agent/.venv/bin/python
+/Users/michal/local-agent-v4.11-parallel-staging/agent_parallel.py
+--registry /Users/michal/Library/Application Support/local-agent/repositories.json
+--max-workers 2
+```
+
+Logs:
+
+```text
+~/Library/Logs/local-agent-parallel-staging.log
+~/Library/Logs/local-agent-parallel-staging-error.log
+```
+
+Useful checks:
+
+```bash
+launchctl print "gui/$(id -u)/com.michal.local-agent"
+pgrep -af 'agent_multirepo.py|agent_repo_worker.py|agent_parallel.py|agent_parallel_worker.py' || true
+cat "$HOME/Library/Application Support/local-agent/status.json"
+tail -n 100 "$HOME/Library/Logs/local-agent-parallel-staging.log"
+```
+
+## Rollback
+
+Rollback does not require repository migration or state conversion:
+
+```bash
+launchctl bootout "gui/$(id -u)/com.michal.local-agent" 2>/dev/null || true
+cp -p "$HOME/Library/LaunchAgents/com.michal.local-agent.serial-backup.plist" \
+  "$HOME/Library/LaunchAgents/com.michal.local-agent.plist"
+launchctl bootstrap "gui/$(id -u)" \
+  "$HOME/Library/LaunchAgents/com.michal.local-agent.plist"
+launchctl kickstart -k "gui/$(id -u)/com.michal.local-agent"
+```
+
+Then confirm the startup log reports the serial `agent_multirepo.py` supervisor and run one real queued task before considering rollback complete.
 
 ## Release flow
 
-Non-trivial daemon changes are prepared on an isolated `v*-staging` branch. Python compile checks, Ruff lint and unit tests must pass, and GitHub CI must be green on the exact staging SHA before `main` is fast-forwarded. The live daemon checkout is never used as the staging workspace.
+Non-trivial daemon changes are prepared on an isolated `v*-staging` branch. Require explicit compile, pinned Ruff, full unittest discovery, temporary-Git integration, real process/lease tests and green GitHub CI on the exact candidate SHA.
 
-Multi-repository changes additionally require real temporary-Git integration tests, real SIGTERM/SIGKILL recovery coverage and an isolated macOS two-repository smoke test on the exact candidate SHA. The smoke test must clean up its staging worktree and leave the running production daemon healthy.
-
-After a runtime release, verify the reported daemon revision/status and run a real queue smoke task when execution behavior changed.
-
-## Activation and rollback
-
-The multi-repository launchd file is a replacement template, not a second service. It uses the same launchd label and daemon lock as the single-repository entry point.
-
-Do not load both entry points simultaneously. Stop/unload the existing service before replacing its launchd configuration. Rollback means stopping the supervisor, restoring the previous plist and starting the service again; the legacy LiteGraph workspace remains intact.
-
-## Legacy cautions
-
-- `expected_head` is not implemented; verify an expected source SHA explicitly when required.
-- Every declared command executes independently, including identical command strings.
-- Disposable-workspace cleanup preserves ignored caches.
-- Historical design documents and historical staging branches are not runtime contracts.
+Parallel scheduler changes additionally require real overlap, machine-exclusion, contention/retry, inherited resource-lock lifetime and isolated macOS smoke evidence. Do not fast-forward `main` merely because staging is working live; merging remains a separate explicit release decision.
 
 ## Source of truth
 
-1. real local-agent command/result output
-2. target source and tests
-3. remote run/status evidence
-4. analysis
+1. real local-agent command/result output;
+2. target source and tests;
+3. remote run/status evidence;
+4. analysis and documentation.

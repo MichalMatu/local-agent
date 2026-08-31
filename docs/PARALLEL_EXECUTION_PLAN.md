@@ -1,265 +1,42 @@
 # Parallel Execution Staging Plan
 
-This document defines the staged v4.11 experiment for bounded parallel repository
-execution. The current `agent_multirepo.py` scheduler remains unchanged and is the
-known-safe rollback path.
+This document defines the v4.11 bounded-parallel experiment and records the live validation completed on 2026-08-31. The released `agent_multirepo.py` scheduler remains unchanged and is the known-safe rollback path.
 
 ## Safety objective
 
-The existing production model serializes all repository execution with global
-concurrency one. v4.11 must preserve that behavior unless parallel execution is
-explicitly selected.
+Parallelism is opt-in. Existing/legacy tasks must not become less safe merely because the parallel supervisor is selected.
 
-The staging design therefore uses separate entry points:
+Entry points:
 
-- `agent_multirepo.py` — unchanged serial supervisor and production fallback.
-- `agent_parallel.py` — opt-in parallel supervisor.
-- `agent_parallel_worker.py` — resource-arbitrated worker used only by the
-  parallel supervisor.
+- `agent_multirepo.py` — serial supervisor and direct fallback;
+- `agent_parallel.py` — bounded parallel supervisor;
+- `agent_parallel_worker.py` — resource-arbitrated worker used only by the parallel supervisor.
 
-Both supervisors use the same daemon lock, so they cannot run at the same time.
-The parallel entry point identifies itself as a `parallel-staging` executor in
-status/result evidence and must not be treated as the released serial runtime.
+Both supervisors share the daemon lock and therefore cannot run concurrently.
 
-## Concurrency control
+## Concurrency limits
 
-`agent_parallel.py` accepts `--max-workers N` and
-`LOCAL_AGENT_MAX_PARALLEL_WORKERS=N`.
+`agent_parallel.py` accepts `--max-workers N` and `LOCAL_AGENT_MAX_PARALLEL_WORKERS=N`.
 
-The default is `1`. Staging is deliberately capped at `3`; the previous prototype
-limit of eight was rejected during audit because per-task RSS watchdogs do not
-form an aggregate host-memory budget. A live trial must begin with `2`.
+- default: `1`;
+- staging hard cap: `3`;
+- validated live setting: `2`.
 
-Global supervisor control remains quiescent for actions that can alter daemon
-lifecycle or global state, but normal maintenance polling no longer drains the
-worker pool. While workers are active, the supervisor briefly probes only the
-control repository. A valid unacknowledged remote control request causes admission
-of new workers to stop; already-running workers finish, then the supervisor
-acquires every configured repository execution identity before handling the
-request. Ordinary self-update maintenance waits for a natural idle window. This
-prevents a periodic maintenance check from destroying useful parallelism during
-long-running tasks.
+The cap is deliberately small because per-task RSS watchdogs are not an aggregate host-memory scheduler.
 
 ## Task resource contract
 
-Parallel execution is conservative by default:
+A missing `resources` field means:
 
 ```json
 {
-  "id": "legacy-task"
+  "resources": ["machine"]
 }
 ```
 
-A task with no `resources` field receives the implicit resource:
+and therefore full-machine exclusivity. Malformed or oversized declarations also fall back to `machine`.
 
-```json
-["machine"]
-```
-
-and therefore runs exclusively against every other task. Existing tasks keep
-their previous machine-wide safety semantics.
-
-A task known not to use shared machine hardware can opt into parallel execution,
-but staging additionally requires a bounded per-task RSS limit no greater than
-1024 MiB:
-
-```json
-{
-  "id": "frontend-tests",
-  "resources": [],
-  "memory_limit_mb": 1024
-}
-```
-
-If the memory watchdog is disabled, omitted at its normal 4096 MiB default, or
-configured above the staging parallel limit, the task falls back to
-`["machine"]`. This keeps opt-in parallel work from consuming the whole host
-memory budget through several independent 4096 MiB limits.
-
-Named resources provide finer arbitration:
-
-```json
-{
-  "id": "software-build",
-  "resources": ["platformio"],
-  "memory_limit_mb": 1024
-}
-```
-
-```json
-{
-  "id": "device-flash",
-  "resources": ["usb", "serial"],
-  "memory_limit_mb": 1024
-}
-```
-
-Tasks with different named resources may overlap. Tasks sharing a named resource
-serialize on that resource. `"machine"` always means full exclusivity. Resource
-lists are bounded to eight names. Malformed or oversized resource declarations
-fall back to `"machine"` rather than weakening safety.
-
-For the first live staging trial, named hardware resources are not required. Use
-`resources: []` only for clearly software-only tasks and leave hardware or
-uncertain tasks without `resources`, which keeps them machine-exclusive.
-
-## Resource admission and task freshness
-
-Resource arbitration is admission-style and non-blocking. A worker first syncs
-its repository and selects the current pending task, then attempts the required
-machine/resource locks immediately. If a lock is busy, the worker exits without
-claiming or executing the task and the supervisor retries later.
-
-This replaces the original 3600-second pre-claim wait. Long waiting before the
-durable claim was rejected during audit because the selected task could become a
-stale local snapshot while waiting for a resource.
-
-When a worker reports machine exclusion contention, the supervisor enters a
-priority/drain mode: it stops admitting unrelated workers, lets already-running
-workers finish, then retries the blocked repository alone. Named-resource
-contention uses ordinary bounded retry and does not block unrelated repositories.
-
-## Lock lifetime
-
-Every admitted parallel task holds a shared or exclusive machine `flock`. Named
-resources use additional exclusive lock files. The machine and named resource
-descriptors are appended to the existing inherited lease descriptor environment
-before task commands are spawned.
-
-This intentionally keeps resource locks alive in descendant commands if the
-worker itself is killed, matching the existing repository-lease crash boundary.
-The process test suite proves this with a real descendant process rather than only
-mocks.
-
-The arbitration gate serializes the very short lock-admission transaction; it is
-never held while waiting for another task to finish.
-
-## Silent Git failure diagnostics
-
-The production log exposed a case where self-update printed only:
-
-```text
-self-update fetch failed:
-```
-
-The Git runner already retained timeout/background-process metadata, but the
-terminal diagnostic path could return an empty textual output. Staging now
-synthesizes a bounded non-empty diagnostic for any terminal Git failure that
-produces no output, including exit code, timeout state, background-process leak
-state, failure reason and elapsed time when available. Normal Git output is left
-unchanged.
-
-This is a diagnostic hardening change; a failed periodic self-update fetch still
-returns to the scheduler and does not terminate repository execution.
-
-## Audit findings addressed before live use
-
-The first prototype was not considered live-test ready. The re-audit required the
-following corrections:
-
-1. Remove the one-hour unclaimed resource wait and stale-task window.
-2. Prevent restart/self-update/status maintenance from racing active workers.
-3. Avoid draining the parallel pool merely for periodic maintenance polling.
-4. Make destructive/global control acquire all configured repository execution
-   identities.
-5. Add scheduler exception containment so a transient registry/spawn failure does
-   not unnecessarily kill the supervisor.
-6. Cap staging concurrency at three and gate parallel tasks at 1024 MiB RSS.
-7. Bound resource declarations.
-8. Mark parallel result evidence as `parallel-staging` instead of presenting the
-   experiment as the released serial executor.
-9. Make one-shot execution retry resource contention rather than incorrectly
-   considering a deferred repository complete.
-10. Compile and lint the new modules explicitly in CI.
-11. Add a real two-repository overlap test.
-12. Add real POSIX process tests for machine exclusion and lock-FD survival after
-    the worker process exits.
-13. Close process-test pipes explicitly and require a clean macOS run without
-    `ResourceWarning`.
-14. Preserve actionable diagnostics for silent Git/self-update failures.
-
-## Remaining limits
-
-- Resource names are a planner contract, not automatic command inspection. A task
-  that incorrectly declares itself software-only can still collide with external
-  hardware use. Unknown tasks must therefore remain machine-exclusive.
-- The locks coordinate local-agent workers only; manually started external tools
-  do not participate in the lock protocol.
-- The parallel memory rule is a conservative staging bound, not a full dynamic
-  host-memory scheduler.
-- A repository removed from the registry while an orphaned worker from a previous
-  supervisor still exists is outside the all-current-repositories control lease
-  check. Do not edit/remove active registry entries during staging execution.
-- Concurrent worker logs can interleave in the shared launchd output. Durable
-  per-repository run/result evidence remains the source of truth.
-- While a repository's own worker holds its execution lease, the lightweight
-  control probe may defer until a later poll. OS-level SIGTERM remains available
-  for immediate local shutdown.
-
-## Staging sequence
-
-1. Keep `main` and the running production daemon unchanged.
-2. Develop only on `v4.11-parallel-staging`.
-3. Require compile, Ruff, unit/integration and macOS CI on the exact staging SHA.
-4. Require the real two-repository overlap test to pass.
-5. Require the process test proving resource locks survive worker exit while an
-   inherited descendant remains alive.
-6. Review the exact diff against `main` after every safety correction.
-7. Only then run an isolated macOS staging smoke with production stopped for the
-   bounded test window.
-8. First live trial: `--max-workers 2`, software-only parallel tasks with explicit
-   bounded `memory_limit_mb`; hardware/uncertain tasks stay machine-exclusive.
-9. Move to `--max-workers 3` only after clean evidence from the two-worker trial.
-10. Do not fast-forward `main` until all normal release gates and the parallel
-    staging gates are green.
-
-## Live macOS two-worker runbook
-
-Do not switch the production checkout away from `main`. Use a separate worktree so
-rollback never depends on changing branches in `~/local-agent`.
-
-Preflight while the serial daemon is still running:
-
-```bash
-cd ~/local-agent
-git status --short
-git fetch origin v4.11-parallel-staging
-git worktree remove --force ~/local-agent-v4.11-parallel-staging 2>/dev/null || true
-git worktree add --detach ~/local-agent-v4.11-parallel-staging origin/v4.11-parallel-staging
-~/local-agent/.venv/bin/python ~/local-agent-v4.11-parallel-staging/agent_repo_admin.py validate
-```
-
-Confirm the staging revision and that the registry is valid before stopping the
-known-good daemon:
-
-```bash
-git -C ~/local-agent-v4.11-parallel-staging rev-parse HEAD
-cat "$HOME/Library/Application Support/local-agent/status.json"
-```
-
-Stop the launchd service by its existing label and verify it is gone:
-
-```bash
-launchctl bootout "gui/$(id -u)/com.michal.local-agent"
-sleep 2
-pgrep -af 'agent_multirepo.py|agent_repo_worker.py|agent_parallel.py|agent_parallel_worker.py' || true
-```
-
-If any old worker remains, do not start staging until its process group has exited
-and the existing task/result evidence has been inspected.
-
-Run staging manually in the foreground with two slots:
-
-```bash
-cd ~/local-agent-v4.11-parallel-staging
-HOME=/Users/michal ~/local-agent/.venv/bin/python agent_parallel.py \
-  --registry "$HOME/Library/Application Support/local-agent/repositories.json" \
-  --max-workers 2 \
-  2>&1 | tee -a "$HOME/Library/Logs/local-agent-parallel-staging.log"
-```
-
-The first live tasks must be two harmless software-only tasks in different
-repositories. Each must explicitly include:
+Clearly software-only work may opt into overlap:
 
 ```json
 {
@@ -268,31 +45,174 @@ repositories. Each must explicitly include:
 }
 ```
 
-Use commands that do not write source, flash hardware, open serial devices or
-start background daemons. Verify from timestamps and per-repository run evidence
-that both tasks overlap in wall-clock time and that both terminal results are
-correct.
+Named resources may be used for explicit serialization:
 
-For the first trial, stop the foreground supervisor with Ctrl-C after the two
-results are published. Then restore the known-good launchd service using the
-currently installed LaunchAgent plist, for example:
-
-```bash
-launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/com.michal.local-agent.plist"
-launchctl kickstart -k "gui/$(id -u)/com.michal.local-agent"
+```json
+{
+  "resources": ["platformio"],
+  "memory_limit_mb": 1024
+}
 ```
 
-If the installed plist has a different filename, use that existing file; the
-service label remains `com.michal.local-agent`. Confirm the serial startup line in
-`~/Library/Logs/local-agent.log` before queuing normal work again.
+Non-machine parallel admission requires an enabled memory watchdog and `memory_limit_mb <= 1024`. A disabled, omitted/default 4096 MiB or larger limit falls back to full-machine exclusivity.
+
+For staging, hardware-sensitive, USB, serial, flashing and uncertain work should remain machine-exclusive by omitting `resources` unless a stronger explicit resource contract is known.
+
+## Resource admission and task freshness
+
+Resource acquisition is admission-style and non-blocking. A worker syncs the repository, selects the current pending task and immediately attempts the required locks.
+
+If a lock is busy, the worker exits without claiming or executing the task and the supervisor retries later. This intentionally replaces the rejected prototype behavior that could wait up to an hour before claim and therefore execute a stale local snapshot.
+
+Named-resource contention uses bounded retry and does not block unrelated repositories.
+
+Machine contention enters priority/drain mode: admission of unrelated new workers stops, already-running workers finish and the machine-exclusive repository is retried alone.
+
+One-shot mode retries resource/config/lease deferrals and bounds the number of deferrals so it cannot silently succeed with a pending task or loop forever.
+
+## Lock lifetime
+
+Every admitted parallel task holds a machine lock:
+
+- shared for parallel/named-resource tasks;
+- exclusive for `machine` tasks.
+
+Named resources use additional exclusive lock files.
+
+Machine and named resource descriptors are appended to the inherited lease descriptor environment before task commands are spawned. If a worker dies but a descendant command remains alive, that descendant continues to hold both repository and resource locks until it exits.
+
+The arbitration gate is held only for the short lock-acquisition transaction; it is never held while waiting for task completion.
+
+## Global control
+
+Periodic maintenance polling must not destroy useful parallelism.
+
+While workers are active, the supervisor performs only a lightweight control probe. A real unacknowledged global control request causes new admission to stop; current workers drain, then the supervisor acquires every currently configured repository execution identity before handling restart/status/self-update.
+
+Ordinary self-update waits for natural idle. A detached staging checkout intentionally logs:
+
+```text
+self-update skipped: checkout is not on main
+```
+
+The staging worktree stays pinned to an explicitly validated runtime SHA.
+
+## Silent Git failure diagnostics
+
+The production serial log previously exposed a terminal self-update failure with no text after the colon. Staging now synthesizes a bounded diagnostic whenever terminal Git failure output is empty, including available exit-code, timeout, background-process-leak, failure-reason and elapsed-time metadata.
+
+A failed periodic self-update fetch is non-fatal to repository scheduling.
+
+## Audit corrections completed
+
+The original parallel prototype was not live-test ready. The re-audit corrected:
+
+1. stale pre-claim resource waiting;
+2. restart/self-update/status races with active workers;
+3. unnecessary worker-pool draining for periodic maintenance;
+4. all-current-repository lease acquisition for global control;
+5. scheduler exception containment;
+6. staging worker cap and 1024 MiB parallel memory admission limit;
+7. bounded resource declarations;
+8. explicit `parallel-staging` result/status identity;
+9. one-shot resource/config/lease retry semantics;
+10. explicit compile/Ruff validation of parallel modules;
+11. real two-repository overlap integration;
+12. real POSIX resource-lock survival after worker exit;
+13. process test pipe cleanup with no macOS `ResourceWarning`;
+14. actionable diagnostics for silent Git failures.
+
+## CI candidate
+
+Runtime candidate used for live validation:
+
+```text
+084e81b792cd01a261a0f0ee1a2a9b46b9964168
+```
+
+GitHub Actions run `33407799093` completed successfully for that exact SHA. Linux passed compile, pinned Ruff, Chat Bridge validation and full unittest discovery. macOS passed compile plus process/checkpoint/multi-repository/parallel smoke coverage.
+
+## Real macOS live evidence — 2026-08-31
+
+### Parallel overlap
+
+Two harmless software-only tasks were queued to different repositories with:
+
+```json
+{
+  "resources": [],
+  "memory_limit_mb": 512
+}
+```
+
+Observed command windows:
+
+```text
+growbox-ml-controller  15:27:50.239857Z -> 15:28:10.244669Z
+MatrixHub               15:27:52.721723Z -> 15:28:12.726339Z
+```
+
+The commands overlapped for approximately 17.5 seconds. Both results were `done`, exit code zero, clean Git status/diff, no timeout and no background-process leak.
+
+### Machine exclusion
+
+A second pair tested conservative fallback:
+
+- Growbox task omitted `resources`, therefore machine-exclusive;
+- MatrixHub task used `resources: []`, 512 MiB.
+
+Observed command windows:
+
+```text
+machine-exclusive Growbox  15:29:00.440278Z -> 15:29:15.445082Z
+software-only MatrixHub    15:29:31.456303Z -> 15:29:46.456119Z
+```
+
+Overlap was zero. This proves the live Mac honored full-machine exclusion rather than only the CI/mocked contract.
+
+### Shutdown and persistent activation
+
+After the manual foreground supervisor was stopped with Ctrl-C, no serial supervisor, parallel supervisor or repository worker process remained.
+
+The existing LaunchAgent was then changed to launch the detached staging worktree with `--max-workers 2`. Status reported:
+
+```text
+daemon_version: 4.10.2-parallel-staging
+self_revision: 084e81b792cd01a261a0f0ee1a2a9b46b9964168
+execution_model: parallel_repository_supervisor_staging
+max_parallel_workers: 2
+active_repository_ids: []
+```
+
+The staging stderr log was empty.
+
+The known-good serial plist is preserved at:
+
+```text
+~/Library/LaunchAgents/com.michal.local-agent.serial-backup.plist
+```
+
+## Current staging policy
+
+- Keep `max_workers=2` for normal staging use.
+- Do not move to `3` until additional real workload evidence justifies it.
+- Software-only tasks may opt into `resources: []` with an explicit memory limit at or below 1024 MiB.
+- Hardware/uncertain tasks remain machine-exclusive.
+- Do not mutate/remove active registry identities while workers may exist.
+- Do not silently update the detached live worktree to newer staging commits.
+- Documentation-only staging commits do not invalidate the validated runtime SHA, but they also do not constitute runtime validation of newer code.
 
 ## Rollback
 
-Rollback does not require reverting commits or migrating state:
+Rollback remains state-compatible:
 
-1. Stop the parallel supervisor.
-2. Start the existing `agent_multirepo.py` launchd configuration.
-3. Verify the daemon lock, repository registry, status, and one real queued task.
+1. stop `com.michal.local-agent`;
+2. restore `com.michal.local-agent.serial-backup.plist` over the active plist;
+3. bootstrap/kickstart the same launchd label;
+4. verify the serial supervisor startup and one real queued task.
 
-Repository control branches, workspaces, claims, results, checkpoints, and
-registry layout are unchanged by this experiment.
+No repository control/work/checkpoint migration is required.
+
+## Release decision
+
+The live staging success does not automatically authorize merging to `main`. A release remains a separate explicit decision. Before release, review the final diff against `main`, ensure only intended code/docs/tests/CI changes remain, require green CI for the release candidate and retain the serial fallback path.
