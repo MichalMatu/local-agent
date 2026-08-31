@@ -174,7 +174,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
         _, task = pending[0]
         with machine_resource_lease(task) as resources:
             core.log(
-                f"parallel dispatch repository={repository.repository_id} "
+                f"[parallel] TASK START repository={repository.repository_id} "
                 f"task={task.get('id')} resources={list(resources)}"
             )
             outcome = agentd.execute_task(

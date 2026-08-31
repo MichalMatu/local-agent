@@ -47,6 +47,7 @@ REAP_INTERVAL_SECONDS = 0.25
 RESOURCE_RETRY_SECONDS = 1.0
 ERROR_RETRY_SECONDS = 1.0
 MAX_ONCE_DEFERRALS = 120
+OPERATOR_IDLE_HEARTBEAT_SECONDS = 300.0
 PARALLEL_EXECUTION_MODEL = "parallel_repository_supervisor"
 _daemon_lock_handle: Any | None = None
 
@@ -67,6 +68,21 @@ class RunningWorker:
 
 def log(message: str) -> None:
     agentd.log(f"[parallel] {message}")
+
+
+def format_operator_idle_summary(repository_count: int, max_workers: int) -> str:
+    noun = "repository" if repository_count == 1 else "repositories"
+    return (
+        f"IDLE no active task ({repository_count} {noun}); "
+        f"max_workers={max_workers}"
+    )
+
+
+def operator_idle_log_due(last_idle_log_at: float | None, now: float) -> bool:
+    return (
+        last_idle_log_at is None
+        or now - last_idle_log_at >= OPERATOR_IDLE_HEARTBEAT_SECONDS
+    )
 
 
 def resolve_max_workers(cli_value: int | None) -> int:
@@ -162,7 +178,7 @@ def reap_workers(
         if return_code == serial_worker.WORKER_PROCESSED:
             schedule.last_activity_at = completed_at
             schedule.retry_not_before = 0.0
-            log(f"completed repository turn={repository_id}")
+            log(f"TASK DONE repository={repository_id}")
         elif return_code == WORKER_MACHINE_BUSY:
             schedule.retry_not_before = completed_at + RESOURCE_RETRY_SECONDS
             log(f"machine exclusion deferred repository={repository_id}")
@@ -459,6 +475,7 @@ def main() -> int:
     once_completed: set[str] = set()
     once_failed: set[str] = set()
     once_deferrals: dict[str, int] = {}
+    last_idle_log_at: float | None = None
 
     try:
         repositories = load_repository_registry(path=args.registry)
@@ -515,6 +532,11 @@ def main() -> int:
         try:
             completed = reap_workers(running, schedules)
             record_once_outcomes(completed)
+            if any(
+                return_code == serial_worker.WORKER_PROCESSED
+                for return_code in completed.values()
+            ):
+                last_idle_log_at = None
             if completed:
                 publish_local_supervisor_status(running, max_workers=max_workers)
 
@@ -680,6 +702,15 @@ def main() -> int:
                     return 2 if once_failed else 0
 
             now = time.monotonic()
+            if (
+                not running
+                and not control_pending
+                and priority_repository is None
+                and operator_idle_log_due(last_idle_log_at, now)
+            ):
+                log(format_operator_idle_summary(len(repositories), max_workers))
+                last_idle_log_at = now
+
             if running or control_pending:
                 delay = REAP_INTERVAL_SECONDS
             elif priority_repository is not None:

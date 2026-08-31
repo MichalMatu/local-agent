@@ -49,8 +49,19 @@ class ParallelSupervisorTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 parallel.resolve_max_workers(None)
 
-    def test_staging_concurrency_is_capped_at_three(self) -> None:
+    def test_parallel_concurrency_is_capped_at_three(self) -> None:
         self.assertEqual(parallel.MAX_MAX_WORKERS, 3)
+
+    def test_operator_idle_summary_is_human_readable(self) -> None:
+        self.assertEqual(
+            parallel.format_operator_idle_summary(3, 2),
+            "IDLE no active task (3 repositories); max_workers=2",
+        )
+
+    def test_operator_idle_heartbeat_is_periodic(self) -> None:
+        self.assertTrue(parallel.operator_idle_log_due(None, now=100.0))
+        self.assertFalse(parallel.operator_idle_log_due(100.0, now=399.9))
+        self.assertTrue(parallel.operator_idle_log_due(100.0, now=400.0))
 
     def test_worker_command_uses_parallel_worker(self) -> None:
         command = parallel.worker_command(repository("a"), registry_path=None)
