@@ -347,7 +347,8 @@ def pending_control_request_from_bound_checkout() -> ControlProbeResult:
     except Exception as exc:
         log(f"invalid daemon control request during probe: {type(exc).__name__}: {exc}")
         return ControlProbeResult.CLEAR
-    if not control_id or len(control_id) > 120:
+    if not agentd.valid_control_id(control_id):
+        log(f"invalid daemon control id during probe: {control_id!r}")
         return ControlProbeResult.CLEAR
     try:
         published = agentd.control_ack_published(control_id)
@@ -481,6 +482,7 @@ def main() -> int:
     schedules: dict[str, RepositorySchedule] = {}
     last_repository: str | None = None
     last_control_at: float | None = None
+    control_retry_not_before = 0.0
     control_pending = True
     priority_repository: str | None = None
     once_completed: set[str] = set()
@@ -605,16 +607,20 @@ def main() -> int:
                     once=args.once,
                 ):
                     last_control_at = time.monotonic()
+                    control_retry_not_before = 0.0
                     control_pending = False
                 else:
                     time.sleep(ERROR_RETRY_SECONDS)
                     continue
 
             now = time.monotonic()
-            if serial.interval_due(
-                last_control_at,
-                serial.SUPERVISOR_CONTROL_POLL_SECONDS,
-                now,
+            if (
+                now >= control_retry_not_before
+                and serial.interval_due(
+                    last_control_at,
+                    serial.SUPERVISOR_CONTROL_POLL_SECONDS,
+                    now,
+                )
             ):
                 if running:
                     probe_result = probe_control_request(repositories[0])
@@ -624,9 +630,16 @@ def main() -> int:
                         time.sleep(REAP_INTERVAL_SECONDS)
                         continue
                     if probe_result is ControlProbeResult.DEFERRED:
-                        time.sleep(ERROR_RETRY_SECONDS)
-                        continue
-                    last_control_at = time.monotonic()
+                        control_retry_not_before = (
+                            time.monotonic() + ERROR_RETRY_SECONDS
+                        )
+                        log(
+                            "global control probe deferred; "
+                            "continuing unrelated task admission"
+                        )
+                    else:
+                        last_control_at = time.monotonic()
+                        control_retry_not_before = 0.0
                 else:
                     if service_control(
                         repositories,
@@ -635,9 +648,15 @@ def main() -> int:
                         once=args.once,
                     ):
                         last_control_at = time.monotonic()
+                        control_retry_not_before = 0.0
                     else:
-                        time.sleep(ERROR_RETRY_SECONDS)
-                        continue
+                        control_retry_not_before = (
+                            time.monotonic() + ERROR_RETRY_SECONDS
+                        )
+                        log(
+                            "global control service deferred; "
+                            "continuing task admission after successful startup"
+                        )
 
             started_worker = False
             now = time.monotonic()
@@ -737,10 +756,13 @@ def main() -> int:
                     repositories,
                     now,
                 )
-                control_delay = serial.interval_remaining(
-                    last_control_at,
-                    serial.SUPERVISOR_CONTROL_POLL_SECONDS,
-                    now,
+                control_delay = max(
+                    serial.interval_remaining(
+                        last_control_at,
+                        serial.SUPERVISOR_CONTROL_POLL_SECONDS,
+                        now,
+                    ),
+                    max(0.0, control_retry_not_before - now),
                 )
                 delay = min(repository_delay, control_delay, 1.0)
             time.sleep(max(0.05, delay))
