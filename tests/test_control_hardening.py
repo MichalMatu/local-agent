@@ -53,7 +53,7 @@ def configure_blocking_control_task(
     task["memory_limit_mb"] = 256
     task["command_timeout"] = 30
     task["idle_timeout"] = 30
-    task["task_timeout"] = 60
+    task["task_timeout"] = 120
     task["steps"] = [
         {
             "name": "hold-control-repository-lease",
@@ -89,7 +89,7 @@ def queue_late_task(root: Path, item: dict[str, Path | str]) -> None:
         "memory_limit_mb": 256,
         "command_timeout": 30,
         "idle_timeout": 10,
-        "task_timeout": 60,
+        "task_timeout": 120,
         "steps": [
             {
                 "name": "late-software-task",
