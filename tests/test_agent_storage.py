@@ -27,26 +27,65 @@ class StoragePolicyTests(unittest.TestCase):
 
     def test_sync_control_skips_checkout_when_already_on_control_branch(self) -> None:
         process = mock.Mock(side_effect=[
+            {"exit_code": 0, "output": ""},
             {"exit_code": 0, "output": "agent-control"},
             {"exit_code": 0, "output": "Already up to date."},
         ])
         core = SimpleNamespace(CONTROL=Path("/tmp/control"), CONTROL_BRANCH="agent-control", CONTROL_GIT_LOCK=nullcontext(), process=process)
         storage.sync_control(core)
-        self.assertEqual(process.call_count, 2)
-        self.assertEqual(process.call_args_list[0].args[0], ["git", "symbolic-ref", "--quiet", "--short", "HEAD"])
-        self.assertEqual(process.call_args_list[1].args[0], ["git", *storage.bounded_control_pull_args("agent-control")])
+        self.assertEqual(process.call_count, 3)
+        self.assertEqual(process.call_args_list[0].args[0], ["git", "status", "--porcelain=v1", "--untracked-files=all"])
+        self.assertEqual(process.call_args_list[1].args[0], ["git", "symbolic-ref", "--quiet", "--short", "HEAD"])
+        self.assertEqual(process.call_args_list[2].args[0], ["git", *storage.bounded_control_pull_args("agent-control")])
 
     def test_sync_control_checks_out_when_control_branch_is_not_active(self) -> None:
         process = mock.Mock(side_effect=[
+            {"exit_code": 0, "output": ""},
             {"exit_code": 0, "output": "main"},
             {"exit_code": 0, "output": ""},
             {"exit_code": 0, "output": "Already up to date."},
         ])
         core = SimpleNamespace(CONTROL=Path("/tmp/control"), CONTROL_BRANCH="agent-control", CONTROL_GIT_LOCK=nullcontext(), process=process)
         storage.sync_control(core)
-        self.assertEqual(process.call_count, 3)
-        self.assertEqual(process.call_args_list[1].args, (["git", "checkout", "agent-control"], Path("/tmp/control")))
-        self.assertEqual(process.call_args_list[2].args[0], ["git", *storage.bounded_control_pull_args("agent-control")])
+        self.assertEqual(process.call_count, 4)
+        self.assertEqual(process.call_args_list[2].args, (["git", "checkout", "agent-control"], Path("/tmp/control")))
+        self.assertEqual(process.call_args_list[3].args[0], ["git", *storage.bounded_control_pull_args("agent-control")])
+
+    def test_sync_control_recovers_only_daemon_owned_dirty_paths(self) -> None:
+        process = mock.Mock(side_effect=[
+            {"exit_code": 0, "output": " M .agent/status/daemon.json\n?? .agent/runs/task.json\n"},
+            {"exit_code": 0, "output": ""},
+            {"exit_code": 0, "output": ""},
+            {"exit_code": 0, "output": "agent-control"},
+            {"exit_code": 0, "output": "Already up to date."},
+        ])
+        core = SimpleNamespace(
+            CONTROL=Path("/tmp/control"),
+            CONTROL_BRANCH="agent-control",
+            CONTROL_GIT_LOCK=nullcontext(),
+            process=process,
+            log=mock.Mock(),
+        )
+        storage.sync_control(core)
+        self.assertEqual(process.call_args_list[1].args[0][:4], ["git", "restore", "--source=HEAD", "--staged"])
+        self.assertEqual(process.call_args_list[2].args[0][:3], ["git", "clean", "-fd"])
+        self.assertIn("daemon-owned control changes", core.log.call_args.args[0])
+
+    def test_sync_control_rejects_unexpected_dirty_paths(self) -> None:
+        process = mock.Mock(return_value={
+            "exit_code": 0,
+            "output": " M .agent/tasks/task.json\n",
+        })
+        core = SimpleNamespace(
+            CONTROL=Path("/tmp/control"),
+            CONTROL_BRANCH="agent-control",
+            CONTROL_GIT_LOCK=nullcontext(),
+            process=process,
+            log=mock.Mock(),
+        )
+        with self.assertRaisesRegex(RuntimeError, "unexpected local changes"):
+            storage.sync_control(core)
+        process.assert_called_once()
 
     def test_transient_ssh_failure_is_retried_and_recovers(self) -> None:
         process = mock.Mock(

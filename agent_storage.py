@@ -13,6 +13,12 @@ CONTROL_WORKTREE_WARNING_BYTES = 256 * 1024**2
 WORKTREE_WARNING_BYTES = 2 * 1024**3
 DIAGNOSTIC_FILE_LIMIT = 100_000
 CONTROL_SPARSE_PATHS = (".agent",)
+CONTROL_RECOVERABLE_DIRS = (
+    ".agent/status",
+    ".agent/runs",
+    ".agent/results",
+    ".agent/daemon/acks",
+)
 GIT_NETWORK_RETRY_DELAYS = (2.0, 5.0, 15.0)
 TRANSIENT_GIT_NETWORK_MARKERS = (
     "connection closed by",
@@ -125,9 +131,85 @@ def run_git_with_network_retry(
     return result
 
 
+def _control_dirty_paths(core_module: Any) -> tuple[str, ...]:
+    status = core_module.process(
+        ["git", "status", "--porcelain=v1", "--untracked-files=all"],
+        core_module.CONTROL,
+        timeout=30,
+        log_commands=False,
+    )
+    if status["exit_code"] != 0:
+        raise RuntimeError(status["output"])
+    paths: set[str] = set()
+    for line in str(status.get("output", "")).splitlines():
+        if len(line) < 4:
+            continue
+        path = line[3:].strip()
+        if " -> " in path:
+            before, after = path.split(" -> ", 1)
+            paths.add(before.strip('"'))
+            paths.add(after.strip('"'))
+        elif path:
+            paths.add(path.strip('"'))
+    return tuple(sorted(paths))
+
+
+def _recoverable_control_path(path: str) -> bool:
+    return any(
+        path == directory or path.startswith(directory + "/")
+        for directory in CONTROL_RECOVERABLE_DIRS
+    )
+
+
+def recover_daemon_owned_control_changes(core_module: Any) -> None:
+    """Discard only interrupted daemon-owned control artifacts before sync."""
+    dirty = _control_dirty_paths(core_module)
+    if not dirty:
+        return
+    unexpected = tuple(path for path in dirty if not _recoverable_control_path(path))
+    if unexpected:
+        raise RuntimeError(
+            "control checkout has unexpected local changes: "
+            + ", ".join(unexpected)
+        )
+
+    logger = getattr(core_module, "log", None)
+    if callable(logger):
+        logger(
+            "recovering interrupted daemon-owned control changes before sync: "
+            + ", ".join(dirty)
+        )
+
+    restore = core_module.process(
+        [
+            "git",
+            "restore",
+            "--source=HEAD",
+            "--staged",
+            "--worktree",
+            "--",
+            *CONTROL_RECOVERABLE_DIRS,
+        ],
+        core_module.CONTROL,
+        timeout=30,
+        log_commands=False,
+    )
+    if restore["exit_code"] != 0:
+        raise RuntimeError(restore["output"])
+    clean = core_module.process(
+        ["git", "clean", "-fd", "--", *CONTROL_RECOVERABLE_DIRS],
+        core_module.CONTROL,
+        timeout=30,
+        log_commands=False,
+    )
+    if clean["exit_code"] != 0:
+        raise RuntimeError(clean["output"])
+
+
 def sync_control(core_module: Any) -> None:
     """Synchronize the active control checkout while preserving its shallow boundary."""
     with core_module.CONTROL_GIT_LOCK:
+        recover_daemon_owned_control_changes(core_module)
         branch = core_module.process(
             ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
             core_module.CONTROL,
