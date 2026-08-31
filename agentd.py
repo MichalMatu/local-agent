@@ -497,6 +497,9 @@ def recover_invalid_task_files() -> None:
     results_dir = safe_control_directory(".agent/results")
 
     for path in sorted(tasks_dir.glob("*.json")):
+        # A malformed file cannot reliably provide task.id, so its filename stem is
+        # the durable rejection key. Valid historical task files are allowed to use
+        # a filename alias/prefix that differs from task.id.
         rejection_id = path.stem
         rejection_result = results_dir / f"{rejection_id}.json"
         if rejection_result.exists():
@@ -529,6 +532,7 @@ def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
     pending: list[tuple[Path, dict[str, Any]]] = []
 
     for path in sorted(tasks_dir.glob("*.json")):
+        # First skip a terminal malformed-file rejection keyed by filename.
         task_id_hint = path.stem
         if (results_dir / f"{task_id_hint}.json").exists():
             continue
@@ -539,6 +543,8 @@ def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
             log(f"invalid task file {path.name}: {type(exc).__name__}: {exc}")
             continue
 
+        # Valid historical files may use a filename prefix/alias. Results and claims
+        # are keyed by the immutable payload id, not by the queue filename.
         result_path = results_dir / f"{task_id}.json"
         if result_path.exists():
             try:
@@ -1113,6 +1119,9 @@ def make_progress_callback(
             if stage_name:
                 last_remote_stage = stage_name
 
+        # Local status tracks every transition. Remote daemon status is health/state
+        # telemetry, not a duplicate per-command stream. Detailed execution belongs
+        # in .agent/runs/<task-id>.json.
         status_extra: dict[str, Any] = {"progress": enriched}
         if enriched.get("last_progress_at") is not None:
             status_extra["last_progress_at"] = enriched["last_progress_at"]
