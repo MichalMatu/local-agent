@@ -5,7 +5,6 @@ import contextlib
 import fcntl
 import os
 import re
-import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TextIO
@@ -19,9 +18,15 @@ from agent_process import (
     execution_lease_path,
 )
 from agent_repository import RepositoryContext
+from agent_runtime import memory_limit_for
 
 WORKER_RESOURCE_BUSY = 13
-RESOURCE_WAIT_SECONDS = 3600.0
+WORKER_MACHINE_BUSY = 14
+MAX_TASK_RESOURCES = 8
+MAX_PARALLEL_TASK_MEMORY_MB = 1536
+PARALLEL_STAGING_VERSION = (
+    f"{serial_worker.MULTIREPO_DAEMON_VERSION}-parallel-staging"
+)
 _RESOURCE_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 
 
@@ -36,12 +41,12 @@ def resource_lock_dir() -> Path:
 
 
 def task_resources(task: dict[str, object]) -> tuple[str, ...]:
-    """Return normalized resources with a conservative legacy fallback."""
+    """Return effective resources with conservative legacy and memory fallbacks."""
     if "resources" not in task:
         return ("machine",)
 
     raw = task.get("resources")
-    if not isinstance(raw, list):
+    if not isinstance(raw, list) or len(raw) > MAX_TASK_RESOURCES:
         return ("machine",)
 
     normalized: set[str] = set()
@@ -55,6 +60,14 @@ def task_resources(task: dict[str, object]) -> tuple[str, ...]:
 
     if "machine" in normalized:
         return ("machine",)
+
+    try:
+        memory_limit = memory_limit_for(task)
+    except (TypeError, ValueError):
+        return ("machine",)
+    if memory_limit == 0 or memory_limit > MAX_PARALLEL_TASK_MEMORY_MB:
+        return ("machine",)
+
     return tuple(sorted(normalized))
 
 
@@ -63,16 +76,11 @@ def _acquire_flock(
     operation: int,
     *,
     resource: str,
-    deadline: float,
 ) -> None:
-    while True:
-        try:
-            fcntl.flock(handle.fileno(), operation | fcntl.LOCK_NB)
-            return
-        except BlockingIOError:
-            if time.monotonic() >= deadline:
-                raise MachineResourceBusy(resource) from None
-            time.sleep(0.1)
+    try:
+        fcntl.flock(handle.fileno(), operation | fcntl.LOCK_NB)
+    except BlockingIOError:
+        raise MachineResourceBusy(resource) from None
 
 
 def _restore_env_value(target: dict[str, str], name: str, previous: str | None) -> None:
@@ -102,43 +110,32 @@ def _inherit_resource_fds(handles: list[TextIO]) -> Iterator[None]:
 
 @contextlib.contextmanager
 def machine_resource_lease(task: dict[str, object]) -> Iterator[tuple[str, ...]]:
-    """Arbitrate machine-wide resources and inherit leases into task descendants."""
+    """Acquire machine resources without waiting on a stale, unclaimed task copy."""
     resources = task_resources(task)
     lock_dir = resource_lock_dir()
     lock_dir.mkdir(parents=True, exist_ok=True)
-    deadline = time.monotonic() + RESOURCE_WAIT_SECONDS
 
     gate = (lock_dir / "arbitration-gate.lock").open("a+", encoding="utf-8")
     machine = (lock_dir / "machine.lock").open("a+", encoding="utf-8")
     resource_handles: list[TextIO] = []
     try:
-        _acquire_flock(
-            gate,
-            fcntl.LOCK_EX,
-            resource="arbitration-gate",
-            deadline=deadline,
-        )
+        _acquire_flock(gate, fcntl.LOCK_EX, resource="arbitration-gate")
         machine_mode = fcntl.LOCK_EX if resources == ("machine",) else fcntl.LOCK_SH
-        _acquire_flock(
-            machine,
-            machine_mode,
-            resource="machine",
-            deadline=deadline,
-        )
-        fcntl.flock(gate.fileno(), fcntl.LOCK_UN)
-        gate.close()
+        _acquire_flock(machine, machine_mode, resource="machine")
 
         if resources != ("machine",):
             for resource in resources:
                 path = execution_lease_path(lock_dir, f"resource:{resource}")
                 handle = path.open("a+", encoding="utf-8")
-                _acquire_flock(
-                    handle,
-                    fcntl.LOCK_EX,
-                    resource=resource,
-                    deadline=deadline,
-                )
+                try:
+                    _acquire_flock(handle, fcntl.LOCK_EX, resource=resource)
+                except BaseException:
+                    handle.close()
+                    raise
                 resource_handles.append(handle)
+
+        fcntl.flock(gate.fileno(), fcntl.LOCK_UN)
+        gate.close()
 
         inherited = [machine, *resource_handles]
         with _inherit_resource_fds(inherited):
@@ -159,7 +156,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
     serial_worker.bind_repository(repository)
     serial_worker.validate_repository_checkouts(repository)
     previous_version = agentd.DAEMON_VERSION
-    agentd.DAEMON_VERSION = serial_worker.MULTIREPO_DAEMON_VERSION
+    agentd.DAEMON_VERSION = PARALLEL_STAGING_VERSION
     try:
         serial_worker.sync_control_quietly()
         agentd.recover_stale_claims()
@@ -172,6 +169,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                 repository,
                 state,
                 force_remote=False,
+                execution_variant="parallel_staging",
             )
             return False
 
@@ -193,6 +191,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
             state,
             force_remote=True,
             last_task_id=str(task.get("id", "")),
+            execution_variant="parallel_staging",
         )
         return True
     finally:
@@ -223,9 +222,11 @@ def main() -> int:
         return serial_worker.WORKER_BUSY
     except MachineResourceBusy as exc:
         core.log(
-            f"machine resource wait expired repository={repository.repository_id} "
+            f"machine resource busy repository={repository.repository_id} "
             f"resource={exc.resource}"
         )
+        if exc.resource == "machine":
+            return WORKER_MACHINE_BUSY
         return WORKER_RESOURCE_BUSY
 
     return serial_worker.WORKER_PROCESSED if processed else serial_worker.WORKER_IDLE
