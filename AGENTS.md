@@ -6,17 +6,16 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 
 - All machine-generated execution content is English-only: source, comments, identifiers, tests, documentation, prompts, task metadata, runtime logs, shell-visible status text and commit messages.
 - Interactive ChatGPT conversation language is independent from that execution contract.
-- Every newly authored Codex/agent prompt must restate the English-only execution requirement near the top.
 - `agentd.py` owns the validated daemon core, durable claims/results, remote status/control and self-update.
 - `agent_core.py` owns deterministic task execution and result publication.
 - `agent_runtime.py` owns staged command lifecycle, watchdogs, progress and telemetry.
 - `agent_process.py` owns registered spawning, bounded stdout transport, process groups and inherited lease descriptors.
 - `agent_repository.py` owns repository registry parsing and workspace identity.
 - `agent_repo_worker.py` owns one short-lived process-isolated repository turn.
-- `agent_multirepo.py` owns the released serial multi-repository scheduler and remains the direct fallback.
-- `agent_parallel.py` owns the opt-in bounded parallel staging scheduler.
+- `agent_parallel.py` owns the released bounded-parallel multi-repository scheduler.
 - `agent_parallel_worker.py` owns task resource admission for the parallel scheduler.
-- `agent_repo_admin.py` owns explicit repository workspace provisioning and validation.
+- `agent_multirepo.py` remains the direct serial fallback with global concurrency one.
+- `agent_repo_admin.py` owns explicit repository provisioning and validation.
 - `agentctl.py` is diagnostics only; the daemon must not depend on it.
 
 ## Safety invariants
@@ -28,7 +27,6 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - Keep command/no-output/RSS watchdogs and the whole-task admission budget intact unless a change explicitly replaces them with an equivalent or stronger mechanism.
 - Command stdout transport and retained result capture must remain strictly bounded.
 - Never terminate an already-running stage solely because the whole-task admission budget expired.
-- Runtime execution must be passed explicitly into core task processing; do not mutate a global command runner to install production runtime behavior.
 - Never mutate repository path globals in a long-lived supervisor. Legacy path binding is allowed only inside a short-lived repository worker process.
 - Repository ids and remote identities are case-insensitively unique. Control/work/checkpoint paths must be disjoint after normalization, alias and ancestor/descendant checks.
 - A repository turn holds OS execution leases for its id, remote and every workspace path. Those descriptors must survive supervisor and worker failure through every spawned descendant.
@@ -36,7 +34,6 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - A worker must reject dispatch when its exact repository configuration changed after the supervisor selected it.
 - Every daemon, supervisor and worker subprocess must use the shared registered spawn path so termination cannot race an unregistered child.
 - Repository polling never implicitly clones, overwrites or repairs a checkout. Provisioning is explicit.
-- Existing non-Git paths must never be overwritten by provisioning.
 - Repository workers must never execute global daemon restart/self-update directly.
 - All daemon self-updates must validate before restart and roll back on validation failure.
 - Keep Git staging path-exact; never use `git add -A` in publication logic.
@@ -44,40 +41,63 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - Never destroy a dirty disposable workspace without first creating a recoverable checkpoint outside the worktree.
 - Treat repository control clones as daemon infrastructure. Queue normal work through the remote `agent-control` branch rather than hand-editing those clones.
 
-## Serial and parallel scheduling invariants
+## Production scheduling invariants
 
-The released fallback remains `agent_multirepo.py` with global execution concurrency exactly one.
+The v4.11 production multi-repository path is `agent_parallel.py`:
 
-The v4.11 staging path is explicitly opt-in through `agent_parallel.py`:
+- recommended production `max_workers` is `2`;
+- default remains `1` and the hard cap remains `3`;
+- `agent_multirepo.py` remains the known-safe serial fallback;
+- serial and parallel supervisors share the same daemon lock and must never run simultaneously;
+- missing, malformed or oversized `resources` means full `machine` exclusivity;
+- `resources=[]` is an explicit software-only parallel declaration, never a generic default;
+- named resources serialize tasks sharing that resource while unrelated resources may overlap;
+- any non-machine task must have `memory_limit_mb` enabled and at or below 1024 MiB, otherwise it falls back to `machine` exclusivity;
+- machine and named-resource descriptors are inherited into command descendants so locks survive worker death until the last holder exits;
+- resource acquisition is non-blocking admission; a worker must never wait on a resource after selecting a task and before claiming it;
+- machine contention enters priority/drain mode so full-machine work cannot starve behind a stream of shared tasks;
+- while workers are active, maintenance may only probe control state; global restart/status/self-update handling waits for a quiescent worker set and acquires all configured repository identities;
+- registry entries must not be removed or identity-mutated while workers may still be alive.
 
-- default `max_workers` is `1`;
-- staging hard cap is `3`;
-- first validated/live deployment uses `max_workers=2`;
-- the serial and parallel supervisors share the same daemon lock and must never run simultaneously;
-- missing, malformed or oversized `resources` declarations are conservative and mean `resources=["machine"]`;
-- `resources=[]` is software-only parallel admission, not a generic default;
-- named resources serialize tasks sharing the same resource while allowing unrelated named resources to overlap;
-- any parallel/named-resource task must keep `memory_limit_mb` enabled and at or below 1024 MiB, otherwise it falls back to `machine` exclusivity;
-- machine and named resource descriptors are inherited into command descendants so locks survive worker death until the last holder exits;
-- resource acquisition is non-blocking admission. A worker must never wait for a resource after selecting a task and before claiming it;
-- machine contention enters priority/drain mode so a full-machine task cannot starve behind a stream of shared tasks;
-- while workers are active, supervisor maintenance polling may only probe control state. Global restart/status/self-update handling must wait for a quiescent worker set and acquire every configured repository execution identity;
-- registry entries must not be removed or identity-mutated while staging workers may still be alive.
+A task is parallel-safe only when the planner knows it does not touch shared machine hardware or unsafe global tooling. Unknown, PlatformIO-heavy, USB, serial, flashing and hardware-sensitive work stays machine-exclusive unless an explicit resource contract proves otherwise.
 
-A task is parallel-safe only when the planner knows it does not touch shared machine hardware or unsafe global tooling. Unknown, USB, serial, flashing and other hardware-sensitive work remains machine-exclusive unless a future explicit arbitration contract says otherwise.
+## Release and branch policy
+
+- `main` is the production/runtime source of truth.
+- Normal installed runtime must execute from `~/local-agent` on `main` so validated self-update and revision reporting work normally.
+- Non-trivial runtime changes are prepared on isolated `v*-staging` branches/worktrees.
+- Staging branches are candidate-validation infrastructure, not long-lived production branches.
+- Require exact-candidate compile, Ruff, full unit/integration and macOS smoke before advancing `main`.
+- Advance `main` only by validated fast-forward after an explicit release decision.
+- Tag the released main commit with `vX.Y.Z` and keep `agent_version.RELEASE_VERSION` synchronized with that tag.
+- After live verification from `main`, remove obsolete staging worktrees/branches instead of accumulating them.
+
+## Downstream documentation synchronization
+
+Planner-facing Local Agent behavior is a cross-repository contract. Any change that materially affects task fields, control-plane paths, status/result fields, execution model, resource classification, concurrency, launchd deployment, self-update behavior, release flow or planner instructions must include a downstream documentation audit before release.
+
+The currently registered downstream repositories are:
+
+- `MichalMatu/esp32s3_LiteGraph` — update `LOCAL_AGENT_FLOW.md`, `LOCAL_AGENT_AUTOPILOT.md` when task construction/autonomy changes, and `AGENTS.md` when the contract is repeated there.
+- `MichalMatu/growbox-ml-controller` — update root `AGENTS.md` on `main` and any active long-lived work branch that carries its own Local Agent bootstrap; currently `mvp/environment-controller` must stay synchronized.
+- `MichalMatu/MatrixHub` — update root `AGENTS.md` on `main` and the active long-lived development branch when it differs; currently `develop` must stay synchronized.
+
+Do not hard-code downstream release numbers unless a repository intentionally documents a historical baseline. Runtime compatibility instructions should prefer `.agent/status/daemon.json` plus canonical `MichalMatu/local-agent/main`.
+
+The release audit is incomplete when these downstream instructions materially contradict the candidate runtime. Update downstream docs before moving `main` or explicitly document why no downstream change is required.
 
 ## Verification policy
 
 Verification is impact-driven:
 
 - run the narrowest test/build that can detect a realistic regression from the current diff;
-- add broader coverage only for shared/cross-cutting changes, uncertain dependency impact, an explicit repository requirement, or an explicit user request;
+- add broader coverage for shared/cross-cutting changes, uncertain dependency impact, explicit repository requirements or user requests;
 - new control/progress/watchdog/process-lifecycle behavior requires unit coverage;
-- scheduler, isolation, provisioning or resource-arbitration changes require real temporary-Git integration coverage in addition to unit tests;
-- repository lease or process-lifecycle changes require real SIGTERM/SIGKILL process tests;
+- scheduler, isolation, provisioning or resource-arbitration changes require real temporary-Git integration coverage;
+- repository lease/process-lifecycle changes require real SIGTERM/SIGKILL process tests;
 - bounded parallel changes require real overlap and exclusivity evidence, not only mocks.
 
-Use `workflow_policy: "efficient-verification-v1"` for staged coding tasks that must make verification cost explicit. Every `steps` and `verify_steps` item declares `verification_level`; use `work` for implementation, `focused` for affected regression/static checks and exactly one final `full` verification stage.
+Use `workflow_policy: "efficient-verification-v1"` for staged coding tasks that must make verification cost explicit. Use `work` for implementation, `focused` for affected regression/static checks and exactly one final `full` verification stage.
 
 For daemon changes, before publication run:
 
@@ -87,16 +107,14 @@ ruff check agentd.py agent_config.py agent_core.py agent_runtime.py agent_proces
 python -m unittest discover -q
 ```
 
-For non-trivial daemon changes use an isolated `v*-staging` branch and require green GitHub CI on the exact candidate SHA. Never prepare a release by switching the known-good `~/local-agent` checkout away from `main`.
-
-Parallel scheduler releases additionally require real two-repository overlap, machine-exclusion, inherited-resource-lock, one-shot contention and macOS smoke coverage. `main` advances only after an explicit release decision.
+Parallel scheduler releases additionally require real two-repository overlap, machine-exclusion, inherited-resource-lock, one-shot contention and macOS smoke coverage.
 
 ## Documentation
 
 - Canonical workflow: `docs/OPERATIONS.md`.
 - Autonomous ChatGPT planner/Chat Bridge loop: `docs/AUTONOMOUS_CHAT_LOOP.md`.
-- Multi-repository architecture and administration: `docs/MULTI_REPOSITORY.md`.
-- Parallel staging contract and live evidence: `docs/PARALLEL_EXECUTION_PLAN.md`.
+- Multi-repository architecture: `docs/MULTI_REPOSITORY.md`.
+- v4.11 parallel design/audit/live evidence: `docs/PARALLEL_EXECUTION_PLAN.md`.
 - Established Mac/ESP32 setup: `docs/SESSION_BOOTSTRAP.md`.
-- Current invariants/audit state: `docs/GOLDEN_STANDARD.md`.
-- Historical design notes under `docs/history/` are non-canonical.
+- Current production invariants: `docs/GOLDEN_STANDARD.md`.
+- Historical notes under `docs/history/` are non-canonical.
