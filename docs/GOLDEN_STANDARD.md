@@ -26,8 +26,17 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - Dirty workspaces are checkpointed before destructive cleanup.
 - Final results are durably spooled before remote publication.
 - Publication recovery republishes evidence without re-executing commands.
+- Interrupted daemon-owned control metadata under status/runs/results/acks is recovered by exact path before control sync; unexpected task/control-request changes are never auto-cleaned.
 - Self-update accepts validated fast-forward updates from a clean `main` checkout and rolls back validation failure.
+- Self-update validation explicitly compiles the parallel production entrypoints and uses a bounded 600-second full-test margin.
 - Terminal Git failures produce actionable diagnostics even when Git itself emitted no text.
+
+## Operator observability invariants
+
+- Successful routine control-plane Git synchronization/publication is quiet in the operator log; failures and retry diagnostics remain visible.
+- The parallel supervisor emits a human-readable `IDLE` line after startup and after real task completion.
+- A long-idle supervisor emits a bounded periodic `IDLE` heartbeat so `tail -f ~/Library/Logs/local-agent.log` remains immediately readable.
+- Real parallel task boundaries are visible as `TASK START` / `TASK DONE`; low-level successful Git plumbing must not drown those operator events.
 
 ## Repository isolation invariants
 
@@ -57,6 +66,9 @@ This file records the current production invariants for `MichalMatu/local-agent`
 
 - Repository workers never execute supervisor-wide restart/self-update.
 - While workers run, maintenance may only probe for pending global control.
+- Control probes have explicit `CLEAR`, `PENDING` and `DEFERRED` outcomes; only a successful `CLEAR` probe advances the normal control-poll clock.
+- A busy control-repository lease or transient probe/ACK-read failure is `DEFERRED` and is retried promptly instead of being mistaken for "no request".
+- A control ACK is durable only when it is visible on the fetched remote `agent-control` branch; a local-only ACK commit never suppresses replay of the remote request.
 - A real global request stops new admission and waits for active workers to drain.
 - Global control acquires all configured repository execution identities before running.
 - Ordinary self-update waits for natural idle.
