@@ -24,9 +24,7 @@ WORKER_RESOURCE_BUSY = 13
 WORKER_MACHINE_BUSY = 14
 MAX_TASK_RESOURCES = 8
 MAX_PARALLEL_TASK_MEMORY_MB = 1024
-PARALLEL_STAGING_VERSION = (
-    f"{serial_worker.MULTIREPO_DAEMON_VERSION}-parallel-staging"
-)
+PARALLEL_DAEMON_VERSION = serial_worker.MULTIREPO_DAEMON_VERSION
 _RESOURCE_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 
 
@@ -156,7 +154,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
     serial_worker.bind_repository(repository)
     serial_worker.validate_repository_checkouts(repository)
     previous_version = agentd.DAEMON_VERSION
-    agentd.DAEMON_VERSION = PARALLEL_STAGING_VERSION
+    agentd.DAEMON_VERSION = PARALLEL_DAEMON_VERSION
     try:
         serial_worker.sync_control_quietly()
         agentd.recover_stale_claims()
@@ -169,7 +167,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                 repository,
                 state,
                 force_remote=False,
-                execution_variant="parallel_staging",
+                execution_variant="parallel",
             )
             return False
 
@@ -191,7 +189,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
             state,
             force_remote=True,
             last_task_id=str(task.get("id", "")),
-            execution_variant="parallel_staging",
+            execution_variant="parallel",
         )
         return True
     finally:
