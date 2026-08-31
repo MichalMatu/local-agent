@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import secrets
 import signal
 import subprocess
@@ -65,6 +66,7 @@ REMOTE_DAEMON_STATUS = ".agent/status/daemon.json"
 REMOTE_CONTROL_REQUEST = ".agent/daemon/control.json"
 REMOTE_CONTROL_ACK_DIR = ".agent/daemon/acks"
 REMOTE_RUNS_DIR = ".agent/runs"
+CONTROL_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 runtime = RuntimeExecutor(core)
 
@@ -495,9 +497,6 @@ def recover_invalid_task_files() -> None:
     results_dir = safe_control_directory(".agent/results")
 
     for path in sorted(tasks_dir.glob("*.json")):
-        # A malformed file cannot reliably provide task.id, so its filename stem is
-        # the durable rejection key. Valid historical task files are allowed to use
-        # a filename alias/prefix that differs from task.id.
         rejection_id = path.stem
         rejection_result = results_dir / f"{rejection_id}.json"
         if rejection_result.exists():
@@ -530,7 +529,6 @@ def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
     pending: list[tuple[Path, dict[str, Any]]] = []
 
     for path in sorted(tasks_dir.glob("*.json")):
-        # First skip a terminal malformed-file rejection keyed by filename.
         task_id_hint = path.stem
         if (results_dir / f"{task_id_hint}.json").exists():
             continue
@@ -541,8 +539,6 @@ def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
             log(f"invalid task file {path.name}: {type(exc).__name__}: {exc}")
             continue
 
-        # Valid historical files may use a filename prefix/alias. Results and claims
-        # are keyed by the immutable payload id, not by the queue filename.
         result_path = results_dir / f"{task_id}.json"
         if result_path.exists():
             try:
@@ -924,13 +920,32 @@ def maybe_self_update(force: bool = False) -> bool:
     return True
 
 
+def valid_control_id(control_id: str) -> bool:
+    return (
+        bool(control_id)
+        and len(control_id) <= 120
+        and CONTROL_ID_RE.fullmatch(control_id) is not None
+    )
+
+
+def control_ack_relative_path(control_id: str) -> str:
+    if not valid_control_id(control_id):
+        raise ValueError(f"invalid daemon control id: {control_id!r}")
+    relative = f"{REMOTE_CONTROL_ACK_DIR}/{control_id}.json"
+    target = (core.CONTROL / relative).resolve()
+    ack_root = (core.CONTROL / REMOTE_CONTROL_ACK_DIR).resolve()
+    if ack_root not in target.parents:
+        raise ValueError(f"control ACK path escapes ACK directory: {control_id!r}")
+    return relative
+
+
 def _control_ack_path(control_id: str) -> Path:
-    return core.CONTROL / REMOTE_CONTROL_ACK_DIR / f"{control_id}.json"
+    return core.CONTROL / control_ack_relative_path(control_id)
 
 
 def control_ack_published(control_id: str) -> bool:
     """Return True only when the ACK is visible on the fetched remote control branch."""
-    relative = f"{REMOTE_CONTROL_ACK_DIR}/{control_id}.json"
+    relative = control_ack_relative_path(control_id)
     result = core.process(
         [
             "git",
@@ -955,6 +970,7 @@ def publish_control_ack(
     status: str,
     **extra: Any,
 ) -> None:
+    relative = control_ack_relative_path(control_id)
     payload = {
         "id": control_id,
         "action": action,
@@ -965,7 +981,7 @@ def publish_control_ack(
     }
     payload.update(extra)
     publish_control_json(
-        f"{REMOTE_CONTROL_ACK_DIR}/{control_id}.json",
+        relative,
         payload,
         commit_message=f"Agent daemon control ack: {control_id}",
     )
@@ -982,7 +998,8 @@ def handle_control_request() -> None:
     except Exception as exc:
         log(f"invalid daemon control request: {exc}")
         return
-    if not control_id or len(control_id) > 120:
+    if not valid_control_id(control_id):
+        log(f"invalid daemon control id: {control_id!r}")
         return
     try:
         if control_ack_published(control_id):
@@ -1096,9 +1113,6 @@ def make_progress_callback(
             if stage_name:
                 last_remote_stage = stage_name
 
-        # Local status tracks every transition. Remote daemon status is health/state
-        # telemetry, not a duplicate per-command stream. Detailed execution belongs
-        # in .agent/runs/<task-id>.json.
         status_extra: dict[str, Any] = {"progress": enriched}
         if enriched.get("last_progress_at") is not None:
             status_extra["last_progress_at"] = enriched["last_progress_at"]
