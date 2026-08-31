@@ -4,96 +4,70 @@
 
 Deterministic local execution infrastructure for AI-assisted software development.
 
-A planner decides **what should change** and supplies the exact task. `local-agent` executes that task on the local machine under bounded runtime rules, preserves failure evidence, and publishes a machine-readable result describing **what actually happened**.
+A planner decides **what should change** and supplies the exact task. `local-agent` executes it under bounded runtime rules, preserves failure evidence and publishes machine-readable results describing **what actually happened**.
 
 > The planner decides the work. The executor makes the run deterministic, bounded and observable.
 
-**Current release:** `v4.10.2`
+**Current release:** `v4.11.0`
 
-`local-agent` is the actively developed implementation. It started as execution infrastructure for one ESP32 development workspace and has evolved into a multi-repository supervisor while retaining a compatible single-repository fallback for the established setup.
+## Production execution model
+
+`main` is the runtime/release source. Temporary `v*-staging` branches and detached worktrees are used only to prepare and validate release candidates; after a validated release, production returns to `~/local-agent` on `main` and releases are marked with `vX.Y.Z` tags.
+
+For registered multi-repository operation, the recommended v4.11 supervisor is:
+
+```bash
+python agent_parallel.py --max-workers 2
+```
+
+`agent_multirepo.py` remains the direct serial fallback with global concurrency exactly one. Both supervisors share the same daemon lock and must never run simultaneously.
+
+The parallel scheduler is conservative by default:
+
+- a task with no `resources` field is `machine`-exclusive;
+- malformed or oversized resource declarations also fall back to `machine` exclusivity;
+- `resources: []` opts a clearly software-only task into parallel admission;
+- named resources serialize tasks that share the same declared resource;
+- any non-machine task must have an enabled `memory_limit_mb <= 1024`, otherwise it falls back to `machine` exclusivity;
+- hardware, USB, serial, flashing, unknown heavy tooling and other uncertain work should omit `resources` unless an explicit safe arbitration contract exists.
+
+The validated production setting is two workers. The code hard-caps the scheduler at three; increasing beyond two requires separate evidence.
 
 ## What it provides
 
-- **Deterministic task execution** — immutable task digests, durable attempt claims and explicit terminal results.
-- **Bounded processes** — command, no-output, whole-task and RSS watchdogs with bounded stdout retention.
-- **Process-tree control** — commands run in process groups; leaked descendants are terminated and reported.
-- **Crash-safe recovery** — dirty workspaces are checkpointed before destructive cleanup and completed results are durably spooled before publication.
-- **Multi-repository scheduling** — one supervisor dispatches isolated repository workers with repository-scoped state.
-- **OS execution leases** — repository/workspace identities remain locked through descendant-process lifetime, preventing unsafe concurrent recovery or reuse.
-- **Git-backed control plane** — tasks, acknowledgements, progress, results and status are exchanged through repository control branches.
-- **Failure-aware networking** — transient Git transport failures use bounded retry/backoff while deterministic authentication/configuration errors fail fast.
-- **Safe maintenance** — self-update accepts validated fast-forward updates from a clean `main` checkout.
-- **macOS deployment** — `launchd` templates are included for single-repository and multi-repository operation.
-
-## Architecture
-
-```text
-AI planner / ChatGPT
-        │
-        │ exact task payload
-        ▼
-repository agent-control branch
-        │
-        ▼
-┌─────────────────────────────┐
-│ local-agent supervisor      │
-│ - repository registry       │
-│ - deterministic scheduling  │
-│ - global execution lock     │
-└──────────────┬──────────────┘
-               │ one repository turn
-               ▼
-┌─────────────────────────────┐
-│ short-lived repo worker     │
-│ - validates repository      │
-│ - claims task durably       │
-│ - owns execution leases     │
-└──────────────┬──────────────┘
-               │
-               ▼
-local worktree / commands
-               │
-               ▼
-durable result spool
-               │
-               ▼
-agent-control result + status
-```
-
-Global execution concurrency is intentionally fixed at **one**. Separate planner conversations may queue work for different repositories concurrently, while the Mac serializes actual local execution to avoid collisions around PlatformIO, USB devices, serial ports and other machine-wide resources.
+- immutable task digests, durable claims and explicit terminal results;
+- command, no-output, whole-task and RSS watchdogs;
+- bounded stdout retention and process-group control;
+- crash-safe checkpointing and durable result spooling;
+- isolated per-repository control/work/checkpoint state;
+- inherited repository and machine-resource leases that survive worker death through descendants;
+- bounded parallel admission with full-machine fallback;
+- Git-backed tasks, runs, results, status and control;
+- transient Git-network retry with actionable terminal diagnostics;
+- validated fast-forward self-update from a clean `main` checkout;
+- macOS `launchd` deployment templates.
 
 ## Repository layout
 
 ```text
-.
-├── agentd.py                  # single-repository daemon + shared orchestration
-├── agent_config.py            # startup-loaded timeout/resource configuration
-├── agent_core.py              # deterministic task execution and publication
-├── agent_runtime.py           # staged execution, watchdogs and telemetry
-├── agent_process.py           # process groups, leases and bounded output
-├── agent_storage.py           # bounded control-Git storage helpers
-├── agent_repository.py        # repository registry and workspace identity
-├── agent_repo_worker.py       # isolated one-repository worker turn
-├── agent_multirepo.py         # multi-repository supervisor/scheduler
-├── agent_repo_admin.py        # provisioning and registry validation CLI
-├── agentctl.py                # diagnostics CLI
-├── agent_version.py           # release-version source of truth
-├── config/
-│   └── repositories.example.json
-├── deploy/macos/              # launchd templates
-├── tests/                     # unit + temporary-Git integration tests
-├── docs/
-│   ├── OPERATIONS.md          # canonical task/execution workflow
-│   ├── MULTI_REPOSITORY.md    # registry, workers and scheduler
-│   ├── SESSION_BOOTSTRAP.md   # established machine/ESP32 bench setup
-│   ├── GOLDEN_STANDARD.md     # current production invariants
-│   └── history/               # historical design material
-└── .github/workflows/ci.yml
+agentd.py                    shared daemon core, claims/results/control/self-update
+agent_core.py                deterministic task execution and publication
+agent_runtime.py             staged execution, watchdogs and telemetry
+agent_process.py             process groups and inherited execution leases
+agent_storage.py             bounded control-Git helpers and diagnostics
+agent_repository.py          registry and workspace identity
+agent_repo_worker.py         isolated repository worker turn
+agent_multirepo.py           serial multi-repository fallback
+agent_parallel.py            bounded parallel multi-repository supervisor
+agent_parallel_worker.py     task resource admission and resource locks
+agent_repo_admin.py          registry validation/provisioning
+agent_version.py             release-version source of truth
+deploy/macos/                launchd templates
+docs/                        canonical operational/release documentation
+tests/                       unit, process and real temporary-Git integration tests
 ```
 
 ## Runtime limits
-
-Defaults are deliberately finite. Upper bounds prevent a task payload from silently disabling the safety model.
 
 | Guard | Default | Maximum |
 | --- | ---: | ---: |
@@ -102,138 +76,95 @@ Defaults are deliberately finite. Upper bounds prevent a task payload from silen
 | Whole-task budget | 1800 s | 21600 s |
 | Process-group RSS | 4096 MiB | 16384 MiB |
 
-The RSS watchdog can be disabled explicitly with `0`. Whole-task admission reserves finalization headroom so a new stage is not started when it cannot fit safely inside the remaining budget.
+Parallel admission has the stricter 1024 MiB per-task limit described above.
 
-## Reliability model
+## Multi-repository administration
 
-The runtime is designed around interrupted and partially successful work rather than assuming a happy-path command runner.
-
-### Task identity and replay
-
-- every task has an immutable payload digest;
-- a durable claim records the execution attempt;
-- an interrupted claimed task is not silently replayed;
-- malformed or oversized task files fail as terminal input errors;
-- repository-scoped task identities allow the same task id in different repositories without collision.
-
-### Processes and shutdown
-
-- every spawned subprocess is registered atomically with shutdown;
-- commands use process groups rather than tracking only the direct child;
-- successful commands may not leave background descendants;
-- residual process groups are terminated and reported as `background_process_leak`;
-- SIGTERM handling uses bounded TERM → KILL escalation;
-- signals arriving during sensitive spawn/control-Git transactions are deferred only for the bounded critical section and then redelivered.
-
-### Workspace recovery
-
-- dirty tracked and untracked content is checkpointed outside the worktree before destructive cleanup;
-- checkpoint creation is bounded by time, file count and bytes and is durably synced;
-- checkpoint failure prevents cleanup and preserves the original dirty state;
-- cleanup/finalization failures remain visible alongside the original task failure.
-
-### Publication recovery
-
-- progress publication is asynchronous and coalesced so network Git cannot block command watchdog enforcement;
-- final results are atomically spooled before remote publication;
-- if publication fails, recovery republishes the durable result without re-executing the task.
-
-The exact production invariants are maintained in [`docs/GOLDEN_STANDARD.md`](docs/GOLDEN_STANDARD.md).
-
-## Multi-repository mode
-
-The optional local registry lives at:
+The machine-local registry is:
 
 ```text
 ~/Library/Application Support/local-agent/repositories.json
 ```
 
-When configured, the supervisor provides:
-
-- deterministic round-robin repository scheduling;
-- faster polling for the recently active repository without starving periodic full scans or supervisor controls;
-- isolated `control`, `work`, `checkpoints`, claims, runs and status per repository;
-- case-insensitive repository-id and remote uniqueness checks;
-- normalized workspace isolation, including alias and ancestor/descendant overlap rejection;
-- immutable worker-dispatch configuration digests;
-- inherited OS leases for repository id, remote and workspace identities;
-- explicit provisioning rather than implicit checkout repair or replacement;
-- worker isolation so one repository failure does not stop polling the others.
-
-Example administration:
+Useful commands:
 
 ```bash
 python agent_repo_admin.py list
 python agent_repo_admin.py validate
-python agent_repo_admin.py provision --repository-id matrixhub
-python agent_multirepo.py --once
+python agent_repo_admin.py provision --repository-id <id>
+python agent_parallel.py --max-workers 2 --once
 ```
 
-See [`docs/MULTI_REPOSITORY.md`](docs/MULTI_REPOSITORY.md) for the full contract.
+Each repository keeps its own `agent-control` branch and repository-scoped `.agent/` queue/results/status data. Task IDs may repeat across different repositories without collision. One repository still executes only one claimed task at a time; different repositories may overlap only when resource admission permits it.
 
-## Efficient verification workflow
+## Reliability rules
 
-Structured coding tasks can opt into:
+- interrupted claimed tasks are never silently replayed;
+- malformed/oversized task JSON is terminal input evidence;
+- final results are durably spooled before remote publication;
+- publication recovery may republish evidence but may not rerun commands;
+- every subprocess is registered and commands run in process groups;
+- successful commands may not leave background descendants;
+- stale-claim recovery is blocked while any matching inherited repository lease is alive;
+- machine/named resource locks are inherited by descendants so a killed worker cannot prematurely release shared-machine safety;
+- global restart/status/self-update waits for a quiescent worker set and all configured repository identities.
+
+## Verification workflow
+
+Structured coding tasks may use:
 
 ```json
 "workflow_policy": "efficient-verification-v1"
 ```
 
-The policy distinguishes three verification intents:
+Use `work` for implementation checks, `focused` for affected validation and exactly one final `full` verification stage. The daemon validates declared intent but does not infer it from command text or silently deduplicate commands.
 
-- `work` — fast checks while implementing;
-- `focused` — validation of the affected behavior;
-- `full` — the repository-wide final gate.
-
-A structured plan must finish with exactly one `full` verification stage. The daemon validates the stage contract but does **not** infer intent from command text and never silently deduplicates declared commands.
-
-The canonical edit → review → final-gate → defect-recovery workflow is documented in [`docs/OPERATIONS.md`](docs/OPERATIONS.md#efficient-verification-workflow).
-
-## Local validation
-
-The runtime itself has no third-party Python dependency requirement. CI installs a pinned Ruff version for linting.
+Before publishing runtime changes:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-
 python -m py_compile \
   agentd.py agent_config.py agent_core.py agent_runtime.py agent_process.py \
   agent_storage.py agent_repository.py agent_repo_worker.py agent_multirepo.py \
-  agent_repo_admin.py agentctl.py agent_version.py
+  agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agentctl.py agent_version.py
 
-python -m pip install ruff==0.12.11
 ruff check \
   agentd.py agent_config.py agent_core.py agent_runtime.py agent_process.py \
   agent_storage.py agent_repository.py agent_repo_worker.py agent_multirepo.py \
-  agent_repo_admin.py agentctl.py agent_version.py tests
+  agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agentctl.py \
+  agent_version.py tests
 
 python -m unittest discover -q
 ```
 
-Useful diagnostics:
+Parallel releases additionally require real two-repository overlap, machine-exclusion, inherited-resource-lock and macOS smoke evidence on the exact candidate SHA.
 
-```bash
-./.venv/bin/python agentctl.py status
-./.venv/bin/python agentctl.py doctor
-./.venv/bin/python agentctl.py task <task-id>
-./.venv/bin/python agentctl.py validate-task /path/to/task.json
-```
+## Release flow
 
-GitHub Actions also runs a macOS smoke job covering process lifecycle, checkpoint/recovery behavior and multi-repository execution.
+1. Keep `~/local-agent` on `main` as the known production checkout.
+2. Prepare non-trivial runtime changes on an isolated `v*-staging` branch/worktree.
+3. Require exact-SHA compile, Ruff, full tests and macOS smoke.
+4. Audit and update planner-facing Local Agent documentation in every registered downstream repository when the execution/control contract changed.
+5. Fast-forward `main` only after every gate is green.
+6. Tag the released main commit `vX.Y.Z`.
+7. Run the LaunchAgent from `~/local-agent` on `main`, not from the staging worktree.
+8. Verify live version/revision and a real queued task.
+9. Remove the staging branch/worktree after the release is established.
 
-## Deployment note
+## Deployment
 
-Do not start a second foreground daemon or supervisor when the production `launchd` service is already running. All entry points share the same OS daemon lock.
+The production bounded-parallel template is `deploy/macos/com.michal.local-agent.parallel.plist`. It uses the same `com.michal.local-agent` label as the serial templates and is a replacement configuration, never a second service.
+
+Do not start a foreground daemon while the LaunchAgent is running. All entry points share the same OS daemon lock.
 
 ## Documentation
 
-Read these in order when changing the runtime:
+Read these in order when changing runtime behavior:
 
-1. [`AGENTS.md`](AGENTS.md) — repository safety and authoring rules.
-2. [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — canonical queue and execution workflow.
-3. [`docs/MULTI_REPOSITORY.md`](docs/MULTI_REPOSITORY.md) — registry, provisioning and scheduler behavior.
-4. [`docs/SESSION_BOOTSTRAP.md`](docs/SESSION_BOOTSTRAP.md) — established machine and ESP32 bench details when needed.
-5. [`docs/GOLDEN_STANDARD.md`](docs/GOLDEN_STANDARD.md) — versioned runtime/release invariants.
+1. `AGENTS.md` — repository invariants and release/downstream-sync rules.
+2. `docs/OPERATIONS.md` — queue, task resources, deployment and rollback.
+3. `docs/MULTI_REPOSITORY.md` — registry, workers and scheduling model.
+4. `docs/GOLDEN_STANDARD.md` — current production invariants.
+5. `docs/PARALLEL_EXECUTION_PLAN.md` — v4.11 design/audit/live-validation record.
+6. `docs/AUTONOMOUS_CHAT_LOOP.md` — Chat Bridge planner loop.
 
-Historical design material under [`docs/history/`](docs/history/) is retained for context and is not a source of current runtime behavior.
+Historical material under `docs/history/` is non-canonical.
