@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import os
 import signal
 import subprocess
@@ -296,6 +297,43 @@ def route_parallel_restarts(
         agentd.restart_self = original_restart
 
 
+def pending_control_request_from_bound_checkout() -> bool:
+    """Return True for a valid unacknowledged daemon control request."""
+    path = agentd.core.CONTROL / agentd.REMOTE_CONTROL_REQUEST
+    if not path.exists():
+        return False
+    try:
+        request = json.loads(path.read_text(encoding="utf-8"))
+        control_id = str(request["id"])
+        str(request["action"])
+    except Exception as exc:
+        log(f"invalid daemon control request during probe: {type(exc).__name__}: {exc}")
+        return False
+    if not control_id or len(control_id) > 120:
+        return False
+    ack = agentd.core.CONTROL / agentd.REMOTE_CONTROL_ACK_DIR / f"{control_id}.json"
+    return not ack.exists()
+
+
+def probe_control_request(
+    repository: RepositoryContext,
+) -> bool:
+    """Probe control while other repositories run without invoking global actions."""
+    try:
+        with serial_worker.repository_execution_lease(repository):
+            serial.bind_supervisor_control(repository)
+            serial.sync_control_quietly()
+            return pending_control_request_from_bound_checkout()
+    except ExecutionLeaseBusy:
+        return False
+    except Exception as exc:
+        log(
+            f"supervisor control probe degraded repository={repository.repository_id}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        return False
+
+
 def service_control(
     repositories: list[RepositoryContext],
     *,
@@ -501,14 +539,6 @@ def main() -> int:
             if args.once and priority_repository in once_failed:
                 priority_repository = None
 
-            now = time.monotonic()
-            if serial.interval_due(
-                last_control_at,
-                serial.SUPERVISOR_CONTROL_POLL_SECONDS,
-                now,
-            ):
-                control_pending = True
-
             if control_pending:
                 if running:
                     time.sleep(REAP_INTERVAL_SECONDS)
@@ -524,6 +554,31 @@ def main() -> int:
                 else:
                     time.sleep(ERROR_RETRY_SECONDS)
                     continue
+
+            now = time.monotonic()
+            if serial.interval_due(
+                last_control_at,
+                serial.SUPERVISOR_CONTROL_POLL_SECONDS,
+                now,
+            ):
+                if running:
+                    if probe_control_request(repositories[0]):
+                        control_pending = True
+                        log("global control request detected; draining active workers")
+                        time.sleep(REAP_INTERVAL_SECONDS)
+                        continue
+                    last_control_at = time.monotonic()
+                else:
+                    if service_control(
+                        repositories,
+                        registry_path=args.registry,
+                        max_workers=max_workers,
+                        once=args.once,
+                    ):
+                        last_control_at = time.monotonic()
+                    else:
+                        time.sleep(ERROR_RETRY_SECONDS)
+                        continue
 
             started_worker = False
             now = time.monotonic()
