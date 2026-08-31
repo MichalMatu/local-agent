@@ -11,6 +11,7 @@ import sys
 import time
 from collections.abc import Iterator
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,12 @@ MAX_ONCE_DEFERRALS = 120
 OPERATOR_IDLE_HEARTBEAT_SECONDS = 300.0
 PARALLEL_EXECUTION_MODEL = "parallel_repository_supervisor"
 _daemon_lock_handle: Any | None = None
+
+
+class ControlProbeResult(Enum):
+    CLEAR = "clear"
+    PENDING = "pending"
+    DEFERRED = "deferred"
 
 
 @dataclass
@@ -328,30 +335,31 @@ def route_parallel_restarts(
         agentd.restart_self = original_restart
 
 
-def pending_control_request_from_bound_checkout() -> bool:
-    """Return True for a valid unacknowledged daemon control request."""
+def pending_control_request_from_bound_checkout() -> ControlProbeResult:
+    """Classify a control request after a successful control-checkout sync."""
     path = agentd.core.CONTROL / agentd.REMOTE_CONTROL_REQUEST
     if not path.exists():
-        return False
+        return ControlProbeResult.CLEAR
     try:
         request = json.loads(path.read_text(encoding="utf-8"))
         control_id = str(request["id"])
         str(request["action"])
     except Exception as exc:
         log(f"invalid daemon control request during probe: {type(exc).__name__}: {exc}")
-        return False
+        return ControlProbeResult.CLEAR
     if not control_id or len(control_id) > 120:
-        return False
+        return ControlProbeResult.CLEAR
     try:
-        return not agentd.control_ack_published(control_id)
+        published = agentd.control_ack_published(control_id)
     except Exception as exc:
         log(f"control ACK probe degraded id={control_id}: {type(exc).__name__}: {exc}")
-        return False
+        return ControlProbeResult.DEFERRED
+    return ControlProbeResult.CLEAR if published else ControlProbeResult.PENDING
 
 
 def probe_control_request(
     repository: RepositoryContext,
-) -> bool:
+) -> ControlProbeResult:
     """Probe control while other repositories run without invoking global actions."""
     try:
         with serial_worker.repository_execution_lease(repository):
@@ -359,13 +367,13 @@ def probe_control_request(
             serial.sync_control_quietly()
             return pending_control_request_from_bound_checkout()
     except ExecutionLeaseBusy:
-        return False
+        return ControlProbeResult.DEFERRED
     except Exception as exc:
         log(
             f"supervisor control probe degraded repository={repository.repository_id}: "
             f"{type(exc).__name__}: {exc}"
         )
-        return False
+        return ControlProbeResult.DEFERRED
 
 
 def service_control(
@@ -609,10 +617,14 @@ def main() -> int:
                 now,
             ):
                 if running:
-                    if probe_control_request(repositories[0]):
+                    probe_result = probe_control_request(repositories[0])
+                    if probe_result is ControlProbeResult.PENDING:
                         control_pending = True
                         log("global control request detected; draining active workers")
                         time.sleep(REAP_INTERVAL_SECONDS)
+                        continue
+                    if probe_result is ControlProbeResult.DEFERRED:
+                        time.sleep(ERROR_RETRY_SECONDS)
                         continue
                     last_control_at = time.monotonic()
                 else:

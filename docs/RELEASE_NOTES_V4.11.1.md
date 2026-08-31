@@ -13,6 +13,7 @@ v4.11.1 is a logging/readability patch release for the bounded-parallel supervis
 - recovers interrupted daemon-owned control status/run/result/ack files before a control-branch pull, preventing a SIGKILL between write/stage/commit from wedging later recovery;
 - refuses to auto-clean unexpected control changes such as tasks or daemon control requests;
 - treats a control ACK as durable only when it is visible on the fetched remote `agent-control` branch, so a crash after local ACK commit but before push does not suppress the request;
+- retries a deferred control probe promptly without advancing the control-poll clock, preventing a busy control-repository lease or transient probe failure from starving global restart/self-update/status requests;
 - expands local self-update validation to explicitly compile the parallel production entrypoints and gives the full local test gate a 600 second bounded margin;
 - does not change task/resource arbitration, concurrency, leases, or the serial fallback.
 
