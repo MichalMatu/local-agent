@@ -50,6 +50,8 @@ CHECKPOINT_COPY_CHUNK_BYTES = 1024 * 1024
 EFFICIENT_VERIFICATION_POLICY = "efficient-verification-v1"
 VERIFICATION_LEVELS = frozenset({"work", "focused", "full"})
 OUTPUT_POLICIES = frozenset({"stream", "summary"})
+VERBOSE_COMMAND_LOG_ENV = "LOCAL_AGENT_VERBOSE_LOGS"
+COMMAND_LOG_PREVIEW_CHARS = 160
 
 BASE_PATH = [
     str(HOME / ".platformio" / "penv" / "bin"),
@@ -85,6 +87,33 @@ def log(message: str) -> None:
     print(f"[{now_iso()}] {message}", flush=True)
 
 
+def verbose_command_logging() -> bool:
+    return os.environ.get(VERBOSE_COMMAND_LOG_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def command_log_descriptor(
+    command: str,
+    stage: dict[str, Any] | None = None,
+) -> str:
+    if verbose_command_logging():
+        return command
+    stage_name = str((stage or {}).get("name", "")).strip()
+    line_count = max(1, len(command.splitlines()))
+    if stage_name:
+        if line_count > 1 or len(command) > COMMAND_LOG_PREVIEW_CHARS:
+            return f"stage={stage_name} lines={line_count} chars={len(command)}"
+        return f"stage={stage_name}"
+    compact = " ".join(command.split())
+    if line_count > 1 or len(compact) > COMMAND_LOG_PREVIEW_CHARS:
+        return f"shell lines={line_count} chars={len(command)}"
+    return compact
+
+
 def bounded(text: str, limit: int = MAX_OUTPUT) -> str:
     if len(text) <= limit:
         return text
@@ -101,9 +130,16 @@ def process(
     environment: Mapping[str, str] | None = None,
     log_commands: bool = True,
 ) -> dict[str, Any]:
-    process_log = log if log_commands else lambda _message: None
-    if log_commands:
-        log(f"exec: {' '.join(args)}")
+    command_text = " ".join(args)
+    quiet_internal_git = bool(
+        log_commands
+        and args
+        and args[0] == "git"
+        and not verbose_command_logging()
+    )
+    process_log = log if log_commands and not quiet_internal_git else lambda _message: None
+    if log_commands and not quiet_internal_git:
+        log(f"exec: {command_text}")
     result = run_argv_bounded(
         args,
         cwd=cwd,
@@ -115,11 +151,15 @@ def process(
     )
     elapsed = float(result["elapsed_seconds"])
     if result.get("timed_out"):
-        process_log(f"TIMEOUT after {timeout}s: {' '.join(args)}")
-    if log_commands:
+        log(f"TIMEOUT after {timeout}s: {command_text}")
+    if log_commands and (
+        not quiet_internal_git
+        or result["exit_code"] != 0
+        or result.get("timed_out")
+    ):
         log(
             f"exec finished exit={result['exit_code']} "
-            f"elapsed={elapsed:.1f}s: {' '.join(args)}"
+            f"elapsed={elapsed:.1f}s: {command_text}"
         )
     return result
 
@@ -134,7 +174,8 @@ def run_command(
     *,
     stage: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    log(f"exec: {command}")
+    command_descriptor = command_log_descriptor(command, stage)
+    log(f"exec: {command_descriptor}")
     started = time.monotonic()
     proc = spawn_shell(command, cwd=WORK, env=ENV)
     pump = start_output_pump(proc)
@@ -150,7 +191,7 @@ def run_command(
             remaining = timeout - elapsed
             if remaining <= 0 and proc.poll() is None and not timed_out:
                 timed_out = True
-                log(f"TIMEOUT after {timeout}s: {command}")
+                log(f"TIMEOUT after {timeout}s: {command_descriptor}")
                 kill_process_group(proc)
 
             if proc.poll() is not None and not direct_process_finished:
@@ -182,7 +223,7 @@ def run_command(
         exit_code = 126
 
     elapsed = time.monotonic() - started
-    log(f"exec finished exit={exit_code} elapsed={elapsed:.1f}s: {command}")
+    log(f"exec finished exit={exit_code} elapsed={elapsed:.1f}s: {command_descriptor}")
 
     return {
         "command": command,

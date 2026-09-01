@@ -536,8 +536,7 @@ def service_control(
                 supervisor_control_repository=control_repository.repository_id,
             )
         return True
-    except ExecutionLeaseBusy as exc:
-        log(f"supervisor control deferred: repository lease busy key={exc.key}")
+    except ExecutionLeaseBusy:
         return False
     except Exception as exc:
         log(
@@ -646,13 +645,13 @@ def main() -> int:
         nonlocal control_defer_count, last_control_defer_log_at
         control_defer_count, last_control_defer_log_at = 0, None
 
-    def note_control_deferred(message: str) -> float:
+    def note_control_deferred(message: str, *, emit_log: bool = True) -> float:
         nonlocal control_defer_count, control_retry_not_before, last_control_defer_log_at
         control_defer_count += 1
         now = time.monotonic()
         retry = control_defer_retry_seconds(control_defer_count)
         control_retry_not_before = now + retry
-        if repeated_failure_log_due(last_control_defer_log_at, now):
+        if emit_log and repeated_failure_log_due(last_control_defer_log_at, now):
             log(f"{message}; consecutive={control_defer_count} retry_in={retry:.0f}s")
             last_control_defer_log_at = now
         return retry
@@ -771,7 +770,8 @@ def main() -> int:
                         continue
                     if probe_result is ControlProbeResult.LEASE_BUSY:
                         note_control_deferred(
-                            "global control probe deferred; control repository lease busy"
+                            "global control probe deferred; control repository lease busy",
+                            emit_log=False,
                         )
                         if control_lease_busy_should_force_drain(control_defer_count):
                             control_pending = True

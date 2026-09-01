@@ -95,6 +95,32 @@ class WorkspaceCheckpointTests(unittest.TestCase):
         self.assertEqual(source.read_text(encoding="utf-8"), "preserve me")
         self.assertFalse(self.checkpoints.exists())
 
+    def test_multiline_command_log_is_compact_by_default(self) -> None:
+        newline = chr(10)
+        command = newline.join(["set -e", "python - <<'PY'", "print('hello')", "PY"])
+        with mock.patch.dict(core.os.environ, {}, clear=True):
+            self.assertEqual(
+                core.command_log_descriptor(command, {"name": "example-stage"}),
+                f"stage=example-stage lines=4 chars={len(command)}",
+            )
+
+    def test_verbose_command_log_preserves_full_command(self) -> None:
+        command = chr(10).join(["line one", "line two"])
+        with mock.patch.dict(
+            core.os.environ,
+            {core.VERBOSE_COMMAND_LOG_ENV: "1"},
+            clear=False,
+        ):
+            self.assertEqual(core.command_log_descriptor(command), command)
+
+    def test_successful_internal_git_process_is_quiet_by_default(self) -> None:
+        with mock.patch.dict(core.os.environ, {}, clear=True), mock.patch.object(
+            core, "log"
+        ) as logger:
+            result = core.process(["git", "status", "--short"], self.repo, timeout=10)
+        self.assertEqual(result["exit_code"], 0)
+        logger.assert_not_called()
+
     def test_internal_process_output_is_strictly_bounded(self) -> None:
         result = core.process(
             ["python", "-c", "print('x' * 100000)"],
