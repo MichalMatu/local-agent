@@ -8,7 +8,8 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
   const {
     normalizeConversationUrl,
     parseAssistantControl,
-    controlFingerprint
+    controlFingerprint,
+    fnv1a32
   } = protocol;
 
   function findComposer() {
@@ -141,23 +142,41 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
     return { ok: true, reason: "sent" };
   }
 
-  function latestAssistantText() {
+  function latestAssistantMessage() {
     const messages = document.querySelectorAll('[data-message-author-role="assistant"]');
-    if (!messages.length) return "";
+    if (!messages.length) return null;
     const latest = messages[messages.length - 1];
-    return latest.innerText || latest.textContent || "";
+    const text = latest.innerText || latest.textContent || "";
+    const stableId =
+      latest.getAttribute("data-message-id") || latest.getAttribute("data-testid") || latest.id || "";
+    return {
+      text,
+      identity: `${messages.length}:${stableId}`
+    };
   }
 
   let controlScanTimer = null;
   let lastSubmittedControlFingerprint = "";
+  let lastScannedAssistantSignature = "";
 
   async function scanLatestAssistantControl() {
     if (assistantIsGenerating()) return;
-    const assistantText = latestAssistantText();
-    const control = parseAssistantControl(assistantText);
+    const latest = latestAssistantMessage();
+    if (!latest) return;
+
+    const signature = fnv1a32(`${latest.identity}\n${latest.text}`);
+    if (signature === lastScannedAssistantSignature) return;
+    lastScannedAssistantSignature = signature;
+
+    const control = parseAssistantControl(latest.text);
     if (!control) return;
 
-    const fingerprint = controlFingerprint(location.href, assistantText, control);
+    const fingerprint = controlFingerprint(
+      location.href,
+      latest.text,
+      control,
+      latest.identity
+    );
     if (fingerprint === lastSubmittedControlFingerprint) return;
 
     try {
@@ -167,9 +186,7 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
         fingerprint,
         control
       });
-      if (response?.ok) {
-        lastSubmittedControlFingerprint = fingerprint;
-      }
+      if (response?.ok) lastSubmittedControlFingerprint = fingerprint;
     } catch (error) {
       console.warn("Local Agent Chat Bridge control delivery failed:", error);
     }
@@ -180,7 +197,7 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
     controlScanTimer = setTimeout(() => {
       controlScanTimer = null;
       scanLatestAssistantControl().catch((error) => console.warn(error));
-    }, 500);
+    }, 600);
   }
 
   const observerTarget = document.body || document.documentElement;
