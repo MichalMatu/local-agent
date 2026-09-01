@@ -63,11 +63,14 @@ One repository still executes only one claimed task at a time. Different reposit
 4. Prepare the smallest deterministic change.
 5. Classify resources conservatively before queueing the task.
 6. Queue a new unique task through that repository's `agent-control` branch.
-7. Follow the same digest/attempt until terminal evidence is published.
-8. Diagnose real output; do not infer success from task submission.
-9. Run focused verification first, then the broad final gate when warranted.
-10. Publish validated source according to the target repository's Git policy.
-11. Treat source publication and hardware flashing/runtime verification as separate gates.
+7. For an autonomous Chat Bridge goal, perform one early liveness re-check after about 30 seconds. If the task is healthy, return to a longer interval matched to expected duration; if it failed immediately, diagnose before doing anything else.
+8. Follow the same digest/attempt until terminal evidence is published.
+9. Diagnose real output; do not infer success from task submission.
+10. Run focused verification first, then the broad final gate when warranted.
+11. Publish validated source according to the target repository's Git policy.
+12. Treat source publication and hardware flashing/runtime verification as separate gates.
+
+The early liveness check is planner pacing only. It must not change daemon polling, duplicate work, or justify queueing a second task while the first one is still active. Its purpose is to catch immediate deterministic failures without waiting through a normal 5-15 minute bridge interval.
 
 For substantial staged coding work, prefer `workflow_policy: "efficient-verification-v1"`: `work` stages for implementation, `focused` stages for affected verification, and exactly one final `full` verification stage.
 
