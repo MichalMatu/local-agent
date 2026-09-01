@@ -537,22 +537,41 @@ async function updateConversation(chatId, patch) {
     const previous = state.conversations[chatId];
     if (!previous) throw new Error("conversation not found");
     const safePatch = {};
+    const previousRepositoryId = String(previous.repositoryId || "");
+    const previousInterval = previous.intervalOverrideMinutes;
+    const previousEnabled = previous.enabled;
+
     if ("enabled" in patch) safePatch.enabled = Boolean(patch.enabled);
     if ("label" in patch) safePatch.label = patch.label;
     if ("repositoryId" in patch) {
       safePatch.repositoryId = patch.repositoryId;
-      if (String(previous.repositoryId || "") !== String(patch.repositoryId || "")) {
+      if (previousRepositoryId !== String(patch.repositoryId || "")) {
         safePatch.bootstrapPending = true;
       }
     }
     if ("intervalOverrideMinutes" in patch) {
       safePatch.intervalOverrideMinutes = patch.intervalOverrideMinutes;
     }
+
     const updated = stateModel.patchConversation(state, chatId, safePatch);
-    return { state: updated.state, conversation: updated.conversation };
+    return {
+      state: updated.state,
+      conversation: updated.conversation,
+      value: {
+        enabledChanged: previousEnabled !== updated.conversation.enabled,
+        repositoryChanged: previousRepositoryId !== String(updated.conversation.repositoryId || ""),
+        pacingChanged: previousInterval !== updated.conversation.intervalOverrideMinutes
+      }
+    };
   });
-  if (result.conversation?.enabled) await scheduleDefault(chatId, true);
-  else await clearConversationAlarm(chatId);
+
+  if (!result.conversation?.enabled) {
+    await clearConversationAlarm(chatId);
+  } else if (result.value?.enabledChanged || result.value?.repositoryChanged) {
+    await scheduleDefault(chatId, true);
+  } else if (result.value?.pacingChanged) {
+    await scheduleDefault(chatId);
+  }
   return result.conversation;
 }
 
