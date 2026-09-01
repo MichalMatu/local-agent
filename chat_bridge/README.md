@@ -1,91 +1,124 @@
 # Local Agent Chat Bridge
 
-Chrome Manifest V3 extension that periodically sends one bounded feedback prompt to one explicitly selected ChatGPT conversation. It is intentionally separate from the deterministic local-agent execution path.
+Chrome Manifest V3 extension that schedules bounded autonomous wake-ups for multiple explicitly configured ChatGPT conversations. The bridge remains transport only: ChatGPT plans work and `local-agent` executes deterministic tasks.
 
-The complete planner/executor/autonomous-loop contract is documented in `docs/AUTONOMOUS_CHAT_LOOP.md`. The bridge itself is only a wake-up and control transport; it does not understand the conversation or decide what work should run.
+The canonical planner/executor contract is documented in `docs/AUTONOMOUS_CHAT_LOOP.md`, `docs/OPERATIONS.md` and `docs/MULTI_REPOSITORY.md`.
 
-## Safety model
+## v0.3 model
 
-- Disabled by default.
-- Bound to one exact ChatGPT conversation URL.
-- Never sends while ChatGPT exposes a generating/stop control.
-- Never overwrites non-empty composer text.
-- Retries busy or temporarily unavailable pages with a bounded interval.
-- Runtime prompt and timing are loaded independently from extension code.
-- A local master switch remains authoritative even when remote runtime configuration changes.
-- Assistant control commands are accepted only from the selected conversation, only from the latest assistant message, and only when the exact marker is the final non-empty line.
-- Processed control markers are durably deduplicated in extension storage.
+Chat Bridge v0.3 replaces the old single-conversation state with schema v2:
 
-## Runtime state
+- multiple conversations can be enabled at the same time;
+- every conversation has an independent alarm, status, interval override and assistant-control dedupe state;
+- `STOP`, `PAUSE`, `RESUME`, `INTERVAL` and `NEXT` affect only the conversation that emitted the marker;
+- a global master switch can suspend scheduling without deleting per-conversation state;
+- each conversation can store a label and optional Local Agent `repositoryId` routing hint;
+- the previous v0.2 storage layout is migrated automatically on first startup.
 
-The default runtime configuration URL is:
+Chrome must remain running and each scheduled conversation must remain open in a tab. The tab does not need to be foregrounded.
+
+## Token-efficient wake flow
+
+New or migrated conversations receive one bootstrap prompt. After the bootstrap is sent successfully, ordinary wake-ups use a compact wake prompt instead of repeating the full Local Agent policy every time.
+
+The default compact prompt is intentionally short:
 
 ```text
-https://raw.githubusercontent.com/MichalMatu/local-agent/chat-bridge-state/chat_bridge/runtime.json
+[LA_WAKE] Continue the active Local Agent goal from exact target-repo evidence. Do not recap unchanged state; keep this wake terse.
 ```
 
-The dedicated `chat-bridge-state` branch is runtime state, not release code. The extension fetches it with `cache: no-store` before each feedback attempt. If the fetch fails or is invalid, the extension uses the locally stored fallback values.
-
-Runtime schema:
+Runtime schema v2 separates the two prompt types:
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "interval_minutes": 10,
   "busy_retry_minutes": 1,
-  "prompt": "..."
+  "bootstrap_prompt": "...",
+  "wake_prompt": "..."
 }
 ```
 
-`interval_minutes` is bounded to 1..1440 and `busy_retry_minutes` to 1..60. Prompt length is bounded to 8000 characters.
+Schema v1 runtime files remain accepted for compatibility. Their legacy `prompt` is treated as the one-time bootstrap prompt, while compact wake text comes from local settings.
 
-## Assistant control protocol
+The service worker keeps a short in-memory runtime-config cache so simultaneous conversations do not refetch the same remote runtime file unnecessarily.
 
-The bridge observes only the latest assistant message in the selected ChatGPT conversation. A control marker is valid only when it is the final non-empty line of that message.
+## Conversation-scoped control protocol
 
-Supported markers:
+A bridge command is accepted only when it is the final non-empty line of the latest assistant message in that exact configured conversation.
+
+Preferred compact markers:
+
+```text
+[LAB:STOP]
+[LAB:PAUSE]
+[LAB:RESUME]
+[LAB:NEXT=30s]
+[LAB:NEXT=10m]
+[LAB:INTERVAL=30m]
+[LAB:INTERVAL=AUTO]
+```
+
+Legacy markers remain valid:
 
 ```text
 [LOCAL_AGENT_BRIDGE:STOP]
 [LOCAL_AGENT_BRIDGE:PAUSE]
 [LOCAL_AGENT_BRIDGE:RESUME]
+[LOCAL_AGENT_BRIDGE:NEXT=30s]
 [LOCAL_AGENT_BRIDGE:INTERVAL=30]
 [LOCAL_AGENT_BRIDGE:INTERVAL=AUTO]
 ```
 
 Semantics:
 
-- `STOP` disables automatic feedback, clears the next alarm, and clears any assistant interval override. Use it when the autonomous goal is complete.
-- `PAUSE` disables automatic feedback but preserves the interval override and other runtime settings. Use it when user action is required.
-- `RESUME` enables automatic feedback and schedules a near-term retry using the configured busy-retry interval.
-- `INTERVAL=N` applies a persistent assistant interval override, bounded to 1..1440 minutes.
-- `INTERVAL=AUTO` removes the assistant interval override and returns to the remote/fallback runtime interval.
+- `STOP` disables only that conversation and clears its persistent interval override.
+- `PAUSE` disables only that conversation while preserving its interval override.
+- `RESUME` re-enables that conversation and schedules a near-term busy-retry wake.
+- `NEXT=<duration>` schedules only the next wake and does not change the normal interval. Durations are bounded to 30 seconds through 24 hours.
+- `INTERVAL=<minutes>` sets that conversation's persistent interval override.
+- `INTERVAL=AUTO` removes the override and returns to runtime/default pacing.
 
-The popup displays `(assistant override)` when an interval override is active.
+Control dedupe is stored per conversation. The content script includes the latest assistant-message identity in the fingerprint so a later identical response is not mistaken for an already processed command.
+
+## Popup configuration
+
+The extension popup provides:
+
+- a global master scheduler switch;
+- **Add / update current** for the active ChatGPT conversation;
+- one card per configured conversation with label, repository id, enable/pause, `Run now`, save and remove actions;
+- per-conversation last status, next wake and bootstrap/compact-wake mode;
+- global runtime URL, default interval, busy retry, compact wake prompt and bootstrap prompt.
+
+Changing a conversation's repository id marks its bootstrap as pending so the new routing hint is delivered once before compact wake mode resumes.
 
 ## Install from the local-agent checkout
 
-1. Let local-agent self-update to a revision containing `chat_bridge/`.
-2. Open `chrome://extensions`.
-3. Enable **Developer mode**.
-4. Click **Load unpacked** and select the repository's `chat_bridge` directory.
-5. Open the ChatGPT conversation that will coordinate local-agent work.
-6. Open the extension, click **Use current**, enable automatic feedback, and click **Save**.
-7. Click **Run now** once as an end-to-end test.
+1. Open `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Click **Load unpacked** and select the repository's `chat_bridge` directory.
+4. Open a concrete ChatGPT conversation (`https://chatgpt.com/c/...`).
+5. Open the extension, optionally set its label/repository id, and click **Add / update current**.
+6. Repeat for other conversations.
+7. Use **Run now** on a conversation card for an end-to-end test.
 
-After updating an already loaded unpacked extension, click **Reload** on its `chrome://extensions` card, then click **Use current** once to inject the current bridge scripts into the existing ChatGPT tab.
-
-Chrome must remain running and the selected conversation must remain open in a tab. The tab does not need to be foregrounded.
+After updating an already loaded unpacked extension, click **Reload** on its `chrome://extensions` card. Existing v0.2 configuration is migrated automatically.
 
 ## Development validation
 
 ```bash
 node --check chat_bridge/control_protocol.js
+node --check chat_bridge/bridge_state.js
 node --check chat_bridge/control_protocol.test.js
-node chat_bridge/control_protocol.test.js
+node --check chat_bridge/bridge_state.test.js
 node --check chat_bridge/service_worker.js
+node --check chat_bridge/service_worker.test.js
 node --check chat_bridge/content.js
 node --check chat_bridge/popup.js
+node chat_bridge/control_protocol.test.js
+node chat_bridge/bridge_state.test.js
+node chat_bridge/service_worker.test.js
 python -m json.tool chat_bridge/manifest.json >/dev/null
 python -m json.tool chat_bridge/runtime.example.json >/dev/null
 ```
