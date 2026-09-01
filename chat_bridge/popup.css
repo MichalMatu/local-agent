@@ -123,6 +123,10 @@ button {
   grid-template-columns: 1fr 1fr;
 }
 
+.full-width {
+  grid-column: 1 / -1;
+}
+
 .conversation-list:empty::before {
   content: "No conversations configured.";
   display: block;
