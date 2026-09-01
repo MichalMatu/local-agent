@@ -2,8 +2,7 @@ const protocol = globalThis.LocalAgentBridgeProtocol;
 
 const elements = {
   masterEnabled: document.querySelector("#masterEnabled"),
-  currentLabel: document.querySelector("#currentLabel"),
-  currentRepository: document.querySelector("#currentRepository"),
+  currentTitle: document.querySelector("#currentTitle"),
   currentUrl: document.querySelector("#currentUrl"),
   addCurrent: document.querySelector("#addCurrent"),
   conversationList: document.querySelector("#conversationList"),
@@ -30,6 +29,14 @@ function formatTime(value) {
   if (!value) return "-";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function chatLabelFromTitle(title) {
+  const cleaned = String(title || "")
+    .replace(/\s*[|–—-]\s*ChatGPT\s*$/i, "")
+    .trim();
+  if (!cleaned || /^ChatGPT$/i.test(cleaned)) return "ChatGPT conversation";
+  return cleaned.slice(0, 120);
 }
 
 async function request(message) {
@@ -112,8 +119,8 @@ function renderConversation(conversation) {
 
   const repoWrap = document.createElement("div");
   const repoLabel = document.createElement("label");
-  repoLabel.textContent = "Repository id";
-  const repoInput = createTextInput(conversation.repositoryId, "optional");
+  repoLabel.textContent = "Repository id (optional)";
+  const repoInput = createTextInput(conversation.repositoryId, "optional routing hint");
   repoWrap.append(repoLabel, repoInput);
 
   const intervalWrap = document.createElement("div");
@@ -184,13 +191,13 @@ function renderConversation(conversation) {
   run.addEventListener("click", async () => {
     try {
       run.disabled = true;
-      showMessage(`Sending wake to ${conversation.label}...`);
+      showMessage(`Sending wake to ${conversation.label || conversation.id}...`);
       const response = await request({
         type: "bridge:run-now",
         conversationId: conversation.id
       });
       if (!response?.ok) throw new Error(response?.reason || response?.error || "run failed");
-      showMessage(`Sent ${response.bridgeMode || "wake"} to ${conversation.label}.`);
+      showMessage(`Sent ${response.bridgeMode || "wake"} to ${conversation.label || conversation.id}.`);
       await refresh();
     } catch (error) {
       showMessage(`Error: ${error.message}`);
@@ -223,6 +230,15 @@ function renderConversations(state) {
     String(a.label || "").localeCompare(String(b.label || ""))
   );
   elements.conversationCount.textContent = String(conversations.length);
+
+  if (!conversations.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No conversations configured.";
+    elements.conversationList.append(empty);
+    return;
+  }
+
   for (const conversation of conversations) {
     elements.conversationList.append(renderConversation(conversation));
   }
@@ -231,23 +247,19 @@ function renderConversations(state) {
 async function refreshCurrentTabForm(state) {
   currentTab = await getCurrentChatTab();
   if (!currentTab) {
-    elements.currentUrl.textContent = "Open a concrete ChatGPT conversation.";
+    elements.currentTitle.textContent = "No ChatGPT conversation detected";
+    elements.currentUrl.textContent = "Open a concrete ChatGPT conversation, then open this popup again.";
+    elements.addCurrent.textContent = "Add current chat";
     elements.addCurrent.disabled = true;
     return;
   }
-  elements.addCurrent.disabled = false;
-  elements.currentUrl.textContent = currentTab.normalizedUrl;
+
   const id = protocol.conversationId(currentTab.normalizedUrl);
   const existing = state.conversations?.[id];
-  if (existing) {
-    elements.currentLabel.value = existing.label || "";
-    elements.currentRepository.value = existing.repositoryId || "";
-  } else if (!elements.currentLabel.value) {
-    elements.currentLabel.value = String(currentTab.title || "ChatGPT conversation")
-      .replace(/\s*[|–-]\s*ChatGPT\s*$/i, "")
-      .slice(0, 120);
-    elements.currentRepository.value = "";
-  }
+  elements.currentTitle.textContent = existing?.label || chatLabelFromTitle(currentTab.title);
+  elements.currentUrl.textContent = currentTab.normalizedUrl;
+  elements.addCurrent.textContent = existing ? "Update current chat" : "Add current chat";
+  elements.addCurrent.disabled = false;
 }
 
 async function refresh() {
@@ -289,19 +301,23 @@ async function saveGlobal() {
 async function addOrUpdateCurrent() {
   currentTab = await getCurrentChatTab();
   if (!currentTab) throw new Error("Open a concrete ChatGPT conversation first.");
+
+  const id = protocol.conversationId(currentTab.normalizedUrl);
+  const existing = latestState?.conversations?.[id];
   await injectContentScript(currentTab.id);
+
   const response = await request({
     type: "bridge:upsert-conversation",
     conversation: {
       url: currentTab.normalizedUrl,
-      label: elements.currentLabel.value || currentTab.title || "ChatGPT conversation",
-      repositoryId: elements.currentRepository.value,
-      enabled: true,
+      label: existing?.label || chatLabelFromTitle(currentTab.title),
+      repositoryId: existing?.repositoryId || "",
+      enabled: existing ? Boolean(existing.enabled) : true,
       preferredTabId: currentTab.id
     }
   });
   if (!response?.ok) throw new Error(response?.error || "save failed");
-  showMessage("Current conversation added and scheduled.");
+  showMessage(existing ? "Current conversation updated." : "Current conversation added and scheduled.");
   await refresh();
 }
 
