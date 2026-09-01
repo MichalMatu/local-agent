@@ -19,18 +19,16 @@
         </label>
       </div>
 
-      <section class="panel">
-        <h2>Add or update current chat</h2>
-        <label for="currentLabel">Label</label>
-        <input id="currentLabel" type="text" maxlength="120" placeholder="Growbox Stage27C" />
-
-        <label for="currentRepository">Repository id</label>
-        <input id="currentRepository" type="text" maxlength="120" placeholder="growbox-controller" />
-
-        <div class="actions">
-          <button id="addCurrent" type="button">Add / update current</button>
-        </div>
+      <section class="panel current-chat-panel">
+        <h2>Current chat</h2>
+        <p id="currentTitle" class="current-chat-title">Detecting current conversation...</p>
         <p id="currentUrl" class="muted ellipsis">Open a concrete ChatGPT conversation.</p>
+        <div class="actions">
+          <button id="addCurrent" type="button">Add current chat</button>
+        </div>
+        <p class="muted small-copy">
+          Conversation id and label are detected automatically. Repository id is optional and can be edited later.
+        </p>
       </section>
 
       <section>
