@@ -2,6 +2,13 @@
 
 This changelog records operationally relevant Local Agent releases. Historical per-release notes through v4.11.5 remain available as `docs/RELEASE_NOTES_V4.11.x.md`. The release tag and `agent_version.RELEASE_VERSION` are the version source of truth.
 
+## v4.12.0
+
+- Began behavior-preserving runtime modularization while keeping root entrypoints and compatibility imports stable.
+- Extracted live output/diff rendering into `local_agent/runtime/output.py`.
+- Extracted host/process telemetry parsing/collection and the underlying RSS sampler into `local_agent/runtime/telemetry.py`.
+- `agent_runtime.py` remains the staged executor/orchestrator and keeps the historical `_safe_command`/RSS sampling monkeypatch seam through a small compatibility adapter.
+
 ## v4.11.11
 
 - Documentation and release-hygiene alignment only; no runtime behavior change.

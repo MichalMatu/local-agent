@@ -8,7 +8,9 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - Interactive ChatGPT conversation language is independent from that execution contract.
 - `agentd.py` owns the validated daemon core, durable claims/results, remote status/control and self-update.
 - `agent_core.py` owns deterministic task execution and result publication.
-- `agent_runtime.py` owns staged command lifecycle, watchdogs, progress and telemetry.
+- `agent_runtime.py` owns staged command lifecycle, watchdog orchestration and compatibility exports/adapters.
+- `local_agent/runtime/output.py` owns live command-output rendering, unified-diff collapsing and bounded summary-failure tails.
+- `local_agent/runtime/telemetry.py` owns host/process telemetry parsing and collection plus the underlying process-group RSS sampling implementation.
 - `agent_process.py` owns registered spawning, bounded stdout transport, process groups and inherited lease descriptors.
 - `agent_repository.py` owns repository registry parsing and workspace identity.
 - `agent_repo_worker.py` owns one short-lived process-isolated repository turn.

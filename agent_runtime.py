@@ -4,25 +4,52 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
-import platform
 import queue
 import re
 import subprocess
 import threading
 import time
-from pathlib import Path
 from typing import Any, Callable
 
 from agent_config import TIMEOUTS
 from agent_process import (
     BoundedTextBuffer,
-    run_argv_bounded,
     spawn_shell,
     start_output_pump,
     terminate_remaining_process_group,
     unregister_process,
 )
+
+from local_agent.runtime import telemetry as runtime_telemetry
+from local_agent.runtime.output import (
+    LIVE_DIFF_MAX_CHARS as LIVE_DIFF_MAX_CHARS,
+    LIVE_DIFF_MAX_LINES as LIVE_DIFF_MAX_LINES,
+    SUMMARY_FAILURE_TAIL_CHARS,
+    LiveCommandOutput,
+    emit_summary_failure_tail,
+)
+from local_agent.runtime.telemetry import (
+    collect_host_telemetry as collect_host_telemetry,
+    collect_process_telemetry as collect_process_telemetry,
+    collect_telemetry,
+    normalize_host_cpu_percent as normalize_host_cpu_percent,
+    parse_mac_ps_cpu as parse_mac_ps_cpu,
+    parse_mac_swapusage as parse_mac_swapusage,
+    parse_mac_top_cpu as parse_mac_top_cpu,
+    parse_mac_vm_stat as parse_mac_vm_stat,
+    parse_process_group_ps as parse_process_group_ps,
+)
+
+# Compatibility seam: existing tests/callers may patch agent_runtime._safe_command.
+_safe_command = runtime_telemetry._safe_command
+
+def sample_process_group_rss_mb(process_group: int) -> float | None:
+    text = _safe_command(["ps", "-axo", "pid=,pgid=,%cpu=,rss="], timeout=5.0)
+    if not text:
+        return None
+    telemetry = parse_process_group_ps(text, process_group)
+    value = telemetry.get("command_rss_mb")
+    return float(value) if isinstance(value, (int, float)) else None
 
 ProgressCallback = Callable[[dict[str, Any]], None]
 
@@ -37,12 +64,9 @@ MAX_MEMORY_LIMIT_MB = 16384
 MEMORY_SAMPLE_INTERVAL = 2.0
 PROGRESS_INTERVAL = 30
 MAX_OUTPUT = 60000
-SUMMARY_FAILURE_TAIL_CHARS = 8000
 MAX_PROGRESS_MARKER = 4096
 MAX_PROGRESS_TEXT = 256
 MAX_PROGRESS_METRICS = 16
-LIVE_DIFF_MAX_LINES = 80
-LIVE_DIFF_MAX_CHARS = 12_000
 PROGRESS_EVENT_QUEUE_CAPACITY = 64
 PROGRESS_FLUSH_TIMEOUT = 65.0
 MAX_TASK_FILE_BYTES = 4 * 1024 * 1024
@@ -52,205 +76,6 @@ MAX_PATCH_BYTES = 2 * 1024 * 1024
 MAX_WRITE_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_WRITE_BYTES = 8 * 1024 * 1024
 MAX_TASK_PATH_CHARS = 1024
-
-_DIFF_METADATA_PREFIXES = (
-    "index ",
-    "--- ",
-    "+++ ",
-    "new file mode ",
-    "deleted file mode ",
-    "old mode ",
-    "new mode ",
-    "similarity index ",
-    "dissimilarity index ",
-    "rename from ",
-    "rename to ",
-    "copy from ",
-    "copy to ",
-    "Binary files ",
-    "GIT binary patch",
-    "literal ",
-    "delta ",
-    "\\ No newline at end of file",
-)
-
-_DIFF_HUNK_RE = re.compile(
-    r"^@@ -\d+(?:,(?P<old_count>\d+))? "
-    r"\+\d+(?:,(?P<new_count>\d+))? @@(?:.*)$"
-)
-
-
-class LiveCommandOutput:
-    """Keep normal live output readable while retaining raw command output separately."""
-
-    def __init__(self) -> None:
-        self._in_diff = False
-        self._in_hunk = False
-        self._old_remaining = 0
-        self._new_remaining = 0
-        self._collapsed = False
-        self._buffer: list[str] = []
-        self._files = 0
-        self._lines = 0
-        self._chars = 0
-        self._fingerprint = hashlib.sha256()
-        self._last_collapsed_fingerprint: str | None = None
-        self._repeated_collapsed_count = 0
-
-    @staticmethod
-    def _print_line(line: str) -> None:
-        print(f"[CMD] {line}", end="", flush=True)
-
-    def _reset_diff(self) -> None:
-        self._in_diff = False
-        self._in_hunk = False
-        self._old_remaining = 0
-        self._new_remaining = 0
-        self._collapsed = False
-        self._buffer.clear()
-        self._files = 0
-        self._lines = 0
-        self._chars = 0
-        self._fingerprint = hashlib.sha256()
-
-    @staticmethod
-    def _parse_hunk_header(line: str) -> tuple[int, int] | None:
-        match = _DIFF_HUNK_RE.match(line.rstrip("\r\n"))
-        if match is None:
-            return None
-        old_count = int(match.group("old_count") or "1")
-        new_count = int(match.group("new_count") or "1")
-        return old_count, new_count
-
-    @staticmethod
-    def _is_diff_metadata_line(line: str) -> bool:
-        return line.rstrip("\r\n").startswith(_DIFF_METADATA_PREFIXES)
-
-    def _consume_hunk_line(self, line: str) -> bool:
-        if not self._in_hunk:
-            return False
-        text = line.rstrip("\r\n")
-        if text.startswith(" "):
-            self._old_remaining -= 1
-            self._new_remaining -= 1
-        elif text.startswith("-"):
-            self._old_remaining -= 1
-        elif text.startswith("+"):
-            self._new_remaining -= 1
-        else:
-            return False
-        self._record_diff_line(line)
-        if self._old_remaining <= 0 and self._new_remaining <= 0:
-            self._in_hunk = False
-        return True
-
-    def _record_diff_line(self, line: str) -> None:
-        if line.startswith("diff --git "):
-            self._files += 1
-        self._lines += 1
-        self._chars += len(line)
-        self._fingerprint.update(line.encode("utf-8"))
-        if not self._collapsed:
-            self._buffer.append(line)
-            if self._lines > LIVE_DIFF_MAX_LINES or self._chars > LIVE_DIFF_MAX_CHARS:
-                self._collapsed = True
-                self._buffer.clear()
-
-    def _flush_repeated_notice(self) -> None:
-        if self._repeated_collapsed_count == 0:
-            return
-        count = self._repeated_collapsed_count
-        copies = "copy" if count == 1 else "copies"
-        print(
-            f"[CMD] [suppressed {count} repeated {copies} of the previous unified diff]",
-            flush=True,
-        )
-        self._last_collapsed_fingerprint = None
-        self._repeated_collapsed_count = 0
-
-    def _emit_collapsed_diff(self) -> None:
-        fingerprint = self._fingerprint.hexdigest()
-        if fingerprint == self._last_collapsed_fingerprint:
-            self._repeated_collapsed_count += 1
-            return
-        self._flush_repeated_notice()
-        print(
-            "[CMD] [large unified diff collapsed in live log; "
-            "raw output remains in bounded task result buffer]",
-            flush=True,
-        )
-        kib = self._chars / 1024.0
-        print(
-            f"[CMD] [collapsed unified diff: {self._files} file(s), "
-            f"{self._lines} line(s), {kib:.1f} KiB]",
-            flush=True,
-        )
-        self._last_collapsed_fingerprint = fingerprint
-
-    def _flush_diff(self) -> None:
-        if not self._in_diff:
-            return
-        if self._collapsed:
-            self._emit_collapsed_diff()
-        else:
-            self._flush_repeated_notice()
-            for line in self._buffer:
-                self._print_line(line)
-            self._last_collapsed_fingerprint = None
-        self._reset_diff()
-
-    def _emit_normal_line(self, line: str) -> None:
-        if line.rstrip("\r\n"):
-            self._flush_repeated_notice()
-            self._last_collapsed_fingerprint = None
-        self._print_line(line)
-
-    def emit(self, line: str) -> None:
-        if not self._in_diff:
-            if line.startswith("diff --git "):
-                self._in_diff = True
-                self._record_diff_line(line)
-                return
-            self._emit_normal_line(line)
-            return
-
-        if line.startswith("diff --git "):
-            self._in_hunk = False
-            self._record_diff_line(line)
-            return
-
-        hunk_counts = self._parse_hunk_header(line)
-        if hunk_counts is not None:
-            self._old_remaining, self._new_remaining = hunk_counts
-            self._in_hunk = self._old_remaining > 0 or self._new_remaining > 0
-            self._record_diff_line(line)
-            return
-
-        if self._consume_hunk_line(line):
-            return
-
-        if self._is_diff_metadata_line(line):
-            self._record_diff_line(line)
-            return
-
-        self._flush_diff()
-        self._emit_normal_line(line)
-
-    def finish(self) -> None:
-        self._flush_diff()
-        self._flush_repeated_notice()
-
-
-def emit_summary_failure_tail(text: str, *, truncated: bool) -> None:
-    print("[CMD] [summary stage failed; bounded output tail follows]", flush=True)
-    if truncated:
-        print(
-            f"[CMD] [... truncated; showing last {SUMMARY_FAILURE_TAIL_CHARS} chars ...]",
-            flush=True,
-        )
-    for line in text.splitlines():
-        print(f"[CMD] {line}", flush=True)
-
 
 def task_digest(task: dict[str, Any]) -> str:
     payload = json.dumps(
@@ -421,198 +246,6 @@ def parse_progress_marker(line: str) -> dict[str, Any] | None:
     return result
 
 
-def _safe_command(args: list[str], timeout: float = 2.0) -> str | None:
-    try:
-        result = run_argv_bounded(
-            args,
-            cwd=Path.cwd(),
-            env=os.environ,
-            timeout=timeout,
-            output_limit=1024 * 1024,
-            log=lambda _message: None,
-        )
-    except OSError:
-        return None
-    return str(result["output"]) if result["exit_code"] == 0 else None
-
-
-def parse_mac_vm_stat(text: str, *, page_size: int = 4096) -> dict[str, int]:
-    page_size_match = re.search(r"page size of\s+(\d+)\s+bytes", text, re.IGNORECASE)
-    if page_size_match is not None:
-        parsed_page_size = int(page_size_match.group(1))
-        if parsed_page_size > 0:
-            page_size = parsed_page_size
-    pages: dict[str, int] = {}
-    for line in text.splitlines():
-        match = re.match(r"^Pages ([^:]+):\s+(\d+)", line)
-        if match:
-            pages[match.group(1).lower()] = int(match.group(2))
-    available = sum(pages.get(name, 0) for name in ("free", "inactive", "speculative"))
-    used = max(0, sum(pages.values()) - available)
-    return {
-        "available_bytes": available * page_size,
-        "used_bytes": used * page_size,
-    }
-
-
-def parse_mac_swapusage(text: str) -> dict[str, int]:
-    values: dict[str, int] = {}
-    for name, number, unit in re.findall(
-        r"(total|used|free)\s*=\s*([0-9.]+)([MG])B?", text
-    ):
-        multiplier = 1024**2 if unit == "M" else 1024**3
-        values[name] = int(float(number) * multiplier)
-    return values
-
-
-def parse_mac_top_cpu(text: str) -> float | None:
-    match = re.search(
-        r"CPU usage:\s*([0-9.]+)%\s*user,\s*([0-9.]+)%\s*sys,\s*([0-9.]+)%\s*idle",
-        text,
-    )
-    if match is None:
-        return None
-    try:
-        return round(float(match.group(1)) + float(match.group(2)), 2)
-    except ValueError:
-        return None
-
-
-def normalize_host_cpu_percent(total_cpu_percent: float, logical_cpu_count: int) -> float:
-    """Normalize summed per-process CPU percentages to host utilization."""
-    divisor = max(1, logical_cpu_count)
-    return round(max(0.0, min(100.0, total_cpu_percent / divisor)), 2)
-
-
-def parse_mac_ps_cpu(text: str, logical_cpu_count: int) -> float | None:
-    total = 0.0
-    parsed = False
-    for line in text.splitlines():
-        try:
-            value = float(line.strip())
-        except (TypeError, ValueError):
-            continue
-        if not math.isfinite(value):
-            continue
-        total += value
-        parsed = True
-    if not parsed:
-        return None
-    return normalize_host_cpu_percent(total, logical_cpu_count)
-
-
-def parse_process_group_ps(text: str, process_group: int) -> dict[str, Any]:
-    cpu = 0.0
-    rss_kb = 0
-    processes = 0
-    for line in text.splitlines():
-        fields = line.split()
-        if len(fields) < 4:
-            continue
-        try:
-            if int(fields[1]) != process_group:
-                continue
-            cpu += float(fields[2])
-            rss_kb += int(fields[3])
-            processes += 1
-        except (TypeError, ValueError):
-            continue
-    if processes == 0:
-        return {}
-    return {
-        "command_cpu_percent": round(cpu, 2),
-        "command_rss_mb": round(rss_kb / 1024, 2),
-        "command_children": max(0, processes - 1),
-    }
-
-
-def collect_host_telemetry() -> dict[str, Any]:
-    telemetry: dict[str, Any] = {}
-    try:
-        telemetry["host_load_1m"] = round(float(os.getloadavg()[0]), 2)
-    except (AttributeError, OSError, IndexError, TypeError, ValueError):
-        pass
-
-    if platform.system() == "Darwin":
-        total_raw = _safe_command(["sysctl", "-n", "hw.memsize"])
-        vm_stat = _safe_command(["vm_stat"])
-        if total_raw and vm_stat:
-            try:
-                total = int(total_raw.strip())
-                parsed = parse_mac_vm_stat(vm_stat)
-                available = parsed["available_bytes"]
-                telemetry["host_memory_available_mb"] = round(available / 1024**2, 2)
-                telemetry["host_memory_used_percent"] = round(
-                    max(0.0, min(100.0, (total - available) / total * 100)), 2
-                )
-            except (TypeError, ValueError, ZeroDivisionError, KeyError):
-                pass
-        swap = _safe_command(["sysctl", "-n", "vm.swapusage"])
-        if swap:
-            parsed_swap = parse_mac_swapusage(swap)
-            if "used" in parsed_swap:
-                telemetry["host_swap_used_mb"] = round(parsed_swap["used"] / 1024**2, 2)
-            if "total" in parsed_swap:
-                telemetry["host_swap_total_mb"] = round(parsed_swap["total"] / 1024**2, 2)
-        cpu_text = _safe_command(["top", "-l", "1", "-n", "0"])
-        top_cpu = parse_mac_top_cpu(cpu_text or "")
-        if top_cpu is not None:
-            telemetry["host_cpu_percent"] = top_cpu
-        else:
-            cpu_text = _safe_command(["ps", "-A", "-o", "%cpu="])
-        if cpu_text and "host_cpu_percent" not in telemetry:
-            host_cpu = parse_mac_ps_cpu(cpu_text, os.cpu_count() or 1)
-            if host_cpu is not None:
-                telemetry["host_cpu_percent"] = host_cpu
-    else:
-        try:
-            memory: dict[str, int] = {}
-            for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
-                key, _, value = line.partition(":")
-                fields = value.split()
-                if fields and fields[0].isdigit():
-                    memory[key] = int(fields[0]) * 1024
-            total = memory.get("MemTotal")
-            available = memory.get("MemAvailable")
-            if total and available is not None:
-                telemetry["host_memory_available_mb"] = round(available / 1024**2, 2)
-                telemetry["host_memory_used_percent"] = round(
-                    (total - available) / total * 100, 2
-                )
-            swap_total = memory.get("SwapTotal")
-            swap_free = memory.get("SwapFree")
-            if swap_total is not None and swap_free is not None:
-                telemetry["host_swap_total_mb"] = round(swap_total / 1024**2, 2)
-                telemetry["host_swap_used_mb"] = round(
-                    (swap_total - swap_free) / 1024**2, 2
-                )
-        except (OSError, UnicodeError, ValueError):
-            pass
-    return telemetry
-
-
-def collect_process_telemetry(pid: int) -> dict[str, Any]:
-    try:
-        process_group = os.getpgid(pid)
-    except (OSError, ProcessLookupError):
-        return {}
-    text = _safe_command(["ps", "-axo", "pid=,pgid=,%cpu=,rss="])
-    return parse_process_group_ps(text, process_group) if text else {}
-
-
-def collect_telemetry(pid: int) -> dict[str, Any]:
-    telemetry: dict[str, Any] = {}
-    try:
-        telemetry.update(collect_host_telemetry())
-    except Exception:
-        pass
-    try:
-        telemetry.update(collect_process_telemetry(pid))
-    except Exception:
-        pass
-    return telemetry
-
-
 class ProgressDispatcher:
     """Keep progress publication outside command watchdog loops with bounded handoff."""
 
@@ -760,15 +393,6 @@ class RssSampler:
     def stop(self) -> None:
         self._stop.set()
         self._thread.join(timeout=0.1)
-
-
-def sample_process_group_rss_mb(process_group: int) -> float | None:
-    text = _safe_command(["ps", "-axo", "pid=,pgid=,%cpu=,rss="], timeout=5.0)
-    if not text:
-        return None
-    telemetry = parse_process_group_ps(text, process_group)
-    value = telemetry.get("command_rss_mb")
-    return float(value) if isinstance(value, (int, float)) else None
 
 
 class RuntimeExecutor:
