@@ -5,35 +5,69 @@
 
 body {
   margin: 0;
-  min-width: 380px;
+  min-width: 460px;
 }
 
 main {
-  padding: 16px;
+  padding: 14px;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
 }
 
 h1 {
   font-size: 18px;
-  margin: 0 0 14px;
+  margin-bottom: 2px;
+}
+
+h2 {
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.heading-row,
+.section-title-row,
+.runtime-status {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.muted {
+  font-size: 11px;
+  opacity: 0.68;
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel,
+.conversation-card {
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 8px;
+  margin: 12px 0;
+  padding: 11px;
 }
 
 label,
 summary {
   display: block;
-  font-size: 12px;
-  font-weight: 600;
-  margin: 12px 0 5px;
+  font-size: 11px;
+  font-weight: 650;
+  margin: 9px 0 4px;
 }
 
-.toggle-row {
-  align-items: center;
-  display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.toggle-row input {
-  width: auto;
+summary {
+  cursor: pointer;
+  font-size: 13px;
+  margin: 0;
 }
 
 input,
@@ -53,36 +87,106 @@ textarea {
   resize: vertical;
 }
 
-.row {
-  display: flex;
-  gap: 6px;
-}
-
-.row input {
-  flex: 1;
-}
-
 button {
   cursor: pointer;
-  padding: 7px 10px;
+  padding: 6px 9px;
+}
+
+.actions,
+.card-actions,
+.switch-row {
+  align-items: center;
+  display: flex;
+  gap: 7px;
 }
 
 .actions {
-  display: flex;
+  margin-top: 10px;
+}
+
+.switch-row {
+  margin: 0;
+}
+
+.switch-row input {
+  width: auto;
+}
+
+.switch-row.compact {
+  font-size: 11px;
+}
+
+.two-column,
+.card-grid {
+  display: grid;
   gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.conversation-list:empty::before {
+  content: "No conversations configured.";
+  display: block;
+  font-size: 12px;
+  opacity: 0.65;
+  padding: 8px 0 14px;
+}
+
+.conversation-card {
+  margin: 8px 0;
+}
+
+.card-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.card-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.card-meta {
+  display: grid;
+  font-size: 11px;
+  gap: 3px;
+  margin: 8px 0;
+  opacity: 0.78;
+}
+
+.card-actions {
+  flex-wrap: wrap;
+  margin-top: 9px;
+}
+
+.card-actions .danger {
+  margin-left: auto;
+}
+
+.badge {
+  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 999px;
+  font-size: 10px;
+  padding: 2px 7px;
+}
+
+.status-running {
+  font-weight: 700;
+}
+
+.settings-panel {
   margin-top: 14px;
 }
 
-.status {
-  border-top: 1px solid currentColor;
-  font-size: 12px;
-  line-height: 1.6;
-  margin-top: 14px;
-  opacity: 0.85;
-  padding-top: 10px;
+.runtime-status {
+  font-size: 11px;
+  margin-top: 10px;
+  opacity: 0.8;
 }
 
 #message {
-  font-size: 12px;
-  min-height: 18px;
+  font-size: 11px;
+  min-height: 16px;
+  margin: 10px 0 0;
 }
