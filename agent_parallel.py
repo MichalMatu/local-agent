@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import fcntl
 import json
 import os
 import signal
@@ -55,6 +56,11 @@ CONTROL_LEASE_BUSY_DRAIN_ATTEMPTS = 6
 REPEATED_FAILURE_LOG_SECONDS = 60.0
 MAX_ONCE_DEFERRALS = 120
 OPERATOR_IDLE_HEARTBEAT_SECONDS = 300.0
+LOCAL_LOG_MAINTENANCE_SECONDS = 30.0
+LOCAL_LOG_MAX_BYTES = 2 * 1024 * 1024
+LOCAL_LOG_KEEP_BYTES = 1024 * 1024
+LOCAL_STDOUT_LOG_PATH = Path.home() / "Library" / "Logs" / "local-agent.log"
+LOCAL_STDERR_LOG_PATH = Path.home() / "Library" / "Logs" / "local-agent-error.log"
 PARALLEL_EXECUTION_MODEL = "parallel_repository_supervisor"
 _daemon_lock_handle: Any | None = None
 
@@ -100,6 +106,81 @@ def operator_idle_log_due(last_idle_log_at: float | None, now: float) -> bool:
         last_idle_log_at is None
         or now - last_idle_log_at >= OPERATOR_IDLE_HEARTBEAT_SECONDS
     )
+
+
+def local_log_maintenance_due(
+    last_maintenance_at: float | None,
+    now: float,
+) -> bool:
+    return (
+        last_maintenance_at is None
+        or now - last_maintenance_at >= LOCAL_LOG_MAINTENANCE_SECONDS
+    )
+
+
+def compact_inherited_log_file(
+    fd: int,
+    path: Path,
+    *,
+    max_bytes: int = LOCAL_LOG_MAX_BYTES,
+    keep_bytes: int = LOCAL_LOG_KEEP_BYTES,
+) -> bool:
+    """Keep only recent text when an inherited append log exceeds its bound."""
+    if max_bytes <= 0 or keep_bytes <= 0 or keep_bytes >= max_bytes:
+        raise ValueError("log bounds require 0 < keep_bytes < max_bytes")
+    try:
+        fd_stat = os.fstat(fd)
+        path_stat = path.stat()
+    except OSError:
+        return False
+    if (fd_stat.st_dev, fd_stat.st_ino) != (path_stat.st_dev, path_stat.st_ino):
+        return False
+    if path_stat.st_size <= max_bytes:
+        return False
+
+    try:
+        flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+        if not flags & os.O_APPEND:
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_APPEND)
+
+        stream = sys.stdout if fd == 1 else sys.stderr if fd == 2 else None
+        if stream is not None:
+            stream.flush()
+
+        desired_start = max(0, path_stat.st_size - keep_bytes)
+        read_start = max(0, desired_start - 4096)
+        with path.open("rb") as handle:
+            handle.seek(read_start)
+            tail = handle.read()
+        relative_start = desired_start - read_start
+        if read_start > 0:
+            newline = tail.find(bytes((10,)), relative_start)
+            tail = tail[newline + 1 :] if newline >= 0 else tail[relative_start:]
+        else:
+            tail = tail[relative_start:]
+        if len(tail) > keep_bytes:
+            tail = tail[-keep_bytes:]
+        tail = tail.decode("utf-8", errors="ignore").encode("utf-8")
+
+        os.ftruncate(fd, 0)
+        os.lseek(fd, 0, os.SEEK_SET)
+        view = memoryview(tail)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError("short write while compacting local log")
+            view = view[written:]
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def maintain_local_log_files() -> tuple[str, ...]:
+    compacted: list[str] = []
+    for fd, path in ((1, LOCAL_STDOUT_LOG_PATH), (2, LOCAL_STDERR_LOG_PATH)):
+        if compact_inherited_log_file(fd, path):
+            compacted.append(path.name)
+    return tuple(compacted)
 
 
 def bounded_retry_seconds(attempt: int, *, base: float, maximum: float) -> float:
@@ -528,6 +609,7 @@ def main() -> int:
     once_failed: set[str] = set()
     once_deferrals: dict[str, int] = {}
     last_idle_log_at: float | None = None
+    last_log_maintenance_at: float | None = None
     control_defer_count = 0
     last_control_defer_log_at: float | None = None
 
@@ -719,6 +801,19 @@ def main() -> int:
                         reset_control_defer_state()
                     else:
                         note_control_deferred("global control service deferred; continuing task admission after successful startup")
+
+            now = time.monotonic()
+            if (
+                not running
+                and local_log_maintenance_due(last_log_maintenance_at, now)
+            ):
+                compacted_logs = maintain_local_log_files()
+                last_log_maintenance_at = now
+                if compacted_logs:
+                    log(
+                        "bounded local log history compacted "
+                        f"files={','.join(compacted_logs)} keep=1MiB max=2MiB"
+                    )
 
             started_worker = False
             now = time.monotonic()

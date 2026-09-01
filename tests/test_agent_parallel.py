@@ -63,6 +63,62 @@ class ParallelSupervisorTests(unittest.TestCase):
         self.assertFalse(parallel.operator_idle_log_due(100.0, now=399.9))
         self.assertTrue(parallel.operator_idle_log_due(100.0, now=400.0))
 
+    def test_local_log_maintenance_is_periodic(self) -> None:
+        self.assertTrue(parallel.local_log_maintenance_due(None, now=100.0))
+        self.assertFalse(parallel.local_log_maintenance_due(100.0, now=129.9))
+        self.assertTrue(parallel.local_log_maintenance_due(100.0, now=130.0))
+
+    def test_compact_inherited_log_keeps_recent_tail_and_append_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "agent.log"
+            newline = bytes((10,))
+            lines = [
+                f"{index:04d} payload payload payload".encode("utf-8") + newline
+                for index in range(200)
+            ]
+            path.write_bytes(b"".join(lines))
+            fd = os.open(path, os.O_WRONLY)
+            try:
+                os.lseek(fd, 0, os.SEEK_SET)
+                self.assertTrue(
+                    parallel.compact_inherited_log_file(
+                        fd,
+                        path,
+                        max_bytes=1024,
+                        keep_bytes=512,
+                    )
+                )
+                compacted = path.read_bytes()
+                self.assertLessEqual(len(compacted), 512)
+                self.assertNotIn(lines[0], compacted)
+                self.assertTrue(compacted.endswith(lines[-1]))
+
+                os.lseek(fd, 0, os.SEEK_SET)
+                os.write(fd, b"after-compaction" + newline)
+                self.assertTrue(path.read_bytes().endswith(b"after-compaction" + newline))
+            finally:
+                os.close(fd)
+
+    def test_compact_inherited_log_refuses_mismatched_descriptor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / "first.log"
+            second = Path(tmp) / "second.log"
+            first.write_bytes(b"a" * 128)
+            second.write_bytes(b"b" * 128)
+            fd = os.open(first, os.O_WRONLY)
+            try:
+                self.assertFalse(
+                    parallel.compact_inherited_log_file(
+                        fd,
+                        second,
+                        max_bytes=64,
+                        keep_bytes=32,
+                    )
+                )
+                self.assertEqual(second.read_bytes(), b"b" * 128)
+            finally:
+                os.close(fd)
+
     def test_worker_command_uses_parallel_worker(self) -> None:
         command = parallel.worker_command(repository("a"), registry_path=None)
         self.assertIn("agent_parallel_worker.py", command[1])

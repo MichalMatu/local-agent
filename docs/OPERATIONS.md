@@ -168,3 +168,5 @@ Use syntax/config smoke and focused regression during iteration, then one bounde
 
 ## Supervisor retry and log discipline
 Unexpected worker exits back off 2-300 s and reset after normal outcomes. Deferred global-control work backs off 2-15 s so unrelated admission remains responsive. Repeated lease-busy control probes are bounded: after six consecutive deferrals, new admission pauses, active workers drain naturally, global control is serviced, and admission resumes. Degraded sync/network probes remain non-draining. Repeated outer supervisor failure/deferral notices are gated to one per 60 s for a continuing condition.
+
+The production parallel supervisor also bounds the launchd files `~/Library/Logs/local-agent.log` and `~/Library/Logs/local-agent-error.log`. When no repository worker is active, a file above 2 MiB is compacted in place to its most recent approximately 1 MiB of complete text. The inherited descriptor is verified against the path and forced to append mode before compaction so later supervisor and worker output cannot create sparse-file gaps. Manual or redirected runs whose descriptors do not match those paths are left untouched.
