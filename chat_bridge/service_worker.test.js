@@ -178,6 +178,26 @@ async function sendRuntimeMessage(message, sender = {}) {
   assert.equal(alarms.has(`local-agent-chat:${aId}`), true);
   assert.equal(alarms.has(`local-agent-chat:${bId}`), true);
 
+  const originalBWhen = alarms.get(`local-agent-chat:${bId}`).when;
+  response = await sendRuntimeMessage({
+    type: "bridge:update-conversation",
+    conversationId: bId,
+    patch: { label: "Project B renamed" }
+  });
+  assert.equal(response.ok, true);
+  assert.equal(alarms.get(`local-agent-chat:${bId}`).when, originalBWhen);
+
+  const beforePacingUpdate = Date.now();
+  response = await sendRuntimeMessage({
+    type: "bridge:update-conversation",
+    conversationId: bId,
+    patch: { intervalOverrideMinutes: 15 }
+  });
+  assert.equal(response.ok, true);
+  const pacedAlarm = alarms.get(`local-agent-chat:${bId}`);
+  assert.ok(pacedAlarm.when >= beforePacingUpdate + 14 * 60_000 + 50_000);
+  assert.ok(pacedAlarm.when <= beforePacingUpdate + 15 * 60_000 + 2_000);
+
   response = await sendRuntimeMessage(
     {
       type: "bridge:assistant-control",
