@@ -2,6 +2,12 @@
 
 This changelog records operationally relevant Local Agent releases. Historical per-release notes through v4.11.5 remain available as `docs/RELEASE_NOTES_V4.11.x.md`. The release tag and `agent_version.RELEASE_VERSION` are the version source of truth.
 
+## v4.12.1
+
+- Continued behavior-preserving runtime modularization.
+- Extracted immutable task digests, schema validation, task payload limits and bounded timeout/memory parsing into `local_agent/runtime/task_contract.py`.
+- `agent_runtime.py` re-exports the historical task-contract names and constants so existing callers and tests keep the same import surface.
+
 ## v4.12.0
 
 - Began behavior-preserving runtime modularization while keeping root entrypoints and compatibility imports stable.
