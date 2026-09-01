@@ -128,7 +128,7 @@ class ParallelControlProbeTests(unittest.TestCase):
             )
         lease.assert_called_once_with(repo)
 
-    def test_busy_control_repository_defers_probe_without_global_drain(self) -> None:
+    def test_busy_control_repository_reports_lease_busy_without_immediate_global_drain(self) -> None:
         repo = repository(self.root)
 
         @contextlib.contextmanager
@@ -143,7 +143,7 @@ class ParallelControlProbeTests(unittest.TestCase):
         ):
             self.assertIs(
                 parallel.probe_control_request(repo),
-                parallel.ControlProbeResult.DEFERRED,
+                parallel.ControlProbeResult.LEASE_BUSY,
             )
 
 

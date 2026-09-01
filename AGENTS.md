@@ -58,7 +58,7 @@ The v4.11 production multi-repository path is `agent_parallel.py`:
 - resource acquisition is non-blocking admission; a worker must never wait on a resource after selecting a task and before claiming it;
 - machine contention enters priority/drain mode so full-machine work cannot starve behind a stream of shared tasks;
 - while workers are active, maintenance may only probe control state; global restart/status/self-update handling waits for a quiescent worker set and acquires all configured repository identities;
-- after initial supervisor control service succeeds, a `DEFERRED` control probe retries promptly without blocking unrelated task admission; only confirmed `PENDING` global control enters drain mode;
+- after initial supervisor control service succeeds, degraded control probes retry promptly without blocking unrelated task admission; confirmed `PENDING` control drains immediately, while repeated control-repository lease contention enters a bounded drain after six consecutive deferrals so global control cannot starve;
 - registry entries must not be removed or identity-mutated while workers may still be alive.
 
 A task is parallel-safe only when the planner knows it does not touch shared machine hardware or unsafe global tooling. Unknown, PlatformIO-heavy, USB, serial, flashing and hardware-sensitive work stays machine-exclusive unless an explicit resource contract proves otherwise.

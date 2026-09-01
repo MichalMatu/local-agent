@@ -51,6 +51,7 @@ WORKER_FAILURE_RETRY_BASE_SECONDS = 2.0
 WORKER_FAILURE_RETRY_MAX_SECONDS = 300.0
 CONTROL_DEFER_RETRY_BASE_SECONDS = 2.0
 CONTROL_DEFER_RETRY_MAX_SECONDS = 15.0
+CONTROL_LEASE_BUSY_DRAIN_ATTEMPTS = 6
 REPEATED_FAILURE_LOG_SECONDS = 60.0
 MAX_ONCE_DEFERRALS = 120
 OPERATOR_IDLE_HEARTBEAT_SECONDS = 300.0
@@ -61,6 +62,7 @@ _daemon_lock_handle: Any | None = None
 class ControlProbeResult(Enum):
     CLEAR = "clear"
     PENDING = "pending"
+    LEASE_BUSY = "lease_busy"
     DEFERRED = "deferred"
 
 
@@ -110,6 +112,9 @@ def worker_failure_retry_seconds(attempt: int) -> float:
 
 def control_defer_retry_seconds(attempt: int) -> float:
     return bounded_retry_seconds(attempt, base=CONTROL_DEFER_RETRY_BASE_SECONDS, maximum=CONTROL_DEFER_RETRY_MAX_SECONDS)
+
+def control_lease_busy_should_force_drain(attempt: int) -> bool:
+    return attempt >= CONTROL_LEASE_BUSY_DRAIN_ATTEMPTS
 
 def repeated_failure_log_due(last_log_at: float | None, now: float) -> bool:
     return last_log_at is None or now - last_log_at >= REPEATED_FAILURE_LOG_SECONDS
@@ -402,7 +407,7 @@ def probe_control_request(
             serial.sync_control_quietly()
             return pending_control_request_from_bound_checkout()
     except ExecutionLeaseBusy:
-        return ControlProbeResult.DEFERRED
+        return ControlProbeResult.LEASE_BUSY
     except Exception as exc:
         log(
             f"supervisor control probe degraded repository={repository.repository_id}: "
@@ -682,8 +687,22 @@ def main() -> int:
                         log("global control request detected; draining active workers")
                         time.sleep(REAP_INTERVAL_SECONDS)
                         continue
-                    if probe_result is ControlProbeResult.DEFERRED:
-                        note_control_deferred("global control probe deferred; continuing unrelated task admission")
+                    if probe_result is ControlProbeResult.LEASE_BUSY:
+                        note_control_deferred(
+                            "global control probe deferred; control repository lease busy"
+                        )
+                        if control_lease_busy_should_force_drain(control_defer_count):
+                            control_pending = True
+                            log(
+                                "global control probe lease busy repeatedly; "
+                                f"draining active workers consecutive={control_defer_count}"
+                            )
+                            time.sleep(REAP_INTERVAL_SECONDS)
+                            continue
+                    elif probe_result is ControlProbeResult.DEFERRED:
+                        note_control_deferred(
+                            "global control probe degraded; continuing unrelated task admission"
+                        )
                     else:
                         last_control_at = time.monotonic()
                         control_retry_not_before = 0.0
