@@ -2,6 +2,12 @@
 
 This changelog records operationally relevant Local Agent releases. Historical per-release notes through v4.11.5 remain available as `docs/RELEASE_NOTES_V4.11.x.md`. The release tag and `agent_version.RELEASE_VERSION` are the version source of truth.
 
+## v4.12.2
+
+- Continued behavior-preserving runtime modularization.
+- Extracted progress-marker parsing and bounded asynchronous progress publication into `local_agent/runtime/progress.py`.
+- `agent_runtime.py` retains the historical progress imports and keeps executor heartbeat timing (`PROGRESS_INTERVAL`) local for compatibility with existing monkeypatch/test seams.
+
 ## v4.12.1
 
 - Continued behavior-preserving runtime modularization.

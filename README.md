@@ -54,6 +54,7 @@ agentd.py                    shared daemon core, claims/results/control/self-upd
 agent_core.py                deterministic task execution and publication
 agent_runtime.py             staged execution/watchdog orchestration and compatibility surface
 local_agent/runtime/task_contract.py task digest, schema validation and bounded task limits
+local_agent/runtime/progress.py  progress-marker parsing and bounded asynchronous publication
 local_agent/runtime/output.py     live output rendering and bounded diff/failure summaries
 local_agent/runtime/telemetry.py  host/process telemetry collection and RSS sampling
 agent_process.py             process groups and inherited execution leases
