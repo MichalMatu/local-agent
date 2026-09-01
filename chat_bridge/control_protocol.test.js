@@ -67,10 +67,25 @@ assert.equal(
   protocol.normalizeConversationUrl("https://chat.openai.com/c/example"),
   "https://chatgpt.com/c/example"
 );
+assert.equal(
+  protocol.normalizeConversationUrl(
+    "https://chatgpt.com/g/g-p-project-slug/c/example?model=gpt-5"
+  ),
+  "https://chatgpt.com/c/example"
+);
+assert.equal(
+  protocol.normalizeConversationUrl("https://chatgpt.com/projects/project-id/c/example/"),
+  "https://chatgpt.com/c/example"
+);
 assert.equal(protocol.normalizeConversationUrl("https://chatgpt.com/"), "");
+assert.equal(protocol.normalizeConversationUrl("https://chatgpt.com/g/project/project"), "");
 assert.equal(protocol.normalizeConversationUrl("http://chatgpt.com/c/example"), "");
 assert.equal(protocol.normalizeConversationUrl("https://example.com/c/example"), "");
 assert.equal(protocol.conversationId("https://chatgpt.com/c/example").startsWith("chat-"), true);
+assert.equal(
+  protocol.conversationId("https://chatgpt.com/g/project/c/example"),
+  protocol.conversationId("https://chatgpt.com/c/example")
+);
 
 const control = parse("Done.\n[LAB:STOP]");
 const first = protocol.controlFingerprint(
