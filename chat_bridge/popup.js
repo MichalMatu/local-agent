@@ -96,6 +96,9 @@ function renderConversation(conversation) {
     }),
     Object.assign(document.createElement("span"), {
       textContent: `Mode: ${runtimeState}`
+    }),
+    Object.assign(document.createElement("span"), {
+      textContent: `Pacing: ${conversation.intervalOverrideMinutes === null ? "auto" : `${conversation.intervalOverrideMinutes} min override`}`
     })
   );
 
@@ -112,7 +115,20 @@ function renderConversation(conversation) {
   repoLabel.textContent = "Repository id";
   const repoInput = createTextInput(conversation.repositoryId, "optional");
   repoWrap.append(repoLabel, repoInput);
-  grid.append(labelWrap, repoWrap);
+
+  const intervalWrap = document.createElement("div");
+  intervalWrap.className = "full-width";
+  const intervalLabel = document.createElement("label");
+  intervalLabel.textContent = "Interval override (min, blank = auto)";
+  const intervalInput = document.createElement("input");
+  intervalInput.type = "number";
+  intervalInput.min = "1";
+  intervalInput.max = "1440";
+  intervalInput.placeholder = "auto";
+  intervalInput.value =
+    conversation.intervalOverrideMinutes === null ? "" : String(conversation.intervalOverrideMinutes);
+  intervalWrap.append(intervalLabel, intervalInput);
+  grid.append(labelWrap, repoWrap, intervalWrap);
 
   const actions = document.createElement("div");
   actions.className = "card-actions";
@@ -151,7 +167,10 @@ function renderConversation(conversation) {
         conversationId: conversation.id,
         patch: {
           label: labelInput.value,
-          repositoryId: repoInput.value
+          repositoryId: repoInput.value,
+          intervalOverrideMinutes: intervalInput.value.trim()
+            ? Number(intervalInput.value)
+            : null
         }
       });
       if (!response?.ok) throw new Error(response?.error || "save failed");
