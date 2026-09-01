@@ -8,48 +8,74 @@
   </head>
   <body>
     <main>
-      <h1>Local Agent Chat Bridge</h1>
-
-      <label class="toggle-row">
-        <input id="enabled" type="checkbox" />
-        <span>Automatic feedback enabled</span>
-      </label>
-
-      <label for="conversationUrl">Conversation</label>
-      <div class="row">
-        <input id="conversationUrl" type="url" placeholder="https://chatgpt.com/c/..." />
-        <button id="useCurrent" type="button">Use current</button>
+      <div class="heading-row">
+        <div>
+          <h1>Local Agent Chat Bridge</h1>
+          <p class="muted">Multi-chat autonomous wake scheduler</p>
+        </div>
+        <label class="switch-row compact">
+          <input id="masterEnabled" type="checkbox" />
+          <span>Master</span>
+        </label>
       </div>
 
-      <details>
-        <summary>Runtime configuration</summary>
+      <section class="panel">
+        <h2>Add or update current chat</h2>
+        <label for="currentLabel">Label</label>
+        <input id="currentLabel" type="text" maxlength="120" placeholder="Growbox Stage27C" />
+
+        <label for="currentRepository">Repository id</label>
+        <input id="currentRepository" type="text" maxlength="120" placeholder="growbox-controller" />
+
+        <div class="actions">
+          <button id="addCurrent" type="button">Add / update current</button>
+        </div>
+        <p id="currentUrl" class="muted ellipsis">Open a concrete ChatGPT conversation.</p>
+      </section>
+
+      <section>
+        <div class="section-title-row">
+          <h2>Conversations</h2>
+          <span id="conversationCount" class="badge">0</span>
+        </div>
+        <div id="conversationList" class="conversation-list"></div>
+      </section>
+
+      <details class="panel settings-panel">
+        <summary>Global configuration</summary>
+
         <label for="runtimeUrl">Remote runtime URL</label>
         <input id="runtimeUrl" type="url" />
 
-        <label for="fallbackInterval">Fallback interval (minutes)</label>
-        <input id="fallbackInterval" type="number" min="1" max="1440" />
+        <div class="two-column">
+          <div>
+            <label for="fallbackInterval">Default interval (min)</label>
+            <input id="fallbackInterval" type="number" min="1" max="1440" />
+          </div>
+          <div>
+            <label for="fallbackRetry">Busy retry (min)</label>
+            <input id="fallbackRetry" type="number" min="1" max="60" />
+          </div>
+        </div>
 
-        <label for="fallbackRetry">Fallback busy retry (minutes)</label>
-        <input id="fallbackRetry" type="number" min="1" max="60" />
+        <label for="fallbackWakePrompt">Compact wake prompt</label>
+        <textarea id="fallbackWakePrompt" rows="3" maxlength="2000"></textarea>
 
-        <label for="fallbackPrompt">Fallback prompt</label>
-        <textarea id="fallbackPrompt" rows="6"></textarea>
+        <label for="fallbackBootstrapPrompt">One-time bootstrap prompt</label>
+        <textarea id="fallbackBootstrapPrompt" rows="7" maxlength="8000"></textarea>
+
+        <div class="actions">
+          <button id="saveGlobal" type="button">Save global settings</button>
+        </div>
+        <div class="runtime-status">
+          <span><strong>Runtime:</strong> <span id="runtimeSource">-</span></span>
+          <span><strong>Default:</strong> <span id="runtimeInterval">-</span></span>
+        </div>
       </details>
-
-      <div class="actions">
-        <button id="save" type="button">Save</button>
-        <button id="runNow" type="button">Run now</button>
-      </div>
-
-      <section class="status">
-        <div><strong>Runtime:</strong> <span id="runtimeSource">-</span></div>
-        <div><strong>Interval:</strong> <span id="runtimeInterval">-</span></div>
-        <div><strong>Last:</strong> <span id="lastStatus">-</span></div>
-        <div><strong>Next:</strong> <span id="nextRun">-</span></div>
-      </section>
 
       <p id="message" role="status"></p>
     </main>
+    <script src="control_protocol.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
