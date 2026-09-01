@@ -82,7 +82,7 @@ The scheduler retains adaptive/fair polling and bounded worker turns. One reposi
 
 Restart, self-update and global status are supervisor-wide operations.
 
-While workers run, the supervisor only probes the designated control repository for a pending valid request. A detected request stops new admissions and waits for tracked workers to drain. Before executing global control, the supervisor acquires execution identities for every currently configured repository, which also catches surviving workers/descendants from an earlier supervisor process.
+While workers run, the supervisor only probes the designated control repository for a pending valid request. Probe outcomes distinguish `CLEAR`, `PENDING`, `LEASE_BUSY` and degraded `DEFERRED` failures. A detected `PENDING` request stops new admissions immediately. Ordinary lease contention retries without log spam, but six consecutive `LEASE_BUSY` outcomes force a bounded admission drain so global control cannot starve. Before executing global control, the supervisor acquires execution identities for every currently configured repository, which also catches surviving workers/descendants from an earlier supervisor process.
 
 Ordinary maintenance/self-update waits for a natural idle window. Production self-update runs from the clean `main` checkout.
 

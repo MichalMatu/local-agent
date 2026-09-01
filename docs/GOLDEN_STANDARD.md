@@ -38,6 +38,9 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - The parallel supervisor emits a human-readable `IDLE` line after startup and after real task completion.
 - A long-idle supervisor emits a bounded periodic `IDLE` heartbeat so `tail -f ~/Library/Logs/local-agent.log` remains immediately readable.
 - Real parallel task boundaries are visible as `TASK START` / `TASK DONE`; low-level successful Git plumbing must not drown those operator events.
+- Expected single control-repository lease contention is silent; repeated contention is logged only when the six-attempt bounded drain activates.
+- Production launchd stdout/stderr logs are bounded: files above 2 MiB are compacted during an idle maintenance window to approximately the most recent 1 MiB while preserving append semantics.
+- Multiline task commands are represented by concise stage/line/character descriptors in both legacy and `RuntimeExecutor` paths. Full command/output evidence remains in run/result JSON; `LOCAL_AGENT_VERBOSE_LOGS=1` is temporary diagnostic override only.
 
 ## Repository isolation invariants
 
@@ -68,9 +71,9 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - Repository workers never execute supervisor-wide restart/self-update.
 - While workers run, maintenance may only probe for pending global control.
 - Daemon control ids are restricted to ASCII letters, digits, `.`, `_` and `-`, with a 120-character maximum; ACK paths must remain under `.agent/daemon/acks/` after normalization.
-- Control probes have explicit `CLEAR`, `PENDING` and `DEFERRED` outcomes; only a successful `CLEAR` probe advances the normal control-poll clock.
-- A busy control-repository lease or transient probe/ACK-read failure is `DEFERRED` and is retried promptly instead of being mistaken for "no request".
-- After the supervisor has completed its initial control service successfully, `DEFERRED` control probing does not drain workers or block unrelated repository admission; only a confirmed `PENDING` request starts the global drain path.
+- Control probes have explicit `CLEAR`, `PENDING`, `LEASE_BUSY` and `DEFERRED` outcomes; only a successful `CLEAR` probe advances the normal control-poll clock.
+- A busy control-repository execution lease is `LEASE_BUSY`; transient sync/network/ACK-read failures are `DEFERRED`. Both retry promptly instead of being mistaken for "no request".
+- After initial supervisor control service succeeds, ordinary `LEASE_BUSY` contention and `DEFERRED` failures do not immediately block unrelated repository admission. A confirmed `PENDING` request drains immediately, while six consecutive `LEASE_BUSY` probes force a bounded admission drain so global control cannot starve.
 - A control ACK is durable only when it is visible on the fetched remote `agent-control` branch; a local-only ACK commit never suppresses replay of the remote request.
 - A real global request stops new admission and waits for active workers to drain.
 - Global control acquires all configured repository execution identities before running.
@@ -116,5 +119,5 @@ Historical design notes remain references only and are not runtime contracts.
 
 ## Retry and logging invariants
 - Unexpected worker exits use bounded 2-300 s exponential retry and reset after normal outcomes.
-- Deferred global-control work uses bounded 2-15 s retry without starving unrelated admission.
+- Deferred global-control work uses bounded 2-15 s retry; six consecutive control-repository `LEASE_BUSY` probes force a bounded worker drain to prevent global-control starvation.
 - Repeated outer supervisor failure/deferral notices are limited to one per 60 s for a continuing condition.
