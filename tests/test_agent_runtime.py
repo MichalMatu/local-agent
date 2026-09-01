@@ -905,6 +905,39 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.assertIn("collapsed unified diff: 1 file(s), 86 line(s)", rendered)
         self.assertNotIn("collapsed unified diff: 1 file(s), 87 line(s)", rendered)
 
+    def test_runtime_executor_uses_compact_multiline_command_descriptor(self) -> None:
+        self.runtime._idle_timeout = 5
+        self.runtime._deadline = time.monotonic() + 120
+        self.runtime._command_count = 1
+        self.runtime._primary_count = 1
+        newline = chr(10)
+        command = newline.join(["set -e", "printf runtime-concise-smoke"])
+        stage = {
+            "stage_name": "runtime-concise-stage",
+            "stage_index": 1,
+            "stage_total": 1,
+            "stage_phase": "commands",
+            "output_policy": "summary",
+        }
+        messages: list[str] = []
+        with mock.patch.dict(core.os.environ, {}, clear=True), mock.patch.object(
+            core, "log", side_effect=messages.append
+        ):
+            result = self.runtime.run_command(command, 5, stage=stage)
+
+        self.assertEqual(result["exit_code"], 0)
+        descriptor = f"stage=runtime-concise-stage lines=2 chars={len(command)}"
+        self.assertIn(f"exec: {descriptor}", messages)
+        self.assertTrue(
+            any(
+                message.startswith("exec finished exit=0 elapsed=")
+                and message.endswith(descriptor)
+                for message in messages
+            )
+        )
+        self.assertFalse(any(command in message for message in messages))
+        self.assertEqual(result["command"], command)
+
     def test_identical_large_diffs_are_aggregated_in_live_log(self) -> None:
         self.runtime._idle_timeout = 5
         self.runtime._deadline = time.monotonic() + 120

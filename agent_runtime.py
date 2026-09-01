@@ -906,7 +906,11 @@ class RuntimeExecutor:
                 )
                 return result
 
-        self.core.log(f"exec: {command}")
+        command_descriptor = self.core.command_log_descriptor(
+            command,
+            {"name": stage.get("stage_name", "")},
+        )
+        self.core.log(f"exec: {command_descriptor}")
         proc = spawn_shell(command, cwd=self.core.WORK, env=self.core.ENV)
         process_group = proc.pid
         with self._active_lock:
@@ -951,7 +955,7 @@ class RuntimeExecutor:
                         self._last_failure_reason = (
                             "verification_timeout" if phase == "verification" else "command_timeout"
                         )
-                        self.core.log(f"TIMEOUT after {timeout}s: {command}")
+                        self.core.log(f"TIMEOUT after {timeout}s: {command_descriptor}")
                         self.core.kill_process_group(proc)
                     elif (
                         self._idle_timeout > 0
@@ -965,7 +969,7 @@ class RuntimeExecutor:
                             else "command_idle_timeout"
                         )
                         self.core.log(
-                            f"IDLE TIMEOUT after {self._idle_timeout}s: {command}"
+                            f"IDLE TIMEOUT after {self._idle_timeout}s: {command_descriptor}"
                         )
                         self.core.kill_process_group(proc)
 
@@ -1019,7 +1023,7 @@ class RuntimeExecutor:
                                 self._last_failure_reason = command_failure_reason
                                 self.core.log(
                                     f"MEMORY LIMIT after {over_limit_samples} samples "
-                                    f"at {current_rss_mb:.1f} MB: {command}"
+                                    f"at {current_rss_mb:.1f} MB: {command_descriptor}"
                                 )
                                 self.core.kill_process_group(proc)
 
@@ -1162,7 +1166,7 @@ class RuntimeExecutor:
             result["current_rss_mb"] = current_rss_mb
         if command_failure_reason is not None:
             result["failure_reason"] = command_failure_reason
-        self.core.log(f"exec finished exit={exit_code} elapsed={elapsed:.1f}s: {command}")
+        self.core.log(f"exec finished exit={exit_code} elapsed={elapsed:.1f}s: {command_descriptor}")
         finished_event = {
             "event": "command_finished",
             "phase": phase,
