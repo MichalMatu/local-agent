@@ -81,6 +81,20 @@ Every bridge wake-up must follow this order:
 
 The autonomous planner loop is sequential per active conversation goal, not globally serial. While this conversation is following a running task for that goal, do not queue another task for the same goal. The production executor may still run unrelated tasks from other conversations or repositories concurrently when resource admission permits it. Resource classification remains conservative, and repository-specific status/run/result evidence determines whether the task this conversation is following is active.
 
+## Post-queue liveness pacing
+
+Immediately after queueing a new task, prefer one short Chat Bridge re-check after about 30 seconds instead of waiting for the normal long-task cadence. The purpose of this first wake is only to catch start-up failures quickly: rejected task payloads, wrong expected SHA, missing branch/worktree, resource admission problems, syntax/import errors, commands that fail immediately, or a daemon that never claims the task.
+
+On that first re-check:
+
+1. inspect terminal result first if one already exists;
+2. otherwise inspect the exact run/attempt plus daemon status;
+3. if the task failed, diagnose it immediately and continue only with a new bounded task when the evidence supports a concrete fix;
+4. if the task is actively producing output or healthy heartbeats, restore a longer interval appropriate to the expected remaining duration;
+5. do not leave a 30-second interval enabled across a multi-minute or multi-hour healthy task.
+
+This is planner/Chat Bridge pacing, not executor polling. It must not change `local-agent` poll intervals, duplicate task execution, or weaken the rule that only one task for the active conversation goal is followed at a time.
+
 ## Task rules
 
 Task ids are immutable within a repository. Every autonomous continuation task must use a new unique id.
