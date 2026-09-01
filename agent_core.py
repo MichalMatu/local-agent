@@ -49,6 +49,7 @@ CHECKPOINT_FREE_SPACE_RESERVE_BYTES = 256 * 1024**2
 CHECKPOINT_COPY_CHUNK_BYTES = 1024 * 1024
 EFFICIENT_VERIFICATION_POLICY = "efficient-verification-v1"
 VERIFICATION_LEVELS = frozenset({"work", "focused", "full"})
+OUTPUT_POLICIES = frozenset({"stream", "summary"})
 
 BASE_PATH = [
     str(HOME / ".platformio" / "penv" / "bin"),
@@ -604,6 +605,13 @@ def _validate_stage_items(value: Any, field: str) -> None:
             raise ValueError(f"{field} item name must be a non-empty string")
         if not isinstance(command, str) or not command.strip():
             raise ValueError(f"{field} item command must be a non-empty string")
+        if "output_policy" in item:
+            output_policy = item.get("output_policy")
+            if not isinstance(output_policy, str) or output_policy not in OUTPUT_POLICIES:
+                allowed = ", ".join(sorted(OUTPUT_POLICIES))
+                raise ValueError(
+                    f"{field} item output_policy must be one of: {allowed}"
+                )
         if "timeout" in item:
             raw_timeout = item.get("timeout")
             if not isinstance(raw_timeout, int) or isinstance(raw_timeout, bool):
@@ -695,6 +703,8 @@ def stage_plan_for(task: dict[str, Any]) -> list[dict[str, Any]]:
             }
             if workflow_policy is not None:
                 entry["verification_level"] = str(item["verification_level"])
+            if "output_policy" in item:
+                entry["output_policy"] = str(item["output_policy"])
             primary.append(entry)
     else:
         primary = [
@@ -712,6 +722,8 @@ def stage_plan_for(task: dict[str, Any]) -> list[dict[str, Any]]:
             }
             if workflow_policy is not None:
                 entry["verification_level"] = str(item["verification_level"])
+            if "output_policy" in item:
+                entry["output_policy"] = str(item["output_policy"])
             verification.append(entry)
     else:
         verification = [
@@ -739,6 +751,8 @@ def stage_plan_for(task: dict[str, Any]) -> list[dict[str, Any]]:
                 stage["stage_timeout"] = entry["stage_timeout"]
             if "verification_level" in entry:
                 stage["verification_level"] = entry["verification_level"]
+            if "output_policy" in entry:
+                stage["output_policy"] = entry["output_policy"]
             plan.append(stage)
             stage_index += 1
     return plan

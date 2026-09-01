@@ -121,3 +121,9 @@ Parallel scheduler releases additionally require real two-repository overlap, ma
 - Established Mac/ESP32 setup: `docs/SESSION_BOOTSTRAP.md`.
 - Current production invariants: `docs/GOLDEN_STANDARD.md`.
 - Historical notes under `docs/history/` are non-canonical.
+
+## Verification output policy
+
+- Structured `steps` and `verify_steps` may declare `output_policy: "stream"` or `"summary"`.
+- `summary` suppresses routine live command lines but preserves bounded raw output in terminal result evidence.
+- Failed summary stages emit a bounded diagnostic tail; explicit progress markers remain visible and heartbeat, timeout, RSS and process cleanup behavior remains unchanged.

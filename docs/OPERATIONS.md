@@ -161,3 +161,10 @@ Current registered targets are LiteGraph, Growbox ML Controller, MatrixHub and E
 2. target repository source/tests;
 3. remote run/result/status evidence;
 4. planner analysis.
+
+## Verification tiers and output policy
+
+Use syntax/config smoke and focused regression during iteration, then one bounded full suite near the end of substantial work. Structured long/noisy stages may use `output_policy: "summary"`; bounded raw output remains in result evidence and failures expose a bounded tail. Heavy full/browser/build stages remain machine-exclusive unless measured evidence proves a narrower safe resource contract.
+
+## Supervisor retry and log discipline
+Unexpected worker exits back off 2-300 s and reset after normal outcomes. Deferred global-control work backs off 2-15 s so unrelated admission remains responsive. Repeated outer supervisor failure/deferral notices are gated to one per 60 s for a continuing condition.

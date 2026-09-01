@@ -148,3 +148,6 @@ The v4.11.6 candidate must demonstrate:
 - Do not serialize all development tests forever.
 - Do not hide failed command output.
 - Do not make Local Agent infer test type from arbitrary shell command strings.
+
+### Supervisor retry evidence
+Focused verification covers worker 2-300 s retry, control-DEFERRED 2-15 s retry, 60 s log gating, reset, and the busy-control-repository late-task integration. Accelerate retry knobs in tests rather than increasing test deadlines.

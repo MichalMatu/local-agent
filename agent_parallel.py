@@ -47,6 +47,11 @@ MAX_MAX_WORKERS = 3
 REAP_INTERVAL_SECONDS = 0.25
 RESOURCE_RETRY_SECONDS = 1.0
 ERROR_RETRY_SECONDS = 1.0
+WORKER_FAILURE_RETRY_BASE_SECONDS = 2.0
+WORKER_FAILURE_RETRY_MAX_SECONDS = 300.0
+CONTROL_DEFER_RETRY_BASE_SECONDS = 2.0
+CONTROL_DEFER_RETRY_MAX_SECONDS = 15.0
+REPEATED_FAILURE_LOG_SECONDS = 60.0
 MAX_ONCE_DEFERRALS = 120
 OPERATOR_IDLE_HEARTBEAT_SECONDS = 300.0
 PARALLEL_EXECUTION_MODEL = "parallel_repository_supervisor"
@@ -64,6 +69,9 @@ class RepositorySchedule:
     last_poll_at: float | None = None
     last_activity_at: float | None = None
     retry_not_before: float = 0.0
+    consecutive_failures: int = 0
+    last_failure_code: int | None = None
+    last_failure_log_at: float | None = None
 
 
 @dataclass
@@ -91,6 +99,25 @@ def operator_idle_log_due(last_idle_log_at: float | None, now: float) -> bool:
         or now - last_idle_log_at >= OPERATOR_IDLE_HEARTBEAT_SECONDS
     )
 
+
+def bounded_retry_seconds(attempt: int, *, base: float, maximum: float) -> float:
+    if attempt <= 0:
+        return 0.0
+    return min(maximum, base * (2 ** min(attempt - 1, 16)))
+
+def worker_failure_retry_seconds(attempt: int) -> float:
+    return bounded_retry_seconds(attempt, base=WORKER_FAILURE_RETRY_BASE_SECONDS, maximum=WORKER_FAILURE_RETRY_MAX_SECONDS)
+
+def control_defer_retry_seconds(attempt: int) -> float:
+    return bounded_retry_seconds(attempt, base=CONTROL_DEFER_RETRY_BASE_SECONDS, maximum=CONTROL_DEFER_RETRY_MAX_SECONDS)
+
+def repeated_failure_log_due(last_log_at: float | None, now: float) -> bool:
+    return last_log_at is None or now - last_log_at >= REPEATED_FAILURE_LOG_SECONDS
+
+def reset_worker_failure_state(schedule: RepositorySchedule) -> None:
+    schedule.consecutive_failures = 0
+    schedule.last_failure_code = None
+    schedule.last_failure_log_at = None
 
 def resolve_max_workers(cli_value: int | None) -> int:
     raw: object = cli_value if cli_value is not None else os.environ.get(
@@ -182,6 +209,9 @@ def reap_workers(
         schedule = schedules.setdefault(repository_id, RepositorySchedule())
         completed_at = time.monotonic()
 
+        normal = {serial_worker.WORKER_PROCESSED, WORKER_MACHINE_BUSY, WORKER_RESOURCE_BUSY, serial_worker.WORKER_IDLE, serial_worker.WORKER_BUSY, serial_worker.WORKER_CONFIG_CHANGED}
+        if return_code in normal:
+            reset_worker_failure_state(schedule)
         if return_code == serial_worker.WORKER_PROCESSED:
             schedule.last_activity_at = completed_at
             schedule.retry_not_before = 0.0
@@ -201,11 +231,15 @@ def reap_workers(
             schedule.retry_not_before = completed_at + RESOURCE_RETRY_SECONDS
             log(f"repository turn deferred repository={repository_id}: config changed")
         else:
-            schedule.retry_not_before = completed_at + RESOURCE_RETRY_SECONDS
-            log(
-                f"repository worker failed repository={repository_id} "
-                f"exit={return_code}"
-            )
+            if schedule.last_failure_code == return_code:
+                schedule.consecutive_failures += 1
+            else:
+                schedule.consecutive_failures, schedule.last_failure_code, schedule.last_failure_log_at = 1, return_code, None
+            retry = worker_failure_retry_seconds(schedule.consecutive_failures)
+            schedule.retry_not_before = completed_at + retry
+            if repeated_failure_log_due(schedule.last_failure_log_at, completed_at):
+                log(f"repository worker failed repository={repository_id} exit={return_code} consecutive={schedule.consecutive_failures} retry_in={retry:.0f}s")
+                schedule.last_failure_log_at = completed_at
     return completed
 
 
@@ -489,6 +523,8 @@ def main() -> int:
     once_failed: set[str] = set()
     once_deferrals: dict[str, int] = {}
     last_idle_log_at: float | None = None
+    control_defer_count = 0
+    last_control_defer_log_at: float | None = None
 
     try:
         repositories = load_repository_registry(path=args.registry)
@@ -518,6 +554,21 @@ def main() -> int:
                 f"one-shot deferral limit exceeded repository={repository_id} "
                 f"attempts={count}"
             )
+
+    def reset_control_defer_state() -> None:
+        nonlocal control_defer_count, last_control_defer_log_at
+        control_defer_count, last_control_defer_log_at = 0, None
+
+    def note_control_deferred(message: str) -> float:
+        nonlocal control_defer_count, control_retry_not_before, last_control_defer_log_at
+        control_defer_count += 1
+        now = time.monotonic()
+        retry = control_defer_retry_seconds(control_defer_count)
+        control_retry_not_before = now + retry
+        if repeated_failure_log_due(last_control_defer_log_at, now):
+            log(f"{message}; consecutive={control_defer_count} retry_in={retry:.0f}s")
+            last_control_defer_log_at = now
+        return retry
 
     def record_once_outcomes(completed: dict[str, int]) -> None:
         if not args.once:
@@ -608,9 +659,10 @@ def main() -> int:
                 ):
                     last_control_at = time.monotonic()
                     control_retry_not_before = 0.0
+                    reset_control_defer_state()
                     control_pending = False
                 else:
-                    time.sleep(ERROR_RETRY_SECONDS)
+                    time.sleep(note_control_deferred("global control service deferred during startup"))
                     continue
 
             now = time.monotonic()
@@ -625,21 +677,17 @@ def main() -> int:
                 if running:
                     probe_result = probe_control_request(repositories[0])
                     if probe_result is ControlProbeResult.PENDING:
+                        reset_control_defer_state()
                         control_pending = True
                         log("global control request detected; draining active workers")
                         time.sleep(REAP_INTERVAL_SECONDS)
                         continue
                     if probe_result is ControlProbeResult.DEFERRED:
-                        control_retry_not_before = (
-                            time.monotonic() + ERROR_RETRY_SECONDS
-                        )
-                        log(
-                            "global control probe deferred; "
-                            "continuing unrelated task admission"
-                        )
+                        note_control_deferred("global control probe deferred; continuing unrelated task admission")
                     else:
                         last_control_at = time.monotonic()
                         control_retry_not_before = 0.0
+                        reset_control_defer_state()
                 else:
                     if service_control(
                         repositories,
@@ -649,14 +697,9 @@ def main() -> int:
                     ):
                         last_control_at = time.monotonic()
                         control_retry_not_before = 0.0
+                        reset_control_defer_state()
                     else:
-                        control_retry_not_before = (
-                            time.monotonic() + ERROR_RETRY_SECONDS
-                        )
-                        log(
-                            "global control service deferred; "
-                            "continuing task admission after successful startup"
-                        )
+                        note_control_deferred("global control service deferred; continuing task admission after successful startup")
 
             started_worker = False
             now = time.monotonic()

@@ -194,3 +194,7 @@ The loop is considered operational when all of the following have been demonstra
 6. ChatGPT terminates the loop with `STOP` after the goal is complete.
 
 This validates the coordination loop. It does not remove the requirement for task-specific verification or user intervention when the goal itself needs external/manual actions.
+
+## Planner output policy
+
+For substantial autonomous coding tasks, prefer `efficient-verification-v1` with work/focused stages and exactly one final full stage. Long successful test/build stages should normally use `output_policy: "summary"` when their line-by-line output is not useful; terminal result evidence remains authoritative.

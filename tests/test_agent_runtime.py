@@ -383,6 +383,102 @@ class RuntimeExecutorTests(unittest.TestCase):
             all(event["verification_level"] == "work" for event in relevant_events)
         )
 
+    def test_output_policy_is_validated_and_propagated(self) -> None:
+        task = self._efficient_task(
+            steps=[
+                {
+                    "name": "edit",
+                    "command": "edit-command",
+                    "verification_level": "work",
+                    "output_policy": "summary",
+                }
+            ],
+            verify_steps=[
+                {
+                    "name": "final",
+                    "command": "full-command",
+                    "verification_level": "full",
+                    "output_policy": "summary",
+                }
+            ],
+        )
+        validate_task(task)
+        self.assertEqual(
+            [stage["output_policy"] for stage in core.stage_plan_for(task)],
+            ["summary", "summary"],
+        )
+        with self.assertRaisesRegex(ValueError, "output_policy"):
+            validate_task(
+                self._efficient_task(
+                    steps=[
+                        {
+                            "name": "edit",
+                            "command": "edit-command",
+                            "verification_level": "work",
+                            "output_policy": "quiet",
+                        }
+                    ]
+                )
+            )
+
+    def test_summary_output_suppresses_success_and_retains_evidence(self) -> None:
+        events: list[dict] = []
+        self.runtime._progress = events.append
+        self.runtime._idle_timeout = 5
+        self.runtime._deadline = time.monotonic() + 120
+        self.runtime._command_count = 1
+        self.runtime._primary_count = 1
+        stage = {
+            "stage_name": "quiet-success",
+            "stage_index": 1,
+            "stage_total": 1,
+            "stage_phase": "commands",
+            "output_policy": "summary",
+        }
+        command = (
+            f"{shlex.quote(sys.executable)} -c "
+            + shlex.quote(
+                "print('[AGENT_PROGRESS] {\"message\":\"quiet-progress\"}'); "
+                "print('summary-secret')"
+            )
+        )
+        visible = io.StringIO()
+        with mock.patch.object(core, "log"), redirect_stdout(visible):
+            result = self.runtime.run_command(command, 5, stage=stage)
+        self.assertEqual(result["exit_code"], 0)
+        self.assertEqual(result["output_policy"], "summary")
+        self.assertIn("summary-secret", result["output"])
+        self.assertGreater(result["captured_output_chars"], 0)
+        self.assertNotIn("[CMD] summary-secret", visible.getvalue())
+        self.assertIn("[CMD] [progress] quiet-progress", visible.getvalue())
+        self.assertIn("stage_progress", {event["event"] for event in events})
+
+    def test_summary_output_failure_emits_bounded_tail(self) -> None:
+        self.runtime._idle_timeout = 5
+        self.runtime._deadline = time.monotonic() + 120
+        self.runtime._command_count = 1
+        self.runtime._primary_count = 1
+        stage = {
+            "stage_name": "quiet-failure",
+            "stage_index": 1,
+            "stage_total": 1,
+            "stage_phase": "commands",
+            "output_policy": "summary",
+        }
+        command = (
+            f"{shlex.quote(sys.executable)} -c "
+            + shlex.quote("print('x' * 9000); raise SystemExit(7)")
+        )
+        visible = io.StringIO()
+        with mock.patch.object(core, "log"), redirect_stdout(visible):
+            result = self.runtime.run_command(command, 5, stage=stage)
+        text = visible.getvalue()
+        self.assertEqual(result["exit_code"], 7)
+        self.assertIn("summary stage failed", text)
+        self.assertIn("truncated; showing last", text)
+        self.assertGreater(result["captured_output_chars"], 8000)
+        self.assertFalse(result["output_truncated"])
+
     def test_staged_result_contains_summary_and_stops_after_failure(self) -> None:
         task = {
             "id": "staged-result",

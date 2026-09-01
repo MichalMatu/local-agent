@@ -37,6 +37,7 @@ MAX_MEMORY_LIMIT_MB = 16384
 MEMORY_SAMPLE_INTERVAL = 2.0
 PROGRESS_INTERVAL = 30
 MAX_OUTPUT = 60000
+SUMMARY_FAILURE_TAIL_CHARS = 8000
 MAX_PROGRESS_MARKER = 4096
 MAX_PROGRESS_TEXT = 256
 MAX_PROGRESS_METRICS = 16
@@ -238,6 +239,17 @@ class LiveCommandOutput:
     def finish(self) -> None:
         self._flush_diff()
         self._flush_repeated_notice()
+
+
+def emit_summary_failure_tail(text: str, *, truncated: bool) -> None:
+    print("[CMD] [summary stage failed; bounded output tail follows]", flush=True)
+    if truncated:
+        print(
+            f"[CMD] [... truncated; showing last {SUMMARY_FAILURE_TAIL_CHARS} chars ...]",
+            flush=True,
+        )
+    for line in text.splitlines():
+        print(f"[CMD] {line}", flush=True)
 
 
 def task_digest(task: dict[str, Any]) -> str:
@@ -829,6 +841,10 @@ class RuntimeExecutor:
                     "stage_phase": phase,
                 }
             )
+        output_policy = str(stage.get("output_policy", "stream"))
+        if output_policy not in self.core.OUTPUT_POLICIES:
+            raise ValueError(f"unsupported output_policy: {output_policy!r}")
+
         started = time.monotonic()
         last_output = started
         last_progress = started
@@ -920,6 +936,8 @@ class RuntimeExecutor:
             self._memory_sample_interval,
         )
         output = BoundedTextBuffer(MAX_OUTPUT)
+        failure_tail = BoundedTextBuffer(SUMMARY_FAILURE_TAIL_CHARS)
+        captured_output_chars = 0
         reader_done = False
         live_output = LiveCommandOutput()
 
@@ -1045,7 +1063,13 @@ class RuntimeExecutor:
                                     "last_progress_message": marker.get("message"),
                                 }
                             )
-                        live_output.emit(item)
+                        captured_output_chars += len(item)
+                        failure_tail.append(item)
+                        if output_policy == "stream":
+                            live_output.emit(item)
+                        elif marker is not None:
+                            message = marker.get("message") or marker.get("stage_name") or "progress"
+                            print(f"[CMD] [progress] {message}", flush=True)
                         output.append(item)
                 except queue.Empty:
                     pass
@@ -1102,6 +1126,23 @@ class RuntimeExecutor:
         elif background_process_leak:
             exit_code = 126
         elapsed = time.monotonic() - started
+        if output_policy == "summary":
+            if exit_code == 0:
+                self.core.log(
+                    "output summary "
+                    f"stage={stage['stage_name']} exit=0 "
+                    f"captured_chars={captured_output_chars}"
+                )
+            else:
+                self.core.log(
+                    "output summary "
+                    f"stage={stage['stage_name']} exit={exit_code} "
+                    f"captured_chars={captured_output_chars}; showing bounded tail"
+                )
+                emit_summary_failure_tail(
+                    failure_tail.text(),
+                    truncated=failure_tail.truncated,
+                )
         result = {
             "command": command,
             "exit_code": exit_code,
@@ -1113,6 +1154,9 @@ class RuntimeExecutor:
             "memory_limited": memory_limited,
             "background_process_leak": background_process_leak,
             "peak_rss_mb": peak_rss_mb,
+            "output_policy": output_policy,
+            "captured_output_chars": captured_output_chars,
+            "output_truncated": output.truncated,
         }
         if current_rss_mb is not None:
             result["current_rss_mb"] = current_rss_mb

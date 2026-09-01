@@ -107,3 +107,14 @@ A non-trivial runtime release requires:
 `AGENTS.md` defines the currently registered downstream documentation targets. A release is not operationally complete when those repositories materially describe an obsolete task schema, execution model, concurrency/resource contract, status/control surface or deployment flow.
 
 Historical design notes remain references only and are not runtime contracts.
+
+## Verification efficiency invariants
+
+- Structured stages expose explicit `stream` and `summary` live-output policies without weakening retained result evidence.
+- Successful noisy summary stages do not flood the operator log; failed summary stages expose a bounded tail.
+- Explicit progress markers remain visible and heartbeat/watchdog enforcement stays active under summarized live output.
+
+## Retry and logging invariants
+- Unexpected worker exits use bounded 2-300 s exponential retry and reset after normal outcomes.
+- Deferred global-control work uses bounded 2-15 s retry without starving unrelated admission.
+- Repeated outer supervisor failure/deferral notices are limited to one per 60 s for a continuing condition.

@@ -90,6 +90,16 @@ class ParallelSupervisorTests(unittest.TestCase):
         self.assertFalse(parallel.repository_due(schedule, now=101.9))
         self.assertTrue(parallel.repository_due(schedule, now=102.0))
 
+    def test_retry_helpers_and_reset(self) -> None:
+        self.assertEqual([parallel.worker_failure_retry_seconds(i) for i in range(1,10)], [2.0,4.0,8.0,16.0,32.0,64.0,128.0,256.0,300.0])
+        self.assertEqual([parallel.control_defer_retry_seconds(i) for i in range(1,6)], [2.0,4.0,8.0,15.0,15.0])
+        self.assertTrue(parallel.repeated_failure_log_due(None,100.0))
+        self.assertFalse(parallel.repeated_failure_log_due(100.0,159.9))
+        self.assertTrue(parallel.repeated_failure_log_due(100.0,160.0))
+        s=parallel.RepositorySchedule(consecutive_failures=4,last_failure_code=7,last_failure_log_at=100.0)
+        parallel.reset_worker_failure_state(s)
+        self.assertEqual((s.consecutive_failures,s.last_failure_code,s.last_failure_log_at),(0,None,None))
+
     def test_global_control_requires_every_repository_lease(self) -> None:
         repositories = [repository("control-a"), repository("control-b")]
         with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
