@@ -87,7 +87,7 @@ The extension popup provides:
 
 - a global master scheduler switch;
 - **Add / update current** for the active ChatGPT conversation;
-- one card per configured conversation with label, repository id, enable/pause, `Run now`, save and remove actions;
+- one card per configured conversation with label, repository id, enable/pause, manual interval override, `Run now`, save and remove actions;
 - per-conversation last status, next wake and bootstrap/compact-wake mode;
 - global runtime URL, default interval, busy retry, compact wake prompt and bootstrap prompt.
 
