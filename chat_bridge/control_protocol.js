@@ -20,12 +20,12 @@
       const url = new URL(rawUrl);
       if (url.protocol !== "https:") return "";
       if (!["chatgpt.com", "chat.openai.com"].includes(url.hostname)) return "";
-      url.hostname = "chatgpt.com";
-      url.search = "";
-      url.hash = "";
+
       const pathname = url.pathname.replace(/\/$/, "");
-      if (!/^\/c\/[^/]+$/.test(pathname)) return "";
-      return `${url.origin}${pathname}`;
+      const match = pathname.match(/(?:^|\/)c\/([^/]+)$/);
+      if (!match) return "";
+
+      return `https://chatgpt.com/c/${match[1]}`;
     } catch (_error) {
       return "";
     }
