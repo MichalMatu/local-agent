@@ -48,24 +48,27 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 
 ## Production scheduling invariants
 
-The v4.11 production multi-repository path is `agent_parallel.py`:
+The bounded-parallel production path is `agent_parallel.py`:
 
 - recommended production `max_workers` is `2`;
 - default remains `1` and the hard cap remains `3`;
 - `agent_multirepo.py` remains the known-safe serial fallback;
 - serial and parallel supervisors share the same daemon lock and must never run simultaneously;
-- missing, malformed or oversized `resources` means full `machine` exclusivity;
-- `resources=[]` is an explicit software-only parallel declaration, never a generic default;
-- named resources serialize tasks sharing that resource while unrelated resources may overlap;
-- any non-machine task must have `memory_limit_mb` enabled and at or below 1024 MiB, otherwise it falls back to `machine` exclusivity;
+- every task must declare `resources` explicitly; missing, malformed, duplicated or non-canonical declarations are terminal task-contract errors, never silent fallbacks;
+- `resources: []` means the task needs no exclusive external resource beyond its repository lease; builds, tests, lint and other repository-local software work may use it regardless of `memory_limit_mb`;
+- named resources serialize only tasks sharing the same concrete external resource, for example `board:growbox-s3` or `board:zigbee-c6`;
+- `resources: ["machine"]` is reserved for operations that truly require the whole host and must not be used merely because a task is a build, hardware test or has a large RSS limit;
+- `memory_limit_mb` is a per-task watchdog bound and is independent from resource classification;
+- every normal task holds the shared machine lock so a true `machine` task can drain and acquire global exclusivity;
 - machine and named-resource descriptors are inherited into command descendants so locks survive worker death until the last holder exits;
-- resource acquisition is non-blocking admission; a worker must never wait on a resource after selecting a task and before claiming it;
-- machine contention enters priority/drain mode so full-machine work cannot starve behind a stream of shared tasks;
+- resource acquisition is non-blocking admission before claim/execution; contention leaves the immutable task pending and retries with bounded backoff instead of failing or disappearing;
+- repository workers publish `waiting_resource` with the pending task/resource when admission is blocked;
+- machine contention retains priority/drain fairness so full-host maintenance cannot starve;
 - while workers are active, maintenance may only probe control state; global restart/status/self-update handling waits for a quiescent worker set and acquires all configured repository identities;
 - after initial supervisor control service succeeds, degraded control probes retry promptly without blocking unrelated task admission; confirmed `PENDING` control drains immediately, while repeated control-repository lease contention enters a bounded drain after six consecutive deferrals so global control cannot starve;
 - registry entries must not be removed or identity-mutated while workers may still be alive.
 
-A task is parallel-safe only when the planner knows it does not touch shared machine hardware or unsafe global tooling. Unknown, PlatformIO-heavy, USB, serial, flashing and hardware-sensitive work stays machine-exclusive unless an explicit resource contract proves otherwise.
+Repository isolation and external-resource isolation are separate contracts. One repository still runs one task at a time, while independent repositories may compile/test concurrently whenever their declared external resources do not conflict.
 
 ## Release and branch policy
 

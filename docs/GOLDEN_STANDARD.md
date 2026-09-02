@@ -55,14 +55,16 @@ This file records the current production invariants for `MichalMatu/local-agent`
 
 ## Parallel resource invariants
 
-- Missing, malformed or oversized `resources` is full `machine` exclusivity.
-- `resources: []` is an explicit planner assertion that the task is software-only and safe to overlap.
-- Named resources are exclusive among tasks sharing the name.
-- Any non-machine task requires enabled `memory_limit_mb <= 1024`; otherwise it falls back to `machine` exclusivity.
-- Resource declarations are bounded to eight names.
+- `resources` is mandatory for every task; invalid declarations are terminal contract errors rather than compatibility fallbacks.
+- `resources: []` means no exclusive external resource beyond the repository lease and may be used for repository-local builds, tests, lint and analysis.
+- Named resources are exclusive only among tasks sharing the same canonical name.
+- `resources: ["machine"]` is reserved for genuine whole-host exclusivity.
+- `memory_limit_mb` is an independent process-group RSS watchdog and never changes resource classification.
+- Resource declarations are bounded to eight names and may not combine `machine` with another resource.
 - Parallel tasks hold a shared machine lock; machine-exclusive tasks hold it exclusively.
 - Machine/named resource descriptors are inherited into descendants and survive worker death until the last holder exits.
-- Resource acquisition is nonblocking and occurs before claim/execution; resource contention never creates a long unclaimed stale-task wait.
+- Resource acquisition is nonblocking and occurs before claim/execution. Contention leaves the task pending and is retried with bounded backoff.
+- Repository status exposes `waiting_resource` for blocked admission so remote planners do not mistake waiting for idle completion.
 - Machine contention gets priority/drain fairness.
 - Production recommendation is two workers; hard cap remains three.
 
@@ -87,6 +89,8 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - Planner sequencing is not global executor serialization: unrelated conversations/repositories may overlap when the parallel resource contract permits it.
 - Every bridge wake-up re-reads repository-specific status/run/result evidence before deciding whether to wait, queue one next bounded task, pause for user action or stop a completed goal.
 - Bridge `STOP`/`PAUSE` markers control the conversation loop only; they do not stop or reconfigure the Local Agent supervisor.
+- An unfinished autonomous turn ends with `NEXT=<duration>`; `NEXT` arms or re-arms that conversation and schedules its next wake without overriding the global master switch.
+- Resource/capacity waiting is a continuation state and must use `NEXT`, never `STOP`.
 
 ## Verification/release gate
 

@@ -29,31 +29,34 @@ Task IDs/payloads are immutable within a repository. Interrupted claimed work is
 
 ## Parallel resource contract
 
-Unknown work is safe by default.
+Every task must declare `resources` explicitly. The task contract rejects missing, malformed, duplicated, oversized or non-canonical declarations. There is no compatibility fallback to `machine`.
 
-If `resources` is absent, malformed or oversized, the effective resource is full-machine exclusivity:
+Repository-local software work uses:
+
+```json
+{"resources": [], "memory_limit_mb": 2048}
+```
+
+This includes builds, tests, lint, static analysis and documentation work when they do not touch an exclusive external device/tooling state. `memory_limit_mb` is an independent RSS watchdog and does not make a task machine-exclusive.
+
+Concrete external resources use stable names, for example:
+
+```json
+{"resources": ["board:growbox-s3"]}
+{"resources": ["board:zigbee-c6"]}
+```
+
+Tasks sharing a named resource serialize; unrelated named resources may overlap. Full host exclusivity is explicit and exceptional:
 
 ```json
 {"resources": ["machine"]}
 ```
 
-Clearly software-only work may opt into overlap:
+Use `machine` only for operations that genuinely need the entire host, such as global Local Agent maintenance or global toolchain mutation. A normal build, flash, serial session or hardware soak should use the repository lease plus the narrow concrete resource it actually owns.
 
-```json
-{"resources": [], "memory_limit_mb": 512}
-```
+One repository still executes only one task at a time because of its repository execution lease. Repository isolation is independent from external-resource admission. Different repositories may compile/test concurrently when their external resources do not conflict.
 
-Rules:
-
-- non-machine admission requires an enabled `memory_limit_mb <= 1024`;
-- otherwise the task falls back to `machine` exclusivity;
-- named resources such as `platformio`, `usb` or `serial` are exclusive among tasks declaring the same name;
-- a task containing `machine` is fully exclusive;
-- resource declarations are planner contracts, not command inspection;
-- hardware/USB/serial/flashing/unknown heavy work should remain machine-exclusive unless an explicit safe resource model exists;
-- machine and named resource lock descriptors are inherited into descendants and remain held until the last descendant exits.
-
-One repository still executes only one claimed task at a time. Different repositories may overlap only when their effective resources permit it.
+Resource acquisition is non-blocking before task claim. If a resource is busy, the task remains immutable and pending, repository status reports `waiting_resource`, and the supervisor retries with bounded backoff. Resource contention is WAIT, never task failure and never a reason for Chat Bridge `STOP`.
 
 ## Development workflow
 
@@ -113,7 +116,7 @@ Canonical defaults:
 - whole-task budget 1800 s, max 21600 s;
 - finalization reserve 60 s;
 - normal RSS limit 4096 MiB, configurable max 16384 MiB;
-- parallel-admission RSS ceiling 1024 MiB.
+- resource admission has no RSS-derived exclusivity threshold; each task keeps its declared RSS watchdog bound.
 
 Command stdout capture is bounded. Runtime limits are loaded at daemon startup.
 
@@ -164,7 +167,7 @@ Current registered targets are LiteGraph, Growbox ML Controller, MatrixHub and E
 
 ## Verification tiers and output policy
 
-Use syntax/config smoke and focused regression during iteration, then one bounded full suite near the end of substantial work. Structured long/noisy stages may use `output_policy: "summary"`; bounded raw output remains in result evidence and failures expose a bounded tail. Heavy full/browser/build stages remain machine-exclusive unless measured evidence proves a narrower safe resource contract.
+Use syntax/config smoke and focused regression during iteration, then one bounded full suite near the end of substantial work. Structured long/noisy stages may use `output_policy: "summary"`; bounded raw output remains in result evidence and failures expose a bounded tail. Heavy ful/browser/build stages may run with `resources: []` when they are repository-local; declare only the concrete external resources they actually require.
 
 ## Supervisor retry and log discipline
 Unexpected worker exits back off 2-300 s and reset after normal outcomes. Deferred global-control work backs off 2-15 s so unrelated admission remains responsive. Repeated lease-busy control probes are bounded: after six consecutive deferrals, new admission pauses, active workers drain naturally, global control is serviced, and admission resumes. Degraded sync/network probes remain non-draining. Repeated outer supervisor failure/deferral notices are gated to one per 60 s for a continuing condition.

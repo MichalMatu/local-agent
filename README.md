@@ -22,14 +22,14 @@ python agent_parallel.py --max-workers 2
 
 `agent_multirepo.py` remains the direct serial fallback with global concurrency exactly one. Both supervisors share the same daemon lock and must never run simultaneously.
 
-The parallel scheduler is conservative by default:
+The parallel scheduler uses explicit resource contracts:
 
-- a task with no `resources` field is `machine`-exclusive;
-- malformed or oversized resource declarations also fall back to `machine` exclusivity;
-- `resources: []` opts a clearly software-only task into parallel admission;
-- named resources serialize tasks that share the same declared resource;
-- any non-machine task must have an enabled `memory_limit_mb <= 1024`, otherwise it falls back to `machine` exclusivity;
-- hardware, USB, serial, flashing, unknown heavy tooling and other uncertain work should omit `resources` unless an explicit safe arbitration contract exists.
+- every task must declare `resources`; invalid or missing declarations are rejected instead of silently becoming machine-exclusive;
+- `resources: []` means no exclusive external resource beyond the repository lease and is valid for repository-local builds, tests and analysis;
+- named resources such as `board:growbox-s3` or `board:zigbee-c6` serialize only tasks that use the same concrete external resource;
+- `resources: ["machine"]` is reserved for operations that genuinely require the whole host;
+- `memory_limit_mb` remains an independent per-task RSS watchdog and does not change resource classification;
+- resource contention is durable waiting: the task remains pending and is retried automatically after the conflicting resource is released.
 
 The validated production setting is two workers. The code hard-caps the scheduler at three; increasing beyond two requires separate evidence.
 
@@ -41,7 +41,7 @@ The validated production setting is two workers. The code hard-caps the schedule
 - crash-safe checkpointing and durable result spooling;
 - isolated per-repository control/work/checkpoint state;
 - inherited repository and machine-resource leases that survive worker death through descendants;
-- bounded parallel admission with full-machine fallback;
+- bounded parallel admission with explicit repository/external-resource isolation;
 - Git-backed tasks, runs, results, status and control;
 - transient Git-network retry with actionable terminal diagnostics;
 - validated fast-forward self-update from a clean `main` checkout;
@@ -80,7 +80,7 @@ tests/                       unit, process and real temporary-Git integration te
 | Whole-task budget | 1800 s | 21600 s |
 | Process-group RSS | 4096 MiB | 16384 MiB |
 
-Parallel admission has the stricter 1024 MiB per-task limit described above.
+Resource admission is independent from the per-task RSS watchdog limit.
 
 ## Multi-repository administration
 
