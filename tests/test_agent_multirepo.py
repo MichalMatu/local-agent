@@ -191,7 +191,9 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
             self.assertEqual(multi.agentd.core.CONTROL, target.control)
             self.assertEqual(multi.agentd.DAEMON_VERSION, multi.SUPERVISOR_VERSION)
             sync.assert_called_once_with(multi.agentd.core)
-            handle.assert_called_once_with()
+            handle.assert_called_once_with(
+                status_extra=multi.supervisor_status_fields(target)
+            )
             update.assert_called_once_with()
         finally:
             multi.agentd.DAEMON_VERSION = original_version
@@ -205,7 +207,9 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         ) as handle, mock.patch.object(multi.agentd, "maybe_self_update") as update:
             multi.service_supervisor_control(target, sync=False)
         sync.assert_not_called()
-        handle.assert_called_once_with()
+        handle.assert_called_once_with(
+            status_extra=multi.supervisor_status_fields(target)
+        )
         update.assert_called_once_with()
 
     def test_control_service_failure_is_degraded_without_raising(self) -> None:

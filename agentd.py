@@ -24,6 +24,7 @@ from agent_config import TIMEOUTS
 from agent_process import (
     LEASE_FDS_ENV,
     LEASE_KEYS_DIGEST_ENV,
+    RESOURCE_LEASE_FDS_ENV,
     atomic_write_text,
     defer_termination,
     fsync_directory,
@@ -831,7 +832,7 @@ def _validate_installed_update() -> tuple[bool, str]:
     ]
     with tempfile.TemporaryDirectory(prefix="local-agent-update-validation-") as home:
         validation_env = dict(core.ENV)
-        for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV):
+        for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV, RESOURCE_LEASE_FDS_ENV):
             validation_env.pop(name, None)
         validation_env["HOME"] = home
         for command in commands:
@@ -850,7 +851,7 @@ def _validate_installed_update() -> tuple[bool, str]:
 def restart_self(reason: str) -> None:
     publish_daemon_status("restarting", force_remote=True, reason=reason)
     log(f"restarting daemon: {reason}")
-    for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV):
+    for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV, RESOURCE_LEASE_FDS_ENV):
         os.environ.pop(name, None)
         core.ENV.pop(name, None)
     try:
@@ -993,7 +994,7 @@ def publish_control_ack(
     )
 
 
-def handle_control_request() -> None:
+def handle_control_request(*, status_extra: dict[str, Any] | None = None) -> None:
     path = core.CONTROL / REMOTE_CONTROL_REQUEST
     if not path.exists():
         return
@@ -1022,7 +1023,11 @@ def handle_control_request() -> None:
         if not maybe_self_update(force=True):
             publish_control_ack(control_id, action, "completed", result="no_update")
     elif action == "status":
-        publish_daemon_status("idle", force_remote=True)
+        publish_daemon_status(
+            "idle",
+            force_remote=True,
+            **(status_extra or {}),
+        )
         publish_control_ack(control_id, action, "completed")
     else:
         publish_control_ack(control_id, action, "rejected", error="unsupported_action")

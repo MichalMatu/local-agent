@@ -19,6 +19,7 @@ from agent_process import (
     ExecutionLeaseBusy,
     LEASE_FDS_ENV,
     LEASE_KEYS_DIGEST_ENV,
+    RESOURCE_LEASE_FDS_ENV,
     defer_termination,
     popen_registered,
     terminate_active_processes,
@@ -162,6 +163,14 @@ def bind_supervisor_control(repository: RepositoryContext) -> None:
     agentd.DAEMON_VERSION = SUPERVISOR_VERSION
 
 
+def supervisor_status_fields(repository: RepositoryContext) -> dict[str, Any]:
+    return {
+        "execution_model": "multi_repository_supervisor",
+        "supervisor_pid": os.getpid(),
+        "supervisor_control_repository": repository.repository_id,
+    }
+
+
 def supervisor_restart_command(
     *,
     registry_path: Path | None,
@@ -185,7 +194,7 @@ def restart_supervisor(
     """Restart the multi-repository entrypoint without falling through agentd.py."""
     agentd.publish_daemon_status("restarting", force_remote=True, reason=reason)
     log(f"restarting supervisor: {reason}")
-    for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV):
+    for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV, RESOURCE_LEASE_FDS_ENV):
         os.environ.pop(name, None)
         agentd.core.ENV.pop(name, None)
     command = supervisor_restart_command(registry_path=registry_path, once=once)
@@ -226,7 +235,7 @@ def service_supervisor_control(
     if sync:
         sync_control_quietly()
     with route_supervisor_restarts(registry_path=registry_path, once=once):
-        agentd.handle_control_request()
+        agentd.handle_control_request(status_extra=supervisor_status_fields(repository))
         agentd.maybe_self_update()
 
 
@@ -441,9 +450,7 @@ def main() -> int:
             agentd.publish_daemon_status(
                 "idle",
                 force_remote=True,
-                execution_model="multi_repository_supervisor",
-                supervisor_pid=os.getpid(),
-                supervisor_control_repository=control_repository.repository_id,
+                **supervisor_status_fields(control_repository),
             )
     except ExecutionLeaseBusy:
         log(

@@ -21,6 +21,7 @@ OUTPUT_QUEUE_CAPACITY = 256
 OUTPUT_READ_SIZE = 8192
 LEASE_FDS_ENV = "LOCAL_AGENT_LEASE_FDS"
 LEASE_KEYS_DIGEST_ENV = "LOCAL_AGENT_LEASE_KEYS_DIGEST"
+RESOURCE_LEASE_FDS_ENV = "LOCAL_AGENT_RESOURCE_LEASE_FDS"
 
 _process_lock = threading.RLock()
 _active_processes: dict[int, subprocess.Popen[Any]] = {}
@@ -117,22 +118,30 @@ def acquire_execution_leases(
         raise
 
 
-def inherited_lease_fds(env: Mapping[str, str]) -> tuple[int, ...]:
-    raw = env.get(LEASE_FDS_ENV, "").strip()
+def _inherited_fds(env: Mapping[str, str], name: str) -> tuple[int, ...]:
+    raw = env.get(name, "").strip()
     if not raw:
         return ()
     try:
         fds = tuple(int(item) for item in raw.split(","))
     except ValueError:
-        raise RuntimeError(f"invalid {LEASE_FDS_ENV}: {raw!r}") from None
+        raise RuntimeError(f"invalid {name}: {raw!r}") from None
     if not fds or any(fd < 3 for fd in fds) or len(set(fds)) != len(fds):
-        raise RuntimeError(f"invalid {LEASE_FDS_ENV}: {raw!r}")
+        raise RuntimeError(f"invalid {name}: {raw!r}")
     for fd in fds:
         try:
             os.fstat(fd)
         except OSError as exc:
-            raise RuntimeError(f"closed execution lease descriptor: {fd}") from exc
+            raise RuntimeError(f"closed execution lease descriptor in {name}: {fd}") from exc
     return fds
+
+
+def inherited_lease_fds(env: Mapping[str, str]) -> tuple[int, ...]:
+    return _inherited_fds(env, LEASE_FDS_ENV)
+
+
+def inherited_resource_lease_fds(env: Mapping[str, str]) -> tuple[int, ...]:
+    return _inherited_fds(env, RESOURCE_LEASE_FDS_ENV)
 
 
 def popen_registered(*args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
@@ -140,7 +149,10 @@ def popen_registered(*args: Any, **kwargs: Any) -> subprocess.Popen[Any]:
     global _process_spawn_in_progress
     env = kwargs.get("env")
     inherited_env = os.environ if env is None else env
-    requested_fds = inherited_lease_fds(inherited_env)
+    requested_fds = (
+        *inherited_lease_fds(inherited_env),
+        *inherited_resource_lease_fds(inherited_env),
+    )
     explicit_fds = tuple(kwargs.pop("pass_fds", ()))
     kwargs["pass_fds"] = tuple(sorted(set((*explicit_fds, *requested_fds))))
     deferred_signal: int | None = None

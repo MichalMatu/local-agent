@@ -128,6 +128,34 @@ class ParallelControlProbeTests(unittest.TestCase):
             )
         lease.assert_called_once_with(repo)
 
+    def test_service_control_passes_parallel_status_metadata(self) -> None:
+        repo = repository(self.root)
+        with mock.patch.object(
+            parallel, "supervisor_control_leases", return_value=contextlib.nullcontext()
+        ), mock.patch.object(
+            parallel.serial, "bind_supervisor_control"
+        ), mock.patch.object(
+            parallel.serial, "sync_control_quietly"
+        ), mock.patch.object(
+            agentd, "publish_daemon_status"
+        ), mock.patch.object(
+            agentd, "handle_control_request"
+        ) as handle_control, mock.patch.object(
+            agentd, "maybe_self_update"
+        ):
+            self.assertTrue(
+                parallel.service_control(
+                    [repo],
+                    registry_path=None,
+                    max_workers=2,
+                    once=False,
+                )
+            )
+        status_extra = handle_control.call_args.kwargs["status_extra"]
+        self.assertEqual(status_extra["execution_model"], parallel.PARALLEL_EXECUTION_MODEL)
+        self.assertEqual(status_extra["max_parallel_workers"], 2)
+        self.assertEqual(status_extra["supervisor_control_repository"], repo.repository_id)
+
     def test_busy_control_repository_reports_lease_busy_without_immediate_global_drain(self) -> None:
         repo = repository(self.root)
 

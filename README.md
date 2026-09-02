@@ -14,7 +14,7 @@ A planner decides **what should change** and supplies the exact task. `local-age
 
 `main` is the runtime/release source. Temporary `v*-staging` branches and detached worktrees are used only to prepare and validate release candidates; after a validated release, production returns to `~/local-agent` on `main` and releases are marked with `vX.Y.Z` tags.
 
-For registered multi-repository operation, the recommended v4.11 supervisor is:
+For registered multi-repository operation, the recommended bounded-parallel production supervisor is:
 
 ```bash
 python agent_parallel.py --max-workers 2

@@ -134,9 +134,22 @@ class ParallelSupervisorTests(unittest.TestCase):
         )
 
     def test_retry_deadline_blocks_poll_until_due(self) -> None:
-        schedule = parallel.RepositorySchedule(retry_not_before=101.0)
+        schedule = parallel.RepositorySchedule(last_poll_at=100.0, retry_not_before=101.0)
         self.assertFalse(parallel.repository_due(schedule, now=100.9))
         self.assertTrue(parallel.repository_due(schedule, now=101.0))
+
+    def test_next_repository_delay_prefers_explicit_retry_deadline(self) -> None:
+        target = repository("retry-delay")
+        schedule = parallel.RepositorySchedule(
+            last_poll_at=100.0,
+            retry_not_before=102.0,
+        )
+        delay = parallel.next_repository_delay(
+            {target.repository_id: schedule},
+            [target],
+            now=100.0,
+        )
+        self.assertEqual(delay, 2.0)
 
     def test_recently_active_repository_uses_hot_polling(self) -> None:
         schedule = parallel.RepositorySchedule(

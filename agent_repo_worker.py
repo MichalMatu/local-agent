@@ -8,8 +8,8 @@ import json
 import os
 import re
 import signal
-import time
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -155,14 +155,57 @@ def repository_status_fields(repository: RepositoryContext) -> dict[str, Any]:
     return fields
 
 
-def _previous_repository_status() -> tuple[str | None, float | None]:
-    path = agentd.LOCAL_STATUS_PATH
+_REMOTE_STATUS_MATCH_FIELDS = (
+    "state",
+    "daemon_version",
+    "self_revision",
+    "repository_id",
+    "repository",
+    "control_branch",
+    "default_branch",
+    "execution_model",
+    "supervisor_pid",
+    "execution_variant",
+)
+
+
+def _remote_repository_status() -> dict[str, Any]:
+    path = core.CONTROL / agentd.REMOTE_DAEMON_STATUS
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-        state = str(payload.get("state", "")) or None
-        return state, path.stat().st_mtime
     except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError):
-        return None, None
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def repository_remote_status_due(
+    current: dict[str, Any],
+    remote: dict[str, Any],
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Return whether repository status must be refreshed on the remote branch."""
+    if not remote:
+        return True
+    if any(remote.get(field) != current.get(field) for field in _REMOTE_STATUS_MATCH_FIELDS):
+        return True
+
+    raw_updated_at = remote.get("updated_at")
+    if not isinstance(raw_updated_at, str) or not raw_updated_at:
+        return True
+    try:
+        updated_at = datetime.fromisoformat(raw_updated_at)
+    except ValueError:
+        return True
+    if updated_at.tzinfo is None:
+        return True
+
+    reference = now or datetime.now(timezone.utc)
+    age = max(
+        0.0,
+        (reference.astimezone(timezone.utc) - updated_at.astimezone(timezone.utc)).total_seconds(),
+    )
+    return age >= agentd.REMOTE_HEARTBEAT_SECONDS
 
 
 def publish_repository_status(
@@ -173,7 +216,7 @@ def publish_repository_status(
     **extra: Any,
 ) -> None:
     """Persist every local status but throttle idle remote commits across worker processes."""
-    previous_state, previous_mtime = _previous_repository_status()
+    remote_status = _remote_repository_status()
     payload = agentd.daemon_status_payload(
         state,
         **repository_status_fields(repository),
@@ -181,13 +224,7 @@ def publish_repository_status(
     )
     agentd.atomic_write_json(agentd.LOCAL_STATUS_PATH, payload)
 
-    now = time.time()
-    remote_due = (
-        force_remote
-        or previous_state != state
-        or previous_mtime is None
-        or now - previous_mtime >= agentd.REMOTE_HEARTBEAT_SECONDS
-    )
+    remote_due = force_remote or repository_remote_status_due(payload, remote_status)
     if not remote_due:
         return
     try:

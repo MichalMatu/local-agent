@@ -6,7 +6,7 @@ This is the canonical operational workflow for `MichalMatu/local-agent`.
 
 The production/runtime source is `~/local-agent` on `main`. Releases are tagged `vX.Y.Z`. Temporary `v*-staging` branches and detached worktrees are used only for candidate development and exact-SHA validation.
 
-The recommended v4.11 multi-repository supervisor is:
+The recommended bounded-parallel multi-repository supervisor is:
 
 ```bash
 python agent_parallel.py --registry "$HOME/Library/Application Support/local-agent/repositories.json" --max-workers 2
@@ -96,6 +96,8 @@ python agent_repo_admin.py provision --repository-id <id>
 ```
 
 Provisioning is explicit and never a poll-loop side effect. Repository ids/remotes and normalized control/work/checkpoint paths must be disjoint.
+
+The first enabled registry entry is the supervisor control repository in registry v1. Reordering enabled entries therefore changes the global restart/self-update/status control source; treat registry order as operational identity.
 
 Do not remove or identity-mutate an active registry entry while workers/descendants may still be alive.
 

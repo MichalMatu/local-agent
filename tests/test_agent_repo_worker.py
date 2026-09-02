@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import signal
 import tempfile
+from datetime import datetime, timedelta, timezone
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -107,6 +108,45 @@ class RepositoryWorkerTests(unittest.TestCase):
                 expected_config_digest=repository_config_digest(self.repository),
             )
         self.assertEqual(selected, self.repository)
+
+    def test_remote_status_matching_fresh_payload_does_not_publish(self) -> None:
+        now = datetime(2026, 9, 2, 20, 0, tzinfo=timezone.utc)
+        current = {
+            "state": "idle",
+            "daemon_version": "4.13.1",
+            "self_revision": "abc123",
+        }
+        remote = {**current, "updated_at": now.isoformat()}
+        self.assertFalse(worker.repository_remote_status_due(current, remote, now=now))
+
+    def test_remote_status_version_mismatch_forces_refresh(self) -> None:
+        now = datetime(2026, 9, 2, 20, 0, tzinfo=timezone.utc)
+        current = {
+            "state": "idle",
+            "daemon_version": "4.13.1",
+            "self_revision": "new",
+        }
+        remote = {
+            **current,
+            "daemon_version": "4.12.2",
+            "updated_at": now.isoformat(),
+        }
+        self.assertTrue(worker.repository_remote_status_due(current, remote, now=now))
+
+    def test_remote_status_heartbeat_uses_remote_timestamp(self) -> None:
+        now = datetime(2026, 9, 2, 20, 0, tzinfo=timezone.utc)
+        current = {
+            "state": "idle",
+            "daemon_version": "4.13.1",
+            "self_revision": "abc123",
+        }
+        remote = {
+            **current,
+            "updated_at": (
+                now - timedelta(seconds=agentd.REMOTE_HEARTBEAT_SECONDS + 1)
+            ).isoformat(),
+        }
+        self.assertTrue(worker.repository_remote_status_due(current, remote, now=now))
 
     def test_quiet_sync_uses_bounded_storage_policy(self) -> None:
         with mock.patch.object(storage, "sync_control") as sync:

@@ -17,6 +17,7 @@ class SelfUpdateEnvironmentTests(unittest.TestCase):
         lease_env = {
             agentd.LEASE_FDS_ENV: "4,5",
             agentd.LEASE_KEYS_DIGEST_ENV: "digest",
+            agentd.RESOURCE_LEASE_FDS_ENV: "6,7",
         }
         with mock.patch.dict(agentd.core.ENV, lease_env, clear=False), mock.patch.object(
             agentd.core, "process", side_effect=fake_process
@@ -29,6 +30,7 @@ class SelfUpdateEnvironmentTests(unittest.TestCase):
         for environment in environments:
             self.assertNotIn(agentd.LEASE_FDS_ENV, environment)
             self.assertNotIn(agentd.LEASE_KEYS_DIGEST_ENV, environment)
+            self.assertNotIn(agentd.RESOURCE_LEASE_FDS_ENV, environment)
 
 
 if __name__ == "__main__":

@@ -26,6 +26,8 @@ Machine-local configuration:
 
 Each entry defines a repository id, remote identity and control/work/checkpoint workspaces. Repository ids/remotes are unique case-insensitively and normalized workspace paths must be disjoint, including aliases and ancestor/descendant relationships.
 
+The first enabled registry entry is the supervisor control repository in registry v1. Reordering enabled entries therefore changes the global restart/self-update/status control source; treat registry order as operational identity.
+
 Provisioning is explicit:
 
 ```bash

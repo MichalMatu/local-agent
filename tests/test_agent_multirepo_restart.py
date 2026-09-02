@@ -7,7 +7,11 @@ from pathlib import Path
 from unittest import mock
 
 import agent_multirepo as multi
-from agent_process import LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV
+from agent_process import (
+    LEASE_FDS_ENV,
+    LEASE_KEYS_DIGEST_ENV,
+    RESOURCE_LEASE_FDS_ENV,
+)
 from agent_repository import RepositoryContext
 
 
@@ -43,6 +47,7 @@ class MultiRepositoryRestartTests(unittest.TestCase):
         lease_env = {
             LEASE_FDS_ENV: "10,11",
             LEASE_KEYS_DIGEST_ENV: "digest",
+            RESOURCE_LEASE_FDS_ENV: "12,13",
         }
         with mock.patch.dict(os.environ, lease_env, clear=False), mock.patch.dict(
             multi.agentd.core.ENV,
@@ -62,8 +67,10 @@ class MultiRepositoryRestartTests(unittest.TestCase):
             )
             self.assertNotIn(LEASE_FDS_ENV, os.environ)
             self.assertNotIn(LEASE_KEYS_DIGEST_ENV, os.environ)
+            self.assertNotIn(RESOURCE_LEASE_FDS_ENV, os.environ)
             self.assertNotIn(LEASE_FDS_ENV, multi.agentd.core.ENV)
             self.assertNotIn(LEASE_KEYS_DIGEST_ENV, multi.agentd.core.ENV)
+            self.assertNotIn(RESOURCE_LEASE_FDS_ENV, multi.agentd.core.ENV)
         publish.assert_called_once_with(
             "restarting",
             force_remote=True,
@@ -76,7 +83,8 @@ class MultiRepositoryRestartTests(unittest.TestCase):
         registry = Path("/tmp/custom-repositories.json")
         original_restart = multi.agentd.restart_self
 
-        def handle_control() -> None:
+        def handle_control(*, status_extra=None) -> None:
+            self.assertEqual(status_extra, multi.supervisor_status_fields(target))
             multi.agentd.restart_self("remote_control:restart-1")
 
         def check_update() -> None:

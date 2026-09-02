@@ -27,6 +27,7 @@ from agent_parallel_worker import (
 from agent_process import (
     LEASE_FDS_ENV,
     LEASE_KEYS_DIGEST_ENV,
+    RESOURCE_LEASE_FDS_ENV,
     ExecutionLeaseBusy,
     acquire_execution_leases,
     defer_termination,
@@ -93,6 +94,18 @@ class RunningWorker:
 
 def log(message: str) -> None:
     agentd.log(f"[parallel] {message}")
+
+
+def supervisor_status_fields(
+    control_repository: RepositoryContext,
+    max_workers: int,
+) -> dict[str, Any]:
+    return {
+        "execution_model": PARALLEL_EXECUTION_MODEL,
+        "supervisor_pid": os.getpid(),
+        "max_parallel_workers": max_workers,
+        "supervisor_control_repository": control_repository.repository_id,
+    }
 
 
 def format_operator_idle_summary(repository_count: int, max_workers: int) -> str:
@@ -392,8 +405,8 @@ def record_once_deferral(
 
 
 def repository_due(schedule: RepositorySchedule, now: float) -> bool:
-    if now < schedule.retry_not_before:
-        return False
+    if schedule.retry_not_before > 0.0:
+        return now >= schedule.retry_not_before
     _, interval = serial.adaptive_poll_tier(schedule.last_activity_at, now)
     return serial.interval_due(schedule.last_poll_at, interval, now)
 
@@ -408,10 +421,11 @@ def next_repository_delay(
     delays: list[float] = []
     for repository in repositories:
         schedule = schedules.setdefault(repository.repository_id, RepositorySchedule())
+        if schedule.retry_not_before > 0.0:
+            delays.append(max(0.0, schedule.retry_not_before - now))
+            continue
         _, interval = serial.adaptive_poll_tier(schedule.last_activity_at, now)
-        poll_delay = serial.interval_remaining(schedule.last_poll_at, interval, now)
-        retry_delay = max(0.0, schedule.retry_not_before - now)
-        delays.append(max(poll_delay, retry_delay))
+        delays.append(serial.interval_remaining(schedule.last_poll_at, interval, now))
     return min(delays)
 
 
@@ -461,7 +475,7 @@ def restart_parallel_supervisor(
 ) -> None:
     agentd.publish_daemon_status("restarting", force_remote=True, reason=reason)
     log(f"restarting parallel supervisor: {reason}")
-    for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV):
+    for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV, RESOURCE_LEASE_FDS_ENV):
         os.environ.pop(name, None)
         agentd.core.ENV.pop(name, None)
 
@@ -554,6 +568,7 @@ def service_control(
     if not repositories:
         return False
     control_repository = repositories[0]
+    status_fields = supervisor_status_fields(control_repository, max_workers)
     try:
         with supervisor_control_leases(repositories):
             serial.bind_supervisor_control(control_repository)
@@ -562,25 +577,19 @@ def service_control(
             agentd.publish_daemon_status(
                 "idle",
                 force_remote=False,
-                execution_model=PARALLEL_EXECUTION_MODEL,
-                supervisor_pid=os.getpid(),
-                max_parallel_workers=max_workers,
-                supervisor_control_repository=control_repository.repository_id,
+                **status_fields,
             )
             with route_parallel_restarts(
                 registry_path=registry_path,
                 max_workers=max_workers,
                 once=once,
             ):
-                agentd.handle_control_request()
+                agentd.handle_control_request(status_extra=status_fields)
                 agentd.maybe_self_update()
             agentd.publish_daemon_status(
                 "idle",
                 force_remote=False,
-                execution_model=PARALLEL_EXECUTION_MODEL,
-                supervisor_pid=os.getpid(),
-                max_parallel_workers=max_workers,
-                supervisor_control_repository=control_repository.repository_id,
+                **status_fields,
             )
         return True
     except ExecutionLeaseBusy:

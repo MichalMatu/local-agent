@@ -14,7 +14,7 @@ import agentd
 import agent_repo_worker as serial_worker
 from agent_process import (
     ExecutionLeaseBusy,
-    LEASE_FDS_ENV,
+    RESOURCE_LEASE_FDS_ENV,
     execution_lease_path,
 )
 from agent_repository import RepositoryContext
@@ -61,20 +61,20 @@ def _restore_env_value(target: dict[str, str], name: str, previous: str | None) 
 
 @contextlib.contextmanager
 def _inherit_resource_fds(handles: list[TextIO]) -> Iterator[None]:
-    existing_raw = os.environ.get(LEASE_FDS_ENV, "").strip()
+    existing_raw = os.environ.get(RESOURCE_LEASE_FDS_ENV, "").strip()
     existing = [item for item in existing_raw.split(",") if item]
     combined = existing + [str(handle.fileno()) for handle in handles]
     value = ",".join(dict.fromkeys(combined))
 
-    previous_os = os.environ.get(LEASE_FDS_ENV)
-    previous_core = core.ENV.get(LEASE_FDS_ENV)
-    os.environ[LEASE_FDS_ENV] = value
-    core.ENV[LEASE_FDS_ENV] = value
+    previous_os = os.environ.get(RESOURCE_LEASE_FDS_ENV)
+    previous_core = core.ENV.get(RESOURCE_LEASE_FDS_ENV)
+    os.environ[RESOURCE_LEASE_FDS_ENV] = value
+    core.ENV[RESOURCE_LEASE_FDS_ENV] = value
     try:
         yield
     finally:
-        _restore_env_value(os.environ, LEASE_FDS_ENV, previous_os)
-        _restore_env_value(core.ENV, LEASE_FDS_ENV, previous_core)
+        _restore_env_value(os.environ, RESOURCE_LEASE_FDS_ENV, previous_os)
+        _restore_env_value(core.ENV, RESOURCE_LEASE_FDS_ENV, previous_core)
 
 
 @contextlib.contextmanager

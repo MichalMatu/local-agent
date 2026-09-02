@@ -194,6 +194,32 @@ class ExecutionLeaseTests(unittest.TestCase):
             acquired = acquire_execution_leases(lock_dir, ("repository:one",))
             acquired.close()
 
+    def test_process_spawn_passes_repository_and_resource_lease_channels(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_fd = os.open(Path(tmp) / "repo.lock", os.O_RDWR | os.O_CREAT, 0o600)
+            resource_fd = os.open(
+                Path(tmp) / "resource.lock", os.O_RDWR | os.O_CREAT, 0o600
+            )
+            proc = mock.Mock(spec=subprocess.Popen)
+            proc.pid = 12345
+            proc.poll.return_value = 0
+            env = dict(os.environ)
+            env[agent_process.LEASE_FDS_ENV] = str(repo_fd)
+            env[agent_process.RESOURCE_LEASE_FDS_ENV] = str(resource_fd)
+            try:
+                with mock.patch(
+                    "agent_process.subprocess.Popen", return_value=proc
+                ) as popen:
+                    spawned = agent_process.popen_registered(["ignored"], env=env)
+                self.assertEqual(
+                    popen.call_args.kwargs["pass_fds"],
+                    tuple(sorted((repo_fd, resource_fd))),
+                )
+                unregister_process(spawned)
+            finally:
+                os.close(repo_fd)
+                os.close(resource_fd)
+
     def test_inherited_lease_survives_owner_close_until_child_exits(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             lock_dir = Path(tmp) / "locks"

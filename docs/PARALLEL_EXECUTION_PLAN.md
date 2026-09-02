@@ -2,6 +2,8 @@
 
 This document records the design, audit and live-validation evidence that promoted bounded multi-repository parallelism into the v4.11 release. Current operating instructions are in `OPERATIONS.md`; current invariants are in `GOLDEN_STANDARD.md`.
 
+> **Historical resource contract:** the conservative `machine` fallback and 1024 MiB admission rules recorded below describe v4.11 behavior. They were superseded by v4.13. Current tasks must declare `resources` explicitly, `resources: []` is valid repository-local software work, and `memory_limit_mb` is independent from resource classification.
+
 ## Design outcome
 
 v4.11 adds `agent_parallel.py` and `agent_parallel_worker.py` without rewriting the validated serial path. `agent_multirepo.py` remains a direct fallback.
@@ -110,6 +112,8 @@ This restores normal clean-main self-update behavior and keeps `v*-staging` bran
 `deploy/macos/com.michal.local-agent.parallel.plist` is the production template. `agent_multirepo.py` and the serial LaunchAgent configuration remain the rollback path.
 
 ## Remaining intentional limits
+
+> The unknown/heavy-work `machine` fallback and 1024 MiB bullet points below are retained only as historical v4.11 evidence; they are not current policy. See `MULTI_REPOSITORY.md` and `GOLDEN_STANDARD.md` for the v4.13 contract.
 
 - resource declarations are planner contracts; external manually started tools do not participate in Local Agent locks;
 - named hardware resources should be introduced conservatively; unknown/hardware-heavy tasks stay machine-exclusive by default;
