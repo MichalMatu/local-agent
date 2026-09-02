@@ -1,9 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Local Agent Chat Bridge",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Schedules compact Local Agent wake-ups for multiple ChatGPT conversations with conversation-scoped controls.",
-  "permissions": ["alarms", "storage", "tabs", "scripting"],
+  "permissions": [
+    "alarms",
+    "storage",
+    "tabs",
+    "scripting"
+  ],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
@@ -18,8 +23,14 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
-      "js": ["control_protocol.js", "content.js"],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
+      "js": [
+        "control_protocol.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ]

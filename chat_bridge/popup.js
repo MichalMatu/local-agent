@@ -165,12 +165,6 @@ function renderConversation(conversation, settings, schedule) {
   const labelInput = createTextInput(conversation.label);
   labelWrap.append(labelLabel, labelInput);
 
-  const repoWrap = document.createElement("div");
-  const repoLabel = document.createElement("label");
-  repoLabel.textContent = "Repository id (optional)";
-  const repoInput = createTextInput(conversation.repositoryId, "optional routing hint");
-  repoWrap.append(repoLabel, repoInput);
-
   const intervalWrap = document.createElement("div");
   intervalWrap.className = "full-width";
   const intervalLabel = document.createElement("label");
@@ -183,7 +177,7 @@ function renderConversation(conversation, settings, schedule) {
   intervalInput.value =
     conversation.intervalOverrideMinutes === null ? "" : String(conversation.intervalOverrideMinutes);
   intervalWrap.append(intervalLabel, intervalInput);
-  grid.append(labelWrap, repoWrap, intervalWrap);
+  grid.append(labelWrap, intervalWrap);
 
   const actions = document.createElement("div");
   actions.className = "card-actions";
@@ -222,7 +216,6 @@ function renderConversation(conversation, settings, schedule) {
         conversationId: conversation.id,
         patch: {
           label: labelInput.value,
-          repositoryId: repoInput.value,
           intervalOverrideMinutes: intervalInput.value.trim()
             ? Number(intervalInput.value)
             : null
@@ -362,7 +355,6 @@ async function addOrUpdateCurrent() {
     conversation: {
       url: currentTab.normalizedUrl,
       label: existing?.label || chatLabelFromTitle(currentTab.title),
-      repositoryId: existing?.repositoryId || "",
       enabled: existing ? Boolean(existing.enabled) : true,
       preferredTabId: currentTab.id
     }

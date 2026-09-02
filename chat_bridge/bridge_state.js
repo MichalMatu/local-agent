@@ -63,10 +63,6 @@
     return (label || fallback).slice(0, 120);
   }
 
-  function sanitizeRepositoryId(value) {
-    return String(value || "").trim().slice(0, 120);
-  }
-
   function sanitizeConversation(raw = {}, fallbackUrl = "") {
     const url = protocol.normalizeConversationUrl(raw.url || fallbackUrl);
     if (!url) return null;
@@ -75,7 +71,6 @@
       id,
       url,
       label: sanitizeLabel(raw.label, url.split("/").pop()),
-      repositoryId: sanitizeRepositoryId(raw.repositoryId),
       enabled: raw.enabled !== false,
       preferredTabId: Number.isInteger(raw.preferredTabId) ? raw.preferredTabId : null,
       intervalOverrideMinutes:

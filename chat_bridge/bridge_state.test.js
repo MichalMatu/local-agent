@@ -26,7 +26,6 @@ let state = stateModel.emptyState();
 let result = stateModel.upsertConversation(state, {
   url: "https://chatgpt.com/c/a",
   label: "Project A",
-  repositoryId: "repo-a",
   preferredTabId: 10
 });
 state = result.state;
@@ -34,7 +33,6 @@ const aId = result.conversation.id;
 result = stateModel.upsertConversation(state, {
   url: "https://chatgpt.com/c/b",
   label: "Project B",
-  repositoryId: "repo-b",
   preferredTabId: 20
 });
 state = result.state;
@@ -42,6 +40,7 @@ const bId = result.conversation.id;
 assert.notEqual(aId, bId);
 assert.equal(Object.keys(state.conversations).length, 2);
 assert.equal(state.conversations[aId].bootstrapPending, true);
+assert.equal(Object.hasOwn(state.conversations[aId], "repositoryId"), false);
 
 const patched = stateModel.patchConversation(state, aId, {
   enabled: false,

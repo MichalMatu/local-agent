@@ -156,7 +156,6 @@ async function sendRuntimeMessage(message, sender = {}) {
     conversation: {
       url: "https://chatgpt.com/c/a",
       label: "Project A",
-      repositoryId: "repo-a",
       enabled: true,
       preferredTabId: 11
     }
@@ -169,12 +168,12 @@ async function sendRuntimeMessage(message, sender = {}) {
     conversation: {
       url: "https://chatgpt.com/c/b",
       label: "Project B",
-      repositoryId: "repo-b",
       enabled: true,
       preferredTabId: 22
     }
   });
   assert.equal(response.ok, true);
+  assert.equal(Object.hasOwn(response.conversation, "repositoryId"), false);
   const bId = response.conversation.id;
   assert.notEqual(aId, bId);
   assert.equal(alarms.has(`local-agent-chat:${aId}`), true);
@@ -271,6 +270,8 @@ async function sendRuntimeMessage(message, sender = {}) {
   assert.equal(response.bridgeMode, "bootstrap");
   assert.match(sentMessages.at(-1).message.prompt, /BOOTSTRAP/);
   assert.match(sentMessages.at(-1).message.prompt, /\[LAB:NEXT=30s\]/);
+  assert.doesNotMatch(sentMessages.at(-1).message.prompt, /repository id/i);
+  assert.doesNotMatch(sentMessages.at(-1).message.prompt, /Project B/);
 
   response = await sendRuntimeMessage({
     type: "bridge:run-now",

@@ -12,7 +12,7 @@ Chat Bridge v0.3 replaces the old single-conversation state with schema v2:
 - every conversation has an independent alarm, status, interval override and assistant-control dedupe state;
 - `STOP`, `PAUSE`, `RESUME`, `INTERVAL` and `NEXT` affect only the conversation that emitted the marker;
 - a global master switch can suspend scheduling without deleting per-conversation state;
-- each conversation can store an automatically detected label and optional Local Agent `repositoryId` routing hint;
+- each conversation stores only wake/scheduling state plus an optional UI label; repository routing remains entirely in the conversation/planner context;
 - the previous v0.2 storage layout is migrated automatically on first startup.
 
 Chrome must remain running and each scheduled conversation must remain open in a tab. The tab does not need to be foregrounded.
@@ -21,7 +21,7 @@ Chrome must remain running and each scheduled conversation must remain open in a
 
 New or migrated conversations receive one bootstrap prompt. After the bootstrap is sent successfully, ordinary wake-ups use a compact wake prompt instead of repeating the full Local Agent policy every time.
 
-The default compact prompt is intentionally short:
+The default compact prompt is intentionally short and repository-agnostic:
 
 ```text
 [LA_WAKE] Continue the active Local Agent goal from exact target-repo evidence. Do not recap unchanged state; keep this wake terse.
@@ -89,11 +89,11 @@ The extension popup provides:
 - one-click **Add current chat** for the active ChatGPT conversation;
 - automatic conversation id/URL extraction, including project-scoped ChatGPT conversation URLs;
 - automatic initial label from the browser tab title;
-- one card per configured conversation with editable label, optional repository id, enable/pause, manual interval override, `Run now`, save and remove actions;
+- one card per configured conversation with editable label, enable/pause, manual interval override, `Run now`, save and remove actions;
 - per-conversation last status, next wake and bootstrap/compact-wake mode;
 - global runtime URL, default interval, busy retry, compact wake prompt and bootstrap prompt.
 
-The repository id cannot be derived reliably from a ChatGPT conversation URL, so it is intentionally optional. Changing it later marks that conversation's bootstrap as pending so the new routing hint is delivered once before compact wake mode resumes.
+The bridge deliberately does not store or send repository routing. It only wakes the exact configured conversation; that conversation determines its active goal and target repository from its own context and fresh evidence.
 
 ## Install from the local-agent checkout
 
@@ -103,8 +103,7 @@ The repository id cannot be derived reliably from a ChatGPT conversation URL, so
 4. Open a concrete ChatGPT conversation. Standard `/c/<id>` links and project-scoped links ending in `/c/<id>` are supported.
 5. Open the extension and click **Add current chat**. The conversation id/URL and label are detected automatically.
 6. Repeat for other conversations.
-7. Edit the optional repository id only when a planner routing hint is useful.
-8. Use **Run now** on a conversation card for an end-to-end test.
+7. Use **Run now** on a conversation card for an end-to-end test.
 
 After updating an already loaded unpacked extension, click **Reload** on its `chrome://extensions` card. Existing v0.2 configuration is migrated automatically.
 

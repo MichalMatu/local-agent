@@ -225,15 +225,8 @@ async function loadRuntimeConfig(state, conversation = null) {
   return applyConversationInterval(runtime, conversation);
 }
 
-function buildBootstrapPrompt(runtime, conversation) {
-  const hints = [
-    "Bridge v0.3 controls are conversation-scoped. Prefer short final-line controls: [LAB:STOP], [LAB:PAUSE], [LAB:RESUME], [LAB:NEXT=30s], [LAB:NEXT=10m], [LAB:INTERVAL=30m], [LAB:INTERVAL=AUTO]. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch."
-  ];
-  if (conversation.label) hints.push(`Bridge label: ${conversation.label}.`);
-  if (conversation.repositoryId) {
-    hints.push(`Configured Local Agent repository id: ${conversation.repositoryId}.`);
-  }
-  return `${runtime.bootstrapPrompt}\n${hints.join(" ")}`;
+function buildBootstrapPrompt(runtime) {
+  return `${runtime.bootstrapPrompt}\nBridge controls are conversation-scoped. Continue only the active goal of this conversation. The bridge only schedules wake-ups and does not choose or route repositories. Prefer short final-line controls: [LAB:STOP], [LAB:PAUSE], [LAB:RESUME], [LAB:NEXT=30s], [LAB:NEXT=10m], [LAB:INTERVAL=30m], [LAB:INTERVAL=AUTO]. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch.`;
 }
 
 async function clearConversationAlarm(chatId) {
@@ -480,7 +473,7 @@ async function runFeedbackCycle({ conversationId: chatId, manual = false } = {})
   }
 
   const prompt = conversation.bootstrapPending
-    ? buildBootstrapPrompt(runtime, conversation)
+    ? buildBootstrapPrompt(runtime)
     : runtime.wakePrompt;
 
   let response;
@@ -540,12 +533,10 @@ async function upsertConversation(patch) {
     if (!url) throw new Error("Open a concrete ChatGPT conversation first.");
     const id = conversationId(url);
     const previous = state.conversations[id];
-    const repositoryChanged =
-      previous && String(previous.repositoryId || "") !== String(patch.repositoryId || "");
     const upserted = stateModel.upsertConversation(state, {
       ...patch,
       url,
-      bootstrapPending: previous ? previous.bootstrapPending || repositoryChanged : true
+      bootstrapPending: previous ? previous.bootstrapPending : true
     });
     return { state: upserted.state, conversation: upserted.conversation };
   });
@@ -558,18 +549,11 @@ async function updateConversation(chatId, patch) {
     const previous = state.conversations[chatId];
     if (!previous) throw new Error("conversation not found");
     const safePatch = {};
-    const previousRepositoryId = String(previous.repositoryId || "");
     const previousInterval = previous.intervalOverrideMinutes;
     const previousEnabled = previous.enabled;
 
     if ("enabled" in patch) safePatch.enabled = Boolean(patch.enabled);
     if ("label" in patch) safePatch.label = patch.label;
-    if ("repositoryId" in patch) {
-      safePatch.repositoryId = patch.repositoryId;
-      if (previousRepositoryId !== String(patch.repositoryId || "")) {
-        safePatch.bootstrapPending = true;
-      }
-    }
     if ("intervalOverrideMinutes" in patch) {
       safePatch.intervalOverrideMinutes = patch.intervalOverrideMinutes;
     }
@@ -580,7 +564,6 @@ async function updateConversation(chatId, patch) {
       conversation: updated.conversation,
       value: {
         enabledChanged: previousEnabled !== updated.conversation.enabled,
-        repositoryChanged: previousRepositoryId !== String(updated.conversation.repositoryId || ""),
         pacingChanged: previousInterval !== updated.conversation.intervalOverrideMinutes
       }
     };
@@ -588,7 +571,7 @@ async function updateConversation(chatId, patch) {
 
   if (!result.conversation?.enabled) {
     await clearConversationAlarm(chatId);
-  } else if (result.value?.enabledChanged || result.value?.repositoryChanged) {
+  } else if (result.value?.enabledChanged) {
     await scheduleDefault(chatId, true);
   } else if (result.value?.pacingChanged) {
     await scheduleDefault(chatId);
