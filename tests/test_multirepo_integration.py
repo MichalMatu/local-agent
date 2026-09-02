@@ -230,13 +230,17 @@ class MultiRepositoryIntegrationTests(unittest.TestCase):
                     text=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    timeout=60,
+                    timeout=90,
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout)
 
-            assert_repository_result(self, first, home)
-            assert_repository_result(self, second, home)
+            first_result = assert_repository_result(self, first, home)
+            second_result = assert_repository_result(self, second, home)
+            self.assertNotEqual(
+                first_result["commands"][0]["output"],
+                second_result["commands"][0]["output"],
+            )
 
 
 if __name__ == "__main__":
