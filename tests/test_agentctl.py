@@ -17,7 +17,7 @@ class AgentControlDiagnosticsTests(unittest.TestCase):
     def test_validate_task_reports_effective_configured_defaults(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "task.json"
-            path.write_text(json.dumps({"id": "defaults"}), encoding="utf-8")
+            path.write_text(json.dumps({"id": "defaults", "resources": []}), encoding="utf-8")
             output = io.StringIO()
             with redirect_stdout(output):
                 return_code = agentctl.command_validate(Namespace(path=str(path)))
