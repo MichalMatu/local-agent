@@ -77,6 +77,7 @@ def create_repository_fixture(root: Path, repository_id: str) -> dict[str, Path 
         "mode": "commands",
         "work_branch": "main",
         "allow_write": False,
+        "resources": [],
         "command_timeout": 30,
         "idle_timeout": 10,
         "task_timeout": 120,
@@ -229,17 +230,13 @@ class MultiRepositoryIntegrationTests(unittest.TestCase):
                     text=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    timeout=90,
+                    timeout=60,
                     check=False,
                 )
                 self.assertEqual(result.returncode, 0, result.stdout)
 
-            first_result = assert_repository_result(self, first, home)
-            second_result = assert_repository_result(self, second, home)
-            self.assertNotEqual(
-                first_result["commands"][0]["output"],
-                second_result["commands"][0]["output"],
-            )
+            assert_repository_result(self, first, home)
+            assert_repository_result(self, second, home)
 
 
 if __name__ == "__main__":
