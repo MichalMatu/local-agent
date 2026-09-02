@@ -155,6 +155,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                 repository,
                 state,
                 force_remote=False,
+                execution_variant="parallel",
             )
             return False
 
@@ -168,6 +169,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                     force_remote=True,
                     current_task_id=task_id,
                     active_resources=list(resources),
+                    execution_variant="parallel",
                 )
                 core.log(
                     f"[parallel] TASK START repository={repository.repository_id} "
@@ -189,6 +191,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                 blocked_resources=[exc.resource],
                 waiting_since=waiting_since,
                 retrying=True,
+                execution_variant="parallel",
             )
             raise
 
@@ -198,6 +201,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
             state,
             force_remote=True,
             last_task_id=task_id,
+            execution_variant="parallel",
         )
         return True
     finally:
