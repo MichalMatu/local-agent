@@ -147,17 +147,42 @@ class ParallelSupervisorTests(unittest.TestCase):
         self.assertTrue(parallel.repository_due(schedule, now=102.0))
 
     def test_retry_helpers_and_reset(self) -> None:
-        self.assertEqual([parallel.worker_failure_retry_seconds(i) for i in range(1,10)], [2.0,4.0,8.0,16.0,32.0,64.0,128.0,256.0,300.0])
-        self.assertEqual([parallel.control_defer_retry_seconds(i) for i in range(1,6)], [2.0,4.0,8.0,15.0,15.0])
+        self.assertEqual(
+            [parallel.resource_retry_seconds(i) for i in range(1, 8)],
+            [2.0, 5.0, 10.0, 30.0, 60.0, 60.0, 60.0],
+        )
+        self.assertEqual(
+            [parallel.worker_failure_retry_seconds(i) for i in range(1, 10)],
+            [2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 300.0],
+        )
+        self.assertEqual(
+            [parallel.control_defer_retry_seconds(i) for i in range(1, 6)],
+            [2.0, 4.0, 8.0, 15.0, 15.0],
+        )
         self.assertFalse(parallel.control_lease_busy_should_force_drain(5))
         self.assertTrue(parallel.control_lease_busy_should_force_drain(6))
         self.assertTrue(parallel.control_lease_busy_should_force_drain(100))
-        self.assertTrue(parallel.repeated_failure_log_due(None,100.0))
-        self.assertFalse(parallel.repeated_failure_log_due(100.0,159.9))
-        self.assertTrue(parallel.repeated_failure_log_due(100.0,160.0))
-        s=parallel.RepositorySchedule(consecutive_failures=4,last_failure_code=7,last_failure_log_at=100.0)
-        parallel.reset_worker_failure_state(s)
-        self.assertEqual((s.consecutive_failures,s.last_failure_code,s.last_failure_log_at),(0,None,None))
+        self.assertTrue(parallel.repeated_failure_log_due(None, 100.0))
+        self.assertFalse(parallel.repeated_failure_log_due(100.0, 159.9))
+        self.assertTrue(parallel.repeated_failure_log_due(100.0, 160.0))
+
+        schedule = parallel.RepositorySchedule(
+            consecutive_failures=4,
+            last_failure_code=7,
+            last_failure_log_at=100.0,
+            resource_deferrals=4,
+        )
+        parallel.reset_worker_failure_state(schedule)
+        self.assertEqual(
+            (
+                schedule.consecutive_failures,
+                schedule.last_failure_code,
+                schedule.last_failure_log_at,
+            ),
+            (0, None, None),
+        )
+        parallel.reset_resource_deferral_state(schedule)
+        self.assertEqual(schedule.resource_deferrals, 0)
 
     def test_control_probe_distinguishes_lease_busy_from_degraded_probe(self) -> None:
         target = repository("control-probe")
