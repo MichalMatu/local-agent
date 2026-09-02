@@ -54,7 +54,7 @@ def run_contender(state_dir: Path, task: dict[str, object]) -> subprocess.Comple
 
 
 class ParallelResourceProcessTests(unittest.TestCase):
-    def test_full_machine_lock_excludes_parallel_safe_holder(self) -> None:
+    def test_full_machine_lock_excludes_software_only_holder(self) -> None:
         holder_code = textwrap.dedent(
             """
             import sys
@@ -65,7 +65,7 @@ class ParallelResourceProcessTests(unittest.TestCase):
             import agentd
 
             agentd.STATE_DIR = Path(sys.argv[1])
-            task = {"id": "holder", "resources": [], "memory_limit_mb": 256}
+            task = {"id": "holder", "resources": [], "memory_limit_mb": 4096}
             with worker.machine_resource_lease(task):
                 print("READY", flush=True)
                 time.sleep(30)
@@ -85,7 +85,10 @@ class ParallelResourceProcessTests(unittest.TestCase):
             try:
                 assert holder.stdout is not None
                 self.assertEqual(holder.stdout.readline().strip(), "READY")
-                contender = run_contender(state_dir, {"id": "exclusive"})
+                contender = run_contender(
+                    state_dir,
+                    {"id": "exclusive", "resources": ["machine"]},
+                )
                 self.assertEqual(contender.returncode, 23, contender.stdout)
                 self.assertIn("BUSY:machine", contender.stdout)
             finally:
