@@ -7,6 +7,11 @@
 - Supervisor-wide `status` control preserves parallel/serial execution metadata instead of publishing a generic daemon status that drops the execution model and worker limit.
 - Repository execution lease descriptors and external resource-lock descriptors use separate inherited environment channels, preventing resource locks from being misinterpreted as repository identities in nested Local Agent code.
 
+## Architecture
+
+- Shared supervisor polling/order policy and control-binding primitives are extracted under `local_agent/supervisor/`; the production parallel scheduler no longer imports `agent_multirepo.py` just to reuse fallback helpers.
+- CI and self-update validation compile the extracted production modules explicitly, and CI lints the complete `local_agent` package.
+
 ## Documentation
 
 - Current docs no longer label the production scheduler as a v4.11-only path.

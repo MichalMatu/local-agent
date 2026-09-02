@@ -12,7 +12,7 @@ The recommended bounded-parallel multi-repository supervisor is:
 python agent_parallel.py --registry "$HOME/Library/Application Support/local-agent/repositories.json" --max-workers 2
 ```
 
-`agent_multirepo.py` remains the direct serial fallback with global concurrency one. Both entry points use the same daemon lock and the same repository registry/state layout.
+`agent_multirepo.py` remains the direct serial fallback with global concurrency one. Both entry points use the same daemon lock and the same repository registry/state layout. Shared polling/order policy and control-binding primitives live under `local_agent/supervisor/`; `agent_parallel.py` does not import the serial fallback entrypoint.
 
 ## Control data
 

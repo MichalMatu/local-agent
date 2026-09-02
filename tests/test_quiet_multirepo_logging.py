@@ -7,13 +7,14 @@ from unittest import mock
 
 import agent_multirepo as multi
 import agent_repo_worker as worker
+from local_agent.supervisor import control as supervisor_control
 
 
 class QuietMultiRepositoryLoggingTests(unittest.TestCase):
     def test_supervisor_control_sync_suppresses_routine_git_output(self) -> None:
         stream = io.StringIO()
         with mock.patch.object(
-            multi.storage,
+            supervisor_control.storage,
             "sync_control",
             side_effect=lambda _core: print(
                 "exec: git pull --rebase --depth 256 origin agent-control"

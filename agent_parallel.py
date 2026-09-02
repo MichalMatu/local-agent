@@ -16,7 +16,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-import agent_multirepo as serial
+from local_agent.supervisor import control as supervisor_control
+from local_agent.supervisor import policy as supervisor_policy
 import agent_repo_worker as serial_worker
 import agentd
 from agent_parallel_worker import (
@@ -313,7 +314,7 @@ def reap_workers(
 ) -> dict[str, int]:
     completed: dict[str, int] = {}
     now = time.monotonic()
-    worker_limit = agentd.TIMEOUTS.task_max + serial.WORKER_TURN_GRACE_SECONDS
+    worker_limit = agentd.TIMEOUTS.task_max + supervisor_policy.WORKER_TURN_GRACE_SECONDS
     for repository_id, slot in list(running.items()):
         return_code = slot.proc.poll()
         if return_code is None and now - slot.started_at > worker_limit:
@@ -407,8 +408,8 @@ def record_once_deferral(
 def repository_due(schedule: RepositorySchedule, now: float) -> bool:
     if schedule.retry_not_before > 0.0:
         return now >= schedule.retry_not_before
-    _, interval = serial.adaptive_poll_tier(schedule.last_activity_at, now)
-    return serial.interval_due(schedule.last_poll_at, interval, now)
+    _, interval = supervisor_policy.adaptive_poll_tier(schedule.last_activity_at, now)
+    return supervisor_policy.interval_due(schedule.last_poll_at, interval, now)
 
 
 def next_repository_delay(
@@ -417,15 +418,15 @@ def next_repository_delay(
     now: float,
 ) -> float:
     if not repositories:
-        return serial.POLL_SECONDS
+        return supervisor_policy.POLL_SECONDS
     delays: list[float] = []
     for repository in repositories:
         schedule = schedules.setdefault(repository.repository_id, RepositorySchedule())
         if schedule.retry_not_before > 0.0:
             delays.append(max(0.0, schedule.retry_not_before - now))
             continue
-        _, interval = serial.adaptive_poll_tier(schedule.last_activity_at, now)
-        delays.append(serial.interval_remaining(schedule.last_poll_at, interval, now))
+        _, interval = supervisor_policy.adaptive_poll_tier(schedule.last_activity_at, now)
+        delays.append(supervisor_policy.interval_remaining(schedule.last_poll_at, interval, now))
     return min(delays)
 
 
@@ -545,8 +546,11 @@ def probe_control_request(
     """Probe control while other repositories run without invoking global actions."""
     try:
         with serial_worker.repository_execution_lease(repository):
-            serial.bind_supervisor_control(repository)
-            serial.sync_control_quietly()
+            supervisor_control.bind_supervisor_control(
+                repository,
+                daemon_version=PARALLEL_DAEMON_VERSION,
+            )
+            supervisor_control.sync_control_quietly()
             return pending_control_request_from_bound_checkout()
     except ExecutionLeaseBusy:
         return ControlProbeResult.LEASE_BUSY
@@ -571,9 +575,12 @@ def service_control(
     status_fields = supervisor_status_fields(control_repository, max_workers)
     try:
         with supervisor_control_leases(repositories):
-            serial.bind_supervisor_control(control_repository)
+            supervisor_control.bind_supervisor_control(
+                control_repository,
+                daemon_version=PARALLEL_DAEMON_VERSION,
+            )
             agentd.DAEMON_VERSION = PARALLEL_DAEMON_VERSION
-            serial.sync_control_quietly()
+            supervisor_control.sync_control_quietly()
             agentd.publish_daemon_status(
                 "idle",
                 force_remote=False,
@@ -814,9 +821,9 @@ def main() -> int:
             now = time.monotonic()
             if (
                 now >= control_retry_not_before
-                and serial.interval_due(
+                and supervisor_policy.interval_due(
                     last_control_at,
-                    serial.SUPERVISOR_CONTROL_POLL_SECONDS,
+                    supervisor_policy.SUPERVISOR_CONTROL_POLL_SECONDS,
                     now,
                 )
             ):
@@ -910,7 +917,7 @@ def main() -> int:
             else:
                 capacity = max_workers - len(running)
                 if capacity > 0:
-                    ordered = serial.ordered_repositories(
+                    ordered = supervisor_policy.ordered_repositories(
                         repositories,
                         last_repository,
                     )
@@ -980,9 +987,9 @@ def main() -> int:
                     now,
                 )
                 control_delay = max(
-                    serial.interval_remaining(
+                    supervisor_policy.interval_remaining(
                         last_control_at,
-                        serial.SUPERVISOR_CONTROL_POLL_SECONDS,
+                        supervisor_policy.SUPERVISOR_CONTROL_POLL_SECONDS,
                         now,
                     ),
                     max(0.0, control_retry_not_before - now),

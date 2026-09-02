@@ -184,13 +184,13 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         original_control = multi.agentd.core.CONTROL
         original_branch = multi.agentd.core.CONTROL_BRANCH
         try:
-            with mock.patch.object(multi.storage, "sync_control") as sync, mock.patch.object(
+            with mock.patch.object(multi, "sync_control_quietly") as sync, mock.patch.object(
                 multi.agentd, "handle_control_request"
             ) as handle, mock.patch.object(multi.agentd, "maybe_self_update") as update:
                 multi.service_supervisor_control(target)
             self.assertEqual(multi.agentd.core.CONTROL, target.control)
             self.assertEqual(multi.agentd.DAEMON_VERSION, multi.SUPERVISOR_VERSION)
-            sync.assert_called_once_with(multi.agentd.core)
+            sync.assert_called_once_with()
             handle.assert_called_once_with(
                 status_extra=multi.supervisor_status_fields(target)
             )
@@ -202,7 +202,7 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
 
     def test_service_supervisor_control_can_reuse_recent_worker_sync(self) -> None:
         target = repository("a")
-        with mock.patch.object(multi.storage, "sync_control") as sync, mock.patch.object(
+        with mock.patch.object(multi, "sync_control_quietly") as sync, mock.patch.object(
             multi.agentd, "handle_control_request"
         ) as handle, mock.patch.object(multi.agentd, "maybe_self_update") as update:
             multi.service_supervisor_control(target, sync=False)

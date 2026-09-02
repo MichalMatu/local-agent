@@ -1,4 +1,4 @@
-# Local Agent Golden Standard v4.11
+# Local Agent Golden Standard
 
 This file records the current production invariants for `MichalMatu/local-agent`.
 
@@ -7,9 +7,10 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - `main` is the production source of truth and normal installed runtime checkout.
 - `agent_version.RELEASE_VERSION` matches the release tag `vX.Y.Z`.
 - `v*-staging` branches/worktrees are temporary candidate-validation infrastructure and are removed after a release is established.
-- The recommended v4.11 multi-repository scheduler is `agent_parallel.py --max-workers 2`.
+- The production multi-repository scheduler is `agent_parallel.py --max-workers 2`.
 - `agent_multirepo.py` remains the unchanged serial fallback with concurrency one.
 - Only one daemon/supervisor may hold the daemon lock.
+- Shared supervisor polling/order/control primitives live under `local_agent/supervisor/`; the production parallel scheduler must not depend on the serial fallback entrypoint.
 
 ## Execution and recovery invariants
 

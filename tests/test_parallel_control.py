@@ -112,10 +112,10 @@ class ParallelControlProbeTests(unittest.TestCase):
             "repository_execution_lease",
             return_value=contextlib.nullcontext(),
         ) as lease, mock.patch.object(
-            parallel.serial,
+            parallel.supervisor_control,
             "bind_supervisor_control",
         ), mock.patch.object(
-            parallel.serial,
+            parallel.supervisor_control,
             "sync_control_quietly",
         ), mock.patch.object(
             parallel,
@@ -133,9 +133,9 @@ class ParallelControlProbeTests(unittest.TestCase):
         with mock.patch.object(
             parallel, "supervisor_control_leases", return_value=contextlib.nullcontext()
         ), mock.patch.object(
-            parallel.serial, "bind_supervisor_control"
+            parallel.supervisor_control, "bind_supervisor_control"
         ), mock.patch.object(
-            parallel.serial, "sync_control_quietly"
+            parallel.supervisor_control, "sync_control_quietly"
         ), mock.patch.object(
             agentd, "publish_daemon_status"
         ), mock.patch.object(

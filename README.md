@@ -57,6 +57,8 @@ local_agent/runtime/task_contract.py task digest, schema validation and bounded 
 local_agent/runtime/progress.py  progress-marker parsing and bounded asynchronous publication
 local_agent/runtime/output.py     live output rendering and bounded diff/failure summaries
 local_agent/runtime/telemetry.py  host/process telemetry collection and RSS sampling
+local_agent/supervisor/policy.py shared polling/order/worker-turn supervisor policy
+local_agent/supervisor/control.py shared supervisor control binding and quiet sync
 agent_process.py             process groups and inherited execution leases
 agent_storage.py             bounded control-Git helpers and diagnostics
 agent_repository.py          registry and workspace identity

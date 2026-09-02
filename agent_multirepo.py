@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import io
 import os
 import signal
 import subprocess
@@ -13,7 +12,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-import agent_storage as storage
 import agentd
 from agent_process import (
     ExecutionLeaseBusy,
@@ -39,15 +37,25 @@ from agent_repo_worker import (
     repository_execution_lease,
 )
 from agent_version import RELEASE_VERSION
+from local_agent.supervisor.control import (
+    bind_supervisor_control as bind_shared_supervisor_control,
+    sync_control_quietly,
+)
+from local_agent.supervisor.policy import (
+    HOT_POLL_SECONDS,
+    HOT_WINDOW_SECONDS,
+    POLL_SECONDS,
+    SUPERVISOR_CONTROL_POLL_SECONDS,
+    WARM_POLL_SECONDS,
+    WARM_WINDOW_SECONDS,
+    WORKER_TURN_GRACE_SECONDS,
+    adaptive_poll_tier,
+    interval_due,
+    interval_remaining,
+    ordered_repositories,
+)
 
 SUPERVISOR_VERSION = RELEASE_VERSION
-POLL_SECONDS = 15.0
-HOT_POLL_SECONDS = 2.0
-WARM_POLL_SECONDS = 5.0
-HOT_WINDOW_SECONDS = 30.0
-WARM_WINDOW_SECONDS = 120.0
-SUPERVISOR_CONTROL_POLL_SECONDS = POLL_SECONDS
-WORKER_TURN_GRACE_SECONDS = 3600
 _daemon_lock_handle: Any | None = None
 
 
@@ -55,10 +63,6 @@ def log(message: str) -> None:
     agentd.log(f"[multi-repo] {message}")
 
 
-def sync_control_quietly() -> None:
-    """Run bounded routine control-branch sync without printing low-level Git commands."""
-    with contextlib.redirect_stdout(io.StringIO()):
-        storage.sync_control(agentd.core)
 
 
 def format_idle_summary(repository_count: int) -> str:
@@ -66,29 +70,10 @@ def format_idle_summary(repository_count: int) -> str:
     return f"no pending task ({repository_count} {noun})"
 
 
-def adaptive_poll_tier(
-    last_activity_at: float | None,
-    now: float,
-) -> tuple[str, float]:
-    """Return the polling tier for one repository from its latest task activity."""
-    if last_activity_at is None:
-        return "idle", POLL_SECONDS
-    age = max(0.0, now - last_activity_at)
-    if age < HOT_WINDOW_SECONDS:
-        return "hot", HOT_POLL_SECONDS
-    if age < WARM_WINDOW_SECONDS:
-        return "warm", WARM_POLL_SECONDS
-    return "idle", POLL_SECONDS
 
 
-def interval_due(last_at: float | None, interval: float, now: float) -> bool:
-    return last_at is None or now - last_at >= interval
 
 
-def interval_remaining(last_at: float | None, interval: float, now: float) -> float:
-    if last_at is None:
-        return 0.0
-    return max(0.0, interval - max(0.0, now - last_at))
 
 
 def scheduler_sleep_seconds(
@@ -158,9 +143,10 @@ def supervisor_control_repository(
 
 
 def bind_supervisor_control(repository: RepositoryContext) -> None:
-    agentd.core.CONTROL = repository.control
-    agentd.core.CONTROL_BRANCH = repository.control_branch
-    agentd.DAEMON_VERSION = SUPERVISOR_VERSION
+    bind_shared_supervisor_control(
+        repository,
+        daemon_version=SUPERVISOR_VERSION,
+    )
 
 
 def supervisor_status_fields(repository: RepositoryContext) -> dict[str, Any]:
@@ -269,17 +255,6 @@ def service_supervisor_control_safely(
     return True
 
 
-def ordered_repositories(
-    repositories: list[RepositoryContext],
-    start_after: str | None,
-) -> list[RepositoryContext]:
-    if not repositories or start_after is None:
-        return list(repositories)
-    for index, repository in enumerate(repositories):
-        if repository.repository_id == start_after:
-            start = (index + 1) % len(repositories)
-            return repositories[start:] + repositories[:start]
-    return list(repositories)
 
 
 def worker_command(

@@ -827,6 +827,8 @@ def _validate_installed_update() -> tuple[bool, str]:
             "agent_repo_admin.py",
             "agentctl.py",
             "agent_version.py",
+            "local_agent/supervisor/control.py",
+            "local_agent/supervisor/policy.py",
         ],
         [sys.executable, "-m", "unittest", "discover", "-q"],
     ]

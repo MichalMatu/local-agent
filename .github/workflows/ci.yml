@@ -22,9 +22,9 @@ jobs:
       - name: Install lint tooling
         run: python -m pip install --disable-pip-version-check ruff==0.12.11
       - name: Compile
-        run: python -m py_compile agentd.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agentctl.py agent_version.py
+        run: python -m py_compile agentd.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agentctl.py agent_version.py local_agent/supervisor/control.py local_agent/supervisor/policy.py
       - name: Lint
-        run: ruff check agentd.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agentctl.py agent_version.py tests
+        run: ruff check agentd.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agentctl.py agent_version.py local_agent tests
       - name: Validate chat bridge
         run: |
           node --check chat_bridge/control_protocol.js
@@ -52,6 +52,6 @@ jobs:
         with:
           python-version: '3.13'
       - name: Compile release modules
-        run: python -m py_compile agentd.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agentctl.py agent_version.py
+        run: python -m py_compile agentd.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agentctl.py agent_version.py local_agent/supervisor/control.py local_agent/supervisor/policy.py
       - name: Process, checkpoint, and multi-repository smoke tests
-        run: python -m unittest -q tests.test_agent_process tests.test_agent_core tests.test_agent_runtime tests.test_agent_storage tests.test_agent_parallel tests.test_agent_parallel_worker tests.test_parallel_control tests.test_parallel_process tests.test_multirepo_integration tests.test_parallel_integration tests.test_parallel_resource_wait tests.test_control_hardening
+        run: python -m unittest -q tests.test_agent_process tests.test_agent_core tests.test_agent_runtime tests.test_agent_storage tests.test_agent_parallel tests.test_agent_parallel_worker tests.test_parallel_control tests.test_parallel_process tests.test_multirepo_integration tests.test_parallel_integration tests.test_parallel_resource_wait tests.test_control_hardening tests.test_supervisor_modules
