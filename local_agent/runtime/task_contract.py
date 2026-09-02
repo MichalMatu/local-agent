@@ -8,6 +8,7 @@ from typing import Any
 from agent_config import TIMEOUTS
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
+_RESOURCE_RE = re.compile(r"^[a-z0-9._:-]+$")
 DEFAULT_IDLE_TIMEOUT = TIMEOUTS.idle_default
 MAX_IDLE_TIMEOUT = TIMEOUTS.idle_max
 DEFAULT_TASK_TIMEOUT = TIMEOUTS.task_default
@@ -15,6 +16,7 @@ MAX_TASK_TIMEOUT = TIMEOUTS.task_max
 TASK_FINALIZATION_RESERVE = 60
 DEFAULT_MEMORY_LIMIT_MB = 4096
 MAX_MEMORY_LIMIT_MB = 16384
+MAX_TASK_RESOURCES = 8
 
 MAX_TASK_FILE_BYTES = 4 * 1024 * 1024
 MAX_TASK_LIST_ITEMS = 256
@@ -24,6 +26,7 @@ MAX_WRITE_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_WRITE_BYTES = 8 * 1024 * 1024
 MAX_TASK_PATH_CHARS = 1024
 
+
 def task_digest(task: dict[str, Any]) -> str:
     payload = json.dumps(
         task,
@@ -32,6 +35,34 @@ def task_digest(task: dict[str, Any]) -> str:
         ensure_ascii=False,
     ).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def task_resources_for(task: dict[str, Any]) -> tuple[str, ...]:
+    if "resources" not in task:
+        raise ValueError("resources must be declared explicitly")
+    raw = task["resources"]
+    if not isinstance(raw, list):
+        raise ValueError("resources must be a list")
+    if len(raw) > MAX_TASK_RESOURCES:
+        raise ValueError(f"resources exceeds {MAX_TASK_RESOURCES} items")
+
+    resources: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, str):
+            raise ValueError("resources items must be strings")
+        if not item or item != item.strip() or item != item.casefold():
+            raise ValueError(f"resource must be canonical lowercase text: {item!r}")
+        if not _RESOURCE_RE.fullmatch(item):
+            raise ValueError(f"invalid resource name: {item!r}")
+        if item in seen:
+            raise ValueError(f"duplicate resource: {item!r}")
+        seen.add(item)
+        resources.append(item)
+
+    if "machine" in seen and len(resources) != 1:
+        raise ValueError("resource 'machine' must be declared alone")
+    return tuple(resources)
 
 
 def validate_task(task: dict[str, Any]) -> None:
@@ -49,6 +80,7 @@ def validate_task(task: dict[str, Any]) -> None:
         raise ValueError("allow_write must be a boolean")
     if "work_branch" in task and not isinstance(task["work_branch"], str):
         raise ValueError("work_branch must be a string")
+    task_resources_for(task)
     patch = task.get("patch")
     if patch is not None:
         if not isinstance(patch, str):
