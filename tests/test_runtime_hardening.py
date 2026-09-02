@@ -97,7 +97,7 @@ class RuntimeHardeningTests(unittest.TestCase):
     def test_runtime_injects_runner_without_mutating_core_global(self) -> None:
         runtime = RuntimeExecutor(core)
         original_runner = core.run_command
-        task = {"id": "runner-injection", "commands": []}
+        task = {"id": "runner-injection", "resources": [], "commands": []}
         with mock.patch.object(
             core,
             "process_task",
