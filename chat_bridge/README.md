@@ -75,7 +75,7 @@ Semantics:
 - `STOP` disables only that conversation and clears its persistent interval override.
 - `PAUSE` disables only that conversation while preserving its interval override.
 - `RESUME` re-enables that conversation and schedules a near-term busy-retry wake.
-- `NEXT=<duration>` schedules only the next wake and does not change the normal interval. Durations are bounded to 30 seconds through 24 hours.
+- `NEXT=<duration>` arms or re-arms that conversation and schedules its next wake without changing the normal interval. It never overrides the global master switch. Durations are bounded to 30 seconds through 24 hours.
 - `INTERVAL=<minutes>` sets that conversation's persistent interval override.
 - `INTERVAL=AUTO` removes the override and returns to runtime/default pacing.
 

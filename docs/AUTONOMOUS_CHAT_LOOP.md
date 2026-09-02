@@ -93,7 +93,7 @@ Every bridge wake-up must follow this order:
 6. On failure, diagnose the published failure evidence. Queue a new task only when there is a concrete next action. Never replay or mutate the old task payload.
 7. If user action is required, end the assistant response with the bridge `PAUSE` marker.
 8. If the goal is complete, end the assistant response with the bridge `STOP` marker.
-9. Otherwise leave bridge automation enabled. Use a one-shot `NEXT` marker only when changing the next wake time is useful.
+9. Otherwise end the response with a one-shot `NEXT` marker at an appropriate cadence. `NEXT` is the durable keep-alive: it arms or re-arms this conversation even if an earlier conversation-local `STOP`/`PAUSE` disabled it.
 
 The autonomous planner loop is sequential per active conversation goal, not globally serial. While this conversation is following a running task for that goal, do not queue another task for the same goal. The production executor may still run unrelated tasks from other conversations or repositories concurrently when resource admission permits it. Resource classification remains conservative, and repository-specific status/run/result evidence determines whether the task this conversation is following is active.
 
@@ -115,7 +115,7 @@ On that first re-check:
 4. if the task is actively producing output or healthy heartbeats, use a later one-shot `NEXT` appropriate to the expected remaining duration, or simply return to the configured interval;
 5. do not replace the normal interval with a persistent 30-second cadence across a multi-minute or multi-hour healthy task.
 
-`NEXT` changes only the next bridge alarm. It does not change Local Agent polling, duplicate task execution, or the rule that only one task for the active conversation goal is followed at a time.
+`NEXT` arms or re-arms this conversation and changes only its next bridge alarm. It does not enable the global master switch, change the persistent interval, alter Local Agent polling, permit duplicate task execution, or change the rule that only one task for the active conversation goal is followed at a time.
 
 ## Task rules
 
@@ -129,6 +129,7 @@ A minimal read-only task looks like:
   "mode": "commands",
   "work_branch": "main",
   "allow_write": false,
+  "resources": [],
   "command_timeout": 60,
   "task_timeout": 180,
   "commands": [
@@ -195,7 +196,7 @@ Use the markers as follows:
 - `STOP`: autonomous goal complete; disable only this conversation and clear its assistant interval override.
 - `PAUSE`: user or external manual action is required; disable only this conversation while preserving its interval override.
 - `RESUME`: explicitly re-enable only this conversation and schedule a near-term retry.
-- `NEXT=<duration>`: change only the next wake time. Supported durations are seconds (`s`) or minutes (`m`), bounded from 30 seconds through 24 hours.
+- `NEXT=<duration>`: arm or re-arm this conversation and set its next wake time. It does not override the global master switch or persistent interval. Supported durations are seconds (`s`) or minutes (`m`), bounded from 30 seconds through 24 hours.
 - `INTERVAL=<minutes>`: set a persistent pacing override for this conversation.
 - `INTERVAL=AUTO`: remove this conversation's override and return to the remote/fallback interval.
 

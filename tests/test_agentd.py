@@ -47,7 +47,7 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def task(self, task_id: str = "task-1") -> dict:
-        return {"id": task_id, "mode": "commands", "commands": ["true"]}
+        return {"id": task_id, "mode": "commands", "resources": [], "commands": ["true"]}
 
     def test_publish_control_json_keeps_successful_git_plumbing_quiet(self) -> None:
         process = mock.Mock(side_effect=[

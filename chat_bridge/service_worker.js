@@ -208,7 +208,7 @@ async function loadRuntimeConfig(state, conversation = null) {
 
 function buildBootstrapPrompt(runtime, conversation) {
   const hints = [
-    "Bridge v0.3 controls are conversation-scoped. Prefer short final-line controls: [LAB:STOP], [LAB:PAUSE], [LAB:RESUME], [LAB:NEXT=30s], [LAB:NEXT=10m], [LAB:INTERVAL=30m], [LAB:INTERVAL=AUTO]. NEXT changes only the next wake, not the normal interval."
+    "Bridge v0.3 controls are conversation-scoped. Prefer short final-line controls: [LAB:STOP], [LAB:PAUSE], [LAB:RESUME], [LAB:NEXT=30s], [LAB:NEXT=10m], [LAB:INTERVAL=30m], [LAB:INTERVAL=AUTO]. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch."
   ];
   if (conversation.label) hints.push(`Bridge label: ${conversation.label}.`);
   if (conversation.repositoryId) {
@@ -413,15 +413,17 @@ async function applyAssistantControl(message, sender) {
   if (parsed.action === "next") {
     await updateConversationStatus(conversation.id, {
       ...common,
+      enabled: true,
       lastStatus: `next_${parsed.seconds}s_by_assistant`
     });
     const updated = await getBridgeState();
-    if (updated.settings.masterEnabled && updated.conversations[conversation.id]?.enabled) {
-      await scheduleAfterSeconds(conversation.id, parsed.seconds);
-    }
+    const scheduled = updated.settings.masterEnabled
+      ? await scheduleAfterSeconds(conversation.id, parsed.seconds)
+      : false;
     return {
       ok: true,
-      reason: "next_scheduled",
+      reason: scheduled ? "next_scheduled" : "next_armed_master_disabled",
+      armed: true,
       seconds: parsed.seconds,
       conversationId: conversation.id
     };

@@ -20,7 +20,7 @@ class RuntimeTaskContractModuleTests(unittest.TestCase):
         self.assertEqual(agent_runtime.TASK_FINALIZATION_RESERVE, task_contract.TASK_FINALIZATION_RESERVE)
 
     def test_extracted_contract_validates_independently(self) -> None:
-        task = {"id": "contract-smoke", "commands": ["true"], "command_timeout": 60, "task_timeout": 180}
+        task = {"id": "contract-smoke", "resources": [], "commands": ["true"], "command_timeout": 60, "task_timeout": 180}
         task_contract.validate_task(task)
         self.assertEqual(task_contract.task_timeout_for(task), 180)
         self.assertEqual(task_contract.task_digest(task), agent_runtime.task_digest(task))

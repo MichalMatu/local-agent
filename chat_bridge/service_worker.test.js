@@ -216,6 +216,25 @@ async function sendRuntimeMessage(message, sender = {}) {
   assert.equal(alarms.has(`local-agent-chat:${aId}`), false);
   assert.equal(alarms.has(`local-agent-chat:${bId}`), true);
 
+  const beforeRearm = Date.now();
+  response = await sendRuntimeMessage(
+    {
+      type: "bridge:assistant-control",
+      conversationUrl: "https://chatgpt.com/c/a",
+      fingerprint: "cdef3456",
+      control: { marker: "[LAB:NEXT=30s]" }
+    },
+    { tab: { url: "https://chatgpt.com/c/a" } }
+  );
+  assert.equal(response.ok, true);
+  assert.equal(response.reason, "next_scheduled");
+  assert.equal(response.armed, true);
+  response = await sendRuntimeMessage({ type: "bridge:get-state" });
+  assert.equal(response.state.conversations[aId].enabled, true);
+  const rearmedAlarm = alarms.get(`local-agent-chat:${aId}`);
+  assert.ok(rearmedAlarm.when >= beforeRearm + 29_000);
+  assert.ok(rearmedAlarm.when <= beforeRearm + 31_500);
+
   const beforeNext = Date.now();
   response = await sendRuntimeMessage(
     {

@@ -43,6 +43,7 @@ class RuntimeExecutorTests(unittest.TestCase):
     def _efficient_task(**overrides: object) -> dict[str, object]:
         task: dict[str, object] = {
             "id": "efficient-task",
+            "resources": [],
             "workflow_policy": "efficient-verification-v1",
             "steps": [
                 {
@@ -91,6 +92,7 @@ class RuntimeExecutorTests(unittest.TestCase):
             validate_task(
                 {
                     "id": "large-patch",
+                    "resources": [],
                     "patch": "x" * (runtime_module.MAX_PATCH_BYTES + 1),
                 }
             )
@@ -98,6 +100,7 @@ class RuntimeExecutorTests(unittest.TestCase):
             validate_task(
                 {
                     "id": "many-commands",
+                    "resources": [],
                     "commands": ["true"] * (runtime_module.MAX_TASK_LIST_ITEMS + 1),
                 }
             )
@@ -105,6 +108,7 @@ class RuntimeExecutorTests(unittest.TestCase):
     def test_structured_steps_validate_and_reject_ambiguous_payloads(self) -> None:
         task = {
             "id": "staged-1",
+            "resources": [],
             "steps": [{"name": "build", "command": "true", "timeout": 120}],
             "verify_steps": [{"name": "inspect", "command": "true", "timeout": 90}],
             "command_timeout": 300,
@@ -121,6 +125,7 @@ class RuntimeExecutorTests(unittest.TestCase):
             validate_task(
                 {
                     "id": "bad-stage-timeout",
+                    "resources": [],
                     "steps": [{"name": "build", "command": "true", "timeout": core.MAX_COMMAND_TIMEOUT + 1}],
                 }
             )
@@ -283,6 +288,7 @@ class RuntimeExecutorTests(unittest.TestCase):
         validate_task(
             {
                 "id": "heavy-task",
+                "resources": [],
                 "commands": ["true"],
                 "command_timeout": 3600,
                 "idle_timeout": 1200,
@@ -302,6 +308,7 @@ class RuntimeExecutorTests(unittest.TestCase):
         validate_task(
             {
                 "id": "legacy-structured",
+                "resources": [],
                 "steps": [{"name": "compile", "command": "true"}],
                 "verify_steps": [{"name": "inspect", "command": "true"}],
             }
@@ -697,6 +704,7 @@ class RuntimeExecutorTests(unittest.TestCase):
     def test_slow_progress_callback_does_not_delay_command_watchdog(self) -> None:
         task = {
             "id": "slow-progress-callback",
+            "resources": [],
             "commands": [
                 f"{shlex.quote(sys.executable)} -c "
                 + shlex.quote("import time; time.sleep(5)")
@@ -747,6 +755,7 @@ class RuntimeExecutorTests(unittest.TestCase):
     def test_structured_stage_timeout_overrides_task_command_timeout(self) -> None:
         task = {
             "id": "stage-timeout-override",
+            "resources": [],
             "steps": [{"name": "short", "command": "one", "timeout": 7}],
             "command_timeout": 120,
             "task_timeout": 300,
