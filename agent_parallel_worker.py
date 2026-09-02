@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import json
 import os
-import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TextIO
@@ -18,14 +18,11 @@ from agent_process import (
     execution_lease_path,
 )
 from agent_repository import RepositoryContext
-from agent_runtime import memory_limit_for
+from local_agent.runtime.task_contract import task_resources_for
 
 WORKER_RESOURCE_BUSY = 13
 WORKER_MACHINE_BUSY = 14
-MAX_TASK_RESOURCES = 8
-MAX_PARALLEL_TASK_MEMORY_MB = 1024
 PARALLEL_DAEMON_VERSION = serial_worker.MULTIREPO_DAEMON_VERSION
-_RESOURCE_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 
 
 class MachineResourceBusy(RuntimeError):
@@ -39,34 +36,8 @@ def resource_lock_dir() -> Path:
 
 
 def task_resources(task: dict[str, object]) -> tuple[str, ...]:
-    """Return effective resources with conservative legacy and memory fallbacks."""
-    if "resources" not in task:
-        return ("machine",)
-
-    raw = task.get("resources")
-    if not isinstance(raw, list) or len(raw) > MAX_TASK_RESOURCES:
-        return ("machine",)
-
-    normalized: set[str] = set()
-    for item in raw:
-        if not isinstance(item, str):
-            return ("machine",)
-        value = item.strip().casefold()
-        if not value or not _RESOURCE_RE.fullmatch(value):
-            return ("machine",)
-        normalized.add(value)
-
-    if "machine" in normalized:
-        return ("machine",)
-
-    try:
-        memory_limit = memory_limit_for(task)
-    except (TypeError, ValueError):
-        return ("machine",)
-    if memory_limit == 0 or memory_limit > MAX_PARALLEL_TASK_MEMORY_MB:
-        return ("machine",)
-
-    return tuple(sorted(normalized))
+    """Return the explicit validated external resource contract for one task."""
+    return task_resources_for(task)
 
 
 def _acquire_flock(
@@ -108,7 +79,7 @@ def _inherit_resource_fds(handles: list[TextIO]) -> Iterator[None]:
 
 @contextlib.contextmanager
 def machine_resource_lease(task: dict[str, object]) -> Iterator[tuple[str, ...]]:
-    """Acquire machine resources without waiting on a stale, unclaimed task copy."""
+    """Acquire external machine resources without waiting after task selection."""
     resources = task_resources(task)
     lock_dir = resource_lock_dir()
     lock_dir.mkdir(parents=True, exist_ok=True)
@@ -149,6 +120,23 @@ def machine_resource_lease(task: dict[str, object]) -> Iterator[tuple[str, ...]]
                 gate.close()
 
 
+def _waiting_status_context(task_id: str, resource: str) -> tuple[str, bool]:
+    """Preserve the first wait timestamp and detect a materially changed wait."""
+    try:
+        payload = json.loads(agentd.LOCAL_STATUS_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError):
+        payload = {}
+    same_wait = (
+        payload.get("state") == "waiting_resource"
+        and payload.get("pending_task_id") == task_id
+        and payload.get("blocked_resources") == [resource]
+    )
+    waiting_since = payload.get("waiting_since") if same_wait else None
+    if not isinstance(waiting_since, str) or not waiting_since:
+        waiting_since = agentd.now_iso()
+    return waiting_since, not same_wait
+
+
 def poll_repository_once(repository: RepositoryContext) -> bool:
     """Poll one repository and execute at most one resource-arbitrated task."""
     serial_worker.bind_repository(repository)
@@ -167,29 +155,49 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                 repository,
                 state,
                 force_remote=False,
-                execution_variant="parallel",
             )
             return False
 
         _, task = pending[0]
-        with machine_resource_lease(task) as resources:
-            core.log(
-                f"[parallel] TASK START repository={repository.repository_id} "
-                f"task={task.get('id')} resources={list(resources)}"
+        task_id = str(task.get("id", ""))
+        try:
+            with machine_resource_lease(task) as resources:
+                serial_worker.publish_repository_status(
+                    repository,
+                    "running",
+                    force_remote=True,
+                    current_task_id=task_id,
+                    active_resources=list(resources),
+                )
+                core.log(
+                    f"[parallel] TASK START repository={repository.repository_id} "
+                    f"task={task_id} resources={list(resources)}"
+                )
+                outcome = agentd.execute_task(
+                    task,
+                    remote_daemon_status=False,
+                    remote_result_published=False,
+                )
+        except MachineResourceBusy as exc:
+            waiting_since, force_remote = _waiting_status_context(task_id, exc.resource)
+            serial_worker.publish_repository_status(
+                repository,
+                "waiting_resource",
+                force_remote=force_remote,
+                current_task_id=None,
+                pending_task_id=task_id,
+                blocked_resources=[exc.resource],
+                waiting_since=waiting_since,
+                retrying=True,
             )
-            outcome = agentd.execute_task(
-                task,
-                remote_daemon_status=False,
-                remote_result_published=False,
-            )
+            raise
 
         state = "publication_pending" if outcome == "publication_pending" else "idle"
         serial_worker.publish_repository_status(
             repository,
             state,
             force_remote=True,
-            last_task_id=str(task.get("id", "")),
-            execution_variant="parallel",
+            last_task_id=task_id,
         )
         return True
     finally:
