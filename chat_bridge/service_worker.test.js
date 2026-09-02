@@ -36,7 +36,9 @@ const chrome = {
   },
   alarms: {
     create(name, info) {
-      alarms.set(name, { name, ...clone(info) });
+      const alarm = { name, ...clone(info) };
+      if (Number.isFinite(Number(info.when))) alarm.scheduledTime = Number(info.when);
+      alarms.set(name, alarm);
     },
     async clear(name) {
       return alarms.delete(name);
@@ -198,6 +200,14 @@ async function sendRuntimeMessage(message, sender = {}) {
   assert.ok(pacedAlarm.when >= beforePacingUpdate + 14 * 60_000 + 50_000);
   assert.ok(pacedAlarm.when <= beforePacingUpdate + 15 * 60_000 + 2_000);
 
+  // Popup schedule data must follow the actual Chrome alarm, not stale stored state.
+  storage.bridgeState.conversations[bId].nextRunAt = new Date(0).toISOString();
+  response = await sendRuntimeMessage({ type: "bridge:get-state" });
+  assert.equal(
+    new Date(response.schedules[bId].nextRunAt).getTime(),
+    pacedAlarm.scheduledTime
+  );
+
   response = await sendRuntimeMessage(
     {
       type: "bridge:assistant-control",
@@ -241,15 +251,17 @@ async function sendRuntimeMessage(message, sender = {}) {
       type: "bridge:assistant-control",
       conversationUrl: "https://chatgpt.com/c/b",
       fingerprint: "bcde2345",
-      control: { marker: "[LAB:NEXT=30s]" }
+      control: { marker: "[LAB:NEXT=10m]" }
     },
     { tab: { url: "https://chatgpt.com/c/b" } }
   );
   assert.equal(response.ok, true);
-  assert.equal(response.seconds, 30);
+  assert.equal(response.seconds, 600);
   const nextAlarm = alarms.get(`local-agent-chat:${bId}`);
-  assert.ok(nextAlarm.when >= beforeNext + 29_000);
-  assert.ok(nextAlarm.when <= beforeNext + 31_500);
+  assert.ok(nextAlarm.when >= beforeNext + 599_000);
+  assert.ok(nextAlarm.when <= beforeNext + 601_500);
+  response = await sendRuntimeMessage({ type: "bridge:get-state" });
+  assert.equal(response.state.conversations[bId].intervalOverrideMinutes, 15);
 
   response = await sendRuntimeMessage({
     type: "bridge:run-now",

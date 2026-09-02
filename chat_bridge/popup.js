@@ -20,6 +20,7 @@ const elements = {
 
 let latestState = null;
 let currentTab = null;
+let countdownTimer = null;
 
 function showMessage(text) {
   elements.message.textContent = text;
@@ -29,6 +30,48 @@ function formatTime(value) {
   if (!value) return "-";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function formatRemaining(milliseconds) {
+  const totalSeconds = Math.max(0, Math.ceil(Number(milliseconds) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function updateNextWakeElement(element) {
+  const masterEnabled = element.dataset.masterEnabled === "true";
+  const conversationEnabled = element.dataset.conversationEnabled === "true";
+  const nextRunAt = element.dataset.nextRunAt || null;
+  if (!masterEnabled) {
+    element.textContent = "Next: master disabled";
+    return;
+  }
+  if (!conversationEnabled) {
+    element.textContent = "Next: paused";
+    return;
+  }
+  const when = Date.parse(String(nextRunAt || ""));
+  if (!Number.isFinite(when)) {
+    element.textContent = "Next: not scheduled";
+    return;
+  }
+  const remaining = when - Date.now();
+  const relative = remaining <= 0 ? "due now" : `in ${formatRemaining(remaining)}`;
+  element.textContent = `Next: ${relative} · ${formatTime(nextRunAt)}`;
+}
+
+function updateCountdowns() {
+  document.querySelectorAll("[data-next-run-at]").forEach(updateNextWakeElement);
+}
+
+function restartCountdownTimer() {
+  if (countdownTimer !== null) clearInterval(countdownTimer);
+  updateCountdowns();
+  countdownTimer = setInterval(updateCountdowns, 1000);
 }
 
 function chatLabelFromTitle(title) {
@@ -70,7 +113,7 @@ function createTextInput(value, placeholder = "") {
   return input;
 }
 
-function renderConversation(conversation) {
+function renderConversation(conversation, settings, schedule) {
   const card = document.createElement("article");
   card.className = "conversation-card";
 
@@ -98,9 +141,14 @@ function renderConversation(conversation) {
     Object.assign(document.createElement("span"), {
       textContent: `Last: ${conversation.lastStatus || "-"}`
     }),
-    Object.assign(document.createElement("span"), {
-      textContent: `Next: ${formatTime(conversation.nextRunAt)}`
-    }),
+    (() => {
+      const next = document.createElement("span");
+      next.dataset.nextRunAt = schedule?.nextRunAt || "";
+      next.dataset.masterEnabled = settings.masterEnabled ? "true" : "false";
+      next.dataset.conversationEnabled = conversation.enabled ? "true" : "false";
+      updateNextWakeElement(next);
+      return next;
+    })(),
     Object.assign(document.createElement("span"), {
       textContent: `Mode: ${runtimeState}`
     }),
@@ -224,7 +272,7 @@ function renderConversation(conversation) {
   return card;
 }
 
-function renderConversations(state) {
+function renderConversations(state, schedules = {}) {
   elements.conversationList.replaceChildren();
   const conversations = Object.values(state.conversations || {}).sort((a, b) =>
     String(a.label || "").localeCompare(String(b.label || ""))
@@ -240,7 +288,9 @@ function renderConversations(state) {
   }
 
   for (const conversation of conversations) {
-    elements.conversationList.append(renderConversation(conversation));
+    elements.conversationList.append(
+      renderConversation(conversation, state.settings, schedules[conversation.id] || null)
+    );
   }
 }
 
@@ -277,7 +327,8 @@ async function refresh() {
   elements.runtimeSource.textContent = response.runtime?.source || "-";
   elements.runtimeInterval.textContent = `${response.runtime?.intervalMinutes || settings.fallbackIntervalMinutes} min`;
 
-  renderConversations(latestState);
+  renderConversations(latestState, response.schedules || {});
+  restartCountdownTimer();
   await refreshCurrentTabForm(latestState);
 }
 
@@ -334,6 +385,11 @@ elements.saveGlobal.addEventListener("click", () => {
 
 elements.addCurrent.addEventListener("click", () => {
   addOrUpdateCurrent().catch((error) => showMessage(`Error: ${error.message}`));
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local" || !changes.bridgeState) return;
+  refresh().catch((error) => showMessage(`Error: ${error.message}`));
 });
 
 refresh().catch((error) => showMessage(`Error: ${error.message}`));

@@ -47,6 +47,25 @@ async function getBridgeState() {
   return loadStoredState();
 }
 
+async function getScheduleSnapshot(state) {
+  const alarms = await chrome.alarms.getAll();
+  const alarmByName = new Map(alarms.map((alarm) => [alarm.name, alarm]));
+  return Object.fromEntries(
+    Object.values(state.conversations).map((conversation) => {
+      const alarm = alarmByName.get(alarmName(conversation.id));
+      const rawWhen = alarm?.scheduledTime ?? alarm?.when;
+      const when = Number(rawWhen);
+      return [
+        conversation.id,
+        {
+          scheduled: Number.isFinite(when),
+          nextRunAt: Number.isFinite(when) ? new Date(when).toISOString() : null
+        }
+      ];
+    })
+  );
+}
+
 function mutateState(mutator) {
   const operation = stateQueue.then(async () => {
     const current = await loadStoredState();
@@ -617,8 +636,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "bridge:get-state") {
     (async () => {
       const state = await getBridgeState();
-      const runtime = await loadRuntimeConfig(state);
-      sendResponse({ state, runtime });
+      const [runtime, schedules] = await Promise.all([
+        loadRuntimeConfig(state),
+        getScheduleSnapshot(state)
+      ]);
+      sendResponse({ state, runtime, schedules });
     })().catch((error) => sendResponse({ error: String(error) }));
     return true;
   }
