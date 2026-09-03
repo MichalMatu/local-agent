@@ -13,13 +13,14 @@ import agent_core as core
 import agent_operator
 import agentd
 import agent_repo_worker as serial_worker
+from agent_binding import validate_repository_control_binding
 from agent_process import (
     ExecutionLeaseBusy,
     RESOURCE_LEASE_FDS_ENV,
     execution_lease_path,
 )
 from agent_repository import RepositoryContext
-from local_agent.runtime.task_contract import task_resources_for
+from local_agent.runtime.task_contract import require_task_agent_binding, task_resources_for
 
 WORKER_RESOURCE_BUSY = 13
 WORKER_MACHINE_BUSY = 14
@@ -138,6 +139,75 @@ def _waiting_status_context(task_id: str, resource: str) -> tuple[str, bool]:
     return waiting_since, not same_wait
 
 
+def _reject_task_binding(repository: RepositoryContext, task: dict[str, object]) -> None:
+    task_id = str(task.get("id", ""))
+    expected = repository.agent_binding
+    provided = task.get("agent_binding")
+    failure_reason = "agent_binding_missing" if provided is None else "agent_binding_mismatch"
+    result = {
+        "id": task_id,
+        "status": "failed",
+        "failure_reason": failure_reason,
+        "task_digest": agentd.task_digest(task),
+        "started_at": None,
+        "finished_at": agentd.now_iso(),
+        "daemon_version": PARALLEL_DAEMON_VERSION,
+        "repository_id": repository.repository_id,
+        "repository": repository.repository,
+        "expected_agent_binding": expected,
+        "provided_agent_binding": provided,
+        "error": "Task rejected before claim because its agent_binding does not match the bound repository.",
+    }
+    core.publish_result(task_id, result)
+    agentd.publish_run_state(
+        task_id,
+        {
+            "event": "task_rejected",
+            "status": "failed",
+            "failure_reason": failure_reason,
+            "expected_agent_binding": expected,
+            "provided_agent_binding": provided,
+            "updated_at": agentd.now_iso(),
+        },
+        force_remote=True,
+    )
+    core.log(
+        f"agent binding rejected repository={repository.repository_id} task={task_id} "
+        f"expected={expected} provided={provided}"
+    )
+
+
+def _repository_binding_ready(repository: RepositoryContext) -> bool:
+    if repository.agent_binding is None:
+        serial_worker.publish_repository_status(
+            repository,
+            "unbound",
+            force_remote=True,
+            execution_variant="parallel",
+            error="repository registry is missing agent_binding",
+        )
+        core.log(f"repository admission blocked: missing agent_binding repository={repository.repository_id}")
+        return False
+    try:
+        validate_repository_control_binding(
+            repository_id=repository.repository_id,
+            repository=repository.repository,
+            expected_agent_binding=repository.agent_binding,
+            control_dir=repository.control,
+        )
+    except ValueError as exc:
+        serial_worker.publish_repository_status(
+            repository,
+            "binding_error",
+            force_remote=True,
+            execution_variant="parallel",
+            error=str(exc),
+        )
+        core.log(f"repository admission blocked by binding check repository={repository.repository_id}: {exc}")
+        return False
+    return True
+
+
 def poll_repository_once(repository: RepositoryContext) -> bool:
     """Poll one repository and execute at most one resource-arbitrated task."""
     serial_worker.bind_repository(repository)
@@ -146,6 +216,8 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
     agentd.DAEMON_VERSION = PARALLEL_DAEMON_VERSION
     try:
         serial_worker.sync_control_quietly()
+        if not _repository_binding_ready(repository):
+            return False
         agentd.recover_stale_claims()
         agentd.recover_invalid_task_files()
         serial_worker.handle_repository_control(repository)
@@ -171,6 +243,13 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
         _, task = pending[0]
         task_id = str(task.get("id", ""))
         try:
+            assert repository.agent_binding is not None
+            require_task_agent_binding(task, repository.agent_binding)
+        except ValueError:
+            _reject_task_binding(repository, task)
+            return True
+
+        try:
             with machine_resource_lease(task) as resources:
                 serial_worker.publish_repository_status(
                     repository,
@@ -182,7 +261,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                 )
                 core.log(
                     f"[parallel] TASK START repository={repository.repository_id} "
-                    f"task={task_id} resources={list(resources)}"
+                    f"task={task_id} binding={repository.agent_binding} resources={list(resources)}"
                 )
                 with serial_worker.ActiveRepositoryControlWatcher(repository, task_id):
                     outcome = agentd.execute_task(
