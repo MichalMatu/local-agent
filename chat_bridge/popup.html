@@ -11,7 +11,7 @@
       <div class="heading-row">
         <div>
           <h1>Local Agent Chat Bridge</h1>
-          <p class="muted">Multi-chat autonomous wake scheduler</p>
+          <p class="muted">Hard-bound multi-chat autonomous wake scheduler</p>
         </div>
         <label class="switch-row compact">
           <input id="masterEnabled" type="checkbox" />
@@ -23,11 +23,13 @@
         <h2>Current chat</h2>
         <p id="currentTitle" class="current-chat-title">Detecting current conversation...</p>
         <p id="currentUrl" class="muted ellipsis">Open a concrete ChatGPT conversation.</p>
+        <label for="currentAgent">Bound agent / repository</label>
+        <select id="currentAgent"></select>
         <div class="actions">
           <button id="addCurrent" type="button">Add current chat</button>
         </div>
         <p class="muted small-copy">
-          Conversation id and label are detected automatically. Repository id is optional and can be edited later.
+          A conversation cannot run until it is explicitly bound to exactly one agent UUID and repository. Existing bindings can change only through the Rebind action.
         </p>
       </section>
 
