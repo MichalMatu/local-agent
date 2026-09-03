@@ -1,8 +1,39 @@
 # Autonomous Chat Planner Loop
 
-This document defines the optional autonomous planning loop that connects ChatGPT conversations to the deterministic `local-agent` executor through the Chrome Chat Bridge and the Git-backed control plane.
+This document defines the optional autonomous planning loop connecting one ChatGPT conversation to one deterministic `local-agent` repository through Chat Bridge 0.4 and the Git-backed control plane.
 
-Each configured conversation remains one independent planner loop for its own active goal. Chat Bridge v0.3 can schedule several such conversations at the same time. The bridge is only a wake-up and control transport: it does not understand a conversation, choose work, inspect source, or execute commands. ChatGPT remains the planner. `local-agent` remains the deterministic executor.
+## Hard identity invariant
+
+Chat Bridge 0.4 is fail-closed and enforces:
+
+```text
+one ChatGPT conversation == one immutable agent_binding == one repository id == one GitHub repository
+```
+
+A normal wake must never infer or switch repository identity from model context. Every bound wake carries all four identity fields:
+
+```text
+[LA_AGENT=<canonical UUID>]
+[LA_REPO=<repository id>]
+[LA_REPOSITORY=<owner/name>]
+[LA_CHAT=<conversation id>]
+```
+
+The stored binding is immutable during normal conversation updates. Changing repository identity requires the explicit operator **Rebind** action in the extension. Rebind increments `bindingRevision`, records a new `bindingSetAt`, clears conversation control dedupe state and forces a fresh bootstrap.
+
+Unbound migrated conversations are disabled with `binding_required` and have no alarm. A runtime-catalog mismatch disables the conversation with `binding_catalog_mismatch`. The bridge must never guess a replacement binding.
+
+`local-agent` independently enforces the executor side of the same identity. Before claim/execution, both the production parallel worker and the serial fallback require:
+
+```text
+registry agent_binding
+    == .agent/binding.json agent_binding
+    == task.agent_binding
+```
+
+A missing repository binding blocks admission as `unbound`. A control-branch mismatch blocks admission as `binding_error`. A missing/wrong task binding produces a terminal pre-claim failure (`agent_binding_missing` or `agent_binding_mismatch`) and executes no task command.
+
+The global operator `disabled` state has higher priority than repository binding admission, so the emergency kill switch remains effective during migration or broken binding state.
 
 ## Roles
 
@@ -10,67 +41,78 @@ Each configured conversation remains one independent planner loop for its own ac
 user goal in one ChatGPT conversation
         |
         v
+Chat Bridge 0.4
+- stores exact immutable conversation binding
+- sends binding envelope + bootstrap/wake prompt
+- schedules only bound conversations
+- never chooses repository work
+        |
+        v
 ChatGPT planner
-- understands the active goal
-- inspects source/status/results
-- decides the next bounded task
-- writes task JSON to agent-control
+- works only on the bound repository
+- reads exact status/run/result/source evidence
+- creates only tasks containing the bound agent_binding
         |
         v
 local-agent
-- validates the immutable task payload
-- runs the declared commands locally
-- enforces time/output/RSS/process limits
-- publishes progress/status/result evidence
+- verifies registry/control/task binding equality
+- validates immutable task payload
+- executes deterministic commands under runtime limits
+- publishes status/run/result evidence
         |
-        v
-Chat Bridge
-- waits for that conversation's configured interval
-- wakes the same ChatGPT conversation
-- never plans or interprets local-agent work
-        |
-        +----> ChatGPT evaluates evidence and continues or stops
+        +----> bridge wakes the same bound conversation
 ```
 
-The planner and executor contracts remain separate. Autonomous planning must not add an LLM or heuristic decision layer to the deterministic executor.
+The bridge is transport and scheduling only. ChatGPT remains the planner. `local-agent` remains the deterministic executor; no LLM or heuristic planning layer belongs inside the executor.
 
-## Bridge bootstrap and compact wake prompts
+The `local-agent` binding is deliberately `execution_enabled: false`. A conversation bound to it is bridge/operator-only: it may inspect/operate Local Agent infrastructure, but it must not create project task files for Growbox, C6, MatrixHub, LiteGraph or any other repository.
 
-The bridge prompt is a wake-up policy, not the complete operating manual. Chat Bridge v0.3 separates prompt delivery into two phases:
+## Runtime schema 3
 
-1. a one-time bootstrap prompt establishes the bridge policy, optional repository-id routing hint and compact control protocol for that conversation;
-2. later wake-ups use a short wake prompt that tells ChatGPT to continue the already active goal from current repository evidence without restating unchanged history.
+Chat Bridge 0.4 state uses schema version 3. The remote runtime also supports schema 3 with an explicit agent catalog:
 
-This keeps repeated bridge turns substantially smaller than the previous design that resent the complete policy on every wake. A migrated v0.2 conversation receives one new bootstrap after upgrade and then switches to compact wake mode.
+```json
+{
+  "schema_version": 3,
+  "interval_minutes": 10,
+  "busy_retry_minutes": 1,
+  "bootstrap_prompt": "...",
+  "wake_prompt": "...",
+  "agents": [
+    {
+      "repository_id": "matrixhub",
+      "repository": "MichalMatu/MatrixHub",
+      "agent_binding": "033327ab-700d-43b4-9b3b-caff1acaa2c7",
+      "execution_enabled": true
+    }
+  ]
+}
+```
 
-The wake-up policy still requires the next ChatGPT turn to:
+Repository ids, repository names and binding UUIDs must each be unique. A binding UUID must be canonical lowercase UUID text. Runtime schema 1/2 remains readable for compatibility, but it uses the extension's built-in canonical agent catalog. New production publication should use schema 3.
 
-1. inspect the latest daemon status and exact task result evidence for the target repository;
-2. avoid queueing another task while the task for this active goal is running;
-3. continue with only the next necessary bounded task after the previous one finishes;
-4. stop when the active autonomous goal is complete;
-5. pause when user action is required;
-6. keep no-change bridge turns terse instead of repeatedly summarizing the same status.
+## Bootstrap and compact wakes
 
-A new conversation still needs an explicit active goal and access to the relevant GitHub repositories. The bridge prompt alone cannot reconstruct an unstated goal or hidden project context.
+A newly bound or explicitly rebound conversation receives one bootstrap prompt. Later alarms send a compact wake prompt. Every prompt is prefixed with the binding envelope and hard-binding policy.
 
-Canonical execution rules remain in `AGENTS.md` and `docs/OPERATIONS.md`.
+On every wake, the planner must:
 
-## Multi-conversation scheduler model
+1. trust the bridge envelope as the conversation's routing identity;
+2. inspect only that repository's latest daemon status and exact task evidence;
+3. never inspect, queue, cancel or execute work for another repository as a substitute;
+4. avoid queueing a second task for the same active goal while its current task is running;
+5. inspect the exact terminal result before deciding the next bounded action;
+6. pause instead of switching repository when the goal appears to require another binding;
+7. keep no-change wake turns terse.
 
-The extension stores conversation-scoped state. Each configured conversation has its own enabled state, alarm, optional repository id, interval override, last/next-run timestamps and control-marker dedupe state.
-
-A `STOP`, `PAUSE`, `RESUME`, `NEXT` or `INTERVAL` command from one conversation must never change another conversation. The global master switch may suspend all bridge alarms, but it preserves the individual conversation configuration so scheduling can resume without reconstructing it.
-
-The extension scheduler is independent from Local Agent execution concurrency. Multiple ChatGPT conversations may be awake or waiting concurrently while `agent_parallel.py` still enforces the executor's repository/resource admission contract.
+A conversation still needs a stated active goal. The binding identifies where work may happen; it does not invent scope.
 
 ## Control-plane locations
 
-For a repository using the standard control branch:
+Each executable repository has its own `agent-control` branch:
 
 ```text
-branch: agent-control
-
+.agent/binding.json               immutable repository binding identity
 .agent/tasks/<task-id>.json       planner -> executor
 .agent/runs/<task-id>.json        live execution evidence
 .agent/results/<task-id>.json     terminal execution evidence
@@ -79,53 +121,33 @@ branch: agent-control
 .agent/daemon/acks/*.json         maintenance/status acknowledgements
 ```
 
-Normal coding or verification work is queued by creating a unique file under `.agent/tasks/` on the target repository's `agent-control` branch. Do not hand-edit local control clones.
+Normal work is queued by committing a new unique task file to the bound repository's `agent-control` branch. Never hand-edit the daemon's local control clone.
 
 ## Autonomous turn algorithm
 
-Every bridge wake-up must follow this order:
+For every bridge wake:
 
-1. Identify the active autonomous goal from the conversation.
-2. Identify the target repository for that goal and read its latest daemon status.
-3. If `current_task_id` is non-null or status/result evidence shows the task for this goal is still active, do not queue another task.
-4. If the previous task has a terminal result, inspect the exact result before deciding what comes next.
-5. On success, compare the evidence with the remaining goal and queue only the next necessary bounded task.
-6. On failure, diagnose the published failure evidence. Queue a new task only when there is a concrete next action. Never replay or mutate the old task payload.
-7. If user action is required, end the assistant response with the bridge `PAUSE` marker.
-8. If the goal is complete, end the assistant response with the bridge `STOP` marker.
-9. Otherwise end the response with a one-shot `NEXT` marker at an appropriate cadence. `NEXT` is the durable keep-alive: it arms or re-arms this conversation even if an earlier conversation-local `STOP`/`PAUSE` disabled it.
+1. Parse and retain `LA_AGENT`, `LA_REPO`, `LA_REPOSITORY` and `LA_CHAT` from the bridge prompt.
+2. Do not derive a different target repository from conversation history.
+3. Read the bound repository's current `.agent/status/daemon.json` and exact run/result evidence for the active goal.
+4. If the relevant task is active, queue nothing else for that goal.
+5. If a terminal result exists, inspect its exact digest/result/command evidence.
+6. If a concrete next action is required, create one new bounded task with a unique id and exactly the wake's `agent_binding`.
+7. If the task fails deterministically, diagnose the evidence and create a new task only when the failure supports a specific fix. Never replay or mutate the old payload.
+8. If another repository is required, use `PAUSE`; do not switch/rebind automatically.
+9. If the goal is complete, use `STOP`.
+10. Otherwise use a suitable one-shot `NEXT` or allow normal pacing to resume.
 
-The autonomous planner loop is sequential per active conversation goal, not globally serial. While this conversation is following a running task for that goal, do not queue another task for the same goal. The production executor may still run unrelated tasks from other conversations or repositories concurrently when resource admission permits it. Resource classification remains conservative, and repository-specific status/run/result evidence determines whether the task this conversation is following is active.
+The planner loop is sequential per active conversation goal, not globally serial. Independent bound conversations may proceed concurrently; `agent_parallel.py` still owns repository/resource concurrency.
 
-## Post-queue liveness pacing
+## Task contract
 
-Immediately after queueing a new task, prefer one short Chat Bridge re-check after about 30 seconds instead of waiting for the normal long-task cadence. In v0.3 this should normally be expressed as a one-shot marker:
-
-```text
-[LAB:NEXT=30s]
-```
-
-The purpose of this first wake is only to catch start-up failures quickly: rejected task payloads, wrong expected SHA, missing branch/worktree, resource admission problems, syntax/import errors, commands that fail immediately, or a daemon that never claims the task.
-
-On that first re-check:
-
-1. inspect terminal result first if one already exists;
-2. otherwise inspect the exact run/attempt plus daemon status;
-3. if the task failed, diagnose it immediately and continue only with a new bounded task when the evidence supports a concrete fix;
-4. if the task is actively producing output or healthy heartbeats, use a later one-shot `NEXT` appropriate to the expected remaining duration, or simply return to the configured interval;
-5. do not replace the normal interval with a persistent 30-second cadence across a multi-minute or multi-hour healthy task.
-
-`NEXT` arms or re-arms this conversation and changes only its next bridge alarm. It does not enable the global master switch, change the persistent interval, alter Local Agent polling, permit duplicate task execution, or change the rule that only one task for the active conversation goal is followed at a time.
-
-## Task rules
-
-Task ids are immutable within a repository. Every autonomous continuation task must use a new unique id.
-
-A minimal read-only task looks like:
+Every task created by an executable bound conversation must include its exact `agent_binding`:
 
 ```json
 {
-  "id": "example-readonly-001",
+  "id": "matrix-readonly-001",
+  "agent_binding": "033327ab-700d-43b4-9b3b-caff1acaa2c7",
   "mode": "commands",
   "work_branch": "main",
   "allow_write": false,
@@ -138,37 +160,35 @@ A minimal read-only task looks like:
 }
 ```
 
-A bounded write task can declare `writes`, `deletes`, or `patch` with `allow_write: true`, followed by explicit commands and verification. Structured coding tasks should use the `efficient-verification-v1` policy described in `docs/OPERATIONS.md` when verification cost and intent need to be explicit.
+`resources` remains mandatory and follows `docs/OPERATIONS.md`. Task ids/payloads are immutable within a repository. A new continuation uses a new id.
 
-The planner must not assume that a command succeeded because it was queued. The published terminal result is the source of truth.
+The planner must never consider queueing itself proof of success. Terminal result evidence is authoritative.
 
-## Evidence rules
+## Evidence order
 
 Use evidence in this order:
 
-1. terminal result for the exact task id and digest;
-2. live run/progress for the exact attempt when still running;
-3. current repository daemon status;
-4. source/diff/test output referenced by those results;
+1. terminal result for exact task id/digest;
+2. live run/progress for the exact attempt;
+3. current bound-repository daemon status;
+4. source/diff/test evidence referenced by the result;
 5. planner analysis.
 
-Important result fields include:
+Binding failures are terminal safety evidence, not retry candidates with altered routing. Correct the operator/catalog/control configuration or explicitly rebind the conversation instead.
 
-- `status`;
-- `task_digest`;
-- `attempt_id`;
-- command `exit_code` and captured `output`;
-- timeout, idle-timeout, memory-limit and background-process-leak flags;
-- `git_status` and `git_diff`;
-- finalization/checkpoint failure evidence when present.
+## Post-queue liveness
 
-Do not infer success from stale status alone when a terminal result should exist.
+After queueing a task, prefer one early re-check around 30 seconds:
 
-## Bridge control protocol
+```text
+[LAB:NEXT=30s]
+```
 
-A bridge command is accepted only when it is the final non-empty line of the latest assistant message in the same configured conversation. Controls are conversation-scoped.
+Use it only to catch immediate deterministic failure or failure to claim. If execution is healthy, return to a longer cadence appropriate for the remaining duration. Do not turn healthy multi-minute work into permanent 30-second polling.
 
-Preferred compact markers:
+## Conversation-scoped bridge controls
+
+A bridge control is accepted only as the final non-empty line of the latest assistant message in the same configured conversation:
 
 ```text
 [LAB:STOP]
@@ -180,64 +200,38 @@ Preferred compact markers:
 [LAB:INTERVAL=AUTO]
 ```
 
-The older full prefix remains accepted for compatibility:
+Compatibility forms using `LOCAL_AGENT_BRIDGE:` remain accepted.
 
-```text
-[LOCAL_AGENT_BRIDGE:STOP]
-[LOCAL_AGENT_BRIDGE:PAUSE]
-[LOCAL_AGENT_BRIDGE:RESUME]
-[LOCAL_AGENT_BRIDGE:NEXT=30s]
-[LOCAL_AGENT_BRIDGE:INTERVAL=30]
-[LOCAL_AGENT_BRIDGE:INTERVAL=AUTO]
-```
+- `STOP`: goal complete; disable this conversation and clear its interval override.
+- `PAUSE`: manual/external action or repository rebind required.
+- `RESUME`: re-enable this conversation; it does not change its binding.
+- `NEXT=<duration>`: arm/re-arm one conversation for a one-shot wake; 30 seconds through 24 hours.
+- `INTERVAL=<minutes>`: persistent conversation pacing override.
+- `INTERVAL=AUTO`: return to configured runtime pacing.
 
-Use the markers as follows:
+The global bridge master switch may suspend all alarms but never alters bindings. No assistant marker can perform Rebind.
 
-- `STOP`: autonomous goal complete; disable only this conversation and clear its assistant interval override.
-- `PAUSE`: user or external manual action is required; disable only this conversation while preserving its interval override.
-- `RESUME`: explicitly re-enable only this conversation and schedule a near-term retry.
-- `NEXT=<duration>`: arm or re-arm this conversation and set its next wake time. It does not override the global master switch or persistent interval. Supported durations are seconds (`s`) or minutes (`m`), bounded from 30 seconds through 24 hours.
-- `INTERVAL=<minutes>`: set a persistent pacing override for this conversation.
-- `INTERVAL=AUTO`: remove this conversation's override and return to the remote/fallback interval.
+## Completion and pause policy
 
-Do not put a real control marker as the final line of explanatory examples unless the command is intended to execute.
+Stop only when the requested outcome is supported by execution evidence. Executor `idle` means capacity is free; it does not create new scope.
 
-## Completion criteria
+Pause rather than guess when progress requires user action, external approval, unavailable credentials/hardware, a materially unresolved product choice, or work in another repository.
 
-An autonomous goal is complete only when the requested outcome is supported by execution evidence. Depending on the goal, that can require source changes, focused verification, repository-wide gates, publication, or hardware interaction.
+## Required end-to-end validation for hard binding
 
-Do not continue generating cleanup or improvement tasks merely because the executor is idle. Idle means capacity is available; it does not create new scope.
+A 0.4 rollout is complete only after all of these are demonstrated:
 
-When the requested scope is complete, summarize the evidence briefly and stop that conversation's bridge loop.
+1. schema-3 runtime/catalog loads and a newly configured conversation stores one exact binding;
+2. normal edits cannot change that conversation's repository/binding;
+3. explicit Rebind changes it and forces bootstrap;
+4. an unbound/migrated conversation has no scheduled wake;
+5. a task with the correct binding executes and publishes terminal evidence;
+6. a task with a missing binding is terminally rejected before claim/command execution;
+7. a task with another repository's binding is terminally rejected before claim/command execution;
+8. registry/control binding mismatch blocks repository admission;
+9. the serial fallback preserves the same binding enforcement;
+10. active `cancel_task` is observed through a remote-grounded ACK and terminates the targeted active task;
+11. global `disable` prevents admission and can terminate active execution according to the emergency-control contract;
+12. two conversations retain independent alarms/control state and cannot alter each other's binding without explicit operator Rebind.
 
-## Failure and manual-action policy
-
-Pause instead of guessing when progress requires information or action that ChatGPT cannot safely perform, for example:
-
-- reconnecting or physically manipulating hardware;
-- approving an external account action;
-- selecting between materially different product or design choices not resolved by the stated goal;
-- restoring credentials or access that are unavailable to the planner/executor.
-
-A deterministic task failure does not automatically require user intervention. If the published evidence gives the planner enough information to create a safe next task, the planner may continue autonomously with a new unique task id.
-
-## End-to-end validation
-
-One configured conversation loop is considered operational when all of the following have been demonstrated in the real deployment:
-
-1. ChatGPT can queue a task through the repository control branch.
-2. `local-agent` executes it and publishes a terminal result.
-3. The Chat Bridge wakes the same conversation without user input.
-4. ChatGPT reads the real result and queues a second task only after the relevant task is no longer active.
-5. The second result is inspected on a later bridge wake-up.
-6. ChatGPT terminates that conversation's loop with `STOP` after the goal is complete.
-
-Multi-conversation bridge validation additionally requires two configured conversations to retain separate alarms and control state, including proof that pausing/stopping one does not pause/stop the other.
-
-This validates the coordination loop. It does not remove the requirement for task-specific verification or user intervention when the goal itself needs external/manual actions.
-
-## Planner output policy
-
-For substantial autonomous coding tasks, prefer `efficient-verification-v1` with work/focused stages and exactly one final full stage. Long successful test/build stages should normally use `output_policy: "summary"` when their line-by-line output is not useful; terminal result evidence remains authoritative.
-
-Bridge wake responses should also avoid repeated narrative when evidence is unchanged. The compact wake exists to trigger a decision, not to grow the conversation with redundant status summaries.
+Canonical executor and rollout rules remain in `AGENTS.md` and `docs/OPERATIONS.md`.
