@@ -1,0 +1,300 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+import agent_binding
+import agent_operator
+import agent_parallel_worker
+import agent_storage
+from agent_repository import RepositoryContext, repository_from_dict, validate_repository_set
+from local_agent.runtime.task_contract import (
+    require_task_agent_binding,
+    task_agent_binding,
+    validate_task,
+)
+
+MATRIX_BINDING = "033327ab-700d-43b4-9b3b-caff1acaa2c7"
+C6_BINDING = "64877d7d-af3f-4312-a511-699c44aa42dd"
+
+
+class AgentBindingHelpersTests(unittest.TestCase):
+    def test_canonical_binding_requires_lowercase_uuid(self) -> None:
+        self.assertEqual(agent_binding.canonical_agent_binding(MATRIX_BINDING), MATRIX_BINDING)
+        with self.assertRaisesRegex(ValueError, "canonical UUID"):
+            agent_binding.canonical_agent_binding("matrixhub")
+        with self.assertRaisesRegex(ValueError, "canonical lowercase"):
+            agent_binding.canonical_agent_binding(MATRIX_BINDING.upper())
+
+    def test_catalog_is_unique_and_resolves_repository(self) -> None:
+        records = agent_binding.load_binding_catalog()
+        self.assertGreaterEqual(len(records), 5)
+        self.assertEqual(len({record.agent_binding for record in records}), len(records))
+        record = agent_binding.catalog_record_for_repository(
+            "matrixhub", "MichalMatu/MatrixHub"
+        )
+        self.assertEqual(record.agent_binding, MATRIX_BINDING)
+        self.assertTrue(record.execution_enabled)
+        infra = agent_binding.catalog_record_for_repository(
+            "local-agent", "MichalMatu/local-agent"
+        )
+        self.assertFalse(infra.execution_enabled)
+
+    def test_registry_migration_adds_binding_but_refuses_existing_mismatch(self) -> None:
+        payload = {
+            "version": 1,
+            "repositories": [
+                {
+                    "id": "matrixhub",
+                    "repository": "MichalMatu/MatrixHub",
+                }
+            ],
+        }
+        updated, changes = agent_binding.apply_catalog_to_registry_payload(payload)
+        self.assertEqual(updated["repositories"][0]["agent_binding"], MATRIX_BINDING)
+        self.assertEqual(changes[0]["repository_id"], "matrixhub")
+
+        payload["repositories"][0]["agent_binding"] = C6_BINDING
+        with self.assertRaisesRegex(ValueError, "differs from canonical catalog"):
+            agent_binding.apply_catalog_to_registry_payload(payload)
+
+    def test_control_binding_must_match_all_three_identities(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            control = Path(tmp)
+            (control / ".agent").mkdir()
+            payload = {
+                "version": 1,
+                "repository_id": "matrixhub",
+                "repository": "MichalMatu/MatrixHub",
+                "agent_binding": MATRIX_BINDING,
+            }
+            (control / ".agent" / "binding.json").write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+            self.assertEqual(
+                agent_binding.validate_repository_control_binding(
+                    repository_id="matrixhub",
+                    repository="MichalMatu/MatrixHub",
+                    expected_agent_binding=MATRIX_BINDING,
+                    control_dir=control,
+                ),
+                MATRIX_BINDING,
+            )
+            payload["agent_binding"] = C6_BINDING
+            (control / ".agent" / "binding.json").write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "UUID mismatch"):
+                agent_binding.validate_repository_control_binding(
+                    repository_id="matrixhub",
+                    repository="MichalMatu/MatrixHub",
+                    expected_agent_binding=MATRIX_BINDING,
+                    control_dir=control,
+                )
+
+
+class RepositoryBindingTests(unittest.TestCase):
+    def test_repository_registry_parses_binding_and_digest_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            repository = repository_from_dict(
+                {
+                    "id": "matrixhub",
+                    "repository": "MichalMatu/MatrixHub",
+                    "agent_binding": MATRIX_BINDING,
+                },
+                home=home,
+            )
+            self.assertEqual(repository.agent_binding, MATRIX_BINDING)
+            self.assertEqual(repository.status_fields()["agent_binding"], MATRIX_BINDING)
+
+    def test_duplicate_bindings_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = RepositoryContext(
+                "a",
+                "Owner/A",
+                root / "a-control",
+                root / "a-work",
+                root / "a-checkpoints",
+                agent_binding=MATRIX_BINDING,
+            )
+            second = RepositoryContext(
+                "b",
+                "Owner/B",
+                root / "b-control",
+                root / "b-work",
+                root / "b-checkpoints",
+                agent_binding=MATRIX_BINDING,
+            )
+            with self.assertRaisesRegex(ValueError, "duplicate agent binding"):
+                validate_repository_set([first, second])
+
+
+class TaskBindingContractTests(unittest.TestCase):
+    @staticmethod
+    def task(binding: str | None = MATRIX_BINDING) -> dict[str, object]:
+        task: dict[str, object] = {
+            "id": "binding-test",
+            "mode": "commands",
+            "allow_write": False,
+            "resources": [],
+            "command_timeout": 30,
+            "task_timeout": 120,
+            "commands": ["true"],
+        }
+        if binding is not None:
+            task["agent_binding"] = binding
+        return task
+
+    def test_required_binding_missing_wrong_and_correct(self) -> None:
+        missing = self.task(None)
+        validate_task(missing)
+        with self.assertRaisesRegex(ValueError, "agent_binding is required"):
+            validate_task(missing, require_agent_binding=True)
+        with self.assertRaisesRegex(ValueError, "agent_binding is required"):
+            require_task_agent_binding(missing, MATRIX_BINDING)
+
+        wrong = self.task(C6_BINDING)
+        with self.assertRaisesRegex(ValueError, "agent_binding mismatch"):
+            require_task_agent_binding(wrong, MATRIX_BINDING)
+
+        correct = self.task(MATRIX_BINDING)
+        validate_task(correct, require_agent_binding=True)
+        self.assertEqual(task_agent_binding(correct), MATRIX_BINDING)
+        self.assertEqual(require_task_agent_binding(correct, MATRIX_BINDING), MATRIX_BINDING)
+
+
+class ParallelBindingAdmissionTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.repository = RepositoryContext(
+            "matrixhub",
+            "MichalMatu/MatrixHub",
+            root / "control",
+            root / "work",
+            root / "checkpoints",
+            agent_binding=MATRIX_BINDING,
+        )
+        (self.repository.control / ".agent").mkdir(parents=True)
+        (self.repository.control / ".agent" / "binding.json").write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "repository_id": "matrixhub",
+                    "repository": "MichalMatu/MatrixHub",
+                    "agent_binding": MATRIX_BINDING,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_repository_binding_ready_fails_closed_when_registry_unbound(self) -> None:
+        unbound = RepositoryContext(
+            self.repository.repository_id,
+            self.repository.repository,
+            self.repository.control,
+            self.repository.work,
+            self.repository.checkpoints,
+            agent_binding=None,
+        )
+        with mock.patch.object(
+            agent_parallel_worker.serial_worker, "publish_repository_status"
+        ) as publish:
+            self.assertFalse(agent_parallel_worker._repository_binding_ready(unbound))
+        self.assertEqual(publish.call_args.args[1], "unbound")
+
+    def test_repository_binding_ready_rejects_control_binding_mismatch(self) -> None:
+        payload = json.loads(
+            (self.repository.control / ".agent" / "binding.json").read_text(encoding="utf-8")
+        )
+        payload["agent_binding"] = C6_BINDING
+        (self.repository.control / ".agent" / "binding.json").write_text(
+            json.dumps(payload), encoding="utf-8"
+        )
+        with mock.patch.object(
+            agent_parallel_worker.serial_worker, "publish_repository_status"
+        ) as publish:
+            self.assertFalse(agent_parallel_worker._repository_binding_ready(self.repository))
+        self.assertEqual(publish.call_args.args[1], "binding_error")
+
+    def test_wrong_task_binding_publishes_terminal_rejection_without_execution(self) -> None:
+        task = TaskBindingContractTests.task(C6_BINDING)
+        with mock.patch.object(agent_parallel_worker.core, "publish_result") as publish_result, mock.patch.object(
+            agent_parallel_worker.agentd, "publish_run_state"
+        ) as publish_run:
+            agent_parallel_worker._reject_task_binding(self.repository, task)
+        result = publish_result.call_args.args[1]
+        self.assertEqual(result["failure_reason"], "agent_binding_mismatch")
+        self.assertEqual(result["expected_agent_binding"], MATRIX_BINDING)
+        self.assertEqual(result["provided_agent_binding"], C6_BINDING)
+        self.assertEqual(publish_run.call_args.args[0], "binding-test")
+
+
+class OperatorBindingMigrationTests(unittest.TestCase):
+    def test_migration_requires_disabled_and_writes_canonical_binding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            registry = root / "repositories.json"
+            registry.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "repositories": [
+                            {
+                                "id": "matrixhub",
+                                "repository": "MichalMatu/MatrixHub",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(agent_operator, "is_disabled", return_value=False):
+                with self.assertRaisesRegex(RuntimeError, "requires Local Agent to be disabled"):
+                    agent_operator.migrate_registry_bindings(registry_path=registry)
+            with mock.patch.object(agent_operator, "is_disabled", return_value=True):
+                result = agent_operator.migrate_registry_bindings(registry_path=registry)
+            self.assertTrue(result["changed"])
+            payload = json.loads(registry.read_text(encoding="utf-8"))
+            self.assertEqual(payload["repositories"][0]["agent_binding"], MATRIX_BINDING)
+
+
+class ControlRemoteTrackingRefTests(unittest.TestCase):
+    def test_materialize_control_remote_ref_uses_exact_fetch_head(self) -> None:
+        sha = "a" * 40
+
+        class FakeCore:
+            CONTROL = Path("/tmp/control")
+            CONTROL_BRANCH = "agent-control"
+
+            def __init__(self) -> None:
+                self.calls: list[list[str]] = []
+
+            def process(self, args, _cwd, **_kwargs):
+                self.calls.append(list(args))
+                if args[:3] == ["git", "rev-parse", "FETCH_HEAD"]:
+                    return {"exit_code": 0, "output": sha}
+                if args[:3] == ["git", "update-ref", "refs/remotes/origin/agent-control"]:
+                    self.asserted_sha = args[3]
+                    return {"exit_code": 0, "output": ""}
+                return {"exit_code": 1, "output": "unexpected"}
+
+        core = FakeCore()
+        agent_storage.materialize_control_remote_tracking_ref(core)
+        self.assertEqual(core.asserted_sha, sha)
+        self.assertIn(
+            ["git", "update-ref", "refs/remotes/origin/agent-control", sha],
+            core.calls,
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
