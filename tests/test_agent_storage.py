@@ -23,7 +23,7 @@ class StoragePolicyTests(unittest.TestCase):
                 "256",
                 "--no-tags",
                 "origin",
-                "agent-control",
+                "+refs/heads/agent-control:refs/remotes/origin/agent-control",
             ],
         )
 
