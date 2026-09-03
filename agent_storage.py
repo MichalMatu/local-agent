@@ -280,6 +280,15 @@ def sync_control(core_module: Any) -> None:
         if result["exit_code"] != 0:
             raise RuntimeError(result["output"])
 
+    try:
+        from agent_cleanup import prune_control_runtime
+
+        prune_control_runtime(core_module)
+    except Exception as exc:
+        logger = getattr(core_module, "log", None)
+        if callable(logger):
+            logger(f"runtime GC skipped after sync: {type(exc).__name__}: {exc}")
+
 
 def git_bool(core_module: Any, path: Path, args: list[str]) -> bool | None:
     """Read a Git boolean-like diagnostic without raising on unsupported settings."""
