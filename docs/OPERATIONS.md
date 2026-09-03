@@ -4,80 +4,174 @@ This is the canonical operational workflow for `MichalMatu/local-agent`.
 
 ## Production topology
 
-The production/runtime source is `~/local-agent` on `main`. Releases are tagged `vX.Y.Z`. Temporary `v*-staging` branches and detached worktrees are used only for candidate development and exact-SHA validation.
+The production/runtime source is `~/local-agent` on `main`. Releases are tagged `vX.Y.Z`. Temporary `v*-staging` branches/worktrees are candidate-development infrastructure only.
 
-The recommended bounded-parallel multi-repository supervisor is:
+The recommended bounded-parallel supervisor is:
 
 ```bash
 python agent_parallel.py --registry "$HOME/Library/Application Support/local-agent/repositories.json" --max-workers 2
 ```
 
-`agent_multirepo.py` remains the direct serial fallback with global concurrency one. Both entry points use the same daemon lock and the same repository registry/state layout. Shared polling/order policy and control-binding primitives live under `local_agent/supervisor/`; `agent_parallel.py` does not import the serial fallback entrypoint.
+`agent_multirepo.py` remains the direct serial fallback with global concurrency one. In 4.15 both execution paths enforce the same hard agent-binding admission contract. The two supervisors use the same daemon lock and must never run simultaneously.
+
+## Hard agent-binding contract
+
+Local Agent 4.15 and Chat Bridge 0.4 make repository routing an explicit identity, not a planner hint.
+
+Every executable repository has one canonical lowercase UUID `agent_binding`. The canonical catalog lives at:
+
+```text
+config/agent_bindings.json
+```
+
+The same UUID must exist in all three executor-side locations:
+
+```text
+~/Library/Application Support/local-agent/repositories.json
+    repositories[].agent_binding
+
+<repository control checkout>/.agent/binding.json
+    agent_binding + repository_id + repository
+
+<agent-control>/.agent/tasks/<task-id>.json
+    agent_binding
+```
+
+Before claim/execution the worker requires:
+
+```text
+registry binding == control binding == task binding
+```
+
+The parallel worker and serial fallback both enforce this. Failure is fail-closed:
+
+- registry binding absent -> repository status `unbound`, no task admission;
+- `.agent/binding.json` missing/invalid/mismatched -> `binding_error`, no task admission;
+- task binding absent -> terminal `agent_binding_missing`, before claim/commands;
+- task binding mismatched -> terminal `agent_binding_mismatch`, before claim/commands.
+
+The global operator `disabled` marker is checked before repository binding admission. Emergency stop therefore remains authoritative even during a partial/broken migration.
+
+Repository binding is operational identity. Do not rotate a UUID to repair a task or switch a chat. A Chat Bridge conversation can change repository only through explicit **Rebind**; executor configuration changes require an intentional disabled migration.
+
+The `local-agent` catalog entry is `execution_enabled: false`. It is reserved for bridge/operator infrastructure conversations and must not be used to queue project tasks.
+
+## Binding migration while disabled
+
+A 4.15 upgrade must be fail-closed:
+
+```bash
+cd ~/local-agent
+.venv/bin/python agent_operator.py disable --reason binding-migration
+.venv/bin/python agent_operator.py status
+.venv/bin/python agent_operator.py migrate-bindings
+```
+
+`migrate-bindings` refuses to run unless Local Agent is disabled. It applies the canonical catalog to the local repository registry and refuses an existing UUID that disagrees with the catalog.
+
+Before enabling, verify every enabled repository has a matching committed `.agent/binding.json` on its `agent-control` branch. The file format is:
+
+```json
+{
+  "version": 1,
+  "repository_id": "matrixhub",
+  "repository": "MichalMatu/MatrixHub",
+  "agent_binding": "033327ab-700d-43b4-9b3b-caff1acaa2c7"
+}
+```
+
+Do not enable execution while any repository reports `unbound` or `binding_error`.
+
+## Chat Bridge 0.4 rollout
+
+Bridge state schema 3 stores immutable conversation binding fields:
+
+```text
+repositoryId
+repository
+agentBinding
+bindingRevision
+bindingSetAt
+```
+
+Legacy/unbound conversations migrate disabled with `binding_required`; they receive no alarm. Normal conversation edits cannot alter binding fields. Explicit Rebind is the only supported route change and forces a new bootstrap.
+
+Remote runtime schema 3 publishes the canonical agent catalog. Production runtime is served from branch `chat-bridge-state`, file `chat_bridge/runtime.json`. Rollout order matters:
+
+1. keep Local Agent globally disabled;
+2. release/fast-forward Local Agent 4.15 code and validate CI;
+3. update/reload Chat Bridge 0.4;
+4. publish runtime schema 3 with the matching catalog;
+5. verify migrated chats are fail-closed and intended chats have exact bindings;
+6. run binding-negative E2E plus emergency-control E2E;
+7. enable Local Agent only after those checks are green.
+
+Publishing schema 3 before an old bridge is replaced is not a reason to enable execution. The kill switch remains the safety boundary during rollout.
 
 ## Control data
 
 Each registered repository uses its own `agent-control` branch:
 
 ```text
+.agent/binding.json
 .agent/tasks/<task-id>.json
 .agent/runs/<task-id>.json
 .agent/results/<task-id>.json
 .agent/status/daemon.json
+.agent/daemon/control.json
+.agent/daemon/acks/*.json
 ```
 
 Task IDs/payloads are immutable within a repository. Interrupted claimed work is never silently replayed. Terminal results are durably spooled before publication; publication recovery may republish but may not re-execute commands.
 
+Control synchronization keeps history shallow and explicitly fetches the control branch into `refs/remotes/origin/agent-control`. ACK verification therefore remains grounded in a fetched remote-tracking tree instead of a possibly unpushed local commit. This is required for reliable active `cancel_task` and other control ACK checks.
+
 ## Parallel resource contract
 
-Every task must declare `resources` explicitly. The task contract rejects missing, malformed, duplicated, oversized or non-canonical declarations. There is no compatibility fallback to `machine`.
+Every task must declare `resources` explicitly. Missing, malformed, duplicated, oversized or non-canonical declarations are terminal contract errors; there is no fallback to `machine`.
 
-Repository-local software work uses:
+Repository-local work uses:
 
 ```json
 {"resources": [], "memory_limit_mb": 2048}
 ```
 
-This includes builds, tests, lint, static analysis and documentation work when they do not touch an exclusive external device/tooling state. `memory_limit_mb` is an independent RSS watchdog and does not make a task machine-exclusive.
-
-Concrete external resources use stable names, for example:
+Concrete exclusive resources use stable names, for example:
 
 ```json
 {"resources": ["board:growbox-s3"]}
 {"resources": ["board:zigbee-c6"]}
 ```
 
-Tasks sharing a named resource serialize; unrelated named resources may overlap. Full host exclusivity is explicit and exceptional:
+Full-host exclusivity is explicit:
 
 ```json
 {"resources": ["machine"]}
 ```
 
-Use `machine` only for operations that genuinely need the entire host, such as global Local Agent maintenance or global toolchain mutation. A normal build, flash, serial session or hardware soak should use the repository lease plus the narrow concrete resource it actually owns.
+`memory_limit_mb` remains an independent RSS watchdog and never implies machine exclusivity.
 
-One repository still executes only one task at a time because of its repository execution lease. Repository isolation is independent from external-resource admission. Different repositories may compile/test concurrently when their external resources do not conflict.
-
-Resource acquisition is non-blocking before task claim. If a resource is busy, the task remains immutable and pending, repository status reports `waiting_resource`, and the supervisor retries with bounded backoff. Resource contention is WAIT, never task failure and never a reason for Chat Bridge `STOP`.
+Resource acquisition is non-blocking before claim. Contention leaves the immutable task pending, reports `waiting_resource`, and retries with bounded backoff. Contention is WAIT, not task failure.
 
 ## Development workflow
 
-1. Read `AGENTS.md` and the target repository's planner instructions.
-2. Inspect current source plus `.agent/status/daemon.json` and relevant run/result evidence.
-3. Confirm the intended `work_branch` explicitly when it is not the repository default.
-4. Prepare the smallest deterministic change.
-5. Classify resources conservatively before queueing the task.
-6. Queue a new unique task through that repository's `agent-control` branch.
-7. For an autonomous Chat Bridge goal, perform one early liveness re-check after about 30 seconds. If the task is healthy, return to a longer interval matched to expected duration; if it failed immediately, diagnose before doing anything else.
-8. Follow the same digest/attempt until terminal evidence is published.
-9. Diagnose real output; do not infer success from task submission.
-10. Run focused verification first, then the broad final gate when warranted.
-11. Publish validated source according to the target repository's Git policy.
-12. Treat source publication and hardware flashing/runtime verification as separate gates.
+1. Read `AGENTS.md`, this file and target-repository planner instructions.
+2. Establish the exact repository/binding identity before queueing anything.
+3. Inspect `.agent/status/daemon.json` and exact run/result evidence for that repository.
+4. Confirm the intended `work_branch` when it differs from the default.
+5. Prepare the smallest deterministic change.
+6. Classify resources conservatively.
+7. Queue one new unique task containing the exact `agent_binding` and explicit `resources`.
+8. For Chat Bridge work, perform one early liveness check around 30 seconds.
+9. Follow the same digest/attempt until terminal evidence exists.
+10. Diagnose exact output; never infer success from submission.
+11. Run focused verification first and one final broad gate when warranted.
+12. Publish source according to the target repository Git policy.
+13. Treat source publication and hardware flashing/runtime verification as separate gates.
 
-The early liveness check is planner pacing only. It must not change daemon polling, duplicate work, or justify queueing a second task while the first one is still active. Its purpose is to catch immediate deterministic failures without waiting through a normal 5-15 minute bridge interval.
+For substantial staged work, prefer `workflow_policy: "efficient-verification-v1"`: `work` stages for implementation, `focused` stages for affected verification and exactly one final `full` verification stage.
 
-For substantial staged coding work, prefer `workflow_policy: "efficient-verification-v1"`: `work` stages for implementation, `focused` stages for affected verification, and exactly one final `full` verification stage.
-
-An autonomous Chat Bridge conversation should follow one active task at a time for its current goal. This planner-level sequencing does not reduce the production executor to global concurrency one: unrelated repositories or conversations may still overlap when their effective resources permit it. Always decide from the target repository's current status/run/result evidence.
+An autonomous conversation follows one active task at a time for its own goal. Independent repositories/conversations may overlap when executor resource admission permits it.
 
 ## Multi-repository administration
 
@@ -93,21 +187,24 @@ Commands:
 python agent_repo_admin.py list
 python agent_repo_admin.py validate
 python agent_repo_admin.py provision --repository-id <id>
+python agent_operator.py migrate-bindings
 ```
 
-Provisioning is explicit and never a poll-loop side effect. Repository ids/remotes and normalized control/work/checkpoint paths must be disjoint.
+Provisioning is explicit and never a poll-loop side effect. Repository ids/remotes/bindings and normalized control/work/checkpoint paths must remain disjoint and stable.
 
-The first enabled registry entry is the supervisor control repository in registry v1. Reordering enabled entries therefore changes the global restart/self-update/status control source; treat registry order as operational identity.
+The first enabled registry entry is the supervisor control repository in registry v1. Reordering entries therefore changes the global restart/self-update/status control source; treat order as operational identity.
 
 Do not remove or identity-mutate an active registry entry while workers/descendants may still be alive.
 
-## Control and maintenance
+## Emergency controls
 
-Repository workers may handle repository-local status/control but never supervisor-wide restart/self-update directly.
+Local operator commands are in `agent_operator.py` and `docs/EMERGENCY_CONTROLS.md`. The global marker blocks admission independently of GitHub/control-branch health.
 
-While workers are active, the parallel supervisor only performs a lightweight control probe. A real global control request stops new admission, lets current workers drain, then acquires all configured repository execution identities before handling the request.
+Repository controls include `cancel_task`, `disable` and status handling. Active-task control watching periodically synchronizes the target repository control branch. An active cancel is valid only when the fetched control request targets the exact active task and the control id is not already remotely acknowledged.
 
-Ordinary self-update maintenance waits for a natural idle window. Production self-update expects the installed source checkout to be a clean `main`; this is why production must run from `~/local-agent` on `main`, not from a detached staging worktree.
+`disable` is global safety state, not merely a display status. When disabled, workers stop task admission even if task/binding data is otherwise valid.
+
+Repository workers never execute supervisor-wide restart/self-update directly. While workers are active, the parallel supervisor probes global control and drains safely before global maintenance.
 
 ## Runtime bounds
 
@@ -117,61 +214,65 @@ Canonical defaults:
 - no-output timeout 300 s, max 3600 s;
 - whole-task budget 1800 s, max 21600 s;
 - finalization reserve 60 s;
-- normal RSS limit 4096 MiB, configurable max 16384 MiB;
-- resource admission has no RSS-derived exclusivity threshold; each task keeps its declared RSS watchdog bound.
+- normal RSS limit 4096 MiB, configurable max 16384 MiB.
 
 Command stdout capture is bounded. Runtime limits are loaded at daemon startup.
 
-## Deployment
+## macOS deployment
 
-The recommended macOS template is:
+Recommended template:
 
 ```text
 deploy/macos/com.michal.local-agent.parallel.plist
 ```
 
-It runs `~/local-agent/agent_parallel.py --max-workers 2` and uses label `com.michal.local-agent`. Serial templates use the same label and are replacements, never additional services.
+It runs `~/local-agent/agent_parallel.py --max-workers 2` under label `com.michal.local-agent`. Serial templates use the same label and are replacements, never additional services.
 
-After a release:
+Cold-start rollout should begin disabled. Verify:
 
-1. ensure `~/local-agent` is clean and fast-forwarded to released `main`;
-2. install/bootstrap the parallel plist;
-3. verify `daemon_version`, `self_revision`, `execution_model` and `max_parallel_workers`;
-4. queue a real bounded task;
-5. keep the serial backup until the release has proven stable.
+- launchd runs only the supervisor while disabled;
+- `agent_operator.py status` reports disabled;
+- daemon state is `disabled`;
+- no repository workers/tasks start;
+- a queued probe remains unclaimed while disabled.
 
-Rollback means stopping the parallel service, restoring the serial plist and starting `agent_multirepo.py`; repository workspaces/control branches do not require migration.
+Only after binding/bridge/E2E gates are complete should `agent_operator.py enable` remove the marker.
+
+Rollback to `agent_multirepo.py` does not weaken hard binding in 4.15: the serial repository worker enforces the same registry/control/task equality. Do not roll back to a pre-4.15 binary while bound task queues are considered trusted.
 
 ## Release flow
 
 For non-trivial runtime changes:
 
-1. create/use an isolated `v*-staging` branch/worktree based on current `main`;
-2. implement and run focused verification there;
+1. use an isolated candidate branch/worktree based on current `main`;
+2. implement and run focused verification;
 3. require compile, Ruff, full unittest/integration and macOS smoke on the exact candidate SHA;
-4. review `main...candidate` and ensure no unrelated or fallback-breaking changes;
-5. audit planner-facing Local Agent docs in every registered downstream repository and update any materially stale instructions;
-6. fast-forward `main` to the validated candidate;
-7. tag the released main commit `vX.Y.Z` matching `agent_version.RELEASE_VERSION`;
-8. switch production back to `~/local-agent` on `main` and verify live status/result evidence;
-9. remove obsolete staging worktrees/branches after the release is established.
+4. review `main...candidate` and verify no unrelated/fallback-breaking changes;
+5. audit planner-facing Local Agent docs in every registered downstream repository;
+6. advance `main` only after the exact candidate is green;
+7. tag released `main` `vX.Y.Z` matching `agent_version.RELEASE_VERSION`;
+8. switch production to `~/local-agent` on released `main` and verify live status/result evidence;
+9. remove obsolete staging branches/worktrees after release is established.
+
+For 4.15, release verification additionally requires missing/wrong binding rejection on both parallel and serial execution paths, control-binding mismatch admission failure, Chat Bridge unbound/rebind tests, active `cancel_task`, and global `disable` E2E.
 
 ## Downstream documentation gate
 
-Current registered targets are LiteGraph, Growbox ML Controller, MatrixHub and ESP32-C6 Zigbee (`esp32-c6-zigbee`). Changes to task schema, resources, concurrency, status/control fields, execution model, deployment/self-update or planner flow require a downstream docs audit before release. See `AGENTS.md` for the exact files/branches that must be checked.
+Current targets are LiteGraph, Growbox ML Controller, MatrixHub and ESP32-C6 Zigbee (`esp32-c6-zigbee`). Changes to task schema, planner flow, status/control or execution model require a downstream docs audit before release. See `AGENTS.md` for exact files/branches.
+
+Downstream task examples must include `agent_binding` for executable Chat Bridge/Local Agent work and must not instruct a conversation to select/switch repositories from model context.
 
 ## Source of truth
 
-1. real Local Agent command/result output;
+1. exact Local Agent terminal command/result output;
 2. target repository source/tests;
-3. remote run/result/status evidence;
+3. remote run/result/status/control evidence;
 4. planner analysis.
 
-## Verification tiers and output policy
+## Verification and log discipline
 
-Use syntax/config smoke and focused regression during iteration, then one bounded full suite near the end of substantial work. Structured long/noisy stages may use `output_policy: "summary"`; bounded raw output remains in result evidence and failures expose a bounded tail. Heavy ful/browser/build stages may run with `resources: []` when they are repository-local; declare only the concrete external resources they actually require.
+Use focused regression during iteration, then one bounded full suite near the end. Long/noisy structured stages may use `output_policy: "summary"`; bounded raw evidence remains in terminal results.
 
-## Supervisor retry and log discipline
-Unexpected worker exits back off 2-300 s and reset after normal outcomes. Deferred global-control work backs off 2-15 s so unrelated admission remains responsive. Repeated lease-busy control probes are bounded: after six consecutive deferrals, new admission pauses, active workers drain naturally, global control is serviced, and admission resumes. Degraded sync/network probes remain non-draining. Repeated outer supervisor failure/deferral notices are gated to one per 60 s for a continuing condition.
+Unexpected worker exits back off 2-300 s and reset after normal outcomes. Deferred global-control work backs off 2-15 s. Repeated control lease contention enters a bounded drain after six consecutive deferrals.
 
-The production parallel supervisor also bounds the launchd files `~/Library/Logs/local-agent.log` and `~/Library/Logs/local-agent-error.log`. When no repository worker is active, a file above 2 MiB is compacted in place to its most recent approximately 1 MiB of complete text. The inherited descriptor is verified against the path and forced to append mode before compaction so later supervisor and worker output cannot create sparse-file gaps. Manual or redirected runs whose descriptors do not match those paths are left untouched. Production logging is concise by default: successful internal Git housekeeping is silent, multiline task commands are represented by a one-line stage/size descriptor throughout both legacy and RuntimeExecutor execution paths instead of being echoed into the daemon log, and expected control-probe lease contention is silent until the bounded drain threshold is reached. Full command text remains available in run/result evidence. Set `LOCAL_AGENT_VERBOSE_LOGS=1` only for temporary low-level command diagnostics. Degraded control probes, timeouts, nonzero internal Git commands, drain events, task lifecycle, and other actionable failures remain logged.
+The production supervisor bounds `~/Library/Logs/local-agent.log` and `local-agent-error.log`. Routine successful internal Git housekeeping is quiet by default; actionable control failures, timeouts, nonzero internal commands, task lifecycle and other degraded states remain logged. Set `LOCAL_AGENT_VERBOSE_LOGS=1` only for temporary low-level diagnostics.
