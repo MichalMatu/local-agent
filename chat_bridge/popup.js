@@ -4,6 +4,7 @@ const elements = {
   masterEnabled: document.querySelector("#masterEnabled"),
   currentTitle: document.querySelector("#currentTitle"),
   currentUrl: document.querySelector("#currentUrl"),
+  currentAgent: document.querySelector("#currentAgent"),
   addCurrent: document.querySelector("#addCurrent"),
   conversationList: document.querySelector("#conversationList"),
   conversationCount: document.querySelector("#conversationCount"),
@@ -19,6 +20,7 @@ const elements = {
 };
 
 let latestState = null;
+let latestRuntime = null;
 let currentTab = null;
 let countdownTimer = null;
 
@@ -113,7 +115,36 @@ function createTextInput(value, placeholder = "") {
   return input;
 }
 
-function renderConversation(conversation, settings, schedule) {
+function agentLabel(agent) {
+  const mode = agent.executionEnabled === false ? "bridge only" : "executor";
+  return `${agent.repositoryId} · ${agent.repository} · ${mode}`;
+}
+
+function createAgentSelect(agents, selectedBinding = null, includeBlank = true) {
+  const select = document.createElement("select");
+  if (includeBlank) {
+    const blank = document.createElement("option");
+    blank.value = "";
+    blank.textContent = "Select agent binding...";
+    select.append(blank);
+  }
+  for (const agent of agents || []) {
+    const option = document.createElement("option");
+    option.value = agent.agentBinding;
+    option.textContent = agentLabel(agent);
+    select.append(option);
+  }
+  select.value = selectedBinding || "";
+  return select;
+}
+
+function replaceSelectOptions(select, agents, selectedBinding = null, includeBlank = true) {
+  const fresh = createAgentSelect(agents, selectedBinding, includeBlank);
+  select.replaceChildren(...fresh.childNodes);
+  select.value = selectedBinding || "";
+}
+
+function renderConversation(conversation, settings, schedule, runtime) {
   const card = document.createElement("article");
   card.className = "conversation-card";
 
@@ -137,7 +168,13 @@ function renderConversation(conversation, settings, schedule) {
   const meta = document.createElement("div");
   meta.className = "card-meta";
   const runtimeState = conversation.bootstrapPending ? "bootstrap pending" : "compact wake";
+  const bindingText = conversation.agentBinding
+    ? `${conversation.repositoryId} · ${conversation.agentBinding}`
+    : "UNBOUND — wake disabled";
   meta.append(
+    Object.assign(document.createElement("span"), {
+      textContent: `Agent: ${bindingText}`
+    }),
     Object.assign(document.createElement("span"), {
       textContent: `Last: ${conversation.lastStatus || "-"}`
     }),
@@ -165,6 +202,13 @@ function renderConversation(conversation, settings, schedule) {
   const labelInput = createTextInput(conversation.label);
   labelWrap.append(labelLabel, labelInput);
 
+  const bindingWrap = document.createElement("div");
+  bindingWrap.className = "full-width";
+  const bindingLabel = document.createElement("label");
+  bindingLabel.textContent = "Explicit agent binding (changes only via Rebind)";
+  const bindingSelect = createAgentSelect(runtime?.agents || [], conversation.agentBinding, true);
+  bindingWrap.append(bindingLabel, bindingSelect);
+
   const intervalWrap = document.createElement("div");
   intervalWrap.className = "full-width";
   const intervalLabel = document.createElement("label");
@@ -177,13 +221,16 @@ function renderConversation(conversation, settings, schedule) {
   intervalInput.value =
     conversation.intervalOverrideMinutes === null ? "" : String(conversation.intervalOverrideMinutes);
   intervalWrap.append(intervalLabel, intervalInput);
-  grid.append(labelWrap, intervalWrap);
+  grid.append(labelWrap, bindingWrap, intervalWrap);
 
   const actions = document.createElement("div");
   actions.className = "card-actions";
   const save = document.createElement("button");
   save.type = "button";
   save.textContent = "Save";
+  const rebind = document.createElement("button");
+  rebind.type = "button";
+  rebind.textContent = conversation.agentBinding ? "Rebind" : "Bind";
   const run = document.createElement("button");
   run.type = "button";
   run.textContent = "Run now";
@@ -191,7 +238,7 @@ function renderConversation(conversation, settings, schedule) {
   remove.type = "button";
   remove.textContent = "Remove";
   remove.className = "danger";
-  actions.append(save, run, remove);
+  actions.append(save, rebind, run, remove);
 
   enabled.addEventListener("change", async () => {
     try {
@@ -222,7 +269,33 @@ function renderConversation(conversation, settings, schedule) {
         }
       });
       if (!response?.ok) throw new Error(response?.error || "save failed");
-      showMessage("Conversation saved.");
+      showMessage("Conversation saved. Binding unchanged.");
+      await refresh();
+    } catch (error) {
+      showMessage(`Error: ${error.message}`);
+    }
+  });
+
+  rebind.addEventListener("click", async () => {
+    try {
+      const agentBinding = bindingSelect.value;
+      if (!agentBinding) throw new Error("Select an agent binding first.");
+      if (agentBinding === conversation.agentBinding) {
+        showMessage("Binding is already set to this agent.");
+        return;
+      }
+      const target = (runtime?.agents || []).find((agent) => agent.agentBinding === agentBinding);
+      const description = target ? `${target.repositoryId} (${target.repository})` : agentBinding;
+      if (!confirm(`Rebind this conversation to ${description}? This resets bootstrap state and is the only way to change repository identity.`)) {
+        return;
+      }
+      const response = await request({
+        type: "bridge:rebind-conversation",
+        conversationId: conversation.id,
+        binding: { agentBinding }
+      });
+      if (!response?.ok) throw new Error(response?.error || "rebind failed");
+      showMessage(`Conversation rebound to ${response.conversation.repositoryId}.`);
       await refresh();
     } catch (error) {
       showMessage(`Error: ${error.message}`);
@@ -232,13 +305,13 @@ function renderConversation(conversation, settings, schedule) {
   run.addEventListener("click", async () => {
     try {
       run.disabled = true;
-      showMessage(`Sending wake to ${conversation.label || conversation.id}...`);
+      showMessage(`Sending bound wake to ${conversation.label || conversation.id}...`);
       const response = await request({
         type: "bridge:run-now",
         conversationId: conversation.id
       });
       if (!response?.ok) throw new Error(response?.reason || response?.error || "run failed");
-      showMessage(`Sent ${response.bridgeMode || "wake"} to ${conversation.label || conversation.id}.`);
+      showMessage(`Sent ${response.bridgeMode || "wake"} to ${response.repositoryId}.`);
       await refresh();
     } catch (error) {
       showMessage(`Error: ${error.message}`);
@@ -265,7 +338,7 @@ function renderConversation(conversation, settings, schedule) {
   return card;
 }
 
-function renderConversations(state, schedules = {}) {
+function renderConversations(state, schedules = {}, runtime = null) {
   elements.conversationList.replaceChildren();
   const conversations = Object.values(state.conversations || {}).sort((a, b) =>
     String(a.label || "").localeCompare(String(b.label || ""))
@@ -282,16 +355,18 @@ function renderConversations(state, schedules = {}) {
 
   for (const conversation of conversations) {
     elements.conversationList.append(
-      renderConversation(conversation, state.settings, schedules[conversation.id] || null)
+      renderConversation(conversation, state.settings, schedules[conversation.id] || null, runtime)
     );
   }
 }
 
-async function refreshCurrentTabForm(state) {
+async function refreshCurrentTabForm(state, runtime) {
   currentTab = await getCurrentChatTab();
   if (!currentTab) {
     elements.currentTitle.textContent = "No ChatGPT conversation detected";
     elements.currentUrl.textContent = "Open a concrete ChatGPT conversation, then open this popup again.";
+    replaceSelectOptions(elements.currentAgent, runtime?.agents || [], null, true);
+    elements.currentAgent.disabled = true;
     elements.addCurrent.textContent = "Add current chat";
     elements.addCurrent.disabled = true;
     return;
@@ -301,14 +376,17 @@ async function refreshCurrentTabForm(state) {
   const existing = state.conversations?.[id];
   elements.currentTitle.textContent = existing?.label || chatLabelFromTitle(currentTab.title);
   elements.currentUrl.textContent = currentTab.normalizedUrl;
+  replaceSelectOptions(elements.currentAgent, runtime?.agents || [], existing?.agentBinding || null, true);
+  elements.currentAgent.disabled = Boolean(existing?.agentBinding);
   elements.addCurrent.textContent = existing ? "Update current chat" : "Add current chat";
-  elements.addCurrent.disabled = false;
+  elements.addCurrent.disabled = !existing && !elements.currentAgent.value;
 }
 
 async function refresh() {
   const response = await request({ type: "bridge:get-state" });
   if (response?.error) throw new Error(response.error);
   latestState = response.state;
+  latestRuntime = response.runtime;
   const { settings } = latestState;
 
   elements.masterEnabled.checked = Boolean(settings.masterEnabled);
@@ -320,9 +398,9 @@ async function refresh() {
   elements.runtimeSource.textContent = response.runtime?.source || "-";
   elements.runtimeInterval.textContent = `${response.runtime?.intervalMinutes || settings.fallbackIntervalMinutes} min`;
 
-  renderConversations(latestState, response.schedules || {});
+  renderConversations(latestState, response.schedules || {}, response.runtime || null);
   restartCountdownTimer();
-  await refreshCurrentTabForm(latestState);
+  await refreshCurrentTabForm(latestState, response.runtime || null);
 }
 
 async function saveGlobal() {
@@ -348,6 +426,8 @@ async function addOrUpdateCurrent() {
 
   const id = protocol.conversationId(currentTab.normalizedUrl);
   const existing = latestState?.conversations?.[id];
+  const agentBinding = existing?.agentBinding || elements.currentAgent.value;
+  if (!agentBinding) throw new Error("Select the exact agent/repository binding first.");
   await injectContentScript(currentTab.id);
 
   const response = await request({
@@ -356,11 +436,16 @@ async function addOrUpdateCurrent() {
       url: currentTab.normalizedUrl,
       label: existing?.label || chatLabelFromTitle(currentTab.title),
       enabled: existing ? Boolean(existing.enabled) : true,
-      preferredTabId: currentTab.id
+      preferredTabId: currentTab.id,
+      agentBinding
     }
   });
   if (!response?.ok) throw new Error(response?.error || "save failed");
-  showMessage(existing ? "Current conversation updated." : "Current conversation added and scheduled.");
+  showMessage(
+    existing
+      ? `Current conversation updated; binding remains ${response.conversation.repositoryId}.`
+      : `Current conversation bound to ${response.conversation.repositoryId} and scheduled.`
+  );
   await refresh();
 }
 
@@ -369,6 +454,13 @@ elements.masterEnabled.addEventListener("change", () => {
     showMessage(`Error: ${error.message}`);
     refresh().catch(() => undefined);
   });
+});
+
+elements.currentAgent.addEventListener("change", () => {
+  if (!currentTab) return;
+  const id = protocol.conversationId(currentTab.normalizedUrl);
+  const existing = latestState?.conversations?.[id];
+  if (!existing) elements.addCurrent.disabled = !elements.currentAgent.value;
 });
 
 elements.saveGlobal.addEventListener("click", () => {
