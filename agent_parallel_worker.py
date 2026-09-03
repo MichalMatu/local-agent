@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TextIO
 
 import agent_core as core
+import agent_operator
 import agentd
 import agent_repo_worker as serial_worker
 from agent_process import (
@@ -148,6 +149,14 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
         agentd.recover_stale_claims()
         agentd.recover_invalid_task_files()
         serial_worker.handle_repository_control(repository)
+        if agent_operator.is_disabled():
+            serial_worker.publish_repository_status(
+                repository,
+                "disabled",
+                force_remote=True,
+                execution_variant="parallel",
+            )
+            return False
         pending = agentd.pending_tasks()
         if not pending:
             state = "publication_pending" if agentd.has_pending_publications() else "idle"
@@ -175,11 +184,12 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                     f"[parallel] TASK START repository={repository.repository_id} "
                     f"task={task_id} resources={list(resources)}"
                 )
-                outcome = agentd.execute_task(
-                    task,
-                    remote_daemon_status=False,
-                    remote_result_published=False,
-                )
+                with serial_worker.ActiveRepositoryControlWatcher(repository, task_id):
+                    outcome = agentd.execute_task(
+                        task,
+                        remote_daemon_status=False,
+                        remote_result_published=False,
+                    )
         except MachineResourceBusy as exc:
             waiting_since, force_remote = _waiting_status_context(task_id, exc.resource)
             serial_worker.publish_repository_status(
