@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import secrets
 from typing import Any
 
+from agent_binding import canonical_agent_binding
 from agent_config import TIMEOUTS
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -37,6 +39,30 @@ def task_digest(task: dict[str, Any]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def task_agent_binding(
+    task: dict[str, Any],
+    *,
+    required: bool = False,
+) -> str | None:
+    raw = task.get("agent_binding")
+    if raw is None:
+        if required:
+            raise ValueError("agent_binding is required")
+        return None
+    return canonical_agent_binding(raw)
+
+
+def require_task_agent_binding(task: dict[str, Any], expected_agent_binding: str) -> str:
+    expected = canonical_agent_binding(expected_agent_binding, field="expected_agent_binding")
+    provided = task_agent_binding(task, required=True)
+    assert provided is not None
+    if not secrets.compare_digest(provided, expected):
+        raise ValueError(
+            f"agent_binding mismatch: expected {expected}, got {provided}"
+        )
+    return provided
+
+
 def task_resources_for(task: dict[str, Any]) -> tuple[str, ...]:
     if "resources" not in task:
         raise ValueError("resources must be declared explicitly")
@@ -65,7 +91,7 @@ def task_resources_for(task: dict[str, Any]) -> tuple[str, ...]:
     return tuple(resources)
 
 
-def validate_task(task: dict[str, Any]) -> None:
+def validate_task(task: dict[str, Any], *, require_agent_binding: bool = False) -> None:
     if not isinstance(task, dict):
         raise ValueError("task must be an object")
     task_id = task.get("id")
@@ -73,6 +99,7 @@ def validate_task(task: dict[str, Any]) -> None:
         raise ValueError("task id must be a non-empty string up to 200 characters")
     if not _TASK_ID_RE.fullmatch(task_id):
         raise ValueError("task id contains unsupported characters")
+    task_agent_binding(task, required=require_agent_binding)
     mode = task.get("mode", "commands")
     if not isinstance(mode, str) or mode != "commands":
         raise ValueError("only mode=commands is supported")
