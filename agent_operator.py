@@ -2,6 +2,7 @@
 """Persistent local operator state for emergency Local Agent controls."""
 from __future__ import annotations
 
+import argparse
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,3 +61,64 @@ def enable_agent() -> bool:
         return False
     fsync_directory(DISABLED_PATH.parent)
     return True
+
+
+def _print_json(payload: dict[str, Any]) -> None:
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
+
+
+def command_status(_args: argparse.Namespace) -> int:
+    state = disabled_state()
+    _print_json(
+        {
+            "disabled": is_disabled(),
+            "state": state or None,
+            "marker": str(DISABLED_PATH),
+        }
+    )
+    return 0
+
+
+def command_disable(args: argparse.Namespace) -> int:
+    state = disable_agent(reason=args.reason)
+    _print_json({"disabled": True, "state": state, "marker": str(DISABLED_PATH)})
+    return 0
+
+
+def command_enable(_args: argparse.Namespace) -> int:
+    changed = enable_agent()
+    _print_json(
+        {
+            "disabled": False,
+            "changed": changed,
+            "marker": str(DISABLED_PATH),
+        }
+    )
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Emergency Local Agent operator controls"
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    status = sub.add_parser("status", help="show persistent disable state")
+    status.set_defaults(func=command_status)
+
+    disable = sub.add_parser("disable", help="persistently stop task admission")
+    disable.add_argument("--reason", default="operator_cli")
+    disable.set_defaults(func=command_disable)
+
+    enable = sub.add_parser("enable", help="clear persistent disable state")
+    enable.set_defaults(func=command_enable)
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
+    return int(args.func(args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
