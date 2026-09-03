@@ -54,15 +54,29 @@ def _remote_ref(self_repo: Path) -> str:
 
 def _load_remote_payload(self_repo: Path, ref: str) -> dict[str, Any]:
     fetch = _git(
-        ["fetch", "--quiet", "--no-tags", "--depth", "1", "origin", ref],
+        [
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "--depth",
+            "1",
+            "origin",
+            f"refs/heads/{REMOTE_BRANCH}",
+        ],
         self_repo,
         timeout=30,
     )
     if fetch["exit_code"] != 0:
         raise RuntimeError(str(fetch.get("output", "")).strip() or "operator control fetch failed")
+    resolved = _git(["rev-parse", "FETCH_HEAD"], self_repo, timeout=10)
+    fetched_ref = str(resolved.get("output", "")).strip().lower()
+    if resolved["exit_code"] != 0 or fetched_ref != ref:
+        raise RuntimeError(
+            f"operator control ref changed during fetch: expected={ref} got={fetched_ref or 'unknown'}"
+        )
     show = _git(["show", f"FETCH_HEAD:{REMOTE_STATE_PATH}"], self_repo, timeout=15)
     if show["exit_code"] != 0:
-        raise RuntimeError(str(show.get("output", "")).strip() or "operator control state missing")
+        raise ValueError(str(show.get("output", "")).strip() or "operator control state missing")
     payload = json.loads(str(show.get("output", "")))
     if not isinstance(payload, dict):
         raise ValueError("operator control state root must be an object")
@@ -103,20 +117,29 @@ def poll_remote_operator(
         state.last_poll_at = current
         try:
             ref = _remote_ref(self_repo)
-            if ref != state.last_ref or state.desired_state is None:
-                payload = _load_remote_payload(self_repo, ref)
-                desired_state, request_id = _validated_state(payload)
-                state.last_ref = ref
-                state.desired_state = desired_state
-                state.request_id = request_id
         except Exception as exc:
-            # Preserve a previously observed remote disable on transport failure.
-            # A malformed newly fetched state is fail-closed because an operator
-            # control branch must never accidentally turn a kill switch into enable.
-            if state.desired_state is None:
-                core.log(f"remote operator control unavailable: {type(exc).__name__}: {exc}")
-            else:
-                core.log(f"remote operator control refresh degraded: {type(exc).__name__}: {exc}")
+            core.log(f"remote operator ref probe degraded: {type(exc).__name__}: {exc}")
+        else:
+            if ref != state.last_ref or state.desired_state is None:
+                try:
+                    payload = _load_remote_payload(self_repo, ref)
+                    desired_state, request_id = _validated_state(payload)
+                except ValueError as exc:
+                    # The branch is reachable but its control payload is invalid:
+                    # fail closed rather than interpreting corruption as enable.
+                    state.last_ref = ref
+                    state.desired_state = "disabled"
+                    state.request_id = f"invalid-{ref[:12]}"
+                    core.log(f"remote operator state invalid; failing closed: {exc}")
+                except Exception as exc:
+                    # Transport/fetch failures preserve the last known desired state.
+                    core.log(
+                        f"remote operator control refresh degraded: {type(exc).__name__}: {exc}"
+                    )
+                else:
+                    state.last_ref = ref
+                    state.desired_state = desired_state
+                    state.request_id = request_id
 
     if state.desired_state == "disabled":
         if not agent_operator.is_disabled():
