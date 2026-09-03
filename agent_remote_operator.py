@@ -58,8 +58,6 @@ def _load_remote_payload(self_repo: Path, ref: str) -> dict[str, Any]:
             "fetch",
             "--quiet",
             "--no-tags",
-            "--depth",
-            "1",
             "origin",
             f"refs/heads/{REMOTE_BRANCH}",
         ],
