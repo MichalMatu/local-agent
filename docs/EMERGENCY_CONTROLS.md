@@ -1,8 +1,42 @@
 # Emergency Local Agent controls
 
-Local Agent 4.14.1 adds bounded emergency controls intended for autonomous chat-driven operation.
+Local Agent 4.14.2 adds repository-independent emergency stop and bounded task cancellation for autonomous chat-driven operation.
 
-## Remote control request
+## Central emergency stop
+
+The global kill switch no longer depends on any project repository checkout. The always-on guarded entrypoint polls the `operator-control` branch of `MichalMatu/local-agent` and reads:
+
+`.agent/operator/state.json`
+
+Normal state:
+
+```json
+{
+  "version": 1,
+  "desired_state": "enabled",
+  "request_id": "operator-control-bootstrap"
+}
+```
+
+Emergency stop from chat changes only the desired state and request id:
+
+```json
+{
+  "version": 1,
+  "desired_state": "disabled",
+  "request_id": "disable-<unique-id>"
+}
+```
+
+The guarded entrypoint persists:
+
+`~/Library/Application Support/local-agent/disabled.json`
+
+and terminates the parallel supervisor process group. While the marker exists it does not start a new supervisor, even when launchd has `KeepAlive=true`.
+
+Remote `desired_state=enabled` never clears the local marker. Re-enable remains an explicit local action.
+
+## Repository task cancellation
 
 A chat may publish `.agent/daemon/control.json` on the `agent-control` branch of the repository that owns the conversation.
 
@@ -16,27 +50,22 @@ Cancel one task:
 }
 ```
 
-Disable Local Agent globally:
-
-```json
-{
-  "id": "disable-<unique-id>",
-  "action": "disable"
-}
-```
-
-`disable` creates the persistent local marker:
-
-`~/Library/Application Support/local-agent/disabled.json`
-
-The parallel supervisor stops active workers and admits no new tasks while this marker exists. The marker survives supervisor and launchd restarts.
+Pending cancellation publishes a terminal `cancelled_by_operator` result. Active cancellation is accepted only by the worker that owns the exact repository/task.
 
 ## Local recovery
 
-The emergency disable is intentionally not remotely reversible. Re-enable explicitly on the Mac:
+Before re-enabling after a destructive remote queue reset, clear local ephemeral claims/result spool while the agent is disabled:
 
 ```bash
 cd ~/local-agent
+.venv/bin/python agent_operator.py reset-runtime
+```
+
+The command refuses to run unless the persistent disable marker exists. It clears only local ephemeral runtime (`claims`, `corrupt-claims`, `runs`, `result-spool`, repository status), not repositories, checkpoints, registry configuration, or the disable marker.
+
+Re-enable explicitly on the Mac only after the remote operator desired state is `enabled`:
+
+```bash
 .venv/bin/python agent_operator.py enable
 ```
 
@@ -52,11 +81,22 @@ Disable locally:
 .venv/bin/python agent_operator.py disable --reason operator_cli
 ```
 
+## Startup repair
+
+Before starting the parallel supervisor, the guarded entrypoint performs only bounded repairs:
+
+- removes generated Python bytecode under `.agent/patches/**/__pycache__` and `*.pyc`/`*.pyo`;
+- provisions a repository checkout only when its control or work checkout is completely missing;
+- sets `PYTHONDONTWRITEBYTECODE=1` for the supervisor and workers.
+
+Existing but mismatched/dirty repositories are not destructively replaced.
+
 ## Safety rules
 
+- Global emergency stop uses the central Local Agent control branch and therefore does not depend on Growbox/C6/LiteGraph/MatrixHub health.
 - `cancel_task` requires the exact immutable task id.
 - A cancel request for another active task is rejected.
-- Pending cancellation publishes a terminal `cancelled_by_operator` result before later admission.
-- Active cancellation is accepted only by the worker that owns the target repository/task.
-- `disable` is global and fail-closed: a malformed but present disable marker still blocks admission.
-- Re-enable is local and explicit so a chat cannot accidentally undo an emergency stop.
+- `disable` is persistent and fail-closed locally: a malformed but present disable marker still blocks admission.
+- Remote state cannot re-enable the local agent.
+- Local runtime reset is destructive only for ephemeral state and requires disabled mode.
+- Missing workspaces may self-provision, but an existing unexpected checkout is never overwritten automatically.
