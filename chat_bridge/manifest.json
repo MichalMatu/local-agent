@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Local Agent Chat Bridge",
-  "version": "0.3.2",
-  "description": "Schedules compact Local Agent wake-ups for multiple ChatGPT conversations with conversation-scoped controls.",
+  "version": "0.4.0",
+  "description": "Schedules hard-bound Local Agent wake-ups: one ChatGPT conversation equals one immutable agent/repository binding.",
   "permissions": [
     "alarms",
     "storage",
