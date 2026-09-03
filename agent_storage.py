@@ -251,6 +251,36 @@ def recover_daemon_owned_control_changes(core_module: Any) -> None:
         )
 
 
+def materialize_control_remote_tracking_ref(core_module: Any) -> None:
+    """Persist the exact FETCH_HEAD as origin/<control-branch> after a successful pull.
+
+    Single-branch shallow control clones do not always retain a remote-tracking ref.
+    ACK verification intentionally reads the fetched remote tree, so materializing the
+    ref removes the `Not a valid object name origin/agent-control` failure without
+    weakening ACK semantics to a possibly-unpushed local commit.
+    """
+    fetched = core_module.process(
+        ["git", "rev-parse", "FETCH_HEAD"],
+        core_module.CONTROL,
+        timeout=30,
+        log_commands=False,
+    )
+    if fetched["exit_code"] != 0:
+        raise RuntimeError(git_failure_diagnostic(fetched))
+    sha = str(fetched.get("output", "")).strip()
+    if len(sha) != 40 or any(ch not in "0123456789abcdefABCDEF" for ch in sha):
+        raise RuntimeError(f"invalid FETCH_HEAD after control pull: {sha!r}")
+    remote_ref = f"refs/remotes/origin/{core_module.CONTROL_BRANCH}"
+    updated = core_module.process(
+        ["git", "update-ref", remote_ref, sha],
+        core_module.CONTROL,
+        timeout=30,
+        log_commands=False,
+    )
+    if updated["exit_code"] != 0:
+        raise RuntimeError(git_failure_diagnostic(updated))
+
+
 def sync_control(core_module: Any) -> None:
     """Synchronize the active control checkout while preserving its shallow boundary."""
     with core_module.CONTROL_GIT_LOCK:
@@ -279,6 +309,7 @@ def sync_control(core_module: Any) -> None:
         )
         if result["exit_code"] != 0:
             raise RuntimeError(result["output"])
+        materialize_control_remote_tracking_ref(core_module)
 
     try:
         from agent_cleanup import prune_control_runtime
