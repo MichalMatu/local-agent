@@ -268,32 +268,13 @@ class OperatorBindingMigrationTests(unittest.TestCase):
 
 
 class ControlRemoteTrackingRefTests(unittest.TestCase):
-    def test_materialize_control_remote_ref_uses_exact_fetch_head(self) -> None:
-        sha = "a" * 40
-
-        class FakeCore:
-            CONTROL = Path("/tmp/control")
-            CONTROL_BRANCH = "agent-control"
-
-            def __init__(self) -> None:
-                self.calls: list[list[str]] = []
-
-            def process(self, args, _cwd, **_kwargs):
-                self.calls.append(list(args))
-                if args[:3] == ["git", "rev-parse", "FETCH_HEAD"]:
-                    return {"exit_code": 0, "output": sha}
-                if args[:3] == ["git", "update-ref", "refs/remotes/origin/agent-control"]:
-                    self.asserted_sha = args[3]
-                    return {"exit_code": 0, "output": ""}
-                return {"exit_code": 1, "output": "unexpected"}
-
-        core = FakeCore()
-        agent_storage.materialize_control_remote_tracking_ref(core)
-        self.assertEqual(core.asserted_sha, sha)
-        self.assertIn(
-            ["git", "update-ref", "refs/remotes/origin/agent-control", sha],
-            core.calls,
+    def test_control_pull_updates_explicit_remote_tracking_ref(self) -> None:
+        args = agent_storage.bounded_control_pull_args("agent-control")
+        self.assertEqual(
+            args[-1],
+            "+refs/heads/agent-control:refs/remotes/origin/agent-control",
         )
+        self.assertEqual(args[:6], ["pull", "--rebase", "--depth", "256", "--no-tags", "origin"])
 
 
 if __name__ == "__main__":
