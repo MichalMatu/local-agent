@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "local-agent",
+      "repository": "MichalMatu/local-agent",
+      "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+      "execution_enabled": false
+    },
+    {
+      "id": "litegraph",
+      "repository": "MichalMatu/esp32s3_LiteGraph",
+      "agent_binding": "2db52048-57ea-4643-bf4b-1ea5c5c3fa86",
+      "execution_enabled": true
+    },
+    {
+      "id": "growbox-ml-controller",
+      "repository": "MichalMatu/growbox-ml-controller",
+      "agent_binding": "815cf40f-8d2a-4e1f-b7cc-c0f4e37b6cb5",
+      "execution_enabled": true
+    },
+    {
+      "id": "matrixhub",
+      "repository": "MichalMatu/MatrixHub",
+      "agent_binding": "033327ab-700d-43b4-9b3b-caff1acaa2c7",
+      "execution_enabled": true
+    },
+    {
+      "id": "esp32-c6-zigbee",
+      "repository": "MichalMatu/esp32_c6_zigbee",
+      "agent_binding": "64877d7d-af3f-4312-a511-699c44aa42dd",
+      "execution_enabled": true
+    }
+  ]
+}
