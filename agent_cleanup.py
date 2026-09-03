@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import agent_storage as storage
+from agent_process import termination_critical_section
 
 TERMINAL_PAIR_RETENTION = 32
 RUN_RETENTION = 32
@@ -150,50 +151,51 @@ def prune_control_runtime(core_module: Any) -> dict[str, Any]:
         if not paths:
             return {"changed": False, "deleted": 0, "paths": ()}
 
-        for relative in paths:
-            target = (core_module.CONTROL / relative).resolve()
-            root = core_module.CONTROL.resolve()
-            if root not in target.parents:
-                raise ValueError(f"cleanup path escapes control checkout: {relative!r}")
-            if not any(relative.startswith(prefix) for prefix in _RUNTIME_PREFIXES):
-                raise ValueError(f"cleanup path is outside runtime allowlist: {relative!r}")
-            target.unlink(missing_ok=True)
+        with termination_critical_section():
+            for relative in paths:
+                target = (core_module.CONTROL / relative).resolve()
+                root = core_module.CONTROL.resolve()
+                if root not in target.parents:
+                    raise ValueError(f"cleanup path escapes control checkout: {relative!r}")
+                if not any(relative.startswith(prefix) for prefix in _RUNTIME_PREFIXES):
+                    raise ValueError(f"cleanup path is outside runtime allowlist: {relative!r}")
+                target.unlink(missing_ok=True)
 
-        add = core_module.process(
-            ["git", "add", "-A", "--", *paths],
-            core_module.CONTROL,
-            timeout=30,
-            log_commands=False,
-        )
-        if add["exit_code"] != 0:
-            raise RuntimeError(storage.git_failure_diagnostic(add))
+            add = core_module.process(
+                ["git", "add", "-A", "--", *paths],
+                core_module.CONTROL,
+                timeout=30,
+                log_commands=False,
+            )
+            if add["exit_code"] != 0:
+                raise RuntimeError(storage.git_failure_diagnostic(add))
 
-        staged = core_module.process(
-            ["git", "diff", "--cached", "--quiet", "--", *paths],
-            core_module.CONTROL,
-            timeout=30,
-            log_commands=False,
-        )
-        if staged["exit_code"] == 0:
-            return {"changed": False, "deleted": 0, "paths": ()}
-        if staged["exit_code"] != 1:
-            raise RuntimeError(storage.git_failure_diagnostic(staged))
+            staged = core_module.process(
+                ["git", "diff", "--cached", "--quiet", "--", *paths],
+                core_module.CONTROL,
+                timeout=30,
+                log_commands=False,
+            )
+            if staged["exit_code"] == 0:
+                return {"changed": False, "deleted": 0, "paths": ()}
+            if staged["exit_code"] != 1:
+                raise RuntimeError(storage.git_failure_diagnostic(staged))
 
-        commit = core_module.process(
-            [
-                "git",
-                "commit",
-                "-m",
-                f"Agent runtime GC: prune {len(paths)} artifacts",
-                "--",
-                *paths,
-            ],
-            core_module.CONTROL,
-            timeout=60,
-            log_commands=False,
-        )
-        if commit["exit_code"] != 0:
-            raise RuntimeError(storage.git_failure_diagnostic(commit))
+            commit = core_module.process(
+                [
+                    "git",
+                    "commit",
+                    "-m",
+                    f"Agent runtime GC: prune {len(paths)} artifacts",
+                    "--",
+                    *paths,
+                ],
+                core_module.CONTROL,
+                timeout=60,
+                log_commands=False,
+            )
+            if commit["exit_code"] != 0:
+                raise RuntimeError(storage.git_failure_diagnostic(commit))
 
         pull = storage.run_git_with_network_retry(
             core_module,
