@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from agent_binding import canonical_agent_binding
+
 DEFAULT_REPOSITORY_ID = "litegraph"
 DEFAULT_REPOSITORY = "MichalMatu/esp32s3_LiteGraph"
 DEFAULT_CONTROL_BRANCH = "agent-control"
@@ -29,6 +31,7 @@ class RepositoryContext:
     checkpoints: Path
     control_branch: str = DEFAULT_CONTROL_BRANCH
     default_branch: str = DEFAULT_SOURCE_BRANCH
+    agent_binding: str | None = None
 
     def status_fields(self) -> dict[str, str]:
         return {
@@ -36,6 +39,7 @@ class RepositoryContext:
             "repository": self.repository,
             "control_branch": self.control_branch,
             "default_branch": self.default_branch,
+            "agent_binding": self.agent_binding or "unbound",
         }
 
 
@@ -51,6 +55,7 @@ def legacy_repository(home: Path) -> RepositoryContext:
         control=root / "control",
         work=root / "work",
         checkpoints=root / "checkpoints",
+        agent_binding=None,
     )
 
 
@@ -114,6 +119,12 @@ def repository_from_dict(item: dict[str, Any], *, home: Path) -> RepositoryConte
         item.get("default_branch", DEFAULT_SOURCE_BRANCH),
         "default_branch",
     )
+    raw_binding = item.get("agent_binding")
+    agent_binding = (
+        None
+        if raw_binding is None
+        else canonical_agent_binding(raw_binding, field=f"{repository_id}.agent_binding")
+    )
 
     legacy_workspace = item.get("legacy_workspace", False)
     if not isinstance(legacy_workspace, bool):
@@ -141,6 +152,7 @@ def repository_from_dict(item: dict[str, Any], *, home: Path) -> RepositoryConte
         ),
         control_branch=control_branch,
         default_branch=default_branch,
+        agent_binding=agent_binding,
     )
     return context
 
@@ -175,6 +187,7 @@ def repository_config_digest(repository: RepositoryContext) -> str:
         "checkpoints": str(repository.checkpoints),
         "control_branch": repository.control_branch,
         "default_branch": repository.default_branch,
+        "agent_binding": repository.agent_binding,
     }
     encoded = json.dumps(
         payload,
@@ -204,6 +217,7 @@ def validate_repository_set(repositories: Iterable[RepositoryContext]) -> list[R
 
     ids: dict[str, str] = {}
     remotes: dict[str, str] = {}
+    bindings: dict[str, str] = {}
     paths: dict[Path, tuple[str, str]] = {}
     for repository in result:
         normalized_id = repository.repository_id.casefold()
@@ -217,6 +231,13 @@ def validate_repository_set(repositories: Iterable[RepositoryContext]) -> list[R
                 f"also configured by {remotes[normalized_remote]!r}"
             )
         remotes[normalized_remote] = repository.repository_id
+        if repository.agent_binding is not None:
+            if repository.agent_binding in bindings:
+                raise ValueError(
+                    f"duplicate agent binding: {repository.agent_binding} "
+                    f"also configured by {bindings[repository.agent_binding]!r}"
+                )
+            bindings[repository.agent_binding] = repository.repository_id
         for field, path in (
             ("control", repository.control),
             ("work", repository.work),
@@ -230,6 +251,19 @@ def validate_repository_set(repositories: Iterable[RepositoryContext]) -> list[R
                     )
             paths[path] = (repository.repository_id, field)
     return result
+
+
+def repository_by_binding(
+    repositories: Iterable[RepositoryContext],
+    agent_binding: str,
+) -> RepositoryContext:
+    binding = canonical_agent_binding(agent_binding)
+    matches = [repository for repository in repositories if repository.agent_binding == binding]
+    if not matches:
+        raise ValueError(f"agent binding is not enabled: {binding}")
+    if len(matches) != 1:
+        raise ValueError(f"agent binding is ambiguous: {binding}")
+    return matches[0]
 
 
 def load_repository_registry(
