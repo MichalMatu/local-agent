@@ -10,6 +10,7 @@ from unittest import mock
 import agent_entrypoint
 import agent_operator
 import agent_remote_operator
+import agentctl
 from agent_repository import RepositoryContext
 
 
@@ -131,7 +132,7 @@ class RuntimeResetTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "requires Local Agent to be disabled"):
             agent_operator.reset_runtime_state(registry_path=self.registry)
 
-    def test_runtime_reset_removes_repository_and_legacy_claims(self) -> None:
+    def test_runtime_reset_removes_repository_legacy_and_global_status(self) -> None:
         agent_operator.disable_agent(reason="test-reset")
         repository_state = self.state_dir / "repositories" / "project-a"
         for directory in ("claims", "corrupt-claims", "runs", "result-spool"):
@@ -142,6 +143,8 @@ class RuntimeResetTests(unittest.TestCase):
         legacy_claims = self.state_dir / "claims"
         legacy_claims.mkdir(parents=True, exist_ok=True)
         (legacy_claims / "old.json").write_text("{}", encoding="utf-8")
+        global_status = self.state_dir / "status.json"
+        global_status.write_text('{"state":"disabled","pid":9548}', encoding="utf-8")
 
         result = agent_operator.reset_runtime_state(registry_path=self.registry)
 
@@ -150,7 +153,36 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertFalse((repository_state / "status.json").exists())
         self.assertEqual(list((repository_state / "claims").iterdir()), [])
         self.assertEqual(list(legacy_claims.iterdir()), [])
+        self.assertFalse(global_status.exists())
         self.assertTrue(agent_operator.is_disabled())
+
+
+class AgentCtlStatusTests(unittest.TestCase):
+    def test_guard_entrypoint_pid_owns_status_when_supervisor_is_absent(self) -> None:
+        payload = {
+            "state": "disabled",
+            "pid": 111,
+            "entrypoint_pid": 222,
+            "supervisor_pid": None,
+        }
+        with mock.patch.object(agentctl, "_pid_alive", return_value=True) as alive:
+            result = agentctl._status_with_liveness(payload)
+
+        alive.assert_called_once_with(222)
+        self.assertEqual(result["state"], "disabled")
+        self.assertEqual(result["status_owner_pid"], 222)
+        self.assertTrue(result["process_alive"])
+
+    def test_dead_status_owner_is_reported_as_stale(self) -> None:
+        payload = {"state": "disabled", "pid": 9548, "supervisor_pid": 9548}
+        with mock.patch.object(agentctl, "_pid_alive", return_value=False):
+            result = agentctl._status_with_liveness(payload)
+
+        self.assertEqual(result["state"], "stale")
+        self.assertEqual(result["last_state"], "disabled")
+        self.assertEqual(result["status_owner_pid"], 9548)
+        self.assertFalse(result["process_alive"])
+        self.assertIn("not running", result["error"])
 
 
 class GuardedEntrypointTests(unittest.TestCase):

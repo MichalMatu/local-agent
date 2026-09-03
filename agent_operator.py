@@ -15,6 +15,7 @@ from agent_repository import default_registry_path, load_repository_registry
 STATE_DIR = Path.home() / "Library" / "Application Support" / "local-agent"
 DISABLED_PATH = STATE_DIR / "disabled.json"
 _RUNTIME_DIR_NAMES = ("claims", "corrupt-claims", "runs", "result-spool")
+_GLOBAL_RUNTIME_FILES = ("status.json",)
 
 
 def now_iso() -> str:
@@ -80,6 +81,14 @@ def _reset_directory(path: Path) -> int:
     return files
 
 
+def _remove_file(path: Path) -> int:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return 0
+    return 1
+
+
 def reset_runtime_state(*, registry_path: Path | None = None) -> dict[str, Any]:
     """Destructively clear local ephemeral runtime only while admission is disabled."""
     if not is_disabled():
@@ -95,16 +104,18 @@ def reset_runtime_state(*, registry_path: Path | None = None) -> dict[str, Any]:
         state_root = STATE_DIR / "repositories" / repository.repository_id
         for name in _RUNTIME_DIR_NAMES:
             removed_files += _reset_directory(state_root / name)
-        try:
-            (state_root / "status.json").unlink()
-            removed_files += 1
-        except FileNotFoundError:
-            pass
+        removed_files += _remove_file(state_root / "status.json")
 
     # Also clear legacy single-repository runtime so an old install cannot recover
     # stale claims after a multi-repository hard reset.
     for name in _RUNTIME_DIR_NAMES:
         removed_files += _reset_directory(STATE_DIR / name)
+
+    # Global supervisor status is ephemeral too. Keeping it after a destructive
+    # reset can make agentctl report a dead pre-reset PID/version as if it were
+    # the current daemon, which is operationally misleading during rollout.
+    for name in _GLOBAL_RUNTIME_FILES:
+        removed_files += _remove_file(STATE_DIR / name)
 
     return {
         "reset": True,
