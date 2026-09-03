@@ -17,7 +17,6 @@ CONTROL_RECOVERABLE_DIRS = (
     ".agent/status",
     ".agent/runs",
     ".agent/results",
-    ".agent/tasks",
     ".agent/daemon/acks",
 )
 CONTROL_RECOVERABLE_UNTRACKED_BASENAMES = frozenset({".DS_Store"})
