@@ -18,6 +18,7 @@ import agent_core as core
 import agent_operator
 import agent_storage as storage
 import agentd
+from agent_binding import validate_repository_control_binding
 from agent_process import (
     ExecutionLeaseBusy,
     LEASE_KEYS_DIGEST_ENV,
@@ -34,6 +35,7 @@ from agent_repository import (
     repository_lease_keys,
 )
 from agent_version import RELEASE_VERSION
+from local_agent.runtime.task_contract import require_task_agent_binding
 
 MULTIREPO_DAEMON_VERSION = RELEASE_VERSION
 WORKER_IDLE = 0
@@ -164,6 +166,7 @@ _REMOTE_STATUS_MATCH_FIELDS = (
     "self_revision",
     "repository_id",
     "repository",
+    "agent_binding",
     "control_branch",
     "default_branch",
     "execution_model",
@@ -247,6 +250,91 @@ def sync_control_quietly() -> None:
     """Run bounded routine control-branch sync without printing low-level Git commands."""
     with contextlib.redirect_stdout(io.StringIO()):
         storage.sync_control(core)
+
+
+def repository_binding_ready(
+    repository: RepositoryContext,
+    *,
+    execution_variant: str | None = None,
+) -> bool:
+    """Fail closed unless registry and control branch agree on one binding."""
+    status_extra = {"execution_variant": execution_variant} if execution_variant else {}
+    if repository.agent_binding is None:
+        publish_repository_status(
+            repository,
+            "unbound",
+            force_remote=True,
+            error="repository registry is missing agent_binding",
+            **status_extra,
+        )
+        core.log(
+            f"repository admission blocked: missing agent_binding "
+            f"repository={repository.repository_id}"
+        )
+        return False
+    try:
+        validate_repository_control_binding(
+            repository_id=repository.repository_id,
+            repository=repository.repository,
+            expected_agent_binding=repository.agent_binding,
+            control_dir=repository.control,
+        )
+    except ValueError as exc:
+        publish_repository_status(
+            repository,
+            "binding_error",
+            force_remote=True,
+            error=str(exc),
+            **status_extra,
+        )
+        core.log(
+            f"repository admission blocked by binding check "
+            f"repository={repository.repository_id}: {exc}"
+        )
+        return False
+    return True
+
+
+def reject_task_binding(
+    repository: RepositoryContext,
+    task: dict[str, object],
+) -> None:
+    """Publish a terminal pre-claim rejection for a missing or wrong task binding."""
+    task_id = str(task.get("id", ""))
+    expected = repository.agent_binding
+    provided = task.get("agent_binding")
+    failure_reason = "agent_binding_missing" if provided is None else "agent_binding_mismatch"
+    result = {
+        "id": task_id,
+        "status": "failed",
+        "failure_reason": failure_reason,
+        "task_digest": agentd.task_digest(task),
+        "started_at": None,
+        "finished_at": agentd.now_iso(),
+        "daemon_version": MULTIREPO_DAEMON_VERSION,
+        "repository_id": repository.repository_id,
+        "repository": repository.repository,
+        "expected_agent_binding": expected,
+        "provided_agent_binding": provided,
+        "error": "Task rejected before claim because its agent_binding does not match the bound repository.",
+    }
+    core.publish_result(task_id, result)
+    agentd.publish_run_state(
+        task_id,
+        {
+            "event": "task_rejected",
+            "status": "failed",
+            "failure_reason": failure_reason,
+            "expected_agent_binding": expected,
+            "provided_agent_binding": provided,
+            "updated_at": agentd.now_iso(),
+        },
+        force_remote=True,
+    )
+    core.log(
+        f"agent binding rejected repository={repository.repository_id} task={task_id} "
+        f"expected={expected} provided={provided}"
+    )
 
 
 def _control_ack_path(control_id: str) -> Path:
@@ -545,9 +633,6 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
     agentd.DAEMON_VERSION = MULTIREPO_DAEMON_VERSION
     try:
         sync_control_quietly()
-        agentd.recover_stale_claims()
-        agentd.recover_invalid_task_files()
-        handle_repository_control(repository)
         if agent_operator.is_disabled():
             publish_repository_status(
                 repository,
@@ -555,6 +640,11 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                 force_remote=True,
             )
             return False
+        if not repository_binding_ready(repository):
+            return False
+        agentd.recover_stale_claims()
+        agentd.recover_invalid_task_files()
+        handle_repository_control(repository)
         pending = agentd.pending_tasks()
         if not pending:
             state = "publication_pending" if agentd.has_pending_publications() else "idle"
@@ -567,9 +657,15 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
 
         _, task = pending[0]
         task_id = str(task.get("id", ""))
+        try:
+            assert repository.agent_binding is not None
+            require_task_agent_binding(task, repository.agent_binding)
+        except ValueError:
+            reject_task_binding(repository, task)
+            return True
         core.log(
             f"multi-repo dispatch repository={repository.repository_id} "
-            f"task={task_id}"
+            f"task={task_id} binding={repository.agent_binding}"
         )
         with ActiveRepositoryControlWatcher(repository, task_id):
             outcome = agentd.execute_task(
