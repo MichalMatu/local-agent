@@ -18,6 +18,7 @@ from typing import Any
 
 from local_agent.supervisor import control as supervisor_control
 from local_agent.supervisor import policy as supervisor_policy
+import agent_operator
 import agent_repo_worker as serial_worker
 import agentd
 from agent_parallel_worker import (
@@ -48,6 +49,7 @@ MAX_WORKERS_ENV = "LOCAL_AGENT_MAX_PARALLEL_WORKERS"
 DEFAULT_MAX_WORKERS = 1
 MAX_MAX_WORKERS = 3
 REAP_INTERVAL_SECONDS = 0.25
+DISABLED_POLL_SECONDS = 0.5
 REPOSITORY_RETRY_SECONDS = 1.0
 RESOURCE_RETRY_BACKOFF_SECONDS = (2.0, 5.0, 10.0, 30.0, 60.0)
 ERROR_RETRY_SECONDS = 1.0
@@ -285,6 +287,8 @@ def start_worker(
     *,
     registry_path: Path | None,
 ) -> subprocess.Popen[str] | None:
+    if agent_operator.is_disabled():
+        return None
     try:
         with serial_worker.repository_execution_lease(repository):
             env = os.environ.copy()
@@ -517,20 +521,65 @@ def route_parallel_restarts(
         agentd.restart_self = original_restart
 
 
-def pending_control_request_from_bound_checkout() -> ControlProbeResult:
-    """Classify a control request after a successful control-checkout sync."""
+def bound_control_request_from_checkout() -> dict[str, Any] | None:
     path = agentd.core.CONTROL / agentd.REMOTE_CONTROL_REQUEST
     if not path.exists():
-        return ControlProbeResult.CLEAR
+        return None
     try:
         request = json.loads(path.read_text(encoding="utf-8"))
         control_id = str(request["id"])
         str(request["action"])
     except Exception as exc:
         log(f"invalid daemon control request during probe: {type(exc).__name__}: {exc}")
-        return ControlProbeResult.CLEAR
+        return None
     if not agentd.valid_control_id(control_id):
         log(f"invalid daemon control id during probe: {control_id!r}")
+        return None
+    return request if isinstance(request, dict) else None
+
+
+def handle_bound_disable_control(repository: RepositoryContext) -> bool:
+    """Consume a global disable request from the bound supervisor control checkout."""
+    request = bound_control_request_from_checkout()
+    if request is None or str(request.get("action", "")) != "disable":
+        return False
+    control_id = str(request["id"])
+    try:
+        if agentd.control_ack_published(control_id):
+            return True
+    except Exception as exc:
+        log(f"disable ACK probe degraded id={control_id}: {type(exc).__name__}: {exc}")
+        return True
+
+    agent_operator.disable_agent(
+        control_id=control_id,
+        repository_id=repository.repository_id,
+        reason="remote_control",
+    )
+    serial_worker.publish_repository_control_ack(
+        repository,
+        control_id,
+        "disable",
+        "completed",
+        result="agent_disabled",
+    )
+    log(
+        f"operator disabled Local Agent via supervisor control "
+        f"repository={repository.repository_id} control={control_id}"
+    )
+    return True
+
+
+def pending_control_request_from_bound_checkout() -> ControlProbeResult:
+    """Classify a control request after a successful control-checkout sync."""
+    request = bound_control_request_from_checkout()
+    if request is None:
+        return ControlProbeResult.CLEAR
+    control_id = str(request["id"])
+    action = str(request.get("action", ""))
+    if action == "cancel_task":
+        # The target repository worker owns cancellation so the supervisor must
+        # not drain unrelated workers or reject the request as an unknown global action.
         return ControlProbeResult.CLEAR
     try:
         published = agentd.control_ack_published(control_id)
@@ -551,6 +600,8 @@ def probe_control_request(
                 daemon_version=PARALLEL_DAEMON_VERSION,
             )
             supervisor_control.sync_control_quietly()
+            if handle_bound_disable_control(repository):
+                return ControlProbeResult.CLEAR
             return pending_control_request_from_bound_checkout()
     except ExecutionLeaseBusy:
         return ControlProbeResult.LEASE_BUSY
@@ -581,6 +632,13 @@ def service_control(
             )
             agentd.DAEMON_VERSION = PARALLEL_DAEMON_VERSION
             supervisor_control.sync_control_quietly()
+            if handle_bound_disable_control(control_repository):
+                agentd.publish_daemon_status(
+                    "disabled",
+                    force_remote=False,
+                    **status_fields,
+                )
+                return True
             agentd.publish_daemon_status(
                 "idle",
                 force_remote=False,
@@ -591,8 +649,10 @@ def service_control(
                 max_workers=max_workers,
                 once=once,
             ):
-                agentd.handle_control_request(status_extra=status_fields)
-                agentd.maybe_self_update()
+                request = bound_control_request_from_checkout()
+                if request is None or str(request.get("action", "")) != "cancel_task":
+                    agentd.handle_control_request(status_extra=status_fields)
+                    agentd.maybe_self_update()
             agentd.publish_daemon_status(
                 "idle",
                 force_remote=False,
@@ -613,10 +673,11 @@ def publish_local_supervisor_status(
     running: dict[str, RunningWorker],
     *,
     max_workers: int,
+    state: str | None = None,
 ) -> None:
-    state = "running" if running else "idle"
+    resolved_state = state or ("running" if running else "idle")
     payload = agentd.daemon_status_payload(
-        state,
+        resolved_state,
         execution_model=PARALLEL_EXECUTION_MODEL,
         supervisor_pid=os.getpid(),
         max_parallel_workers=max_workers,
@@ -674,6 +735,7 @@ def main() -> int:
     last_log_maintenance_at: float | None = None
     control_defer_count = 0
     last_control_defer_log_at: float | None = None
+    disabled_logged = False
 
     try:
         repositories = load_repository_registry(path=args.registry)
@@ -753,6 +815,27 @@ def main() -> int:
             if completed:
                 publish_local_supervisor_status(running, max_workers=max_workers)
 
+            if agent_operator.is_disabled():
+                if not disabled_logged:
+                    log("operator disable state active; stopping workers and pausing admission")
+                    disabled_logged = True
+                if running:
+                    terminate_active_processes(log)
+                publish_local_supervisor_status(
+                    running,
+                    max_workers=max_workers,
+                    state="disabled",
+                )
+                if args.once and not running:
+                    return 0
+                time.sleep(REAP_INTERVAL_SECONDS if running else DISABLED_POLL_SECONDS)
+                continue
+            if disabled_logged:
+                log("operator disable state cleared; resuming scheduler")
+                disabled_logged = False
+                control_pending = True
+                last_control_at = None
+
             repositories = load_repository_registry(path=args.registry)
             if not repositories:
                 if args.once and not running:
@@ -829,6 +912,9 @@ def main() -> int:
             ):
                 if running:
                     probe_result = probe_control_request(repositories[0])
+                    if agent_operator.is_disabled():
+                        time.sleep(REAP_INTERVAL_SECONDS)
+                        continue
                     if probe_result is ControlProbeResult.PENDING:
                         reset_control_defer_state()
                         control_pending = True
@@ -871,6 +957,10 @@ def main() -> int:
                             "global control service deferred; continuing task admission "
                             "after successful startup"
                         )
+
+            if agent_operator.is_disabled():
+                time.sleep(REAP_INTERVAL_SECONDS)
+                continue
 
             now = time.monotonic()
             if (
