@@ -131,7 +131,7 @@ class RuntimeResetTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "requires Local Agent to be disabled"):
             agent_operator.reset_runtime_state(registry_path=self.registry)
 
-    def test_runtime_reset_removes_repository_and_legacy_claims(self) -> None:
+    def test_runtime_reset_removes_repository_legacy_and_global_status(self) -> None:
         agent_operator.disable_agent(reason="test-reset")
         repository_state = self.state_dir / "repositories" / "project-a"
         for directory in ("claims", "corrupt-claims", "runs", "result-spool"):
@@ -142,6 +142,8 @@ class RuntimeResetTests(unittest.TestCase):
         legacy_claims = self.state_dir / "claims"
         legacy_claims.mkdir(parents=True, exist_ok=True)
         (legacy_claims / "old.json").write_text("{}", encoding="utf-8")
+        global_status = self.state_dir / "status.json"
+        global_status.write_text('{"state":"disabled","pid":9548}', encoding="utf-8")
 
         result = agent_operator.reset_runtime_state(registry_path=self.registry)
 
@@ -150,6 +152,7 @@ class RuntimeResetTests(unittest.TestCase):
         self.assertFalse((repository_state / "status.json").exists())
         self.assertEqual(list((repository_state / "claims").iterdir()), [])
         self.assertEqual(list(legacy_claims.iterdir()), [])
+        self.assertFalse(global_status.exists())
         self.assertTrue(agent_operator.is_disabled())
 
 
