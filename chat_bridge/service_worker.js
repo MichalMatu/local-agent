@@ -89,9 +89,50 @@ function validatePrompt(value, fallback, maximum, label) {
   return prompt;
 }
 
+function sanitizeRuntimeAgent(raw) {
+  if (!raw || typeof raw !== "object") throw new Error("runtime agent must be an object");
+  const repositoryId = stateModel.sanitizeRepositoryId(raw.repository_id || raw.repositoryId);
+  const repository = stateModel.sanitizeRepository(raw.repository);
+  const agentBinding = stateModel.sanitizeAgentBinding(raw.agent_binding || raw.agentBinding);
+  if (!repositoryId || !repository || !agentBinding) {
+    throw new Error("runtime agent requires repository_id, repository, and canonical agent_binding");
+  }
+  return {
+    repositoryId,
+    repository,
+    agentBinding,
+    executionEnabled: raw.execution_enabled !== false && raw.executionEnabled !== false
+  };
+}
+
+function validateRuntimeAgents(rawAgents) {
+  if (!Array.isArray(rawAgents) || rawAgents.length === 0) {
+    throw new Error("runtime agents must be a non-empty list");
+  }
+  const agents = rawAgents.map(sanitizeRuntimeAgent);
+  const ids = new Set();
+  const repositories = new Set();
+  const bindings = new Set();
+  for (const agent of agents) {
+    const id = agent.repositoryId.toLowerCase();
+    const repository = agent.repository.toLowerCase();
+    if (ids.has(id)) throw new Error(`duplicate runtime repository_id: ${agent.repositoryId}`);
+    if (repositories.has(repository)) throw new Error(`duplicate runtime repository: ${agent.repository}`);
+    if (bindings.has(agent.agentBinding)) throw new Error(`duplicate runtime agent_binding: ${agent.agentBinding}`);
+    ids.add(id);
+    repositories.add(repository);
+    bindings.add(agent.agentBinding);
+  }
+  return agents;
+}
+
+function defaultAgents() {
+  return stateModel.DEFAULT_AGENTS.map((agent) => ({ ...agent }));
+}
+
 function validateRuntimeConfig(raw, settings) {
-  if (!raw || typeof raw !== "object" || ![1, 2].includes(raw.schema_version)) {
-    throw new Error("runtime config must use schema_version=1 or schema_version=2");
+  if (!raw || typeof raw !== "object" || ![1, 2, 3].includes(raw.schema_version)) {
+    throw new Error("runtime config must use schema_version=1, 2, or 3");
   }
 
   const intervalMinutes = clampNumber(
@@ -122,7 +163,8 @@ function validateRuntimeConfig(raw, settings) {
         stateModel.DEFAULT_WAKE_PROMPT,
         2000,
         "runtime wake prompt"
-      )
+      ),
+      agents: defaultAgents()
     };
   }
 
@@ -140,7 +182,8 @@ function validateRuntimeConfig(raw, settings) {
       settings.fallbackWakePrompt,
       2000,
       "runtime wake prompt"
-    )
+    ),
+    agents: raw.schema_version === 3 ? validateRuntimeAgents(raw.agents) : defaultAgents()
   };
 }
 
@@ -164,7 +207,8 @@ function fallbackRuntime(settings) {
       stateModel.DEFAULT_WAKE_PROMPT,
       2000,
       "fallback wake prompt"
-    )
+    ),
+    agents: defaultAgents()
   };
 }
 
@@ -225,8 +269,57 @@ async function loadRuntimeConfig(state, conversation = null) {
   return applyConversationInterval(runtime, conversation);
 }
 
-function buildBootstrapPrompt(runtime) {
-  return `${runtime.bootstrapPrompt}\nBridge controls are conversation-scoped. Continue only the active goal of this conversation. The bridge only schedules wake-ups and does not choose or route repositories. Prefer short final-line controls: [LAB:STOP], [LAB:PAUSE], [LAB:RESUME], [LAB:NEXT=30s], [LAB:NEXT=10m], [LAB:INTERVAL=30m], [LAB:INTERVAL=AUTO]. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch.`;
+function runtimeAgentForBinding(runtime, binding) {
+  const canonical = stateModel.sanitizeAgentBinding(binding);
+  if (!canonical) return null;
+  return runtime.agents.find((agent) => agent.agentBinding === canonical) || null;
+}
+
+function runtimeAgentForConversation(runtime, conversation) {
+  if (!stateModel.isBoundConversation(conversation)) return null;
+  const agent = runtimeAgentForBinding(runtime, conversation.agentBinding);
+  if (!agent) return null;
+  if (agent.repositoryId !== conversation.repositoryId) return null;
+  if (agent.repository.toLowerCase() !== conversation.repository.toLowerCase()) return null;
+  return agent;
+}
+
+function resolveBindingInput(runtime, raw = {}) {
+  const requestedBinding = stateModel.sanitizeAgentBinding(raw.agentBinding || raw.agent_binding);
+  const requestedId = stateModel.sanitizeRepositoryId(raw.repositoryId || raw.repository_id);
+  let agent = requestedBinding ? runtimeAgentForBinding(runtime, requestedBinding) : null;
+  if (!agent && requestedId) {
+    agent = runtime.agents.find((item) => item.repositoryId === requestedId) || null;
+  }
+  if (!agent) throw new Error("Select a valid Local Agent repository binding.");
+  if (requestedBinding && requestedBinding !== agent.agentBinding) {
+    throw new Error("agent binding does not match selected repository");
+  }
+  if (requestedId && requestedId !== agent.repositoryId) {
+    throw new Error("repository id does not match selected agent binding");
+  }
+  return agent;
+}
+
+function bindingEnvelope(conversation) {
+  return `[LA_AGENT=${conversation.agentBinding}] [LA_REPO=${conversation.repositoryId}] [LA_REPOSITORY=${conversation.repository}] [LA_CHAT=${conversation.id}]`;
+}
+
+function bindingPolicy(conversation, runtimeAgent) {
+  const executionPolicy = runtimeAgent?.executionEnabled === false
+    ? "This binding is bridge/operator-only; do not create Local Agent project task files for it."
+    : `Every Local Agent task JSON created by this conversation MUST contain exactly \"agent_binding\": \"${conversation.agentBinding}\".`;
+  return `${bindingEnvelope(conversation)}\nHard binding is immutable for this wake. Work only on repository ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository. ${executionPolicy} If the active goal appears to require another repository, pause instead of rebinding or guessing.`;
+}
+
+function buildBootstrapPrompt(runtime, conversation) {
+  const agent = runtimeAgentForConversation(runtime, conversation);
+  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\nBridge controls are conversation-scoped. Continue only the active goal of this conversation. Prefer short final-line controls: [LAB:STOP], [LAB:PAUSE], [LAB:RESUME], [LAB:NEXT=30s], [LAB:NEXT=10m], [LAB:INTERVAL=30m], [LAB:INTERVAL=AUTO]. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch.`;
+}
+
+function buildWakePrompt(runtime, conversation) {
+  const agent = runtimeAgentForConversation(runtime, conversation);
+  return `${bindingPolicy(conversation, agent)}\n${runtime.wakePrompt}`;
 }
 
 async function clearConversationAlarm(chatId) {
@@ -240,7 +333,12 @@ async function clearConversationAlarm(chatId) {
 async function scheduleAt(chatId, when) {
   const state = await getBridgeState();
   const conversation = state.conversations[chatId];
-  if (!conversation || !state.settings.masterEnabled || !conversation.enabled) {
+  if (
+    !conversation ||
+    !state.settings.masterEnabled ||
+    !conversation.enabled ||
+    !stateModel.isBoundConversation(conversation)
+  ) {
     await clearConversationAlarm(chatId);
     return false;
   }
@@ -295,7 +393,7 @@ async function reconcileSchedules() {
   }
 
   for (const conversation of Object.values(state.conversations)) {
-    if (!conversation.enabled) {
+    if (!conversation.enabled || !stateModel.isBoundConversation(conversation)) {
       await clearConversationAlarm(conversation.id);
       continue;
     }
@@ -337,6 +435,9 @@ async function applyAssistantControl(message, sender) {
 
   if (!conversation || !senderUrl || senderUrl !== conversation.url || declaredUrl !== conversation.url) {
     return { ok: false, reason: "control_wrong_conversation" };
+  }
+  if (!stateModel.isBoundConversation(conversation)) {
+    return { ok: false, reason: "control_unbound_conversation" };
   }
 
   const fingerprint = String(message.fingerprint || "");
@@ -449,12 +550,33 @@ async function runFeedbackCycle({ conversationId: chatId, manual = false } = {})
   const conversation = state.conversations[chatId];
   if (!conversation) return { ok: false, reason: "conversation_not_found" };
 
+  if (!stateModel.isBoundConversation(conversation)) {
+    await updateConversationStatus(chatId, {
+      enabled: false,
+      lastStatus: "binding_required",
+      nextRunAt: null
+    });
+    await clearConversationAlarm(chatId);
+    return { ok: false, reason: "conversation_unbound" };
+  }
+
   if ((!state.settings.masterEnabled || !conversation.enabled) && !manual) {
     await clearConversationAlarm(chatId);
     return { ok: false, reason: "disabled" };
   }
 
   const runtime = await loadRuntimeConfig(state, conversation);
+  const runtimeAgent = runtimeAgentForConversation(runtime, conversation);
+  if (!runtimeAgent) {
+    await updateConversationStatus(chatId, {
+      enabled: false,
+      lastStatus: "binding_catalog_mismatch",
+      nextRunAt: null
+    });
+    await clearConversationAlarm(chatId);
+    return { ok: false, reason: "binding_catalog_mismatch", runtime };
+  }
+
   const runAt = new Date().toISOString();
   const tab = await findConversationTab(conversation);
 
@@ -473,8 +595,8 @@ async function runFeedbackCycle({ conversationId: chatId, manual = false } = {})
   }
 
   const prompt = conversation.bootstrapPending
-    ? buildBootstrapPrompt(runtime)
-    : runtime.wakePrompt;
+    ? buildBootstrapPrompt(runtime, conversation)
+    : buildWakePrompt(runtime, conversation);
 
   let response;
   try {
@@ -482,7 +604,10 @@ async function runFeedbackCycle({ conversationId: chatId, manual = false } = {})
       type: "bridge:feedback",
       prompt,
       expectedUrl: conversation.url,
-      bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
+      bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake",
+      agentBinding: conversation.agentBinding,
+      repositoryId: conversation.repositoryId,
+      repository: conversation.repository
     });
   } catch (error) {
     response = { ok: false, reason: "content_script_unavailable", error: String(error) };
@@ -511,6 +636,9 @@ async function runFeedbackCycle({ conversationId: chatId, manual = false } = {})
     runtime,
     status,
     conversationId: chatId,
+    agentBinding: conversation.agentBinding,
+    repositoryId: conversation.repositoryId,
+    repository: conversation.repository,
     bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
   };
 }
@@ -528,19 +656,63 @@ async function saveGlobalSettings(patch) {
 }
 
 async function upsertConversation(patch) {
+  const currentState = await getBridgeState();
+  const runtime = await loadRuntimeConfig(currentState);
+  const url = normalizeConversationUrl(patch.url || "");
+  if (!url) throw new Error("Open a concrete ChatGPT conversation first.");
+  const id = conversationId(url);
+  const existing = currentState.conversations[id];
+  const agent = existing
+    ? runtimeAgentForConversation(runtime, existing)
+    : resolveBindingInput(runtime, patch);
+  if (!agent) throw new Error("Existing conversation binding is invalid; use explicit Rebind.");
+
   const result = await mutateState((state) => {
-    const url = normalizeConversationUrl(patch.url || "");
-    if (!url) throw new Error("Open a concrete ChatGPT conversation first.");
-    const id = conversationId(url);
     const previous = state.conversations[id];
     const upserted = stateModel.upsertConversation(state, {
       ...patch,
       url,
+      repositoryId: agent.repositoryId,
+      repository: agent.repository,
+      agentBinding: agent.agentBinding,
+      bindingRevision: previous?.bindingRevision || 1,
+      bindingSetAt: previous?.bindingSetAt || new Date().toISOString(),
       bootstrapPending: previous ? previous.bootstrapPending : true
     });
+    if (!stateModel.isBoundConversation(upserted.conversation)) {
+      throw new Error("conversation binding is required");
+    }
     return { state: upserted.state, conversation: upserted.conversation };
   });
   if (result.conversation?.enabled) await scheduleDefault(result.conversation.id, true);
+  return result.conversation;
+}
+
+async function rebindConversation(chatId, patch) {
+  const state = await getBridgeState();
+  const previous = state.conversations[chatId];
+  if (!previous) throw new Error("conversation not found");
+  const runtime = await loadRuntimeConfig(state, previous);
+  const agent = resolveBindingInput(runtime, patch);
+  const result = await mutateState((nextState) => {
+    const current = nextState.conversations[chatId];
+    if (!current) throw new Error("conversation not found");
+    const updated = stateModel.patchConversation(nextState, chatId, {
+      repositoryId: agent.repositoryId,
+      repository: agent.repository,
+      agentBinding: agent.agentBinding,
+      bindingRevision: Math.max(0, current.bindingRevision || 0) + 1,
+      bindingSetAt: new Date().toISOString(),
+      bootstrapPending: true,
+      lastControlFingerprint: "",
+      lastControlAction: "",
+      lastControlAt: null,
+      lastStatus: "rebound_by_operator",
+      enabled: true
+    });
+    return { state: updated.state, conversation: updated.conversation };
+  });
+  await scheduleDefault(chatId, true);
   return result.conversation;
 }
 
@@ -556,6 +728,10 @@ async function updateConversation(chatId, patch) {
     if ("label" in patch) safePatch.label = patch.label;
     if ("intervalOverrideMinutes" in patch) {
       safePatch.intervalOverrideMinutes = patch.intervalOverrideMinutes;
+    }
+
+    if (safePatch.enabled && !stateModel.isBoundConversation(previous)) {
+      throw new Error("conversation must be explicitly bound before it can be enabled");
     }
 
     const updated = stateModel.patchConversation(state, chatId, safePatch);
@@ -607,7 +783,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       lastStatus: `worker_error:${String(error)}`,
       lastRuntimeSource: runtime.source
     });
-    if (state.settings.masterEnabled && conversation.enabled) {
+    if (state.settings.masterEnabled && conversation.enabled && stateModel.isBoundConversation(conversation)) {
       await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes);
     }
   });
@@ -637,6 +813,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "bridge:upsert-conversation") {
     upsertConversation(message.conversation || {})
+      .then((conversation) => sendResponse({ ok: true, conversation }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+
+  if (message.type === "bridge:rebind-conversation") {
+    rebindConversation(String(message.conversationId || ""), message.binding || {})
       .then((conversation) => sendResponse({ ok: true, conversation }))
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
