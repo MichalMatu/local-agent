@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 CATALOG_VERSION = 1
+CONTROL_BINDING_VERSION = 1
+CONTROL_BINDING_RELATIVE = ".agent/binding.json"
 DEFAULT_CATALOG_PATH = Path(__file__).resolve().parent / "config" / "agent_bindings.json"
 
 
@@ -96,3 +98,88 @@ def catalog_record_for_repository(
     raise ValueError(
         f"no canonical agent binding for repository id={repository_id!r} repository={repository!r}"
     )
+
+
+def control_binding_payload(control_dir: Path) -> dict[str, Any]:
+    path = control_dir / CONTROL_BINDING_RELATIVE
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ValueError(f"repository control binding is missing: {path}") from exc
+    if not isinstance(payload, dict) or payload.get("version") != CONTROL_BINDING_VERSION:
+        raise ValueError(f"invalid repository control binding: {path}")
+    return payload
+
+
+def validate_repository_control_binding(
+    *,
+    repository_id: str,
+    repository: str,
+    expected_agent_binding: str,
+    control_dir: Path,
+) -> str:
+    expected = canonical_agent_binding(expected_agent_binding, field="expected_agent_binding")
+    payload = control_binding_payload(control_dir)
+    actual_id = payload.get("repository_id")
+    actual_repository = payload.get("repository")
+    actual_binding = canonical_agent_binding(payload.get("agent_binding"))
+    if actual_id != repository_id:
+        raise ValueError(
+            f"control binding repository id mismatch: expected {repository_id!r}, got {actual_id!r}"
+        )
+    if not isinstance(actual_repository, str) or actual_repository.casefold() != repository.casefold():
+        raise ValueError(
+            f"control binding repository mismatch: expected {repository!r}, got {actual_repository!r}"
+        )
+    if actual_binding != expected:
+        raise ValueError(
+            f"control binding UUID mismatch: expected {expected}, got {actual_binding}"
+        )
+    return actual_binding
+
+
+def apply_catalog_to_registry_payload(
+    payload: dict[str, Any],
+    *,
+    catalog_path: Path | None = None,
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    """Return a registry payload with canonical bindings applied by id+repository identity."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("repositories"), list):
+        raise ValueError("repository registry must contain a repositories list")
+    catalog = load_binding_catalog(catalog_path)
+    records = {
+        (record.repository_id.casefold(), record.repository.casefold()): record
+        for record in catalog
+        if record.execution_enabled
+    }
+    result = json.loads(json.dumps(payload))
+    changes: list[dict[str, str]] = []
+    for item in result["repositories"]:
+        if not isinstance(item, dict):
+            raise ValueError("repository registry entries must be objects")
+        if item.get("enabled", True) is False:
+            continue
+        repository_id = item.get("id")
+        repository = item.get("repository")
+        if not isinstance(repository_id, str) or not isinstance(repository, str):
+            raise ValueError("repository registry entry identity is invalid")
+        record = records.get((repository_id.casefold(), repository.casefold()))
+        if record is None:
+            raise ValueError(
+                f"no execution binding catalog entry for {repository_id!r} {repository!r}"
+            )
+        previous = item.get("agent_binding")
+        if previous is not None and canonical_agent_binding(previous) != record.agent_binding:
+            raise ValueError(
+                f"registry binding differs from canonical catalog for {repository_id!r}"
+            )
+        item["agent_binding"] = record.agent_binding
+        if previous != record.agent_binding:
+            changes.append(
+                {
+                    "repository_id": repository_id,
+                    "repository": repository,
+                    "agent_binding": record.agent_binding,
+                }
+            )
+    return result, changes
