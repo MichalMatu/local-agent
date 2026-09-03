@@ -1,6 +1,39 @@
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "interval_minutes": 10,
   "busy_retry_minutes": 1,
-  "prompt": "Check local-agent progress for the active autonomous goal in this conversation. Follow the canonical planner contract in MichalMatu/local-agent docs/AUTONOMOUS_CHAT_LOOP.md and the execution rules in docs/OPERATIONS.md. Use the latest GitHub daemon status, run, result, source, and verification evidence for the target repository. If local-agent is still running a task, do not queue another task. If the previous task finished and local-agent is idle, analyze its exact result and continue with only the next necessary bounded task using a new unique task id. If the autonomous goal is complete, end your response with [LOCAL_AGENT_BRIDGE:STOP]. If progress requires the user to perform a manual action before automation can continue, end your response with [LOCAL_AGENT_BRIDGE:PAUSE]. Otherwise do not emit a bridge control marker."
+  "bootstrap_prompt": "Local Agent Chat Bridge is enabled for this hard-bound conversation. Continue only its active Local Agent goal from exact bound-repository daemon/run/result evidence. Follow docs/AUTONOMOUS_CHAT_LOOP.md and docs/OPERATIONS.md. Never infer or switch repository identity from model context.",
+  "wake_prompt": "[LA_WAKE] Continue the active Local Agent goal from exact bound-repository evidence. Do not recap unchanged state; keep this wake terse.",
+  "agents": [
+    {
+      "repository_id": "local-agent",
+      "repository": "MichalMatu/local-agent",
+      "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+      "execution_enabled": false
+    },
+    {
+      "repository_id": "litegraph",
+      "repository": "MichalMatu/esp32s3_LiteGraph",
+      "agent_binding": "2db52048-57ea-4643-bf4b-1ea5c5c3fa86",
+      "execution_enabled": true
+    },
+    {
+      "repository_id": "growbox-ml-controller",
+      "repository": "MichalMatu/growbox-ml-controller",
+      "agent_binding": "815cf40f-8d2a-4e1f-b7cc-c0f4e37b6cb5",
+      "execution_enabled": true
+    },
+    {
+      "repository_id": "matrixhub",
+      "repository": "MichalMatu/MatrixHub",
+      "agent_binding": "033327ab-700d-43b4-9b3b-caff1acaa2c7",
+      "execution_enabled": true
+    },
+    {
+      "repository_id": "esp32-c6-zigbee",
+      "repository": "MichalMatu/esp32_c6_zigbee",
+      "agent_binding": "64877d7d-af3f-4312-a511-699c44aa42dd",
+      "execution_enabled": true
+    }
+  ]
 }
