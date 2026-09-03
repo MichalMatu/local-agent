@@ -32,7 +32,7 @@ def command_status(_args: argparse.Namespace) -> int:
     if payload is None:
         print_json({"state": "unknown", "error": "status file not found"})
         return 1
-    print_json(payload)
+    print_json(_status_with_liveness(payload))
     return 0
 
 
@@ -89,6 +89,29 @@ def _pid_alive(pid: Any) -> bool:
         return False
     except PermissionError:
         return True
+
+
+def _status_owner_pid(payload: dict[str, Any]) -> int | None:
+    """Return the process that owns freshness of the current status payload."""
+    for key in ("entrypoint_pid", "supervisor_pid", "pid"):
+        value = payload.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 2:
+            return value
+    return None
+
+
+def _status_with_liveness(payload: dict[str, Any]) -> dict[str, Any]:
+    """Annotate status freshness and never present a dead owner as live state."""
+    result = dict(payload)
+    owner_pid = _status_owner_pid(payload)
+    alive = _pid_alive(owner_pid)
+    result["status_owner_pid"] = owner_pid
+    result["process_alive"] = alive
+    if not alive:
+        result["last_state"] = payload.get("state")
+        result["state"] = "stale"
+        result["error"] = "status owner process is not running"
+    return result
 
 
 def _bounded_tree_stats(path: Path) -> tuple[int, int, bool]:
@@ -188,7 +211,7 @@ def command_doctor(_args: argparse.Namespace) -> int:
 
     try:
         status = read_json(agentd.LOCAL_STATUS_PATH) or {}
-        pid = status.get("supervisor_pid", status.get("pid"))
+        pid = _status_owner_pid(status)
         checks.append(_check("daemon_process", _pid_alive(pid), f"pid={pid}"))
     except Exception as exc:
         checks.append(_check("daemon_process", False, str(exc)))
