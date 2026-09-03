@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from agent_binding import DEFAULT_CATALOG_PATH, apply_catalog_to_registry_payload
 from agent_process import atomic_write_text, fsync_directory
 from agent_repository import default_registry_path, load_repository_registry
 
@@ -126,6 +127,41 @@ def reset_runtime_state(*, registry_path: Path | None = None) -> dict[str, Any]:
     }
 
 
+def migrate_registry_bindings(
+    *,
+    registry_path: Path | None = None,
+    catalog_path: Path | None = None,
+) -> dict[str, Any]:
+    """Apply canonical immutable bindings to the local registry while disabled."""
+    if not is_disabled():
+        raise RuntimeError("binding migration requires Local Agent to be disabled first")
+    resolved_registry = registry_path or default_registry_path(Path.home())
+    resolved_catalog = catalog_path or DEFAULT_CATALOG_PATH
+    payload = json.loads(resolved_registry.read_text(encoding="utf-8"))
+    updated, changes = apply_catalog_to_registry_payload(
+        payload,
+        catalog_path=resolved_catalog,
+    )
+    if changes:
+        atomic_write_text(
+            resolved_registry,
+            json.dumps(updated, indent=2, ensure_ascii=False) + "\n",
+        )
+    repositories = load_repository_registry(path=resolved_registry)
+    unbound = [repository.repository_id for repository in repositories if not repository.agent_binding]
+    if unbound:
+        raise RuntimeError("binding migration left unbound repositories: " + ", ".join(unbound))
+    return {
+        "migrated": True,
+        "changed": bool(changes),
+        "changes": changes,
+        "registry": str(resolved_registry),
+        "catalog": str(resolved_catalog),
+        "repository_count": len(repositories),
+        "disabled": True,
+    }
+
+
 def command_status(_args: argparse.Namespace) -> int:
     state = disabled_state()
     _print_json(
@@ -172,6 +208,25 @@ def command_reset_runtime(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_migrate_bindings(args: argparse.Namespace) -> int:
+    try:
+        payload = migrate_registry_bindings(
+            registry_path=args.registry,
+            catalog_path=args.catalog,
+        )
+    except Exception as exc:
+        _print_json(
+            {
+                "migrated": False,
+                "error": f"{type(exc).__name__}: {exc}",
+                "disabled": is_disabled(),
+            }
+        )
+        return 2
+    _print_json(payload)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Emergency Local Agent operator controls"
@@ -194,6 +249,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     reset_runtime.add_argument("--registry", type=Path)
     reset_runtime.set_defaults(func=command_reset_runtime)
+
+    migrate_bindings = sub.add_parser(
+        "migrate-bindings",
+        help="apply canonical agent bindings to the local repository registry while disabled",
+    )
+    migrate_bindings.add_argument("--registry", type=Path)
+    migrate_bindings.add_argument("--catalog", type=Path)
+    migrate_bindings.set_defaults(func=command_migrate_bindings)
     return parser
 
 
