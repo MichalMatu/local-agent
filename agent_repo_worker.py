@@ -8,12 +8,14 @@ import json
 import os
 import re
 import signal
+import threading
 from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import agent_core as core
+import agent_operator
 import agent_storage as storage
 import agentd
 from agent_process import (
@@ -38,6 +40,7 @@ WORKER_IDLE = 0
 WORKER_PROCESSED = 10
 WORKER_BUSY = 11
 WORKER_CONFIG_CHANGED = 12
+CONTROL_WATCH_SECONDS = 1.0
 _CONTROL_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
@@ -273,48 +276,166 @@ def publish_repository_control_ack(
     )
 
 
-def handle_repository_control(repository: RepositoryContext) -> None:
-    """Handle only controls that are safe inside a short-lived repository worker."""
+def _read_repository_control_request() -> dict[str, Any] | None:
     path = core.CONTROL / agentd.REMOTE_CONTROL_REQUEST
     if not path.exists():
-        return
+        return None
     try:
         request = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:
         core.log(f"invalid repository control request: {type(exc).__name__}: {exc}")
-        return
+        return None
     if not isinstance(request, dict):
         core.log("invalid repository control request: root must be an object")
-        return
-
+        return None
     control_id = str(request.get("id", ""))
-    action = str(request.get("action", ""))
     if (
         not control_id
         or len(control_id) > 120
         or not _CONTROL_ID_RE.fullmatch(control_id)
     ):
+        return None
+    return request
+
+
+def _control_already_acknowledged(control_id: str) -> bool:
+    try:
+        return agentd.control_ack_published(control_id)
+    except Exception as exc:
+        core.log(
+            f"repository control ACK verification failed id={control_id}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        return True
+
+
+def _cancel_pending_task(
+    repository: RepositoryContext,
+    control_id: str,
+    task_id: str,
+) -> bool:
+    pending = {str(task.get("id", "")): task for _, task in agentd.pending_tasks()}
+    task = pending.get(task_id)
+    if task is None:
+        results_dir = core.CONTROL / ".agent/results"
+        if (results_dir / f"{task_id}.json").exists():
+            publish_repository_control_ack(
+                repository,
+                control_id,
+                "cancel_task",
+                "completed",
+                task_id=task_id,
+                result="already_terminal",
+            )
+            return True
+        publish_repository_control_ack(
+            repository,
+            control_id,
+            "cancel_task",
+            "rejected",
+            task_id=task_id,
+            result="task_not_pending",
+        )
+        return True
+
+    result = {
+        "id": task_id,
+        "status": "failed",
+        "failure_reason": "cancelled_by_operator",
+        "task_digest": agentd.task_digest(task),
+        "started_at": None,
+        "finished_at": agentd.now_iso(),
+        "daemon_version": MULTIREPO_DAEMON_VERSION,
+        "error": "Task cancelled by operator before execution.",
+    }
+    core.publish_result(task_id, result)
+    agentd.publish_run_state(
+        task_id,
+        {
+            "event": "cancelled_before_execution",
+            "status": "failed",
+            "failure_reason": "cancelled_by_operator",
+            "control_id": control_id,
+            "updated_at": agentd.now_iso(),
+        },
+        force_remote=True,
+    )
+    publish_repository_control_ack(
+        repository,
+        control_id,
+        "cancel_task",
+        "completed",
+        task_id=task_id,
+        result="cancelled_before_execution",
+    )
+    return True
+
+
+def _handle_disable_control(
+    repository: RepositoryContext,
+    control_id: str,
+    *,
+    terminate_self: bool,
+) -> bool:
+    agent_operator.disable_agent(
+        control_id=control_id,
+        repository_id=repository.repository_id,
+        reason="remote_control",
+    )
+    publish_repository_control_ack(
+        repository,
+        control_id,
+        "disable",
+        "completed",
+        result="agent_disabled",
+    )
+    core.log(
+        f"operator disabled Local Agent repository={repository.repository_id} "
+        f"control={control_id}"
+    )
+    if terminate_self:
+        os.kill(os.getpid(), signal.SIGTERM)
+    return True
+
+
+def handle_repository_control(repository: RepositoryContext) -> None:
+    """Handle repository-scoped controls before task admission."""
+    request = _read_repository_control_request()
+    if request is None:
         return
+    control_id = str(request["id"])
+    action = str(request.get("action", ""))
 
     if action in {"restart", "self_update"}:
         # These are global supervisor actions. A fast per-repository worker must
         # leave them unacknowledged so the supervisor can own the request.
         return
 
-    try:
-        if agentd.control_ack_published(control_id):
+    if _control_already_acknowledged(control_id):
+        return
+
+    if action == "disable":
+        _handle_disable_control(repository, control_id, terminate_self=False)
+        return
+
+    if action == "cancel_task":
+        task_id = str(request.get("task_id", ""))
+        if not task_id or not agentd.valid_control_id(task_id):
+            publish_repository_control_ack(
+                repository,
+                control_id,
+                action,
+                "rejected",
+                result="invalid_task_id",
+            )
             return
-    except Exception as exc:
-        core.log(
-            f"repository control ACK verification failed id={control_id}: "
-            f"{type(exc).__name__}: {exc}"
-        )
+        _cancel_pending_task(repository, control_id, task_id)
         return
 
     if action == "status":
         publish_repository_status(
             repository,
-            "idle",
+            "disabled" if agent_operator.is_disabled() else "idle",
             force_remote=True,
             control_id=control_id,
         )
@@ -336,6 +457,86 @@ def handle_repository_control(repository: RepositoryContext) -> None:
     )
 
 
+class ActiveRepositoryControlWatcher:
+    """Watch one active task's own control branch for emergency controls."""
+
+    def __init__(self, repository: RepositoryContext, task_id: str) -> None:
+        self.repository = repository
+        self.task_id = task_id
+        self._stop = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            daemon=True,
+            name=f"local-agent-control-{repository.repository_id}",
+        )
+
+    def __enter__(self) -> ActiveRepositoryControlWatcher:
+        self._thread.start()
+        return self
+
+    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2.0)
+
+    def _run(self) -> None:
+        while not self._stop.wait(CONTROL_WATCH_SECONDS):
+            try:
+                sync_control_quietly()
+                request = _read_repository_control_request()
+                if request is None:
+                    continue
+                control_id = str(request["id"])
+                action = str(request.get("action", ""))
+                if action not in {"cancel_task", "disable"}:
+                    continue
+                if _control_already_acknowledged(control_id):
+                    continue
+
+                if action == "disable":
+                    _handle_disable_control(
+                        self.repository,
+                        control_id,
+                        terminate_self=True,
+                    )
+                    return
+
+                requested_task_id = str(request.get("task_id", ""))
+                if requested_task_id != self.task_id:
+                    publish_repository_control_ack(
+                        self.repository,
+                        control_id,
+                        action,
+                        "rejected",
+                        task_id=requested_task_id,
+                        active_task_id=self.task_id,
+                        result="active_task_mismatch",
+                    )
+                    continue
+
+                publish_repository_control_ack(
+                    self.repository,
+                    control_id,
+                    action,
+                    "accepted",
+                    task_id=self.task_id,
+                    result="terminating_active_task",
+                )
+                core.log(
+                    f"operator cancelling active task repository={self.repository.repository_id} "
+                    f"task={self.task_id} control={control_id}"
+                )
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+            except BaseException as exc:
+                if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                    return
+                core.log(
+                    f"active repository control watcher degraded "
+                    f"repository={self.repository.repository_id}: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+
+
 def poll_repository_once(repository: RepositoryContext) -> bool:
     """Poll one repository and execute at most one task."""
     bind_repository(repository)
@@ -347,6 +548,13 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
         agentd.recover_stale_claims()
         agentd.recover_invalid_task_files()
         handle_repository_control(repository)
+        if agent_operator.is_disabled():
+            publish_repository_status(
+                repository,
+                "disabled",
+                force_remote=True,
+            )
+            return False
         pending = agentd.pending_tasks()
         if not pending:
             state = "publication_pending" if agentd.has_pending_publications() else "idle"
@@ -358,21 +566,23 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
             return False
 
         _, task = pending[0]
+        task_id = str(task.get("id", ""))
         core.log(
             f"multi-repo dispatch repository={repository.repository_id} "
-            f"task={task.get('id')}"
+            f"task={task_id}"
         )
-        outcome = agentd.execute_task(
-            task,
-            remote_daemon_status=False,
-            remote_result_published=False,
-        )
+        with ActiveRepositoryControlWatcher(repository, task_id):
+            outcome = agentd.execute_task(
+                task,
+                remote_daemon_status=False,
+                remote_result_published=False,
+            )
         state = "publication_pending" if outcome == "publication_pending" else "idle"
         publish_repository_status(
             repository,
             state,
             force_remote=True,
-            last_task_id=str(task.get("id", "")),
+            last_task_id=task_id,
         )
         return True
     finally:
