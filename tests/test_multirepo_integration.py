@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 
 from agent_repo_worker import MULTIREPO_DAEMON_VERSION
@@ -35,6 +36,10 @@ def configure_identity(path: Path) -> None:
 
 
 def create_repository_fixture(root: Path, repository_id: str) -> dict[str, Path | str]:
+    repository = f"test/{repository_id}"
+    agent_binding = str(
+        uuid.uuid5(uuid.NAMESPACE_URL, f"local-agent-integration:{repository}")
+    )
     remote = root / f"{repository_id}.git"
     seed = root / f"{repository_id}-seed"
     control = root / f"{repository_id}-control"
@@ -63,8 +68,21 @@ def create_repository_fixture(root: Path, repository_id: str) -> dict[str, Path 
         target = seed / directory
         target.mkdir(parents=True, exist_ok=True)
         (target / ".gitkeep").write_text("", encoding="utf-8")
+    (seed / ".agent" / "binding.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "repository_id": repository_id,
+                "repository": repository,
+                "agent_binding": agent_binding,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     git(["add", ".agent"], cwd=seed)
-    git(["commit", "-m", "Initialize agent control"], cwd=seed)
+    git(["commit", "-m", "Initialize bound agent control"], cwd=seed)
     git(["push", "-u", "origin", "agent-control"], cwd=seed)
 
     git(["clone", "--branch", "agent-control", str(remote), str(control)])
@@ -74,6 +92,7 @@ def create_repository_fixture(root: Path, repository_id: str) -> dict[str, Path 
 
     task = {
         "id": "shared-task-id",
+        "agent_binding": agent_binding,
         "mode": "commands",
         "work_branch": "main",
         "allow_write": False,
@@ -98,7 +117,8 @@ def create_repository_fixture(root: Path, repository_id: str) -> dict[str, Path 
 
     return {
         "id": repository_id,
-        "repository": f"test/{repository_id}",
+        "repository": repository,
+        "agent_binding": agent_binding,
         "control": control,
         "work": work,
         "checkpoints": checkpoints,
@@ -115,6 +135,7 @@ def write_registry(root: Path, repositories: tuple[dict[str, Path | str], ...]) 
                     {
                         "id": item["id"],
                         "repository": item["repository"],
+                        "agent_binding": item["agent_binding"],
                         "control_dir": str(item["control"]),
                         "work_dir": str(item["work"]),
                         "checkpoints_dir": str(item["checkpoints"]),
