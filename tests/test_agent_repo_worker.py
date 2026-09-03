@@ -14,6 +14,8 @@ import agent_storage as storage
 import agentd
 from agent_repository import RepositoryContext, repository_config_digest
 
+PROJECT_BINDING = "3da0947d-9acf-4ecf-adce-a29be7dc5c09"
+
 
 class RepositoryWorkerTests(unittest.TestCase):
     def test_worker_version_matches_agent_release(self) -> None:
@@ -38,9 +40,23 @@ class RepositoryWorkerTests(unittest.TestCase):
             control=root / "control",
             work=root / "work",
             checkpoints=root / "checkpoints",
+            agent_binding=PROJECT_BINDING,
         )
         (self.repository.control / ".git").mkdir(parents=True)
         (self.repository.work / ".git").mkdir(parents=True)
+        binding_path = self.repository.control / ".agent" / "binding.json"
+        binding_path.parent.mkdir(parents=True)
+        binding_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "repository_id": self.repository.repository_id,
+                    "repository": self.repository.repository,
+                    "agent_binding": PROJECT_BINDING,
+                }
+            ),
+            encoding="utf-8",
+        )
         self.originals = {
             "STATE_DIR": agentd.STATE_DIR,
             "CONTROL": core.CONTROL,
@@ -189,8 +205,14 @@ class RepositoryWorkerTests(unittest.TestCase):
 
     def test_poll_executes_at_most_first_task(self) -> None:
         tasks = [
-            (Path("one.json"), {"id": "one", "commands": ["true"]}),
-            (Path("two.json"), {"id": "two", "commands": ["true"]}),
+            (
+                Path("one.json"),
+                {"id": "one", "agent_binding": PROJECT_BINDING, "commands": ["true"]},
+            ),
+            (
+                Path("two.json"),
+                {"id": "two", "agent_binding": PROJECT_BINDING, "commands": ["true"]},
+            ),
         ]
         with mock.patch.object(worker, "sync_control_quietly"), mock.patch.object(
             agentd, "recover_stale_claims"
@@ -206,7 +228,12 @@ class RepositoryWorkerTests(unittest.TestCase):
         )
 
     def test_publication_pending_is_not_overwritten_with_idle(self) -> None:
-        tasks = [(Path("one.json"), {"id": "one", "commands": ["true"]})]
+        tasks = [
+            (
+                Path("one.json"),
+                {"id": "one", "agent_binding": PROJECT_BINDING, "commands": ["true"]},
+            )
+        ]
         with mock.patch.object(worker, "sync_control_quietly"), mock.patch.object(
             agentd, "recover_stale_claims"
         ), mock.patch.object(agentd, "recover_invalid_task_files"), mock.patch.object(
