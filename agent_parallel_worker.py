@@ -216,11 +216,6 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
     agentd.DAEMON_VERSION = PARALLEL_DAEMON_VERSION
     try:
         serial_worker.sync_control_quietly()
-        if not _repository_binding_ready(repository):
-            return False
-        agentd.recover_stale_claims()
-        agentd.recover_invalid_task_files()
-        serial_worker.handle_repository_control(repository)
         if agent_operator.is_disabled():
             serial_worker.publish_repository_status(
                 repository,
@@ -229,6 +224,11 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                 execution_variant="parallel",
             )
             return False
+        if not _repository_binding_ready(repository):
+            return False
+        agentd.recover_stale_claims()
+        agentd.recover_invalid_task_files()
+        serial_worker.handle_repository_control(repository)
         pending = agentd.pending_tasks()
         if not pending:
             state = "publication_pending" if agentd.has_pending_publications() else "idle"
