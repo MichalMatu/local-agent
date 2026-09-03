@@ -7,23 +7,31 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - All machine-generated execution content is English-only: source, comments, identifiers, tests, documentation, prompts, task metadata, runtime logs, shell-visible status text and commit messages.
 - Interactive ChatGPT conversation language is independent from that execution contract.
 - `agentd.py` owns the validated daemon core, durable claims/results, remote status/control and self-update.
+- `agent_binding.py` owns canonical immutable agent/repository binding identities, control-binding validation and registry migration.
 - `agent_core.py` owns deterministic task execution and result publication.
 - `agent_runtime.py` owns staged command lifecycle, watchdog orchestration and compatibility exports/adapters.
-- `local_agent/runtime/task_contract.py` owns immutable task digests, task-schema limits/validation and bounded task timeout/memory parsing.
+- `local_agent/runtime/task_contract.py` owns immutable task digests, task-schema limits/validation, agent-binding task validation and bounded task timeout/memory parsing.
 - `local_agent/runtime/progress.py` owns validated progress-marker parsing and bounded asynchronous progress publication.
 - `local_agent/runtime/output.py` owns live command-output rendering, unified-diff collapsing and bounded summary-failure tails.
 - `local_agent/runtime/telemetry.py` owns host/process telemetry parsing and collection plus the underlying process-group RSS sampling implementation.
 - `agent_process.py` owns registered spawning, bounded stdout transport, process groups and inherited lease descriptors.
 - `agent_repository.py` owns repository registry parsing and workspace identity.
-- `agent_repo_worker.py` owns one short-lived process-isolated repository turn.
+- `agent_repo_worker.py` owns one short-lived process-isolated repository turn and enforces the hard binding contract on the serial path.
 - `agent_parallel.py` owns the released bounded-parallel multi-repository scheduler.
-- `agent_parallel_worker.py` owns task resource admission for the parallel scheduler.
+- `agent_parallel_worker.py` owns task resource admission and hard binding admission for the parallel scheduler.
 - `agent_multirepo.py` remains the direct serial fallback with global concurrency one.
 - `agent_repo_admin.py` owns explicit repository provisioning and validation.
+- `agent_operator.py` owns the local fail-closed disable marker and disabled-only binding migration.
 - `agentctl.py` is diagnostics only; the daemon must not depend on it.
 
 ## Safety invariants
 
+- One executable repository has one canonical opaque `agent_binding` UUID. Repository id, repository remote and binding are operational identity, not planner hints.
+- Before claim/execution, both parallel and serial repository workers require local registry `agent_binding == .agent/binding.json agent_binding == task.agent_binding`.
+- Missing repository binding is fail-closed `unbound`; invalid/mismatched control binding is fail-closed `binding_error`; missing/wrong task binding is a terminal pre-claim rejection and must execute no task command.
+- Global operator `disabled` state takes precedence over repository binding admission so emergency stop remains authoritative during partial migrations or broken binding state.
+- Chat Bridge conversations must not infer or switch repository identity from model context. A binding change is an explicit operator Rebind only.
+- The `local-agent` catalog binding is bridge/operator-only (`execution_enabled: false`) and must never be used to queue project work.
 - Never automatically replay a task after daemon/process interruption.
 - Never silently reuse a task id for a different payload within one repository.
 - Task/result/claim identity is repository-scoped; identical task ids in different repositories must not collide.
@@ -32,7 +40,7 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - Command stdout transport and retained result capture must remain strictly bounded.
 - Never terminate an already-running stage solely because the whole-task admission budget expired.
 - Never mutate repository path globals in a long-lived supervisor. Legacy path binding is allowed only inside a short-lived repository worker process.
-- Repository ids and remote identities are case-insensitively unique. Control/work/checkpoint paths must be disjoint after normalization, alias and ancestor/descendant checks.
+- Repository ids and remote identities are case-insensitively unique. Agent bindings are canonical lowercase UUIDs and unique. Control/work/checkpoint paths must be disjoint after normalization, alias and ancestor/descendant checks.
 - A repository turn holds OS execution leases for its id, remote and every workspace path. Those descriptors must survive supervisor and worker failure through every spawned descendant.
 - Stale-claim recovery must not inspect or mutate a repository while an earlier process still owns any matching execution lease.
 - A worker must reject dispatch when its exact repository configuration changed after the supervisor selected it.
@@ -52,7 +60,7 @@ The bounded-parallel production path is `agent_parallel.py`:
 
 - recommended production `max_workers` is `2`;
 - default remains `1` and the hard cap remains `3`;
-- `agent_multirepo.py` remains the known-safe serial fallback;
+- `agent_multirepo.py` remains the known-safe serial fallback and preserves the same hard binding admission contract;
 - serial and parallel supervisors share the same daemon lock and must never run simultaneously;
 - every task must declare `resources` explicitly; missing, malformed, duplicated or non-canonical declarations are terminal task-contract errors, never silent fallbacks;
 - `resources: []` means the task needs no exclusive external resource beyond its repository lease; builds, tests, lint and other repository-local software work may use it regardless of `memory_limit_mb`;
@@ -68,22 +76,23 @@ The bounded-parallel production path is `agent_parallel.py`:
 - after initial supervisor control service succeeds, degraded control probes retry promptly without blocking unrelated task admission; confirmed `PENDING` control drains immediately, while repeated control-repository lease contention enters a bounded drain after six consecutive deferrals so global control cannot starve;
 - registry entries must not be removed or identity-mutated while workers may still be alive.
 
-Repository isolation and external-resource isolation are separate contracts. One repository still runs one task at a time, while independent repositories may compile/test concurrently whenever their declared external resources do not conflict.
+Repository isolation, hard agent binding and external-resource isolation are separate contracts. One repository still runs one task at a time, while independent hard-bound repositories may compile/test concurrently whenever their declared external resources do not conflict.
 
 ## Release and branch policy
 
 - `main` is the production/runtime source of truth.
 - Normal installed runtime must execute from `~/local-agent` on `main` so validated self-update and revision reporting work normally.
-- Non-trivial runtime changes are prepared on isolated `v*-staging` branches/worktrees.
-- Staging branches are candidate-validation infrastructure, not long-lived production branches.
-- Require exact-candidate compile, Ruff, full unit/integration and macOS smoke before advancing `main`.
+- Non-trivial runtime changes are prepared on isolated candidate branches/worktrees.
+- Staging/candidate branches are validation infrastructure, not long-lived production branches.
+- Require exact-candidate compile, Ruff, full unit/integration, Chat Bridge JS tests and macOS smoke before advancing `main`.
+- Hard-binding releases additionally require negative missing/wrong-binding coverage on parallel and serial paths plus real E2E of active `cancel_task` and global `disable` before execution is left enabled.
 - Advance `main` only by validated fast-forward after an explicit release decision.
 - Tag the released main commit with `vX.Y.Z` and keep `agent_version.RELEASE_VERSION` synchronized with that tag.
 - After live verification from `main`, remove obsolete staging worktrees/branches instead of accumulating them.
 
 ## Downstream documentation synchronization
 
-Planner-facing Local Agent behavior is a cross-repository contract. Any change that materially affects task fields, control-plane paths, status/result fields, execution model, resource classification, concurrency, launchd deployment, self-update behavior, release flow or planner instructions must include a downstream documentation audit before release.
+Planner-facing Local Agent behavior is a cross-repository contract. Any change that materially affects task fields, control-plane paths, status/result fields, execution model, agent binding, resource classification, concurrency, launchd deployment, self-update behavior, release flow or planner instructions must include a downstream documentation audit before release.
 
 The currently registered downstream repositories are:
 
@@ -102,19 +111,23 @@ Verification is impact-driven:
 
 - run the narrowest test/build that can detect a realistic regression from the current diff;
 - add broader coverage for shared/cross-cutting changes, uncertain dependency impact, explicit repository requirements or user requests;
-- new control/progress/watchdog/process-lifecycle behavior requires unit coverage;
+- new binding/control/progress/watchdog/process-lifecycle behavior requires unit coverage;
 - scheduler, isolation, provisioning or resource-arbitration changes require real temporary-Git integration coverage;
 - repository lease/process-lifecycle changes require real SIGTERM/SIGKILL process tests;
-- bounded parallel changes require real overlap and exclusivity evidence, not only mocks.
+- bounded parallel changes require real overlap and exclusivity evidence, not only mocks;
+- hard binding must have positive and negative admission evidence on both the production parallel worker and serial fallback.
 
 Use `workflow_policy: "efficient-verification-v1"` for staged coding tasks that must make verification cost explicit. Use `work` for implementation, `focused` for affected regression/static checks and exactly one final `full` verification stage.
 
 For daemon changes, before publication run:
 
 ```bash
-python -m py_compile agentd.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agentctl.py agent_version.py
-ruff check agentd.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agentctl.py agent_version.py tests
+python -m py_compile agentd.py agent_binding.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agent_cleanup.py agent_operator.py agent_remote_operator.py agent_entrypoint.py agentctl.py agent_version.py local_agent/supervisor/control.py local_agent/supervisor/policy.py
+ruff check agentd.py agent_binding.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agent_cleanup.py agent_operator.py agent_remote_operator.py agent_entrypoint.py agentctl.py agent_version.py local_agent tests
 python -m unittest discover -q
+node chat_bridge/control_protocol.test.js
+node chat_bridge/bridge_state.test.js
+node chat_bridge/service_worker.test.js
 ```
 
 Parallel scheduler releases additionally require real two-repository overlap, machine-exclusion, inherited-resource-lock, one-shot contention and macOS smoke coverage.
@@ -124,6 +137,7 @@ Parallel scheduler releases additionally require real two-repository overlap, ma
 - Canonical workflow: `docs/OPERATIONS.md`.
 - Autonomous ChatGPT planner/Chat Bridge loop: `docs/AUTONOMOUS_CHAT_LOOP.md`.
 - Multi-repository architecture: `docs/MULTI_REPOSITORY.md`.
+- Emergency controls: `docs/EMERGENCY_CONTROLS.md`.
 - v4.11 parallel design/audit/live evidence: `docs/PARALLEL_EXECUTION_PLAN.md`.
 - Established Mac/ESP32 setup: `docs/SESSION_BOOTSTRAP.md`.
 - Current production invariants: `docs/GOLDEN_STANDARD.md`.
