@@ -22,9 +22,9 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - `agent_process.py` owns registered spawning, bounded stdout transport, process groups and inherited repository execution-lease descriptors.
 - `local_agent/supervisor/resources.py` owns external machine/named-resource flock arbitration and inherited resource descriptors used by the parallel worker.
 - `local_agent/supervisor/policy.py` owns shared polling/order/control policy.
-- `local_agent/supervisor/scheduling.py` owns pure retry/backoff/due/max-worker scheduling policy.
+- `local_agent/supervisor/scheduling.py` is the directly tested pure scheduling extraction target. Until the released orchestrator is rewired, parity tests must keep its retry/backoff/due/max-worker behavior synchronized with `agent_parallel.py`.
 - `agent_repo_worker.py` owns one short-lived process-isolated repository turn and enforces the hard binding contract on the serial path.
-- `agent_parallel.py` owns the released bounded-parallel orchestration loop around packaged supervisor policy/resources; do not add duplicated pure scheduling/resource policy there when a packaged owner exists.
+- `agent_parallel.py` owns the released bounded-parallel orchestration and current production scheduling semantics. Future rewiring to `local_agent/supervisor/scheduling.py` must be a focused behavior-preserving change with parity tests kept green.
 - `agent_parallel_worker.py` owns parallel worker task admission/dispatch and hard-binding admission; resource-lock implementation belongs in `local_agent/supervisor/resources.py`.
 - `agent_multirepo.py` remains the direct serial fallback with global concurrency one.
 - `agent_repo_admin.py` owns explicit repository provisioning and validation.
