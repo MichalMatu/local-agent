@@ -307,7 +307,7 @@ For 4.15, release verification additionally requires missing/wrong binding rejec
 
 ## Downstream documentation gate
 
-Current execution targets are LiteGraph, Growbox ML Controller, MatrixHub and Tracker. ESP32-C6 Zigbee (`esp32-c6-zigbee`) is an archival disabled entry; active C6 development belongs to LiteGraph and a different Bridge binding requires explicit Rebind. Changes to task schema, planner flow, status/control or execution model require a downstream docs audit before release. See `AGENTS.md` for exact files/branches.
+Current execution targets are LiteGraph, Growbox ML Controller, MatrixHub and Tracker. ESP32-C6 Zigbee (`esp32-c6-zigbee`) has been removed from the agent registry/catalog and its workspace retired; active C6 development belongs to LiteGraph and a different Bridge binding requires explicit Rebind. Changes to task schema, planner flow, status/control or execution model require a downstream docs audit before release. See `AGENTS.md` for exact files/branches.
 
 Downstream task examples must include `agent_binding` for executable Chat Bridge/Local Agent work and must not instruct a conversation to select/switch repositories from model context.
 

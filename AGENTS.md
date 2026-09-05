@@ -113,7 +113,6 @@ The currently registered downstream repositories are:
 - `MichalMatu/esp32s3_LiteGraph` — update `LOCAL_AGENT_FLOW.md`, `LOCAL_AGENT_AUTOPILOT.md` when task construction/autonomy changes, and `AGENTS.md` when the contract is repeated there.
 - `MichalMatu/growbox-ml-controller` — update root `AGENTS.md` on `main` and any active long-lived work branch that carries its own Local Agent bootstrap; currently `mvp/environment-controller` must stay synchronized.
 - `MichalMatu/MatrixHub` — update root `AGENTS.md` on `main` and the active long-lived development branch when it differs; currently `develop` must stay synchronized.
-- `MichalMatu/esp32_c6_zigbee` (repository id: `esp32-c6-zigbee`) is an archival, disabled execution entry. Audit its root `AGENTS.md` on `main` for routing consistency; new C6 work belongs to LiteGraph and requires explicit conversation Rebind.
 
 - `MichalMatu/tracker` (repository id: `tracker`) — update root `AGENTS.md` on `main` when the Local Agent or planner contract changes.
 
