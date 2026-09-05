@@ -294,9 +294,10 @@ function renderConversation(conversation, settings, schedule, runtime) {
   const remove = makeButton("Remove", "danger small-action");
   primaryActions.append(run, edit, remove);
 
+  let pendingResolution = null;
   if (conversation.pendingDelivery) {
-    const pending = document.createElement("div");
-    pending.className = "delivery-resolution";
+    pendingResolution = document.createElement("div");
+    pendingResolution.className = "delivery-resolution";
     const pendingText = makeMeta("Delivery uncertain", "delivery-label");
     pendingText.title =
       "Bridge cannot prove whether the previous wake reached ChatGPT. Confirm what you see in this chat.";
@@ -331,8 +332,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
       }
     });
 
-    pending.append(pendingText, sent, notSent);
-    card.append(pending);
+    pendingResolution.append(pendingText, sent, notSent);
   }
 
   enabled.addEventListener("change", async () => {
@@ -421,9 +421,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
         : "Remove this conversation from Local Agent Chat Bridge?";
       if (!confirm(prompt)) return;
 
-      if (unresolved) {
-        await resolvePendingDelivery(conversation, false);
-      }
+      if (unresolved) await resolvePendingDelivery(conversation, false);
 
       const response = await request({
         type: "bridge:remove-conversation",
@@ -446,7 +444,9 @@ function renderConversation(conversation, settings, schedule, runtime) {
     });
   }
 
-  card.append(header, meta, primaryActions);
+  card.append(header, meta);
+  if (pendingResolution) card.append(pendingResolution);
+  card.append(primaryActions);
   return card;
 }
 
