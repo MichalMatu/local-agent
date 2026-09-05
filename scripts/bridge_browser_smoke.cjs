@@ -80,7 +80,9 @@ document.querySelector('form').onsubmit = (event) => {
       const url = `https://chatgpt.com/c/bridge-fixture-${suffix}`;
       await page.goto(url);
       const result = await request({ type: "bridge:upsert-conversation", conversation: {
-        url, agentBinding: catalog.agents.find((agent) => agent.repository_id === "tracker").agent_binding,
+        url,
+        label: suffix,
+        agentBinding: catalog.agents.find((agent) => agent.repository_id === "tracker").agent_binding,
         enabled: false
       } });
       assert.equal(result.ok, true, result.error);
@@ -197,11 +199,11 @@ document.querySelector('form').onsubmit = (event) => {
     });
     const pendingCard = popup.locator(".has-pending-delivery").filter({ hasText: "remove-pending" });
     await pendingCard.getByRole("button", { name: "Remove", exact: true }).click();
-    await popup.waitForFunction((conversationId) => {
-      return !Array.from(document.querySelectorAll(".conversation-card")).some((card) =>
-        card.textContent.includes(conversationId)
-      );
-    }, removePendingId);
+    await popup.waitForFunction(() =>
+      !Array.from(document.querySelectorAll(".conversation-card")).some((card) =>
+        card.textContent.includes("remove-pending")
+      )
+    );
     assert.equal(nativeDialogSeen, false);
     const stateAfterRemove = (await request({ type: "bridge:get-state" })).state;
     assert.equal(stateAfterRemove.conversations[removePendingId], undefined);
