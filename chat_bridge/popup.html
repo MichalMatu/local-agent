@@ -9,17 +9,11 @@
   <body>
     <main class="app-shell">
       <header class="app-header glass-bar">
-        <div class="brand-block">
-          <span class="brand-orb" aria-hidden="true"></span>
-          <div>
-            <h1>Local Agent</h1>
-            <p>Chat Bridge</p>
-          </div>
-        </div>
-        <label class="master-control" title="Enable or pause all scheduled wakes">
-          <span>Master</span>
+        <h1 class="brand-title">Local Agent <span aria-hidden="true">·</span> <span class="brand-secondary">Chat Bridge</span></h1>
+        <label class="switch-control master-control" title="Enable or pause all scheduled wakes">
+          <span class="switch-label">Master</span>
           <input id="masterEnabled" type="checkbox" aria-label="Master scheduler" />
-          <span class="master-track" aria-hidden="true"><span></span></span>
+          <span class="switch-track" aria-hidden="true"><span class="switch-thumb"></span></span>
         </label>
       </header>
 
