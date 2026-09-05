@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import os
 import unittest
+from dataclasses import fields
+from types import SimpleNamespace
 from unittest import mock
 
+import agent_parallel
 from local_agent.supervisor import scheduling
 
 
@@ -104,6 +107,73 @@ class SupervisorSchedulingTests(unittest.TestCase):
         self.assertGreater(
             scheduling.next_repository_delay({}, [], 100.0),
             0.0,
+        )
+
+    def test_extraction_target_stays_in_parity_with_released_orchestrator(self) -> None:
+        self.assertEqual(
+            [field.name for field in fields(scheduling.RepositorySchedule)],
+            [field.name for field in fields(agent_parallel.RepositorySchedule)],
+        )
+        for name in (
+            "MAX_WORKERS_ENV",
+            "DEFAULT_MAX_WORKERS",
+            "MAX_MAX_WORKERS",
+            "RESOURCE_RETRY_BACKOFF_SECONDS",
+            "WORKER_FAILURE_RETRY_BASE_SECONDS",
+            "WORKER_FAILURE_RETRY_MAX_SECONDS",
+            "CONTROL_DEFER_RETRY_BASE_SECONDS",
+            "CONTROL_DEFER_RETRY_MAX_SECONDS",
+            "CONTROL_LEASE_BUSY_DRAIN_ATTEMPTS",
+            "REPEATED_FAILURE_LOG_SECONDS",
+            "OPERATOR_IDLE_HEARTBEAT_SECONDS",
+            "LOCAL_LOG_MAINTENANCE_SECONDS",
+        ):
+            with self.subTest(constant=name):
+                self.assertEqual(getattr(scheduling, name), getattr(agent_parallel, name))
+
+        for attempt in range(0, 12):
+            with self.subTest(attempt=attempt):
+                self.assertEqual(
+                    scheduling.resource_retry_seconds(attempt),
+                    agent_parallel.resource_retry_seconds(attempt),
+                )
+                self.assertEqual(
+                    scheduling.worker_failure_retry_seconds(attempt),
+                    agent_parallel.worker_failure_retry_seconds(attempt),
+                )
+                self.assertEqual(
+                    scheduling.control_defer_retry_seconds(attempt),
+                    agent_parallel.control_defer_retry_seconds(attempt),
+                )
+                self.assertEqual(
+                    scheduling.control_lease_busy_should_force_drain(attempt),
+                    agent_parallel.control_lease_busy_should_force_drain(attempt),
+                )
+
+        for last_log_at, now in ((None, 10.0), (10.0, 69.9), (10.0, 70.0)):
+            self.assertEqual(
+                scheduling.repeated_failure_log_due(last_log_at, now),
+                agent_parallel.repeated_failure_log_due(last_log_at, now),
+            )
+
+        extracted = scheduling.RepositorySchedule(last_poll_at=100.0, retry_not_before=102.0)
+        released = agent_parallel.RepositorySchedule(last_poll_at=100.0, retry_not_before=102.0)
+        for now in (101.9, 102.0):
+            self.assertEqual(
+                scheduling.repository_due(extracted, now),
+                agent_parallel.repository_due(released, now),
+            )
+
+        extracted_schedules = {
+            "a": scheduling.RepositorySchedule(last_poll_at=100.0, retry_not_before=102.0)
+        }
+        released_schedules = {
+            "a": agent_parallel.RepositorySchedule(last_poll_at=100.0, retry_not_before=102.0)
+        }
+        repositories = [SimpleNamespace(repository_id="a")]
+        self.assertEqual(
+            scheduling.next_repository_delay(extracted_schedules, ["a"], 100.0),
+            agent_parallel.next_repository_delay(released_schedules, repositories, 100.0),
         )
 
 
