@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 import agent_parallel_worker as worker
+from agent_process import ExecutionLeaseBusy, RESOURCE_LEASE_FDS_ENV
+from agent_repository import RepositoryContext
 from agent_version import RELEASE_VERSION
 from local_agent.runtime.task_contract import MAX_MEMORY_LIMIT_MB, MAX_TASK_RESOURCES
 
@@ -81,6 +89,171 @@ class ParallelWorkerResourceTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "resources exceeds"):
             worker.task_resources(task)
+
+    def test_named_resource_lease_exports_and_restores_inherited_descriptors(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            worker,
+            "resource_lock_dir",
+            return_value=Path(tmp),
+        ), mock.patch.dict(
+            os.environ,
+            {RESOURCE_LEASE_FDS_ENV: "91"},
+            clear=False,
+        ):
+            previous_core = worker.core.ENV.get(RESOURCE_LEASE_FDS_ENV)
+            worker.core.ENV[RESOURCE_LEASE_FDS_ENV] = "core-before"
+            try:
+                with worker.machine_resource_lease(
+                    {"id": "lease", "resources": ["board:test-s3"]}
+                ) as resources:
+                    self.assertEqual(resources, ("board:test-s3",))
+                    inherited = os.environ[RESOURCE_LEASE_FDS_ENV].split(",")
+                    self.assertEqual(inherited[0], "91")
+                    self.assertGreaterEqual(len(inherited), 3)
+                    self.assertEqual(
+                        worker.core.ENV[RESOURCE_LEASE_FDS_ENV],
+                        os.environ[RESOURCE_LEASE_FDS_ENV],
+                    )
+                self.assertEqual(os.environ[RESOURCE_LEASE_FDS_ENV], "91")
+                self.assertEqual(worker.core.ENV[RESOURCE_LEASE_FDS_ENV], "core-before")
+            finally:
+                if previous_core is None:
+                    worker.core.ENV.pop(RESOURCE_LEASE_FDS_ENV, None)
+                else:
+                    worker.core.ENV[RESOURCE_LEASE_FDS_ENV] = previous_core
+
+    def test_waiting_status_preserves_timestamp_only_for_identical_wait(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            worker.agentd,
+            "LOCAL_STATUS_PATH",
+            Path(tmp) / "status.json",
+        ), mock.patch.object(
+            worker.agentd,
+            "now_iso",
+            return_value="2026-09-05T00:00:00+00:00",
+        ):
+            path = worker.agentd.LOCAL_STATUS_PATH
+            self.assertEqual(
+                worker._waiting_status_context("task-a", "board:a"),
+                ("2026-09-05T00:00:00+00:00", True),
+            )
+            path.write_text(
+                json.dumps(
+                    {
+                        "state": "waiting_resource",
+                        "pending_task_id": "task-a",
+                        "blocked_resources": ["board:a"],
+                        "waiting_since": "2026-09-04T23:59:00+00:00",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                worker._waiting_status_context("task-a", "board:a"),
+                ("2026-09-04T23:59:00+00:00", False),
+            )
+            self.assertEqual(
+                worker._waiting_status_context("task-a", "board:b"),
+                ("2026-09-05T00:00:00+00:00", True),
+            )
+
+
+class ParallelWorkerMainTests(unittest.TestCase):
+    def setUp(self) -> None:
+        root = Path("/tmp/parallel-worker-main")
+        self.repository = RepositoryContext(
+            repository_id="project-a",
+            repository="owner/project-a",
+            control=root / "control",
+            work=root / "work",
+            checkpoints=root / "checkpoints",
+            agent_binding="3da0947d-9acf-4ecf-adce-a29be7dc5c09",
+        )
+        self.args = SimpleNamespace(
+            repository_id=self.repository.repository_id,
+            registry=None,
+            expected_config_digest=None,
+        )
+
+    def run_main(self, **patches: object) -> int:
+        defaults: dict[str, object] = {
+            "install_signal_handlers": mock.DEFAULT,
+            "parse_args": self.args,
+            "repository_by_id": self.repository,
+            "repository_execution_lease": mock.DEFAULT,
+            "poll_repository_once": False,
+        }
+        defaults.update(patches)
+        with mock.patch.object(worker.serial_worker, "install_signal_handlers"), mock.patch.object(
+            worker.serial_worker,
+            "parse_args",
+            return_value=defaults["parse_args"],
+        ), mock.patch.object(
+            worker.serial_worker,
+            "repository_by_id",
+            side_effect=(
+                defaults["repository_by_id"]
+                if isinstance(defaults["repository_by_id"], BaseException)
+                else None
+            ),
+            return_value=(
+                None
+                if isinstance(defaults["repository_by_id"], BaseException)
+                else defaults["repository_by_id"]
+            ),
+        ), mock.patch.object(
+            worker.serial_worker,
+            "repository_execution_lease",
+            side_effect=(
+                defaults["repository_execution_lease"]
+                if isinstance(defaults["repository_execution_lease"], BaseException)
+                else None
+            ),
+        ), mock.patch.object(
+            worker,
+            "poll_repository_once",
+            side_effect=(
+                defaults["poll_repository_once"]
+                if isinstance(defaults["poll_repository_once"], BaseException)
+                else None
+            ),
+            return_value=(
+                False
+                if isinstance(defaults["poll_repository_once"], BaseException)
+                else defaults["poll_repository_once"]
+            ),
+        ):
+            return worker.main()
+
+    def test_main_rejects_changed_repository_configuration(self) -> None:
+        result = self.run_main(repository_by_id=ValueError("registry changed"))
+        self.assertEqual(result, worker.serial_worker.WORKER_CONFIG_CHANGED)
+
+    def test_main_maps_repository_execution_lease_contention(self) -> None:
+        result = self.run_main(
+            repository_execution_lease=ExecutionLeaseBusy("id:project-a")
+        )
+        self.assertEqual(result, worker.serial_worker.WORKER_BUSY)
+
+    def test_main_maps_machine_and_named_resource_contention(self) -> None:
+        self.assertEqual(
+            self.run_main(poll_repository_once=worker.MachineResourceBusy("machine")),
+            worker.WORKER_MACHINE_BUSY,
+        )
+        self.assertEqual(
+            self.run_main(poll_repository_once=worker.MachineResourceBusy("board:test-s3")),
+            worker.WORKER_RESOURCE_BUSY,
+        )
+
+    def test_main_maps_processed_and_idle_turns(self) -> None:
+        self.assertEqual(
+            self.run_main(poll_repository_once=True),
+            worker.serial_worker.WORKER_PROCESSED,
+        )
+        self.assertEqual(
+            self.run_main(poll_repository_once=False),
+            worker.serial_worker.WORKER_IDLE,
+        )
 
 
 if __name__ == "__main__":
