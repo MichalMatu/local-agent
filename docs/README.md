@@ -7,6 +7,7 @@
 | Goal | Read this |
 | --- | --- |
 | Operate or recover Local Agent | [`OPERATIONS.md`](OPERATIONS.md) |
+| Understand security boundaries and assumptions | [`SECURITY_MODEL.md`](SECURITY_MODEL.md) |
 | Understand repository scheduling | [`MULTI_REPOSITORY.md`](MULTI_REPOSITORY.md) |
 | Understand current production invariants | [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) |
 | Use the ChatGPT / Chat Bridge autonomous loop | [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) |
@@ -44,6 +45,7 @@ The planner decides **what** should change. Local Agent owns deterministic, boun
 ### Runtime and operations
 
 - [`OPERATIONS.md`](OPERATIONS.md) — queues, task resources, deployment, rollback and recovery.
+- [`SECURITY_MODEL.md`](SECURITY_MODEL.md) — trust boundaries, enforced safety properties and explicit non-goals.
 - [`MULTI_REPOSITORY.md`](MULTI_REPOSITORY.md) — repository registry, workers and scheduling model.
 - [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) — current production invariants and accepted operating model.
 - [`EMERGENCY_CONTROLS.md`](EMERGENCY_CONTROLS.md) — cancellation, disable state and recovery controls.
