@@ -211,6 +211,7 @@
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
+    clearComposer(composer, insertedComposerText);
     return { ok: false, reason: "delivery_unconfirmed" };
   }
 
