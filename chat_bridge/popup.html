@@ -34,7 +34,7 @@
               class="info-icon"
               role="img"
               aria-label="Binding information"
-              title="A conversation cannot run until it is explicitly bound to exactly one agent UUID and repository. Existing bindings can change only by removing the chat and adding it again."
+              title="A conversation cannot run until it is explicitly bound to exactly one agent UUID and repository. To change a binding, remove the chat and add it again."
             >ⓘ</span>
           </div>
           <p id="currentUrl" class="current-url ellipsis">Open a concrete ChatGPT conversation.</p>
@@ -96,18 +96,6 @@
 
       <p id="message" class="toast-line" role="status" aria-live="polite"></p>
     </main>
-
-    <dialog id="confirmDialog" class="confirm-dialog">
-      <form method="dialog" class="confirm-card">
-        <div class="dialog-icon" aria-hidden="true">!</div>
-        <h3 id="confirmTitle">Confirm action</h3>
-        <p id="confirmMessage"></p>
-        <div class="dialog-actions">
-          <button id="confirmCancel" class="secondary-button" value="cancel" type="submit">Cancel</button>
-          <button id="confirmAccept" class="danger-button" value="confirm" type="submit">Remove</button>
-        </div>
-      </form>
-    </dialog>
 
     <script src="control_protocol.js"></script>
     <script src="popup.js"></script>
