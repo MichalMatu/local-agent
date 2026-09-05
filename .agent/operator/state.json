@@ -1,5 +1,5 @@
 {
   "version": 1,
-  "desired_state": "enabled",
-  "request_id": "20260903-enable-after-v4150-rollout-v1"
+  "desired_state": "disabled",
+  "request_id": "v4180-e2e-20260905T150339Z-global-disabled"
 }
