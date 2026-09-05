@@ -6,30 +6,35 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 
 - All machine-generated execution content is English-only: source, comments, identifiers, tests, documentation, prompts, task metadata, runtime logs, shell-visible status text and commit messages.
 - Interactive ChatGPT conversation language is independent from that execution contract.
-- `agentd.py` owns the validated daemon core, durable claims/results, remote status/control and self-update.
-- `local_agent/config.py` owns startup-loaded timeout configuration. Root `agent_config.py` is a compatibility import surface only.
-- `local_agent/repository/binding.py` owns canonical immutable agent/repository binding identities, control-binding validation and registry migration. Root `agent_binding.py` is a compatibility import surface only.
-- `local_agent/repository/context.py` owns repository registry parsing, workspace identity/config digests and repository lease keys. Root `agent_repository.py` is a compatibility import surface only.
-- `local_agent/operator/local.py` owns the persistent fail-closed disable marker, disabled-only runtime reset and binding migration. Root `agent_operator.py` is the CLI/compatibility surface.
-- `local_agent/operator/remote.py` owns repository-independent remote emergency desired-state polling and fail-closed validation. Root `agent_remote_operator.py` is a compatibility import surface only.
-- `local_agent/entrypoint.py` owns the guarded service lifecycle, remote operator polling and safe supervisor start/stop/reexec. Root `agent_entrypoint.py` is the executable/import shim.
-- `agent_core.py` owns deterministic task execution and result publication.
-- `agent_runtime.py` owns staged command lifecycle, watchdog orchestration and compatibility exports/adapters.
+- `agentd.py` owns the root daemon lifecycle, durable claims/results, remote status/control and self-update. Its root location is operational because restart/self-update paths are location-sensitive.
+- `agent_parallel.py` owns released bounded-parallel supervisor orchestration and current production scheduling semantics. Its root location is currently operational because worker/restart paths are location-sensitive.
+- `agent_multirepo.py` remains the direct serial fallback with global concurrency one and a location-sensitive root restart path.
+- `local_agent/version.py` owns the release version. Root `agent_version.py` is a compatibility module alias only.
+- `local_agent/config.py` owns startup-loaded timeout configuration. Root `agent_config.py` is a compatibility module alias only.
+- `local_agent/foundation/core.py` owns deterministic task execution, workspace preparation/checkpointing and result publication. Root `agent_core.py` is a compatibility module alias only.
+- `local_agent/foundation/process.py` owns registered spawning, bounded stdout transport, process groups, durable text writes and inherited execution-lease descriptors. Root `agent_process.py` is a compatibility module alias only.
+- `local_agent/foundation/storage.py` owns bounded control Git sync, transient-network retry and storage diagnostics. Root `agent_storage.py` is a compatibility module alias only.
+- `local_agent/repository/binding.py` owns canonical immutable agent/repository binding identities, control-binding validation and registry migration. Root `agent_binding.py` is a compatibility module alias only.
+- `local_agent/repository/context.py` owns repository registry parsing, workspace identity/config digests and repository lease keys. Root `agent_repository.py` is a compatibility module alias only.
+- `local_agent/repository/admin.py` owns explicit repository provisioning and checkout validation. Root `agent_repo_admin.py` is an executable/module shim only.
+- `local_agent/repository/cleanup.py` owns bounded runtime/control metadata cleanup. Root `agent_cleanup.py` is a compatibility module alias only.
+- `local_agent/repository/worker.py` owns one short-lived process-isolated repository turn, hard binding admission and repository-scoped controls. Root `agent_repo_worker.py` is an executable/module shim only.
+- `local_agent/runtime/executor.py` owns staged command lifecycle, watchdog orchestration and task execution budgets. Root `agent_runtime.py` is a compatibility module alias only.
 - `local_agent/runtime/task_contract.py` owns immutable task digests, task-schema limits/validation, agent-binding task validation and bounded task timeout/memory parsing.
 - `local_agent/runtime/progress.py` owns validated progress-marker parsing and bounded asynchronous progress publication.
 - `local_agent/runtime/output.py` owns live command-output rendering, unified-diff collapsing and bounded summary-failure tails.
-- `local_agent/runtime/telemetry.py` owns host/process telemetry parsing and collection plus the underlying process-group RSS sampling implementation.
-- `agent_process.py` owns registered spawning, bounded stdout transport, process groups and inherited repository execution-lease descriptors.
+- `local_agent/runtime/telemetry.py` owns host/process telemetry parsing and collection plus process-group RSS sampling.
+- `local_agent/operator/local.py` owns the persistent fail-closed disable marker, disabled-only runtime reset and binding migration. Root `agent_operator.py` is the executable/module shim.
+- `local_agent/operator/remote.py` owns repository-independent remote emergency desired-state polling and fail-closed validation. Root `agent_remote_operator.py` is a compatibility module alias only.
+- `local_agent/entrypoint.py` owns the guarded service lifecycle, remote operator polling and safe supervisor start/stop/reexec. Root `agent_entrypoint.py` is the executable/module shim.
+- `local_agent/cli/diagnostics.py` owns diagnostics/status/task inspection. Root `agentctl.py` is the executable/module shim; the daemon must not depend on diagnostics.
 - `local_agent/supervisor/resources.py` owns external machine/named-resource flock arbitration and inherited resource descriptors used by the parallel worker.
 - `local_agent/supervisor/policy.py` owns shared polling/order/control policy.
-- `local_agent/supervisor/scheduling.py` is the directly tested pure scheduling extraction target. Until the released orchestrator is rewired, parity tests must keep its retry/backoff/due/max-worker behavior synchronized with `agent_parallel.py`.
-- `agent_repo_worker.py` owns one short-lived process-isolated repository turn and enforces the hard binding contract on the serial path.
-- `agent_parallel.py` owns the released bounded-parallel orchestration and current production scheduling semantics. Future rewiring to `local_agent/supervisor/scheduling.py` must be a focused behavior-preserving change with parity tests kept green.
-- `agent_parallel_worker.py` owns parallel worker task admission/dispatch and hard-binding admission; resource-lock implementation belongs in `local_agent/supervisor/resources.py`.
-- `agent_multirepo.py` remains the direct serial fallback with global concurrency one.
-- `agent_repo_admin.py` owns explicit repository provisioning and validation.
-- `agentctl.py` is diagnostics only; the daemon must not depend on it.
+- `local_agent/supervisor/scheduling.py` is the directly tested pure scheduling extraction target. Until `agent_parallel.py` is rewired in a focused change, parity tests must keep retry/backoff/due/max-worker behavior synchronized.
+- `local_agent/supervisor/worker.py` owns parallel worker task admission/dispatch and hard-binding admission. Root `agent_parallel_worker.py` is an executable/module shim only.
 - `local_agent/platform/macos_launchd.py` owns portable macOS LaunchAgent generation/lifecycle helpers. Machine-specific plist content must not be committed.
+- Root compatibility/executable shims are not implementation owners. `tests/test_package_layout.py` enforces packaged module identity and a strict thin-source bound. New implementation belongs in `local_agent/`, and new code should import packaged owners directly rather than adding dependencies on legacy root aliases.
+- Moving `agentd.py`, `agent_parallel.py` or `agent_multirepo.py` is not a cosmetic refactor: any change to their `__file__`-derived self-update, restart, worker or cwd paths requires explicit behavior-preserving tests before merge.
 
 ## Safety invariants
 
@@ -94,7 +99,7 @@ Repository isolation, hard agent binding and external-resource isolation are sep
 - Require exact-candidate compile, Ruff, full unit/integration, Chat Bridge JS tests and macOS smoke before advancing `main`.
 - Hard-binding releases additionally require negative missing/wrong-binding coverage on parallel and serial paths plus real E2E of active `cancel_task` and global `disable` before execution is left enabled.
 - Advance `main` only after an explicit release decision and successful exact-candidate validation.
-- Tag the released main commit with `vX.Y.Z` and keep `agent_version.RELEASE_VERSION` synchronized with that tag.
+- Tag the released main commit with `vX.Y.Z` and keep `local_agent.version.RELEASE_VERSION` synchronized with that tag.
 - After live verification from `main`, remove obsolete staging worktrees/branches instead of accumulating them.
 
 ## Downstream documentation synchronization
@@ -122,7 +127,8 @@ Verification is impact-driven:
 - scheduler, isolation, provisioning or resource-arbitration changes require real temporary-Git integration coverage;
 - repository lease/process-lifecycle changes require real SIGTERM/SIGKILL process tests;
 - bounded parallel changes require real overlap and exclusivity evidence, not only mocks;
-- hard binding must have positive and negative admission evidence on both the production parallel worker and serial fallback.
+- hard binding must have positive and negative admission evidence on both the production parallel worker and serial fallback;
+- package ownership moves require `tests/test_package_layout.py` plus the normal full suite.
 
 Use `workflow_policy: "efficient-verification-v1"` for staged coding tasks that must make verification cost explicit. Use `work` for implementation, `focused` for affected regression/static checks and exactly one final `full` verification stage.
 
