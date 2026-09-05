@@ -1,4 +1,5 @@
 const protocol = globalThis.LocalAgentBridgeProtocol;
+const CONTENT_PROTOCOL_VERSION = 2;
 
 const elements = {
   masterEnabled: document.querySelector("#masterEnabled"),
@@ -95,7 +96,26 @@ async function getCurrentChatTab() {
   return { ...tab, normalizedUrl: normalized };
 }
 
-async function injectContentScript(tabId) {
+async function probeContentScript(tabId, expectedUrl) {
+  try {
+    const response = await chrome.tabs.sendMessage(tabId, {
+      type: "bridge:capabilities",
+      expectedUrl,
+      protocolVersion: CONTENT_PROTOCOL_VERSION
+    }, { frameId: 0 });
+    return { reachable: true, response };
+  } catch (error) {
+    return { reachable: false, error };
+  }
+}
+
+async function injectContentScript(tabId, expectedUrl) {
+  const before = await probeContentScript(tabId, expectedUrl);
+  if (before.response?.ok && before.response.protocolVersion === CONTENT_PROTOCOL_VERSION) return;
+  if (before.reachable) {
+    throw new Error("This ChatGPT tab still has an older Bridge content script. Reload the tab, then try again.");
+  }
+
   try {
     await chrome.scripting.executeScript({
       target: { tabId },
@@ -103,6 +123,11 @@ async function injectContentScript(tabId) {
     });
   } catch (error) {
     throw new Error(`Cannot activate bridge in this tab: ${error.message}`);
+  }
+
+  const after = await probeContentScript(tabId, expectedUrl);
+  if (!after.response?.ok || after.response.protocolVersion !== CONTENT_PROTOCOL_VERSION) {
+    throw new Error("Bridge content script did not become ready. Reload the ChatGPT tab, then try again.");
   }
 }
 
@@ -450,7 +475,7 @@ async function addOrUpdateCurrent() {
   const existing = latestState?.conversations?.[id];
   const agentBinding = existing?.agentBinding || elements.currentAgent.value;
   if (!agentBinding) throw new Error("Select the exact agent/repository binding first.");
-  await injectContentScript(currentTab.id);
+  await injectContentScript(currentTab.id, currentTab.normalizedUrl);
 
   const response = await request({
     type: "bridge:upsert-conversation",
