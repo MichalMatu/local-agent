@@ -7,22 +7,29 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - All machine-generated execution content is English-only: source, comments, identifiers, tests, documentation, prompts, task metadata, runtime logs, shell-visible status text and commit messages.
 - Interactive ChatGPT conversation language is independent from that execution contract.
 - `agentd.py` owns the validated daemon core, durable claims/results, remote status/control and self-update.
-- `agent_binding.py` owns canonical immutable agent/repository binding identities, control-binding validation and registry migration.
+- `local_agent/config.py` owns startup-loaded timeout configuration. Root `agent_config.py` is a compatibility import surface only.
+- `local_agent/repository/binding.py` owns canonical immutable agent/repository binding identities, control-binding validation and registry migration. Root `agent_binding.py` is a compatibility import surface only.
+- `local_agent/repository/context.py` owns repository registry parsing, workspace identity/config digests and repository lease keys. Root `agent_repository.py` is a compatibility import surface only.
+- `local_agent/operator/local.py` owns the persistent fail-closed disable marker, disabled-only runtime reset and binding migration. Root `agent_operator.py` is the CLI/compatibility surface.
+- `local_agent/operator/remote.py` owns repository-independent remote emergency desired-state polling and fail-closed validation. Root `agent_remote_operator.py` is a compatibility import surface only.
+- `local_agent/entrypoint.py` owns the guarded service lifecycle, remote operator polling and safe supervisor start/stop/reexec. Root `agent_entrypoint.py` is the executable/import shim.
 - `agent_core.py` owns deterministic task execution and result publication.
 - `agent_runtime.py` owns staged command lifecycle, watchdog orchestration and compatibility exports/adapters.
 - `local_agent/runtime/task_contract.py` owns immutable task digests, task-schema limits/validation, agent-binding task validation and bounded task timeout/memory parsing.
 - `local_agent/runtime/progress.py` owns validated progress-marker parsing and bounded asynchronous progress publication.
 - `local_agent/runtime/output.py` owns live command-output rendering, unified-diff collapsing and bounded summary-failure tails.
 - `local_agent/runtime/telemetry.py` owns host/process telemetry parsing and collection plus the underlying process-group RSS sampling implementation.
-- `agent_process.py` owns registered spawning, bounded stdout transport, process groups and inherited lease descriptors.
-- `agent_repository.py` owns repository registry parsing and workspace identity.
+- `agent_process.py` owns registered spawning, bounded stdout transport, process groups and inherited repository execution-lease descriptors.
+- `local_agent/supervisor/resources.py` owns external machine/named-resource flock arbitration and inherited resource descriptors used by the parallel worker.
+- `local_agent/supervisor/policy.py` owns shared polling/order/control policy.
+- `local_agent/supervisor/scheduling.py` owns pure retry/backoff/due/max-worker scheduling policy.
 - `agent_repo_worker.py` owns one short-lived process-isolated repository turn and enforces the hard binding contract on the serial path.
-- `agent_parallel.py` owns the released bounded-parallel multi-repository scheduler.
-- `agent_parallel_worker.py` owns task resource admission and hard binding admission for the parallel scheduler.
+- `agent_parallel.py` owns the released bounded-parallel orchestration loop around packaged supervisor policy/resources; do not add duplicated pure scheduling/resource policy there when a packaged owner exists.
+- `agent_parallel_worker.py` owns parallel worker task admission/dispatch and hard-binding admission; resource-lock implementation belongs in `local_agent/supervisor/resources.py`.
 - `agent_multirepo.py` remains the direct serial fallback with global concurrency one.
 - `agent_repo_admin.py` owns explicit repository provisioning and validation.
-- `agent_operator.py` owns the local fail-closed disable marker and disabled-only binding migration.
 - `agentctl.py` is diagnostics only; the daemon must not depend on it.
+- `local_agent/platform/macos_launchd.py` owns portable macOS LaunchAgent generation/lifecycle helpers. Machine-specific plist content must not be committed.
 
 ## Safety invariants
 
@@ -86,7 +93,7 @@ Repository isolation, hard agent binding and external-resource isolation are sep
 - Staging/candidate branches are validation infrastructure, not long-lived production branches.
 - Require exact-candidate compile, Ruff, full unit/integration, Chat Bridge JS tests and macOS smoke before advancing `main`.
 - Hard-binding releases additionally require negative missing/wrong-binding coverage on parallel and serial paths plus real E2E of active `cancel_task` and global `disable` before execution is left enabled.
-- Advance `main` only by validated fast-forward after an explicit release decision.
+- Advance `main` only after an explicit release decision and successful exact-candidate validation.
 - Tag the released main commit with `vX.Y.Z` and keep `agent_version.RELEASE_VERSION` synchronized with that tag.
 - After live verification from `main`, remove obsolete staging worktrees/branches instead of accumulating them.
 
@@ -119,22 +126,20 @@ Verification is impact-driven:
 
 Use `workflow_policy: "efficient-verification-v1"` for staged coding tasks that must make verification cost explicit. Use `work` for implementation, `focused` for affected regression/static checks and exactly one final `full` verification stage.
 
-For daemon changes, before publication run:
+For repository-wide daemon verification, the executable source of truth is:
 
 ```bash
-python -m py_compile agentd.py agent_binding.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agent_cleanup.py agent_operator.py agent_remote_operator.py agent_entrypoint.py agentctl.py agent_version.py local_agent/supervisor/control.py local_agent/supervisor/policy.py
-ruff check agentd.py agent_binding.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agent_cleanup.py agent_operator.py agent_remote_operator.py agent_entrypoint.py agentctl.py agent_version.py local_agent tests
-python -m unittest discover -q
-node chat_bridge/control_protocol.test.js
-node chat_bridge/bridge_state.test.js
-node chat_bridge/service_worker.test.js
+python scripts/verify.py
 ```
+
+CI additionally runs branch-aware coverage, Python 3.14 compatibility and the macOS smoke suite. Do not recreate static compile/Ruff file lists in documentation or workflows; extend `scripts/verify.py` when verification scope changes.
 
 Parallel scheduler releases additionally require real two-repository overlap, machine-exclusion, inherited-resource-lock, one-shot contention and macOS smoke coverage.
 
 ## Documentation
 
 - Canonical workflow: `docs/OPERATIONS.md`.
+- Current package/dependency map: `docs/ARCHITECTURE.md`.
 - Autonomous ChatGPT planner/Chat Bridge loop: `docs/AUTONOMOUS_CHAT_LOOP.md`.
 - Multi-repository architecture: `docs/MULTI_REPOSITORY.md`.
 - Emergency controls: `docs/EMERGENCY_CONTROLS.md`.
