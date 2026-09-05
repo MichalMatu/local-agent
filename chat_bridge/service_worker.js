@@ -13,13 +13,17 @@ const {
 const LEGACY_ALARM_NAME = "local-agent-chat-bridge";
 const ALARM_PREFIX = "local-agent-chat:";
 const RUNTIME_CACHE_MS = 30_000;
+const CONTENT_PROTOCOL_VERSION = 2;
+const CONTENT_PREFLIGHT_TIMEOUT_MS = 1500;
 const RETRY_REASONS = new Set([
   "assistant_busy",
   "composer_not_empty",
   "composer_not_found",
   "content_script_unavailable",
+  "content_script_protocol_mismatch",
   "send_button_not_ready",
-  "page_not_ready"
+  "page_not_ready",
+  "wrong_conversation"
 ]);
 
 let stateQueue = Promise.resolve();
@@ -411,6 +415,59 @@ async function findConversationTab(conversation) {
   return matches[0] || null;
 }
 
+async function probeContentScript(tabId, expectedUrl) {
+  const timeoutMarker = Symbol("content-script-preflight-timeout");
+  let timeout;
+  try {
+    const response = await Promise.race([
+      chrome.tabs.sendMessage(tabId, {
+        type: "bridge:capabilities",
+        expectedUrl,
+        protocolVersion: CONTENT_PROTOCOL_VERSION
+      }, { frameId: 0 }),
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(timeoutMarker), CONTENT_PREFLIGHT_TIMEOUT_MS);
+      })
+    ]);
+    if (response === timeoutMarker) {
+      return { ok: false, reason: "content_script_unavailable" };
+    }
+    if (response === undefined || response?.protocolVersion !== CONTENT_PROTOCOL_VERSION) {
+      return { ok: false, reason: "content_script_protocol_mismatch" };
+    }
+    if (!response.ok) {
+      return { ok: false, reason: String(response.reason || "content_script_unavailable") };
+    }
+    return { ok: true, reason: "ready", protocolVersion: CONTENT_PROTOCOL_VERSION };
+  } catch (error) {
+    return { ok: false, reason: "content_script_unavailable", error: String(error) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function ensureContentScript(tab, expectedUrl) {
+  const first = await probeContentScript(tab.id, expectedUrl);
+  if (first.ok || first.reason !== "content_script_unavailable") return first;
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id, frameIds: [0] },
+      files: ["control_protocol.js", "content.js"]
+    });
+  } catch (error) {
+    return { ok: false, reason: "content_script_unavailable", error: String(error) };
+  }
+
+  const second = await probeContentScript(tab.id, expectedUrl);
+  return second.ok ? { ...second, injected: true } : second;
+}
+
+function definitelyNoContentReceiver(error) {
+  const text = String(error?.message || error || "");
+  return /receiving end does not exist|could not establish connection/i.test(text);
+}
+
 async function updateConversationStatus(chatId, patch) {
   return mutateState((state) => {
     if (!state.conversations[chatId]) return state;
@@ -602,6 +659,33 @@ async function deliverConversation(chatId, manual) {
     await updateConversationStatus(chatId, { preferredTabId: tab.id });
   }
 
+  const contentReady = await ensureContentScript(tab, conversation.url);
+  if (!contentReady.ok) {
+    const status = String(contentReady.reason || "content_script_unavailable");
+    await updateConversationStatus(chatId, {
+      lastRunAt: runAt,
+      lastStatus: status,
+      lastRuntimeSource: runtime.source
+    });
+    if (!manual) {
+      await scheduleAfterMinutes(
+        chatId,
+        RETRY_REASONS.has(status) ? runtime.busyRetryMinutes : runtime.intervalMinutes,
+        conversation.generation
+      );
+    }
+    return {
+      ...contentReady,
+      runtime,
+      status,
+      conversationId: chatId,
+      agentBinding: conversation.agentBinding,
+      repositoryId: conversation.repositoryId,
+      repository: conversation.repository,
+      bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
+    };
+  }
+
   const prompt = conversation.bootstrapPending
     ? buildBootstrapPrompt(runtime, conversation)
     : buildWakePrompt(runtime, conversation);
@@ -639,12 +723,20 @@ async function deliverConversation(chatId, manual) {
       deliveryTimeout = setTimeout(() => resolve({ ok: false, reason: "delivery_uncertain" }), 8000);
     })]);
   } catch (error) {
-    response = { ok: false, reason: "delivery_uncertain", error: String(error) };
+    response = definitelyNoContentReceiver(error)
+      ? {
+          ok: false,
+          reason: "content_script_unavailable",
+          protocolVersion: CONTENT_PROTOCOL_VERSION,
+          error: String(error)
+        }
+      : { ok: false, reason: "delivery_uncertain", error: String(error) };
   } finally {
     clearTimeout(deliveryTimeout);
   }
 
-  if (response?.protocolVersion !== 1 || response?.reason === "unexpected_error") {
+  if (response?.reason !== "content_script_unavailable" &&
+      (response?.protocolVersion !== CONTENT_PROTOCOL_VERSION || response?.reason === "unexpected_error")) {
     response = { ok: false, reason: "delivery_uncertain" };
   }
   const status = response?.ok ? "sent" : String(response?.reason || "delivery_uncertain");
