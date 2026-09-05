@@ -23,27 +23,13 @@ jobs:
       - name: Install lint tooling
         run: python -m pip install --disable-pip-version-check ruff==0.12.11
       - name: Compile
-        run: python -m py_compile agentd.py agent_binding.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agent_cleanup.py agent_operator.py agent_remote_operator.py agent_entrypoint.py agentctl.py agent_version.py local_agent/supervisor/control.py local_agent/supervisor/policy.py
+        run: python scripts/verify.py --only compile
       - name: Lint
-        run: ruff check agentd.py agent_binding.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agent_cleanup.py agent_operator.py agent_remote_operator.py agent_entrypoint.py agentctl.py agent_version.py local_agent tests
+        run: python scripts/verify.py --only lint
       - name: Validate chat bridge
-        run: |
-          node --check chat_bridge/control_protocol.js
-          node --check chat_bridge/bridge_state.js
-          node --check chat_bridge/control_protocol.test.js
-          node --check chat_bridge/bridge_state.test.js
-          node --check chat_bridge/service_worker.js
-          node --check chat_bridge/service_worker.test.js
-          node --check chat_bridge/content.js
-          node --check chat_bridge/popup.js
-          node chat_bridge/control_protocol.test.js
-          node chat_bridge/bridge_state.test.js
-          node chat_bridge/service_worker.test.js
-          python -m json.tool chat_bridge/manifest.json >/dev/null
-          python -m json.tool chat_bridge/runtime.example.json >/dev/null
-          python -m json.tool config/agent_bindings.json >/dev/null
+        run: python scripts/verify.py --only bridge
       - name: Unit and integration tests
-        run: python -m unittest discover -q
+        run: python scripts/verify.py --only tests
 
   python-314:
     runs-on: ubuntu-latest
@@ -54,7 +40,7 @@ jobs:
         with:
           python-version: '3.14'
       - name: Python 3.14 compatibility suite
-        run: python -m unittest discover -q
+        run: python scripts/verify.py --only tests
 
   macos-smoke:
     runs-on: macos-latest
@@ -64,7 +50,5 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
-      - name: Compile release modules
-        run: python -m py_compile agentd.py agent_binding.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agent_cleanup.py agent_operator.py agent_remote_operator.py agent_entrypoint.py agentctl.py agent_version.py local_agent/supervisor/control.py local_agent/supervisor/policy.py
       - name: Process, checkpoint, multi-repository, binding, and emergency-control smoke tests
-        run: python -m unittest -q tests.test_agent_process tests.test_agent_core tests.test_agent_runtime tests.test_agent_storage tests.test_agent_binding tests.test_serial_agent_binding tests.test_agent_repo_worker tests.test_agent_parallel tests.test_agent_parallel_worker tests.test_parallel_control tests.test_parallel_process tests.test_multirepo_integration tests.test_parallel_integration tests.test_parallel_resource_wait tests.test_control_hardening tests.test_supervisor_modules tests.test_emergency_controls tests.test_entrypoint_guard
+        run: python scripts/verify.py --profile macos-smoke
