@@ -14,6 +14,7 @@ ALIASES = (
     ("agent_repo_worker", "local_agent.repository.worker"),
     ("agent_runtime", "local_agent.runtime.executor"),
     ("agent_storage", "local_agent.foundation.storage"),
+    ("agent_version", "local_agent.version"),
     ("agentctl", "local_agent.cli.diagnostics"),
 )
 
