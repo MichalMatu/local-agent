@@ -1,7 +1,14 @@
-if (!globalThis.__localAgentChatBridgeLoaded) {
-  globalThis.__localAgentChatBridgeLoaded = true;
-
+(() => {
   const CONTENT_PROTOCOL_VERSION = 2;
+  const existingBridge = globalThis.__localAgentChatBridgeState;
+  if (existingBridge?.protocolVersion === CONTENT_PROTOCOL_VERSION) return;
+  try {
+    existingBridge?.dispose?.();
+  } catch (_error) {
+    // A stale extension context may already be detached; continue with a fresh listener.
+  }
+
+  globalThis.__localAgentChatBridgeLoaded = true;
   globalThis.__localAgentChatBridgeProtocolVersion = CONTENT_PROTOCOL_VERSION;
 
   const protocol = globalThis.LocalAgentBridgeProtocol;
@@ -300,8 +307,8 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
   }
 
   const observerTarget = document.body || document.documentElement;
-  if (observerTarget) {
-    const observer = new MutationObserver(scheduleControlScan);
+  const observer = observerTarget ? new MutationObserver(scheduleControlScan) : null;
+  if (observer && observerTarget) {
     observer.observe(observerTarget, {
       childList: true,
       subtree: true,
@@ -310,11 +317,11 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
   }
   scheduleControlScan();
   // Retry unchanged final controls after a transient worker/message failure.
-  setInterval(() => {
+  const controlRetryInterval = setInterval(() => {
     scanLatestAssistantControl().catch((error) => console.warn(error));
   }, 5000);
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  const messageListener = (message, _sender, sendResponse) => {
     if (message?.type === "bridge:capabilities") {
       const expectedUrl = normalizeConversationUrl(String(message.expectedUrl || ""));
       const currentUrl = normalizeConversationUrl(location.href);
@@ -338,5 +345,16 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
         })
       );
     return true;
-  });
-}
+  };
+  chrome.runtime.onMessage.addListener(messageListener);
+
+  globalThis.__localAgentChatBridgeState = {
+    protocolVersion: CONTENT_PROTOCOL_VERSION,
+    dispose() {
+      try { chrome.runtime.onMessage.removeListener(messageListener); } catch (_error) {}
+      try { observer?.disconnect(); } catch (_error) {}
+      if (controlScanTimer !== null) clearTimeout(controlScanTimer);
+      clearInterval(controlRetryInterval);
+    }
+  };
+})();
