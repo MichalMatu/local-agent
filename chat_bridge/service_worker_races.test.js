@@ -13,7 +13,7 @@ async function add(harness) {
   assert.equal(result.ok, true, result.error);
   return result.conversation.id;
 }
-const sent = { ok: true, reason: "sent", protocolVersion: 1 };
+const sent = { ok: true, reason: "sent", protocolVersion: 2 };
 
 (async () => {
   // Alarm/manual overlap cannot authorize two sends or rebind an in-flight wake.
@@ -44,7 +44,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 1 };
     const h = createHarness({ sendMessage: async ({ authorize }) => {
       ready.resolve(); await finish.promise;
       assert.equal((await authorize()).ok, false);
-      return { ok: false, reason: "delivery_cancelled", protocolVersion: 1 };
+      return { ok: false, reason: "delivery_cancelled", protocolVersion: 2 };
     } });
     const id = await add(h);
     const first = h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
@@ -60,7 +60,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 1 };
     const ready = deferred(); const finish = deferred();
     const h = createHarness({ sendMessage: async ({ authorize }) => {
       await authorize(); ready.resolve(); await finish.promise;
-      return { ok: false, reason: "delivery_uncertain", protocolVersion: 1 };
+      return { ok: false, reason: "delivery_uncertain", protocolVersion: 2 };
     } });
     const id = await add(h);
     const first = h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
@@ -79,6 +79,51 @@ const sent = { ok: true, reason: "sent", protocolVersion: 1 };
     assert.equal(response.conversation.bootstrapPending, false);
     assert.equal(recovered.sentMessages.length, 0);
     finish.resolve(); await first;
+  }
+
+  // A missing content script is re-injected before any delivery journal is created.
+  {
+    let probes = 0;
+    const h = createHarness({
+      contentScriptProbe: async () => {
+        probes += 1;
+        throw new Error("Could not establish connection. Receiving end does not exist.");
+      }
+    });
+    const id = await add(h);
+    const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
+    assert.equal(result.reason, "content_script_unavailable");
+    assert.equal(probes, 2);
+    assert.equal(h.injectedScripts.length, 1);
+    assert.equal(h.sentMessages.length, 0);
+    assert.equal(h.storage.bridgeState.conversations[id].pendingDelivery, null);
+    assert.equal(h.storage.bridgeState.conversations[id].enabled, true);
+  }
+
+  // A stale reachable content script is never over-injected or allowed to send.
+  {
+    const h = createHarness({ contentScriptProbe: async () => undefined });
+    const id = await add(h);
+    const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
+    assert.equal(result.reason, "content_script_protocol_mismatch");
+    assert.equal(h.injectedScripts.length, 0);
+    assert.equal(h.sentMessages.length, 0);
+    assert.equal(h.storage.bridgeState.conversations[id].pendingDelivery, null);
+    assert.equal(h.storage.bridgeState.conversations[id].enabled, true);
+  }
+
+  // Losing the receiver after a successful preflight is definitively unsent, not uncertain.
+  {
+    const h = createHarness({ sendMessage: async () => {
+      throw new Error("Could not establish connection. Receiving end does not exist.");
+    } });
+    const id = await add(h);
+    const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
+    assert.equal(result.reason, "content_script_unavailable");
+    assert.equal(h.sentMessages.length, 1);
+    assert.equal(h.storage.bridgeState.conversations[id].pendingDelivery, null);
+    assert.equal(h.storage.bridgeState.conversations[id].enabled, true);
+    assert.equal(h.storage.bridgeState.conversations[id].bootstrapPending, true);
   }
 
   // An unavailable or malformed catalog never falls back to another catalog.
@@ -141,5 +186,5 @@ const sent = { ok: true, reason: "sent", protocolVersion: 1 };
     assert.equal(h.alarms.size, 0);
   }
 
-  console.log("Chat Bridge delivery, recovery, authority and scheduling race tests passed (8 scenarios).");
+  console.log("Chat Bridge delivery, recovery, authority and scheduling race tests passed (11 scenarios).");
 })().catch((error) => { console.error(error); process.exitCode = 1; });
