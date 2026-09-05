@@ -4,6 +4,16 @@ const { createHarness } = require("./worker_test_harness.js");
 const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING } = createHarness();
 
+async function assistantControl(url, fingerprint, marker, extra = {}) {
+  return sendRuntimeMessage({
+    type: "bridge:assistant-control",
+    conversationUrl: url,
+    fingerprint,
+    control: { marker },
+    ...extra
+  }, { tab: { url } });
+}
+
 (async () => {
   // New conversation is refused without explicit binding.
   let response = await sendRuntimeMessage({
@@ -23,8 +33,9 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
     conversation: {
       url: "https://chatgpt.com/c/a",
       label: "Project A",
-      enabled: true,
+      enabled: false,
       preferredTabId: 11,
+      assistantBaseline: "old-assistant",
       agentBinding: MATRIX_BINDING
     }
   });
@@ -34,6 +45,50 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   assert.equal(response.conversation.repository, "MichalMatu/MatrixHub");
   assert.equal(response.conversation.agentBinding, MATRIX_BINDING);
   assert.equal(response.conversation.bindingRevision, 1);
+  assert.equal(response.conversation.bootstrapPending, true);
+
+  // A freshly added chat accepts every conversation control immediately.
+  response = await assistantControl("https://chatgpt.com/c/a", "10000001", "[LAB:STOP]", { assistantIdentity: "old-assistant" });
+  assert.equal(response.reason, "control_stale_binding");
+
+  response = await assistantControl("https://chatgpt.com/c/a", "10000002", "[LAB:INTERVAL=12m]");
+  assert.equal(response.ok, true);
+  assert.equal(response.reason, "interval_fixed");
+  assert.equal(storage.bridgeState.conversations[aId].intervalOverrideMinutes, 12);
+  assert.equal(storage.bridgeState.conversations[aId].bootstrapPending, true);
+
+  response = await assistantControl("https://chatgpt.com/c/a", "10000003", "[LAB:PAUSE]");
+  assert.equal(response.reason, "paused");
+  assert.equal(storage.bridgeState.conversations[aId].enabled, false);
+
+  response = await assistantControl("https://chatgpt.com/c/a", "10000004", "[LAB:RESUME]");
+  assert.equal(response.reason, "resumed");
+  assert.equal(storage.bridgeState.conversations[aId].enabled, true);
+  assert.equal(alarms.has(`local-agent-chat:${aId}`), true);
+
+  const beforeFreshNext = Date.now();
+  response = await assistantControl("https://chatgpt.com/c/a", "10000005", "[LAB:NEXT=30s]");
+  assert.equal(response.reason, "next_scheduled");
+  assert.equal(response.armed, true);
+  assert.equal(storage.bridgeState.conversations[aId].enabled, true);
+  let freshAlarm = alarms.get(`local-agent-chat:${aId}`);
+  assert.ok(freshAlarm.when >= beforeFreshNext + 29_000);
+  assert.ok(freshAlarm.when <= beforeFreshNext + 31_500);
+
+  response = await assistantControl("https://chatgpt.com/c/a", "10000006", "[LAB:INTERVAL=AUTO]");
+  assert.equal(response.reason, "interval_auto");
+  assert.equal(storage.bridgeState.conversations[aId].intervalOverrideMinutes, null);
+
+  response = await assistantControl("https://chatgpt.com/c/a", "10000007", "[LAB:STOP]");
+  assert.equal(response.reason, "stopped");
+  assert.equal(storage.bridgeState.conversations[aId].enabled, false);
+  assert.equal(alarms.has(`local-agent-chat:${aId}`), false);
+
+  response = await assistantControl("https://chatgpt.com/c/a", "10000008", "[LAB:RESUME]");
+  assert.equal(response.reason, "resumed");
+  assert.equal(storage.bridgeState.conversations[aId].enabled, true);
+  assert.equal(alarms.has(`local-agent-chat:${aId}`), true);
+  assert.equal(sentMessages.length, 0);
 
   response = await sendRuntimeMessage({
     type: "bridge:upsert-conversation",
@@ -54,10 +109,7 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   assert.equal(alarms.has(`local-agent-chat:${bId}`), true);
 
   // Bootstrap and every compact wake carry the same immutable binding envelope.
-  response = await sendRuntimeMessage({
-    type: "bridge:run-now",
-    conversationId: bId
-  });
+  response = await sendRuntimeMessage({ type: "bridge:run-now", conversationId: bId });
   assert.equal(response.ok, true);
   assert.equal(response.bridgeMode, "bootstrap");
   assert.equal(response.agentBinding, TRACKER_BINDING);
@@ -71,10 +123,7 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   assert.match(bootstrapMessage.prompt, /Every Local Agent task JSON.*agent_binding/s);
   assert.match(bootstrapMessage.prompt, /Never infer, substitute, inspect, queue, cancel, or execute work for another repository/);
 
-  response = await sendRuntimeMessage({
-    type: "bridge:run-now",
-    conversationId: bId
-  });
+  response = await sendRuntimeMessage({ type: "bridge:run-now", conversationId: bId });
   assert.equal(response.ok, true);
   assert.equal(response.bridgeMode, "wake");
   const wakeMessage = sentMessages.at(-1).message;
@@ -123,21 +172,10 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   // Popup schedule data follows the actual alarm, not stale stored state.
   storage.bridgeState.conversations[bId].nextRunAt = new Date(0).toISOString();
   response = await sendRuntimeMessage({ type: "bridge:get-state" });
-  assert.equal(
-    new Date(response.schedules[bId].nextRunAt).getTime(),
-    pacedAlarm.scheduledTime
-  );
+  assert.equal(new Date(response.schedules[bId].nextRunAt).getTime(), pacedAlarm.scheduledTime);
   assert.equal(response.runtime.agents.length, runtimeAgents.length);
 
-  response = await sendRuntimeMessage(
-    {
-      type: "bridge:assistant-control",
-      conversationUrl: "https://chatgpt.com/c/a",
-      fingerprint: "abcd1234",
-      control: { marker: "[LAB:PAUSE]" }
-    },
-    { tab: { url: "https://chatgpt.com/c/a" } }
-  );
+  response = await assistantControl("https://chatgpt.com/c/a", "abcd1234", "[LAB:PAUSE]");
   assert.equal(response.ok, true);
   assert.equal(response.reason, "paused");
 
@@ -150,15 +188,7 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   assert.equal(alarms.has(`local-agent-chat:${bId}`), true);
 
   const beforeRearm = Date.now();
-  response = await sendRuntimeMessage(
-    {
-      type: "bridge:assistant-control",
-      conversationUrl: "https://chatgpt.com/c/a",
-      fingerprint: "cdef3456",
-      control: { marker: "[LAB:NEXT=30s]" }
-    },
-    { tab: { url: "https://chatgpt.com/c/a" } }
-  );
+  response = await assistantControl("https://chatgpt.com/c/a", "cdef3456", "[LAB:NEXT=30s]");
   assert.equal(response.ok, true);
   assert.equal(response.reason, "next_scheduled");
   assert.equal(response.armed, true);
@@ -169,15 +199,7 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   assert.ok(rearmedAlarm.when <= beforeRearm + 31_500);
 
   const beforeNext = Date.now();
-  response = await sendRuntimeMessage(
-    {
-      type: "bridge:assistant-control",
-      conversationUrl: "https://chatgpt.com/c/b",
-      fingerprint: "bcde2345",
-      control: { marker: "[LAB:NEXT=10m]" }
-    },
-    { tab: { url: "https://chatgpt.com/c/b" } }
-  );
+  response = await assistantControl("https://chatgpt.com/c/b", "bcde2345", "[LAB:NEXT=10m]");
   assert.equal(response.ok, true);
   assert.equal(response.seconds, 600);
   const nextAlarm = alarms.get(`local-agent-chat:${bId}`);
@@ -199,10 +221,7 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   assert.equal(response.conversation.bootstrapPending, true);
   assert.equal(response.conversation.lastStatus, "rebound_by_operator");
 
-  response = await sendRuntimeMessage({
-    type: "bridge:run-now",
-    conversationId: bId
-  });
+  response = await sendRuntimeMessage({ type: "bridge:run-now", conversationId: bId });
   assert.equal(response.ok, true);
   assert.equal(response.bridgeMode, "bootstrap");
   assert.match(sentMessages.at(-1).message.prompt, new RegExp(`\\[LA_AGENT=${MATRIX_BINDING}\\]`));
@@ -226,7 +245,7 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   assert.match(sentMessages.at(-1).message.prompt, /bridge\/operator-only/);
   assert.match(sentMessages.at(-1).message.prompt, /do not create Local Agent project task files/i);
 
-  console.log("Chat Bridge service worker binding tests passed.");
+  console.log("Chat Bridge service worker binding/control tests passed.");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

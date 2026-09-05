@@ -195,18 +195,20 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await page.evaluate(() => window.submits), 1);
     console.log("PASS: overlapping sends submit once");
 
-    id = await add("uncertain");
+    id = await add("unconfirmed");
+    const unconfirmedId = id;
+    const unconfirmedUrl = `https://chatgpt.com/c/bridge-fixture-unconfirmed`;
     await page.evaluate(() => { window.dropDelivery = true; });
-    assert.equal((await run(id)).reason, "delivery_uncertain");
+    assert.equal((await run(id)).reason, "delivery_unconfirmed");
     assert.equal((await readChat(id)).enabled, false);
-    assert.ok((await readChat(id)).pendingDelivery);
-    assert.equal((await run(id)).reason, "delivery_uncertain");
-    assert.equal(await page.evaluate(() => window.submits), 1);
-    console.log("PASS: unconfirmed submission pauses without retry");
+    assert.equal(Object.hasOwn(await readChat(id), "pendingDelivery"), false);
+    assert.equal((await run(id)).reason, "delivery_unconfirmed");
+    assert.equal(await page.evaluate(() => window.submits), 2);
+    console.log("PASS: unconfirmed submission stays diagnostic and never creates a blocking journal");
 
-    const removePendingId = await add("remove-pending");
+    const removeUnconfirmedId = await add("remove-unconfirmed");
     await page.evaluate(() => { window.dropDelivery = true; });
-    assert.equal((await run(removePendingId)).reason, "delivery_uncertain");
+    assert.equal((await run(removeUnconfirmedId)).reason, "delivery_unconfirmed");
     await popup.reload();
 
     const popupSize = await popupMetrics();
@@ -221,6 +223,7 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await popup.locator(".wake-input-wrap input").count(), 8);
     assert.equal(await popup.locator(".enable-switch input").count(), 8);
     assert.equal(await popup.locator(".switch-control .switch-track").count(), 9);
+    assert.equal(await popup.locator(".delivery-resolution").count(), 0);
     assert.equal(
       await popup.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()),
       ""
@@ -240,13 +243,6 @@ document.querySelector('form').onsubmit = (event) => {
       await popup.locator(".current-chat-panel .info-icon").getAttribute("title"),
       /remove the chat and add it again/i
     );
-    assert.equal(await popup.locator(".has-pending-delivery .resolution-sent").count(), 2);
-    assert.equal(await popup.locator(".has-pending-delivery .resolution-not-sent").count(), 2);
-    const resolutionColors = await popup.evaluate(() => ({
-      sent: getComputedStyle(document.querySelector(".resolution-sent")).color,
-      notSent: getComputedStyle(document.querySelector(".resolution-not-sent")).color
-    }));
-    assert.equal(resolutionColors.sent, resolutionColors.notSent);
 
     const successCard = popup.locator(".conversation-card").filter({ hasText: "success" });
     const wakeInput = successCard.locator(".wake-input-wrap input");
@@ -260,38 +256,37 @@ document.querySelector('form').onsubmit = (event) => {
       nativeDialogSeen = true;
       await dialog.dismiss();
     });
-    const pendingCard = popup.locator(".has-pending-delivery").filter({ hasText: "remove-pending" });
-    await pendingCard.getByRole("button", { name: "Remove", exact: true }).click();
+    const removableCard = popup.locator(".conversation-card").filter({ hasText: "remove-unconfirmed" });
+    await removableCard.getByRole("button", { name: "Remove", exact: true }).click();
     await popup.waitForFunction(() =>
       !Array.from(document.querySelectorAll(".conversation-card")).some((card) =>
-        card.textContent.includes("remove-pending")
+        card.textContent.includes("remove-unconfirmed")
       )
     );
     assert.equal(nativeDialogSeen, false);
     const stateAfterRemove = (await request({ type: "bridge:get-state" })).state;
-    assert.equal(stateAfterRemove.conversations[removePendingId], undefined);
-    const remainingPending = Object.values(stateAfterRemove.conversations).filter((item) => item.pendingDelivery);
-    assert.equal(remainingPending.length, 1);
-    id = remainingPending[0].id;
-    const pendingUrl = remainingPending[0].url;
-    console.log("PASS: adaptive monochrome popup has unified switches, compact header and no native dialogs");
+    assert.equal(stateAfterRemove.conversations[removeUnconfirmedId], undefined);
+    assert.equal(Object.values(stateAfterRemove.conversations).some((item) => Object.hasOwn(item, "pendingDelivery")), false);
+    console.log("PASS: adaptive monochrome popup has unified switches, no delivery-resolution UI and no native dialogs");
 
     await bounded("browser shutdown", context.close());
     context = await launch();
     await context.setOffline(true);
     await installRoutes();
+    const restartedWorker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+    await bounded("runtime fixture reset", restartedWorker.evaluate((runtime) => {
+      globalThis.fetch = async () => ({ ok: true, json: async () => runtime });
+    }, catalog));
     page = await context.newPage();
-    await page.goto(pendingUrl);
+    await page.goto(unconfirmedUrl);
+    await page.evaluate(() => { window.dropDelivery = true; });
     popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-    assert.equal((await run(id)).reason, "delivery_uncertain");
-    assert.equal(await page.evaluate(() => window.submits), 0);
-    const resolved = await request({ type: "bridge:resolve-delivery", conversationId: id, wasSent: false });
-    assert.equal(resolved.ok, true, resolved.error);
-    assert.equal(resolved.conversation.enabled, false);
-    assert.equal(resolved.conversation.pendingDelivery, null);
-    assert.equal(await page.evaluate(() => window.submits), 0);
-    console.log("PASS: browser/worker restart preserves journal; explicit resolution does not send");
+    assert.equal((await run(unconfirmedId)).reason, "delivery_unconfirmed");
+    assert.equal(await page.evaluate(() => window.submits), 1);
+    const restartedChat = await readChat(unconfirmedId);
+    assert.equal(Object.hasOwn(restartedChat, "pendingDelivery"), false);
+    console.log("PASS: worker restart has no durable delivery journal or manual-resolution gate");
   } finally {
     if (context) await context.close();
     await fs.rm(profile, { recursive: true, force: true });
