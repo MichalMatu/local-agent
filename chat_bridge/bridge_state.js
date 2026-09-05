@@ -17,42 +17,9 @@
   const DEFAULT_RUNTIME_URL =
     "https://raw.githubusercontent.com/MichalMatu/local-agent/chat-bridge-state/chat_bridge/runtime.json";
   const DEFAULT_BOOTSTRAP_PROMPT =
-    "Local Agent Chat Bridge is enabled for this conversation. Continue only the active Local Agent goal and always decide from the exact bound repository's current daemon/run/result evidence. Follow MichalMatu/local-agent docs/AUTONOMOUS_CHAT_LOOP.md and docs/OPERATIONS.md. Keep bridge wake turns terse: do not recap unchanged state. Prefer short controls as the final line when needed: [LAB:STOP] when complete, [LAB:PAUSE] for required user action, [LAB:NEXT=30s] for a one-shot early recheck, [LAB:NEXT=10m] for a later one-shot recheck, and [LAB:INTERVAL=AUTO] to restore configured pacing.";
+    "Local Agent Chat Bridge is enabled for this hard-bound conversation. Continue only its active goal from exact bound-repository evidence. Use direct GitHub edits when the exact diff and relevant CI can verify them; use Local Agent for Mac command execution, local builds/tests and devices. Check active local tasks before editing the same branch. For hybrid work verify the exact committed SHA. Follow MichalMatu/local-agent docs/AUTONOMOUS_CHAT_LOOP.md and docs/OPERATIONS.md. Never infer or switch repository identity.";
   const DEFAULT_WAKE_PROMPT =
-    "[LA_WAKE] Continue the active Local Agent goal from exact bound-repository evidence. Do not recap unchanged state; keep this wake terse.";
-  const DEFAULT_AGENTS = Object.freeze([
-    Object.freeze({
-      repositoryId: "local-agent",
-      repository: "MichalMatu/local-agent",
-      agentBinding: "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
-      executionEnabled: false
-    }),
-    Object.freeze({
-      repositoryId: "litegraph",
-      repository: "MichalMatu/esp32s3_LiteGraph",
-      agentBinding: "2db52048-57ea-4643-bf4b-1ea5c5c3fa86",
-      executionEnabled: true
-    }),
-    Object.freeze({
-      repositoryId: "growbox-ml-controller",
-      repository: "MichalMatu/growbox-ml-controller",
-      agentBinding: "815cf40f-8d2a-4e1f-b7cc-c0f4e37b6cb5",
-      executionEnabled: true
-    }),
-    Object.freeze({
-      repositoryId: "matrixhub",
-      repository: "MichalMatu/MatrixHub",
-      agentBinding: "033327ab-700d-43b4-9b3b-caff1acaa2c7",
-      executionEnabled: true
-    }),
-    Object.freeze({
-      repositoryId: "esp32-c6-zigbee",
-      repository: "MichalMatu/esp32_c6_zigbee",
-      agentBinding: "64877d7d-af3f-4312-a511-699c44aa42dd",
-      executionEnabled: true
-    })
-  ]);
-
+    "[LA_WAKE] Continue the active goal from exact bound-repository evidence. Choose direct GitHub work or bounded local execution as appropriate; verify the exact commit/result. Do not recap unchanged state; keep this wake terse.";
   const DEFAULT_SETTINGS = Object.freeze({
     masterEnabled: true,
     runtimeUrl: DEFAULT_RUNTIME_URL,
@@ -98,7 +65,7 @@
 
   function sanitizeRepositoryId(value) {
     const repositoryId = String(value || "").trim();
-    return /^[A-Za-z0-9._-]+$/.test(repositoryId) ? repositoryId.slice(0, 120) : null;
+    return /^[A-Za-z0-9._-]{1,120}$/.test(repositoryId) ? repositoryId : null;
   }
 
   function sanitizeRepository(value) {
@@ -129,6 +96,10 @@
       agentBinding,
       bindingRevision: Math.max(0, Math.trunc(Number(raw.bindingRevision) || 0)),
       bindingSetAt: raw.bindingSetAt || null,
+      generation: Math.max(0, Math.trunc(Number(raw.generation) || 0)),
+      pendingDelivery: raw.pendingDelivery && typeof raw.pendingDelivery === "object"
+        ? { ...raw.pendingDelivery } : null,
+      assistantBaseline: String(raw.assistantBaseline || ""),
       intervalOverrideMinutes:
         raw.intervalOverrideMinutes === null || raw.intervalOverrideMinutes === undefined
           ? null
@@ -277,7 +248,6 @@
     DEFAULT_RUNTIME_URL,
     DEFAULT_BOOTSTRAP_PROMPT,
     DEFAULT_WAKE_PROMPT,
-    DEFAULT_AGENTS,
     DEFAULT_SETTINGS,
     clampNumber,
     sanitizeSettings,

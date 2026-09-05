@@ -4,9 +4,9 @@ Chrome Manifest V3 extension that schedules bounded autonomous wake-ups for mult
 
 The canonical planner/executor contract is documented in `docs/AUTONOMOUS_CHAT_LOOP.md`, `docs/OPERATIONS.md` and `docs/MULTI_REPOSITORY.md`.
 
-## v0.4 hard-binding model
+## v0.5 delivery and hard-binding model
 
-Chat Bridge v0.4 uses state schema v3 and makes repository routing explicit, immutable conversation identity:
+Chat Bridge v0.5 uses state schema v3 and makes repository routing explicit, immutable conversation identity:
 
 ```text
 one ChatGPT conversation == one agent_binding UUID == one repository id == one GitHub repository
@@ -65,7 +65,7 @@ Remote runtime schema v3 publishes pacing plus the canonical agent catalog:
 }
 ```
 
-Repository ids, repositories and binding UUIDs must each be unique. Binding UUIDs use canonical lowercase UUID text. Runtime schema v1/v2 remains readable for compatibility using the extension's built-in canonical catalog, but new production publication should use schema v3.
+Repository ids, repositories and binding UUIDs must each be unique. Binding UUIDs use canonical lowercase UUID text. Only runtime schema v3 is accepted. `execution_enabled` must be a JSON boolean. An unavailable/invalid catalog blocks sending as `runtime_unavailable`; no built-in catalog replaces it.
 
 The `local-agent` catalog entry has `execution_enabled: false`. It exists for bridge/operator infrastructure conversations; it must not be used to create project tasks.
 
@@ -158,23 +158,23 @@ Bind each intended conversation explicitly before re-enabling its schedule. A re
 
 After updating an already loaded unpacked extension, click **Reload** on its `chrome://extensions` card. Existing pre-v0.4 conversations intentionally require explicit binding before they can schedule again.
 
-During a Local Agent 4.15 / Chat Bridge 0.4 rollout, keep Local Agent globally disabled until the extension is reloaded, runtime schema v3 is published, intended conversations are bound, and binding/emergency-control E2E checks are complete.
+Bridge 0.5 requires Chrome 120 or newer. Reload open ChatGPT tabs after reloading the extension so they use the matching delivery protocol. Existing schema-v3 bindings remain intact. A pending or unconfirmed wake pauses as `delivery_uncertain`; inspect the chat and use **Wake was sent** or **Wake was not sent** before explicitly resuming. Neither resolution sends a message. Rebind and removal are blocked until delivery is resolved.
+
+## Choose GitHub or local execution
+
+The planner may read and edit the bound repository directly through an available GitHub tool with the required permissions. Use this path for bounded source, configuration or documentation changes when review of the exact diff and relevant CI checks can verify the result. A GitHub commit proves a change, not successful execution; report the exact commit and completed checks.
+
+Use Local Agent when the action needs command execution on the Mac, local build/test tools, device access or other machine-specific evidence. A hybrid flow may commit through GitHub and then queue a read-only verification task for that exact source SHA. Check the bound repository's active task first and avoid concurrent writes to the same branch while a local task is modifying it. Follow the repository's own branch policy.
+
+Every local task still requires a unique immutable id, the exact `agent_binding`, explicit `resources` and bounded execution. Direct GitHub edits do not require an artificial executor task merely to record that they happened. The immutable conversation binding applies to both paths. The `local-agent` catalog entry remains unavailable for project execution; infrastructure edits follow its release policy.
 
 ## Development validation
 
 ```bash
-node --check chat_bridge/control_protocol.js
-node --check chat_bridge/bridge_state.js
-node --check chat_bridge/control_protocol.test.js
-node --check chat_bridge/bridge_state.test.js
-node --check chat_bridge/service_worker.js
-node --check chat_bridge/service_worker.test.js
-node --check chat_bridge/content.js
-node --check chat_bridge/popup.js
-node chat_bridge/control_protocol.test.js
-node chat_bridge/bridge_state.test.js
-node chat_bridge/service_worker.test.js
-python -m json.tool chat_bridge/manifest.json >/dev/null
-python -m json.tool chat_bridge/runtime.example.json >/dev/null
-python -m json.tool config/agent_bindings.json >/dev/null
+python scripts/verify.py --only bridge
+npm install --no-save --package-lock=false playwright@1.57.0
+npx playwright install chromium
+python scripts/verify.py --profile bridge-browser
 ```
+
+Browser smoke uses a disposable Chromium profile, an offline conversation fixture and the actual extension. It verifies delivery confirmation, draft preservation, SPA navigation, overlap, uncertain delivery and service-worker restart without using the operator's browser or sending live chat messages. Set `LOCAL_AGENT_PLAYWRIGHT_MODULE` to an existing Playwright module path when reusing installed test tooling.

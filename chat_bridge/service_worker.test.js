@@ -1,180 +1,8 @@
 "use strict";
-
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const vm = require("node:vm");
-
-function clone(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-const MATRIX_BINDING = "033327ab-700d-43b4-9b3b-caff1acaa2c7";
-const C6_BINDING = "64877d7d-af3f-4312-a511-699c44aa42dd";
-const LOCAL_AGENT_BINDING = "2180d453-1357-4fbc-be1a-e1e5b8fbb10a";
-const runtimeAgents = [
-  {
-    repository_id: "local-agent",
-    repository: "MichalMatu/local-agent",
-    agent_binding: LOCAL_AGENT_BINDING,
-    execution_enabled: false
-  },
-  {
-    repository_id: "matrixhub",
-    repository: "MichalMatu/MatrixHub",
-    agent_binding: MATRIX_BINDING,
-    execution_enabled: true
-  },
-  {
-    repository_id: "esp32-c6-zigbee",
-    repository: "MichalMatu/esp32_c6_zigbee",
-    agent_binding: C6_BINDING,
-    execution_enabled: true
-  }
-];
-
-const storage = {};
-const alarms = new Map();
-const sentMessages = [];
-const runtimeMessageListeners = [];
-const alarmListeners = [];
-const installedListeners = [];
-const startupListeners = [];
-const tabs = [
-  { id: 11, url: "https://chatgpt.com/c/a", title: "Project A" },
-  { id: 22, url: "https://chatgpt.com/c/b", title: "Project B" },
-  { id: 33, url: "https://chatgpt.com/c/infra", title: "Local Agent" }
-];
-
-const chrome = {
-  storage: {
-    local: {
-      async get(key) {
-        if (key === null) return clone(storage);
-        if (typeof key === "string") return { [key]: clone(storage[key]) };
-        throw new Error("unsupported storage.get shape in test");
-      },
-      async set(patch) {
-        Object.assign(storage, clone(patch));
-      }
-    }
-  },
-  alarms: {
-    create(name, info) {
-      const alarm = { name, ...clone(info) };
-      if (Number.isFinite(Number(info.when))) alarm.scheduledTime = Number(info.when);
-      alarms.set(name, alarm);
-    },
-    async clear(name) {
-      return alarms.delete(name);
-    },
-    async getAll() {
-      return Array.from(alarms.values()).map(clone);
-    },
-    onAlarm: {
-      addListener(listener) {
-        alarmListeners.push(listener);
-      }
-    }
-  },
-  tabs: {
-    async query() {
-      return clone(tabs);
-    },
-    async sendMessage(tabId, message) {
-      sentMessages.push({ tabId, message: clone(message) });
-      return { ok: true, reason: "sent" };
-    }
-  },
-  runtime: {
-    onInstalled: {
-      addListener(listener) {
-        installedListeners.push(listener);
-      }
-    },
-    onStartup: {
-      addListener(listener) {
-        startupListeners.push(listener);
-      }
-    },
-    onMessage: {
-      addListener(listener) {
-        runtimeMessageListeners.push(listener);
-      }
-    }
-  }
-};
-
-const context = vm.createContext({
-  console,
-  chrome,
-  URL,
-  Date,
-  Math,
-  Number,
-  String,
-  Boolean,
-  Object,
-  Array,
-  Set,
-  Promise,
-  AbortController,
-  setTimeout,
-  clearTimeout,
-  fetch: async () => ({
-    ok: true,
-    async json() {
-      return {
-        schema_version: 3,
-        interval_minutes: 10,
-        busy_retry_minutes: 1,
-        bootstrap_prompt: "BOOTSTRAP",
-        wake_prompt: "WAKE",
-        agents: runtimeAgents
-      };
-    }
-  })
-});
-context.globalThis = context;
-context.importScripts = (...filenames) => {
-  for (const filename of filenames) {
-    const source = fs.readFileSync(path.join(__dirname, filename), "utf8");
-    vm.runInContext(source, context, { filename });
-  }
-};
-
-const workerSource = fs.readFileSync(path.join(__dirname, "service_worker.js"), "utf8");
-vm.runInContext(workerSource, context, { filename: "service_worker.js" });
-
-assert.equal(runtimeMessageListeners.length, 1);
-assert.equal(alarmListeners.length, 1);
-
-async function sendRuntimeMessage(message, sender = {}) {
-  const listener = runtimeMessageListeners[0];
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const timeout = setTimeout(() => {
-      if (!settled) reject(new Error(`message timed out: ${message.type}`));
-    }, 1000);
-    const sendResponse = (response) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      resolve(response);
-    };
-    try {
-      const keepAlive = listener(message, sender, sendResponse);
-      if (keepAlive !== true && !settled) {
-        settled = true;
-        clearTimeout(timeout);
-        resolve(undefined);
-      }
-    } catch (error) {
-      clearTimeout(timeout);
-      reject(error);
-    }
-  });
-}
+const { createHarness } = require("./worker_test_harness.js");
+const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
+  MATRIX_BINDING, C6_BINDING, LOCAL_AGENT_BINDING } = createHarness();
 
 (async () => {
   // New conversation is refused without explicit binding.
@@ -224,6 +52,38 @@ async function sendRuntimeMessage(message, sender = {}) {
   assert.equal(response.conversation.agentBinding, C6_BINDING);
   assert.equal(alarms.has(`local-agent-chat:${aId}`), true);
   assert.equal(alarms.has(`local-agent-chat:${bId}`), true);
+
+  // Bootstrap and every compact wake carry the same immutable binding envelope.
+  response = await sendRuntimeMessage({
+    type: "bridge:run-now",
+    conversationId: bId
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.bridgeMode, "bootstrap");
+  assert.equal(response.agentBinding, C6_BINDING);
+  assert.equal(response.repositoryId, "esp32-c6-zigbee");
+  const bootstrapMessage = sentMessages.at(-1).message;
+  assert.equal(bootstrapMessage.agentBinding, C6_BINDING);
+  assert.equal(bootstrapMessage.repositoryId, "esp32-c6-zigbee");
+  assert.match(bootstrapMessage.prompt, /BOOTSTRAP/);
+  assert.match(bootstrapMessage.prompt, new RegExp(`\\[LA_AGENT=${C6_BINDING}\\]`));
+  assert.match(bootstrapMessage.prompt, /\[LA_REPO=esp32-c6-zigbee\]/);
+  assert.match(bootstrapMessage.prompt, /Every Local Agent task JSON.*agent_binding/s);
+  assert.match(bootstrapMessage.prompt, /Never infer, substitute, inspect, queue, cancel, or execute work for another repository/);
+
+  response = await sendRuntimeMessage({
+    type: "bridge:run-now",
+    conversationId: bId
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.bridgeMode, "wake");
+  const wakeMessage = sentMessages.at(-1).message;
+  assert.match(wakeMessage.prompt, /WAKE/);
+  assert.match(wakeMessage.prompt, new RegExp(`\\[LA_AGENT=${C6_BINDING}\\]`));
+  assert.match(wakeMessage.prompt, /\[LA_REPO=esp32-c6-zigbee\]/);
+  assert.ok(wakeMessage.prompt.length < bootstrapMessage.prompt.length);
+
+  await sendRuntimeMessage({ type: "bridge:run-now", conversationId: aId });
 
   // Normal upsert/update can never mutate an existing binding.
   response = await sendRuntimeMessage({
@@ -325,36 +185,6 @@ async function sendRuntimeMessage(message, sender = {}) {
   assert.ok(nextAlarm.when <= beforeNext + 601_500);
   response = await sendRuntimeMessage({ type: "bridge:get-state" });
   assert.equal(response.state.conversations[bId].intervalOverrideMinutes, 15);
-
-  // Bootstrap and every compact wake carry the same immutable binding envelope.
-  response = await sendRuntimeMessage({
-    type: "bridge:run-now",
-    conversationId: bId
-  });
-  assert.equal(response.ok, true);
-  assert.equal(response.bridgeMode, "bootstrap");
-  assert.equal(response.agentBinding, C6_BINDING);
-  assert.equal(response.repositoryId, "esp32-c6-zigbee");
-  const bootstrapMessage = sentMessages.at(-1).message;
-  assert.equal(bootstrapMessage.agentBinding, C6_BINDING);
-  assert.equal(bootstrapMessage.repositoryId, "esp32-c6-zigbee");
-  assert.match(bootstrapMessage.prompt, /BOOTSTRAP/);
-  assert.match(bootstrapMessage.prompt, new RegExp(`\\[LA_AGENT=${C6_BINDING}\\]`));
-  assert.match(bootstrapMessage.prompt, /\[LA_REPO=esp32-c6-zigbee\]/);
-  assert.match(bootstrapMessage.prompt, /Every Local Agent task JSON.*agent_binding/s);
-  assert.match(bootstrapMessage.prompt, /Never infer, substitute, inspect, queue, cancel, or execute work for another repository/);
-
-  response = await sendRuntimeMessage({
-    type: "bridge:run-now",
-    conversationId: bId
-  });
-  assert.equal(response.ok, true);
-  assert.equal(response.bridgeMode, "wake");
-  const wakeMessage = sentMessages.at(-1).message;
-  assert.match(wakeMessage.prompt, /WAKE/);
-  assert.match(wakeMessage.prompt, new RegExp(`\\[LA_AGENT=${C6_BINDING}\\]`));
-  assert.match(wakeMessage.prompt, /\[LA_REPO=esp32-c6-zigbee\]/);
-  assert.ok(wakeMessage.prompt.length < bootstrapMessage.prompt.length);
 
   // Explicit rebind is the only identity-changing operation and re-arms bootstrap.
   response = await sendRuntimeMessage({

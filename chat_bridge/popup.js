@@ -239,6 +239,28 @@ function renderConversation(conversation, settings, schedule, runtime) {
   remove.textContent = "Remove";
   remove.className = "danger";
   actions.append(save, rebind, run, remove);
+  if (conversation.pendingDelivery) {
+    const notice = document.createElement("p");
+    notice.textContent = "Wake delivery is uncertain. Check this chat before choosing an outcome, then resume explicitly.";
+    card.append(notice);
+    run.disabled = true;
+    rebind.disabled = true;
+    for (const [text, wasSent] of [["Wake was sent", true], ["Wake was not sent", false]]) {
+      const resolve = document.createElement("button");
+      resolve.type = "button";
+      resolve.textContent = text;
+      resolve.addEventListener("click", async () => {
+        try {
+          if (!confirm(`Confirm after inspecting the chat: ${text.toLowerCase()}? This resolves the previous attempt without sending a new wake.`)) return;
+          const response = await request({ type: "bridge:resolve-delivery", conversationId: conversation.id, wasSent });
+          if (!response?.ok) throw new Error(response?.error || "resolution failed");
+          showMessage("Delivery resolved. Resume when ready.");
+          await refresh();
+        } catch (error) { showMessage(`Error: ${error.message}`); }
+      });
+      actions.append(resolve);
+    }
+  }
 
   enabled.addEventListener("change", async () => {
     try {

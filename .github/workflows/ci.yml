@@ -12,6 +12,21 @@ permissions:
   contents: read
 
 jobs:
+  bridge-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install isolated browser test tooling
+        run: |
+          npm install --no-save --package-lock=false playwright@1.57.0
+          npx playwright install --with-deps chromium
+      - name: Real extension delivery and restart smoke
+        run: python scripts/verify.py --profile bridge-browser
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10

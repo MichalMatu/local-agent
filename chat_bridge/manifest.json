@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Local Agent Chat Bridge",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Schedules hard-bound Local Agent wake-ups: one ChatGPT conversation equals one immutable agent/repository binding.",
   "permissions": [
     "alarms",
@@ -33,5 +33,6 @@
       ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "minimum_chrome_version": "120"
 }

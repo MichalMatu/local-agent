@@ -46,7 +46,7 @@ Focused macOS/supervisor smoke:
 .venv/bin/python scripts/verify.py --profile macos-smoke
 ```
 
-CI additionally measures branch-aware coverage and runs the Python suite on Python 3.14.
+CI additionally measures branch-aware coverage, runs the Python suite on Python 3.14 and runs isolated Chromium extension smoke. For browser setup and `--profile bridge-browser`, see [`chat_bridge/README.md`](chat_bridge/README.md).
 
 ## What deserves a test
 

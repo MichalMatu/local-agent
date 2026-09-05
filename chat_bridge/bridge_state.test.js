@@ -2,6 +2,10 @@
 
 const assert = require("node:assert/strict");
 const stateModel = require("./bridge_state.js");
+const catalog = require("../config/agent_bindings.json").agents;
+const runtimeAgents = require("./runtime.example.json").agents;
+assert.equal(new Set(catalog.map((agent) => agent.id)).size, catalog.length);
+assert.deepEqual(runtimeAgents, catalog.map(({ id, ...agent }) => ({ repository_id: id, ...agent })));
 
 const MATRIX_BINDING = "033327ab-700d-43b4-9b3b-caff1acaa2c7";
 const C6_BINDING = "64877d7d-af3f-4312-a511-699c44aa42dd";
@@ -113,10 +117,5 @@ assert.equal(
 state = stateModel.removeConversation(state, aId);
 assert.equal(Object.keys(state.conversations).length, 1);
 assert.equal(Boolean(state.conversations[bId]), true);
-
-// Built-in catalog identities are unique and canonical.
-const bindings = new Set(stateModel.DEFAULT_AGENTS.map((agent) => agent.agentBinding));
-assert.equal(bindings.size, stateModel.DEFAULT_AGENTS.length);
-assert.ok(stateModel.DEFAULT_AGENTS.every((agent) => stateModel.sanitizeAgentBinding(agent.agentBinding)));
 
 console.log("Chat Bridge state tests passed.");

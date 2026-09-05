@@ -212,3 +212,9 @@ Tracked machine-specific plist files are replaced by generated configuration:
 ```
 
 `install` is intentionally non-disruptive. `restart` is the explicit service interruption boundary.
+
+## Browser transport boundary
+
+`chat_bridge/service_worker.js` owns serialized persistent state, runtime catalog admission, durable delivery authorization and per-conversation scheduling. `content.js` owns DOM interaction and observable delivery confirmation. `bridge_state.js` owns state normalization; `control_protocol.js` owns marker/identity parsing; `popup.js` owns explicit operator actions. Content messages cannot invoke popup-only configuration or Rebind operations. A pending delivery survives worker restart and blocks replay until operator resolution.
+
+The planner chooses direct GitHub edits with sufficient diff/CI evidence or bounded local execution. Neither the Bridge nor the daemon chooses implementation work. See [the planner contract](AUTONOMOUS_CHAT_LOOP.md) and [the Bridge audit](RELEASE_NOTES_V4.18.1.md).

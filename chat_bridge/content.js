@@ -76,11 +76,12 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
     }
   }
 
-  function clearComposer(composer) {
+  function clearComposer(composer, insertedText) {
+    if (!composer.isConnected || composerText(composer).trim() !== insertedText.trim()) return;
     try {
       setComposerText(composer, "");
     } catch (_error) {
-      // The composer was empty before bridge insertion, so best-effort cleanup is safe.
+      // Remove only our unchanged insertion; preserve user edits.
     }
   }
 
@@ -109,8 +110,21 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
     return null;
   }
 
-  async function sendFeedback(prompt, expectedUrl) {
-    if (normalizeConversationUrl(location.href) !== normalizeConversationUrl(expectedUrl)) {
+  let deliveryInFlight = false;
+
+  async function sendFeedback(prompt, expectedUrl, deliveryId) {
+    if (deliveryInFlight) return { ok: false, reason: "delivery_in_progress" };
+    deliveryInFlight = true;
+    try {
+      return await deliverFeedback(prompt, expectedUrl, deliveryId);
+    } finally {
+      deliveryInFlight = false;
+    }
+  }
+
+  async function deliverFeedback(prompt, expectedUrl, deliveryId) {
+    const normalizedUrl = normalizeConversationUrl(expectedUrl);
+    if (!normalizedUrl || normalizeConversationUrl(location.href) !== normalizedUrl) {
       return { ok: false, reason: "wrong_conversation" };
     }
     if (document.visibilityState === "prerender") {
@@ -134,12 +148,48 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
 
     const sendButton = await waitForSendButton(composer);
     if (!sendButton) {
-      clearComposer(composer);
+      clearComposer(composer, prompt);
       return { ok: false, reason: "send_button_not_ready" };
     }
 
+    const baseline = latestAssistantMessage()?.identity || "";
+    const authorized = await chrome.runtime.sendMessage({
+      type: "bridge:authorize-delivery",
+      conversationUrl: normalizedUrl,
+      deliveryId,
+      assistantBaseline: baseline
+    });
+    if (!authorized?.ok) {
+      clearComposer(composer, prompt);
+      return { ok: false, reason: "delivery_cancelled" };
+    }
+    if (normalizeConversationUrl(location.href) !== normalizedUrl) {
+      clearComposer(composer, prompt);
+      return { ok: false, reason: "wrong_conversation" };
+    }
+    if (!composer.isConnected || findComposer() !== composer || composerText(composer).trim() !== prompt.trim()) {
+      return { ok: false, reason: "composer_changed" };
+    }
+    if (assistantIsGenerating() || !sendButton.isConnected || sendButton.disabled) {
+      clearComposer(composer, prompt);
+      return { ok: false, reason: "send_button_not_ready" };
+    }
+    const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
+    const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
     sendButton.click();
-    return { ok: true, reason: "sent" };
+    const deadline = Date.now() + 3000;
+    while (Date.now() < deadline) {
+      if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
+      const userMessages = document.querySelectorAll('[data-message-author-role="user"]');
+      const lastUser = userMessages[userMessages.length - 1];
+      if (composer.isConnected && !composerText(composer).trim() &&
+          userMessages.length > previousUserMessages &&
+          normalizedText(lastUser?.innerText || lastUser?.textContent) === normalizedText(prompt)) {
+        return { ok: true, reason: "sent" };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return { ok: false, reason: "delivery_uncertain" };
   }
 
   function latestAssistantMessage() {
@@ -151,25 +201,31 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
       latest.getAttribute("data-message-id") || latest.getAttribute("data-testid") || latest.id || "";
     return {
       text,
-      identity: `${messages.length}:${stableId}`
+      identity: stableId || `${messages.length}:${fnv1a32(text)}`
     };
   }
 
   let controlScanTimer = null;
   let lastSubmittedControlFingerprint = "";
   let lastScannedAssistantSignature = "";
+  let controlRetrySignature = "";
+  let controlRetryCount = 0;
 
   async function scanLatestAssistantControl() {
     if (assistantIsGenerating()) return;
     const latest = latestAssistantMessage();
     if (!latest) return;
 
-    const signature = fnv1a32(`${latest.identity}\n${latest.text}`);
+    const url = normalizeConversationUrl(location.href);
+    if (!url) return;
+    const signature = fnv1a32(`${url}\n${latest.identity}\n${latest.text}`);
     if (signature === lastScannedAssistantSignature) return;
-    lastScannedAssistantSignature = signature;
 
     const control = parseAssistantControl(latest.text);
-    if (!control) return;
+    if (!control) {
+      lastScannedAssistantSignature = signature;
+      return;
+    }
 
     const fingerprint = controlFingerprint(
       location.href,
@@ -178,15 +234,32 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
       latest.identity
     );
     if (fingerprint === lastSubmittedControlFingerprint) return;
+    if (controlRetrySignature !== signature) {
+      controlRetrySignature = signature;
+      controlRetryCount = 0;
+    }
+    if (controlRetryCount >= 3) return;
+    controlRetryCount += 1;
 
     try {
+      const context = await chrome.runtime.sendMessage({
+        type: "bridge:control-context", conversationUrl: url
+      });
+      if (!context?.ok || context.assistantBaseline === latest.identity) return;
       const response = await chrome.runtime.sendMessage({
         type: "bridge:assistant-control",
         conversationUrl: normalizeConversationUrl(location.href),
         fingerprint,
+        bindingRevision: context.bindingRevision,
+        assistantIdentity: latest.identity,
         control
       });
-      if (response?.ok) lastSubmittedControlFingerprint = fingerprint;
+      if (response?.ok) {
+        lastSubmittedControlFingerprint = fingerprint;
+        lastScannedAssistantSignature = signature;
+      } else if (response?.reason === "control_stale_binding") {
+        lastScannedAssistantSignature = signature;
+      }
     } catch (error) {
       console.warn("Local Agent Chat Bridge control delivery failed:", error);
     }
@@ -210,11 +283,15 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
     });
   }
   scheduleControlScan();
+  // Retry unchanged final controls after a transient worker/message failure.
+  setInterval(() => {
+    scanLatestAssistantControl().catch((error) => console.warn(error));
+  }, 5000);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type !== "bridge:feedback") return false;
-    sendFeedback(String(message.prompt || ""), String(message.expectedUrl || ""))
-      .then(sendResponse)
+    sendFeedback(String(message.prompt || ""), String(message.expectedUrl || ""), message.deliveryId)
+      .then((response) => sendResponse({ ...response, protocolVersion: 1 }))
       .catch((error) =>
         sendResponse({ ok: false, reason: "unexpected_error", error: String(error) })
       );

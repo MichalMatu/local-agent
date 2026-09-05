@@ -9,7 +9,8 @@ When the established Local Agent flow is requested, derive the target repository
 - `litegraph` -> `MichalMatu/esp32s3_LiteGraph`;
 - `growbox-ml-controller` -> `MichalMatu/growbox-ml-controller`;
 - `matrixhub` -> `MichalMatu/MatrixHub`;
-- `esp32-c6-zigbee` -> `MichalMatu/esp32_c6_zigbee`.
+- `esp32-c6-zigbee` -> `MichalMatu/esp32_c6_zigbee` (disabled archival entry; active C6 development is in LiteGraph);
+- `tracker` -> `MichalMatu/tracker`.
 
 Each repository uses its own `agent-control` branch. The production daemon source is `MichalMatu/local-agent/main`. Only treat `local-agent` itself as the product target when the request explicitly concerns the daemon/infrastructure.
 
@@ -30,13 +31,16 @@ MatrixHub checkpoints:     ~/agent-workspace/repos/matrixhub/checkpoints
 ESP32-C6 Zigbee control:   ~/agent-workspace/repos/esp32-c6-zigbee/control
 ESP32-C6 Zigbee work:      ~/agent-workspace/repos/esp32-c6-zigbee/work
 ESP32-C6 Zigbee checkpoints: ~/agent-workspace/repos/esp32-c6-zigbee/checkpoints
+Tracker control:          ~/agent-workspace/repos/tracker/control
+Tracker work:             ~/agent-workspace/repos/tracker/work
+Tracker checkpoints:      ~/agent-workspace/repos/tracker/checkpoints
 daemon checkout:           ~/local-agent
 installed LaunchAgent:     ~/Library/LaunchAgents/com.michal.local-agent.plist
 daemon stdout:             ~/Library/Logs/local-agent.log
 daemon stderr:             ~/Library/Logs/local-agent-error.log
 ```
 
-All four current registry entries use the default non-legacy workspace layout derived from their repository ids. The loaded LaunchAgent runs `~/local-agent/agent_entrypoint.py --registry "$HOME/Library/Application Support/local-agent/repositories.json" --max-workers 2` from `~/local-agent`.
+The four active and one disabled archival registry entries use the default non-legacy workspace layout derived from their repository ids. The loaded LaunchAgent runs `~/local-agent/agent_entrypoint.py --registry "$HOME/Library/Application Support/local-agent/repositories.json" --max-workers 2` from `~/local-agent`.
 
 The user's normal ESP32 checkout is not the disposable agent worktree. Never reset, clean or overwrite it during normal daemon execution.
 

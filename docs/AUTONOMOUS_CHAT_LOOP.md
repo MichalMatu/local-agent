@@ -1,10 +1,10 @@
 # Autonomous Chat Planner Loop
 
-This document defines the optional autonomous planning loop connecting one ChatGPT conversation to one deterministic `local-agent` repository through Chat Bridge 0.4 and the Git-backed control plane.
+This document defines the optional autonomous planning loop connecting one ChatGPT conversation to one deterministic `local-agent` repository through Chat Bridge 0.5 and the Git-backed control plane.
 
 ## Hard identity invariant
 
-Chat Bridge 0.4 is fail-closed and enforces:
+Chat Bridge 0.5 is fail-closed and enforces:
 
 ```text
 one ChatGPT conversation == one immutable agent_binding == one repository id == one GitHub repository
@@ -41,7 +41,7 @@ The global operator `disabled` state has higher priority than repository binding
 user goal in one ChatGPT conversation
         |
         v
-Chat Bridge 0.4
+Chat Bridge 0.5
 - stores exact immutable conversation binding
 - sends binding envelope + bootstrap/wake prompt
 - schedules only bound conversations
@@ -51,7 +51,8 @@ Chat Bridge 0.4
 ChatGPT planner
 - works only on the bound repository
 - reads exact status/run/result/source evidence
-- creates only tasks containing the bound agent_binding
+- edits directly through GitHub when diff/CI evidence is sufficient
+- creates local tasks with the bound agent_binding when execution is needed
         |
         v
 local-agent
@@ -69,7 +70,7 @@ The `local-agent` binding is deliberately `execution_enabled: false`. A conversa
 
 ## Runtime schema 3
 
-Chat Bridge 0.4 state uses schema version 3. The remote runtime also supports schema 3 with an explicit agent catalog:
+Chat Bridge 0.5 state uses schema version 3. The remote runtime also supports schema 3 with an explicit agent catalog:
 
 ```json
 {
@@ -89,7 +90,7 @@ Chat Bridge 0.4 state uses schema version 3. The remote runtime also supports sc
 }
 ```
 
-Repository ids, repository names and binding UUIDs must each be unique. A binding UUID must be canonical lowercase UUID text. Runtime schema 1/2 remains readable for compatibility, but it uses the extension's built-in canonical agent catalog. New production publication should use schema 3.
+Repository ids, repository names and binding UUIDs must each be unique. A binding UUID must be canonical lowercase UUID text. Only runtime schema 3 is accepted and `execution_enabled` must be a JSON boolean. Missing, invalid or unavailable runtime configuration prevents sending (`runtime_unavailable`); there is no replacement identity catalog.
 
 ## Bootstrap and compact wakes
 
@@ -121,7 +122,15 @@ Each executable repository has its own `agent-control` branch:
 .agent/daemon/acks/*.json         maintenance/status acknowledgements
 ```
 
-Normal work is queued by committing a new unique task file to the bound repository's `agent-control` branch. Never hand-edit the daemon's local control clone.
+Local execution is queued by committing a new unique task file to the bound repository's `agent-control` branch. Never hand-edit the daemon's local control clone.
+
+## Choose GitHub or local execution
+
+The planner may read and edit the bound repository directly through an available GitHub tool with the required permissions. Use this path for bounded source, configuration or documentation changes when review of the exact diff and relevant CI checks can verify the result. A GitHub commit proves a change, not successful execution; report the exact commit and completed checks.
+
+Use Local Agent when the action needs command execution on the Mac, local build/test tools, device access or other machine-specific evidence. A hybrid flow may commit through GitHub and then queue a read-only verification task for that exact source SHA. Check the bound repository's active task first and avoid concurrent writes to the same branch while a local task is modifying it. Follow the repository's own branch policy.
+
+Every local task still requires a unique immutable id, the exact `agent_binding`, explicit `resources` and bounded execution. Direct GitHub edits do not require an artificial executor task merely to record that they happened. The immutable conversation binding applies to both paths. The `local-agent` catalog entry remains unavailable for project execution; infrastructure edits follow its release policy.
 
 ## Autonomous turn algorithm
 
@@ -132,10 +141,10 @@ For every bridge wake:
 3. Read the bound repository's current `.agent/status/daemon.json` and exact run/result evidence for the active goal.
 4. If the relevant task is active, queue nothing else for that goal.
 5. If a terminal result exists, inspect its exact digest/result/command evidence.
-6. If a concrete next action is required, create one new bounded task with a unique id and exactly the wake's `agent_binding`.
+6. Choose direct GitHub work or local execution using the rules above. If local execution is needed, create one new bounded task with a unique id and exactly the wake's `agent_binding`.
 7. If the task fails deterministically, diagnose the evidence and create a new task only when the failure supports a specific fix. Never replay or mutate the old payload.
 8. If another repository is required, use `PAUSE`; do not switch/rebind automatically.
-9. If the goal is complete, use `STOP`.
+9. If the goal is complete with relevant exact-commit CI or terminal local execution evidence, use `STOP`.
 10. Otherwise use a suitable one-shot `NEXT` or allow normal pacing to resume.
 
 The planner loop is sequential per active conversation goal, not globally serial. Independent bound conversations may proceed concurrently; `local_agent/supervisor/orchestrator.py` owns repository/resource concurrency.
@@ -166,7 +175,7 @@ The planner must never consider queueing itself proof of success. Terminal resul
 
 ## Evidence order
 
-Use evidence in this order:
+For local execution, use evidence in this order:
 
 1. terminal result for exact task id/digest;
 2. live run/progress for the exact attempt;
@@ -219,7 +228,7 @@ Pause rather than guess when progress requires user action, external approval, u
 
 ## Required end-to-end validation for hard binding
 
-A 0.4 rollout is complete only after all of these are demonstrated:
+A hard-binding rollout is complete only after all of these are demonstrated:
 
 1. schema-3 runtime/catalog loads and a newly configured conversation stores one exact binding;
 2. normal edits cannot change that conversation's repository/binding;
@@ -235,3 +244,11 @@ A 0.4 rollout is complete only after all of these are demonstrated:
 12. two conversations retain independent alarms/control state and cannot alter each other's binding without explicit operator Rebind.
 
 Canonical executor and rollout rules remain in `AGENTS.md` and `docs/OPERATIONS.md`.
+
+## Delivery recovery in Bridge 0.5
+
+Each wake is journaled before sending and authorized again immediately before the click. The content script checks the conversation URL and unchanged composer, and confirms the new user message in the DOM. Overlapping sends are rejected. A lost reply, worker interruption or unconfirmed click leaves `pendingDelivery`, pauses the conversation as `delivery_uncertain` and never automatically replays the wake.
+
+Inspect the exact chat, then select **Wake was sent** or **Wake was not sent** in the popup. Either choice clears the journal and leaves the conversation paused; resume explicitly after resolving it. Rebind and removal are blocked while delivery is pending. Old assistant controls from before bootstrap/Rebind cannot schedule the new binding.
+
+After reloading the extension, reload its open ChatGPT tabs to install the matching content protocol. Browser fixture tests verify DOM and worker lifecycle behavior in an isolated Chromium profile; they do not prove the current live ChatGPT DOM or an operator's loaded extension version.

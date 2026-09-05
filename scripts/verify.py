@@ -124,6 +124,10 @@ def run_macos_smoke() -> None:
     )
 
 
+def run_bridge_browser() -> None:
+    _run("Chromium extension smoke", [_require("node"), "scripts/bridge_browser_smoke.cjs"])
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -133,7 +137,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--profile",
-        choices=("full", "macos-smoke"),
+        choices=("full", "macos-smoke", "bridge-browser"),
         default="full",
         help="verification profile; default: full",
     )
@@ -155,6 +159,10 @@ def main() -> int:
 
     if args.profile == "macos-smoke":
         run_macos_smoke()
+        return 0
+
+    if args.profile == "bridge-browser":
+        run_bridge_browser()
         return 0
 
     compile_sources()

@@ -24,6 +24,8 @@ const RETRY_REASONS = new Set([
 
 let stateQueue = Promise.resolve();
 let runtimeCache = null;
+const inFlightDeliveries = new Set();
+const runtimeRequests = new Map();
 
 function alarmName(chatId) {
   return `${ALARM_PREFIX}${chatId}`;
@@ -91,17 +93,20 @@ function validatePrompt(value, fallback, maximum, label) {
 
 function sanitizeRuntimeAgent(raw) {
   if (!raw || typeof raw !== "object") throw new Error("runtime agent must be an object");
-  const repositoryId = stateModel.sanitizeRepositoryId(raw.repository_id || raw.repositoryId);
+  const repositoryId = stateModel.sanitizeRepositoryId(raw.repository_id);
   const repository = stateModel.sanitizeRepository(raw.repository);
-  const agentBinding = stateModel.sanitizeAgentBinding(raw.agent_binding || raw.agentBinding);
+  const agentBinding = stateModel.sanitizeAgentBinding(raw.agent_binding);
   if (!repositoryId || !repository || !agentBinding) {
     throw new Error("runtime agent requires repository_id, repository, and canonical agent_binding");
+  }
+  if (typeof raw.execution_enabled !== "boolean") {
+    throw new Error("runtime execution_enabled must be a boolean");
   }
   return {
     repositoryId,
     repository,
     agentBinding,
-    executionEnabled: raw.execution_enabled !== false && raw.executionEnabled !== false
+    executionEnabled: raw.execution_enabled
   };
 }
 
@@ -126,13 +131,9 @@ function validateRuntimeAgents(rawAgents) {
   return agents;
 }
 
-function defaultAgents() {
-  return stateModel.DEFAULT_AGENTS.map((agent) => ({ ...agent }));
-}
-
 function validateRuntimeConfig(raw, settings) {
-  if (!raw || typeof raw !== "object" || ![1, 2, 3].includes(raw.schema_version)) {
-    throw new Error("runtime config must use schema_version=1, 2, or 3");
+  if (!raw || typeof raw !== "object" || raw.schema_version !== 3) {
+    throw new Error("runtime config must use schema_version=3");
   }
 
   const intervalMinutes = clampNumber(
@@ -147,26 +148,6 @@ function validateRuntimeConfig(raw, settings) {
     1,
     60
   );
-
-  if (raw.schema_version === 1) {
-    return {
-      intervalMinutes,
-      busyRetryMinutes,
-      bootstrapPrompt: validatePrompt(
-        raw.prompt,
-        settings.fallbackBootstrapPrompt,
-        8000,
-        "runtime bootstrap prompt"
-      ),
-      wakePrompt: validatePrompt(
-        settings.fallbackWakePrompt,
-        stateModel.DEFAULT_WAKE_PROMPT,
-        2000,
-        "runtime wake prompt"
-      ),
-      agents: defaultAgents()
-    };
-  }
 
   return {
     intervalMinutes,
@@ -183,7 +164,7 @@ function validateRuntimeConfig(raw, settings) {
       2000,
       "runtime wake prompt"
     ),
-    agents: raw.schema_version === 3 ? validateRuntimeAgents(raw.agents) : defaultAgents()
+    agents: validateRuntimeAgents(raw.agents)
   };
 }
 
@@ -208,7 +189,7 @@ function fallbackRuntime(settings) {
       2000,
       "fallback wake prompt"
     ),
-    agents: defaultAgents()
+    agents: []
   };
 }
 
@@ -229,17 +210,21 @@ function applyConversationInterval(runtime, conversation) {
 }
 
 async function fetchRuntime(settings) {
+  const key = JSON.stringify(settings);
+  if (runtimeCache?.key === key && runtimeCache.expiresAt > Date.now()) return runtimeCache.value;
+  if (runtimeRequests.has(key)) return runtimeRequests.get(key);
+  const request = fetchRuntimeUncached(settings, key);
+  runtimeRequests.set(key, request);
+  try {
+    return await request;
+  } finally {
+    runtimeRequests.delete(key);
+  }
+}
+
+async function fetchRuntimeUncached(settings, key) {
   const fallback = fallbackRuntime(settings);
   const runtimeUrl = String(settings.runtimeUrl || "").trim();
-  if (!runtimeUrl) return { ...fallback, source: "fallback" };
-
-  if (
-    runtimeCache &&
-    runtimeCache.url === runtimeUrl &&
-    runtimeCache.expiresAt > Date.now()
-  ) {
-    return runtimeCache.value;
-  }
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
@@ -252,12 +237,12 @@ async function fetchRuntime(settings) {
     if (!response.ok) throw new Error(`runtime fetch returned HTTP ${response.status}`);
     const raw = await response.json();
     const value = { ...validateRuntimeConfig(raw, settings), source: "remote" };
-    runtimeCache = { url: runtimeUrl, expiresAt: Date.now() + RUNTIME_CACHE_MS, value };
+    runtimeCache = { key, expiresAt: Date.now() + RUNTIME_CACHE_MS, value };
     return value;
   } catch (error) {
-    console.warn("Local Agent Chat Bridge runtime config fallback:", error);
-    const value = { ...fallback, source: "fallback", runtimeError: String(error) };
-    runtimeCache = { url: runtimeUrl, expiresAt: Date.now() + RUNTIME_CACHE_MS, value };
+    console.warn("Local Agent Chat Bridge runtime unavailable:", error);
+    const value = { ...fallback, source: "unavailable", runtimeError: String(error) };
+    runtimeCache = { key, expiresAt: Date.now() + RUNTIME_CACHE_MS, value };
     return value;
   } finally {
     clearTimeout(timeout);
@@ -285,8 +270,8 @@ function runtimeAgentForConversation(runtime, conversation) {
 }
 
 function resolveBindingInput(runtime, raw = {}) {
-  const requestedBinding = stateModel.sanitizeAgentBinding(raw.agentBinding || raw.agent_binding);
-  const requestedId = stateModel.sanitizeRepositoryId(raw.repositoryId || raw.repository_id);
+  const requestedBinding = stateModel.sanitizeAgentBinding(raw.agentBinding);
+  const requestedId = stateModel.sanitizeRepositoryId(raw.repositoryId);
   let agent = requestedBinding ? runtimeAgentForBinding(runtime, requestedBinding) : null;
   if (!agent && requestedId) {
     agent = runtime.agents.find((item) => item.repositoryId === requestedId) || null;
@@ -322,35 +307,35 @@ function buildWakePrompt(runtime, conversation) {
   return `${bindingPolicy(conversation, agent)}\n${runtime.wakePrompt}`;
 }
 
-async function clearConversationAlarm(chatId) {
-  await chrome.alarms.clear(alarmName(chatId));
-  await mutateState((state) => {
-    if (!state.conversations[chatId]) return state;
+async function clearConversationAlarm(chatId, expectedGeneration = null) {
+  await mutateState(async (state) => {
+    const conversation = state.conversations[chatId];
+    if (expectedGeneration !== null && conversation?.generation !== expectedGeneration) return state;
+    await chrome.alarms.clear(alarmName(chatId));
+    if (!conversation) return state;
     return stateModel.patchConversation(state, chatId, { nextRunAt: null }).state;
   });
 }
 
-async function scheduleAt(chatId, when) {
-  const state = await getBridgeState();
-  const conversation = state.conversations[chatId];
-  if (
-    !conversation ||
-    !state.settings.masterEnabled ||
-    !conversation.enabled ||
-    !stateModel.isBoundConversation(conversation)
-  ) {
-    await clearConversationAlarm(chatId);
-    return false;
-  }
-  const safeWhen = Math.max(Date.now() + 1000, Number(when));
-  chrome.alarms.create(alarmName(chatId), { when: safeWhen });
-  await mutateState((nextState) => {
-    if (!nextState.conversations[chatId]) return nextState;
-    return stateModel.patchConversation(nextState, chatId, {
+async function scheduleAt(chatId, when, expectedGeneration = null) {
+  const result = await mutateState(async (state) => {
+    const conversation = state.conversations[chatId];
+    if (!conversation || !state.settings.masterEnabled || !conversation.enabled ||
+        !stateModel.isBoundConversation(conversation) || conversation.pendingDelivery) {
+      await chrome.alarms.clear(alarmName(chatId));
+      return { state, value: false };
+    }
+    if (expectedGeneration !== null && conversation.generation !== expectedGeneration) {
+      return { state, value: false };
+    }
+    const safeWhen = Math.max(Date.now() + 1000, Number(when));
+    if (!Number.isFinite(safeWhen)) throw new Error("invalid alarm deadline");
+    await chrome.alarms.create(alarmName(chatId), { when: safeWhen });
+    return { state: stateModel.patchConversation(state, chatId, {
       nextRunAt: new Date(safeWhen).toISOString()
-    }).state;
+    }).state, value: true };
   });
-  return true;
+  return result.value;
 }
 
 async function scheduleAfterSeconds(chatId, seconds) {
@@ -358,19 +343,20 @@ async function scheduleAfterSeconds(chatId, seconds) {
   return scheduleAt(chatId, Date.now() + delaySeconds * 1000);
 }
 
-async function scheduleAfterMinutes(chatId, minutes) {
+async function scheduleAfterMinutes(chatId, minutes, expectedGeneration = null) {
   const delayMinutes = clampNumber(minutes, 10, MIN_INTERVAL_MINUTES, MAX_INTERVAL_MINUTES);
-  return scheduleAt(chatId, Date.now() + delayMinutes * 60_000);
+  return scheduleAt(chatId, Date.now() + delayMinutes * 60_000, expectedGeneration);
 }
 
-async function scheduleDefault(chatId, useBusyRetry = false) {
+async function scheduleDefault(chatId, useBusyRetry = false, expectedGeneration = null) {
   const state = await getBridgeState();
   const conversation = state.conversations[chatId];
-  if (!conversation) return false;
+  if (!conversation || (expectedGeneration !== null && conversation.generation !== expectedGeneration)) return false;
   const runtime = await loadRuntimeConfig(state, conversation);
   return scheduleAfterMinutes(
     chatId,
-    useBusyRetry ? runtime.busyRetryMinutes : runtime.intervalMinutes
+    useBusyRetry ? runtime.busyRetryMinutes : runtime.intervalMinutes,
+    conversation.generation
   );
 }
 
@@ -388,18 +374,23 @@ async function reconcileSchedules() {
   );
 
   if (!state.settings.masterEnabled) {
-    await Promise.all(Object.keys(state.conversations).map(clearConversationAlarm));
+    await Promise.all(Object.keys(state.conversations).map((id) => clearConversationAlarm(id)));
     return;
   }
 
   for (const conversation of Object.values(state.conversations)) {
+    if (conversation.pendingDelivery && !inFlightDeliveries.has(conversation.id)) {
+      await updateConversationStatus(conversation.id, { enabled: false, lastStatus: "delivery_uncertain" });
+      await clearConversationAlarm(conversation.id);
+      continue;
+    }
     if (!conversation.enabled || !stateModel.isBoundConversation(conversation)) {
       await clearConversationAlarm(conversation.id);
       continue;
     }
     const storedWhen = Date.parse(conversation.nextRunAt || "");
     if (Number.isFinite(storedWhen) && storedWhen > Date.now() + 1000) {
-      chrome.alarms.create(alarmName(conversation.id), { when: storedWhen });
+      await scheduleAt(conversation.id, storedWhen, conversation.generation);
     } else {
       await scheduleDefault(conversation.id);
     }
@@ -427,128 +418,140 @@ async function updateConversationStatus(chatId, patch) {
   });
 }
 
-async function applyAssistantControl(message, sender) {
-  const state = await getBridgeState();
-  const senderUrl = normalizeConversationUrl(sender?.tab?.url || sender?.url || "");
+function conversationForSender(state, message, sender) {
+  if (sender?.id !== chrome.runtime.id || sender?.frameId !== 0 || !sender?.tab?.id) return null;
+  const senderUrl = normalizeConversationUrl(sender.url || "");
   const declaredUrl = normalizeConversationUrl(message.conversationUrl || "");
-  const conversation = stateModel.findConversationByUrl(state, declaredUrl);
+  if (!senderUrl || senderUrl !== declaredUrl) return null;
+  const conversation = state.conversations[conversationId(declaredUrl)];
+  return conversation?.url === declaredUrl ? conversation : null;
+}
 
-  if (!conversation || !senderUrl || senderUrl !== conversation.url || declaredUrl !== conversation.url) {
-    return { ok: false, reason: "control_wrong_conversation" };
-  }
-  if (!stateModel.isBoundConversation(conversation)) {
-    return { ok: false, reason: "control_unbound_conversation" };
-  }
+async function authorizeDelivery(message, sender) {
+  const result = await mutateState((state) => {
+    const conversation = conversationForSender(state, message, sender);
+    const pending = conversation?.pendingDelivery;
+    if (!pending || pending.id !== message.deliveryId || pending.tabId !== sender.tab.id ||
+        pending.phase !== "prepared" || pending.expiresAt < Date.now() ||
+        pending.generation !== conversation.generation ||
+        pending.bindingRevision !== conversation.bindingRevision ||
+        (!pending.manual && (!conversation.enabled || !state.settings.masterEnabled))) {
+      return { state, value: { ok: false, reason: "delivery_cancelled" } };
+    }
+    pending.phase = "authorized";
+    pending.assistantBaseline = String(message.assistantBaseline || "").slice(0, 500);
+    return { state, value: { ok: true } };
+  });
+  return result.value;
+}
 
-  const fingerprint = String(message.fingerprint || "");
-  if (!/^[0-9a-f]{8}$/.test(fingerprint)) {
-    return { ok: false, reason: "control_invalid_fingerprint" };
+async function controlContext(message, sender) {
+  const state = await getBridgeState();
+  const conversation = conversationForSender(state, message, sender);
+  if (!stateModel.isBoundConversation(conversation) || conversation.bootstrapPending || conversation.pendingDelivery) {
+    return { ok: false, reason: "control_not_ready" };
   }
-  if (conversation.lastControlFingerprint === fingerprint) {
-    return { ok: true, reason: "control_duplicate", duplicate: true };
-  }
+  return { ok: true, bindingRevision: conversation.bindingRevision, assistantBaseline: conversation.assistantBaseline };
+}
 
+async function resolveDelivery(chatId, wasSent) {
+  if (typeof wasSent !== "boolean") throw new Error("Resolve delivery with an explicit sent/not-sent decision.");
+  const result = await mutateState((state) => {
+    const conversation = state.conversations[chatId];
+    if (!conversation?.pendingDelivery || inFlightDeliveries.has(chatId)) {
+      throw new Error("No uncertain delivery to resolve, or the send is still in progress.");
+    }
+    if (wasSent) {
+      conversation.bootstrapPending = false;
+      conversation.assistantBaseline = conversation.pendingDelivery.assistantBaseline || "";
+    }
+    conversation.pendingDelivery = null;
+    conversation.enabled = false;
+    conversation.generation += 1;
+    conversation.lastStatus = wasSent ? "delivery_confirmed_by_operator" : "unsent_confirmed_by_operator";
+    return { state, conversation };
+  });
+  await clearConversationAlarm(chatId);
+  return result.conversation;
+}
+
+async function applyAssistantControl(message, sender) {
   const parsed = parseAssistantControl(String(message.control?.marker || ""));
   if (!parsed) return { ok: false, reason: "control_invalid_marker" };
-
-  const controlAt = new Date().toISOString();
-  const common = {
-    lastControlFingerprint: fingerprint,
-    lastControlAction: parsed.marker,
-    lastControlAt: controlAt
-  };
-
-  if (parsed.action === "stop") {
-    await updateConversationStatus(conversation.id, {
-      ...common,
-      enabled: false,
-      intervalOverrideMinutes: null,
-      lastStatus: "stopped_by_assistant",
-      nextRunAt: null
-    });
-    await chrome.alarms.clear(alarmName(conversation.id));
-    return { ok: true, reason: "stopped", conversationId: conversation.id };
-  }
-
-  if (parsed.action === "pause") {
-    await updateConversationStatus(conversation.id, {
-      ...common,
-      enabled: false,
-      lastStatus: "paused_by_assistant",
-      nextRunAt: null
-    });
-    await chrome.alarms.clear(alarmName(conversation.id));
-    return { ok: true, reason: "paused", conversationId: conversation.id };
-  }
-
-  if (parsed.action === "resume") {
-    await updateConversationStatus(conversation.id, {
-      ...common,
-      enabled: true,
-      lastStatus: "resumed_by_assistant"
-    });
-    const updated = await getBridgeState();
-    if (updated.settings.masterEnabled) await scheduleDefault(conversation.id, true);
-    return { ok: true, reason: "resumed", conversationId: conversation.id };
-  }
-
-  if (parsed.action === "interval" && parsed.mode === "auto") {
-    await updateConversationStatus(conversation.id, {
-      ...common,
-      intervalOverrideMinutes: null,
-      lastStatus: "interval_auto_by_assistant"
-    });
-    const updated = await getBridgeState();
-    if (updated.settings.masterEnabled && updated.conversations[conversation.id]?.enabled) {
-      await scheduleDefault(conversation.id);
+  const fingerprint = String(message.fingerprint || "");
+  if (!/^[0-9a-f]{8}$/.test(fingerprint)) return { ok: false, reason: "control_invalid_fingerprint" };
+  const result = await mutateState((state) => {
+    const conversation = conversationForSender(state, message, sender);
+    if (!conversation) return { state, value: { ok: false, reason: "control_wrong_conversation" } };
+    if (!stateModel.isBoundConversation(conversation)) return { state, value: { ok: false, reason: "control_unbound_conversation" } };
+    if (message.bindingRevision !== conversation.bindingRevision || conversation.bootstrapPending ||
+        (conversation.assistantBaseline && message.assistantIdentity === conversation.assistantBaseline)) {
+      return { state, value: { ok: false, reason: "control_stale_binding" } };
     }
-    return { ok: true, reason: "interval_auto", conversationId: conversation.id };
-  }
-
-  if (parsed.action === "interval" && parsed.mode === "fixed") {
-    await updateConversationStatus(conversation.id, {
-      ...common,
-      intervalOverrideMinutes: parsed.minutes,
-      lastStatus: `interval_${parsed.minutes}_by_assistant`
-    });
-    const updated = await getBridgeState();
-    if (updated.settings.masterEnabled && updated.conversations[conversation.id]?.enabled) {
-      await scheduleAfterMinutes(conversation.id, parsed.minutes);
+    if (conversation.pendingDelivery) return { state, value: { ok: false, reason: "control_not_ready" } };
+    if (conversation.lastControlFingerprint === fingerprint) {
+      return { state, value: { ok: true, reason: "control_duplicate", duplicate: true } };
     }
-    return {
-      ok: true,
-      reason: "interval_fixed",
-      minutes: parsed.minutes,
-      conversationId: conversation.id
-    };
-  }
-
-  if (parsed.action === "next") {
-    await updateConversationStatus(conversation.id, {
-      ...common,
-      enabled: true,
-      lastStatus: `next_${parsed.seconds}s_by_assistant`
+    Object.assign(conversation, {
+      lastControlFingerprint: fingerprint, lastControlAction: parsed.marker,
+      lastControlAt: new Date().toISOString(), generation: conversation.generation + 1
     });
-    const updated = await getBridgeState();
-    const scheduled = updated.settings.masterEnabled
-      ? await scheduleAfterSeconds(conversation.id, parsed.seconds)
-      : false;
-    return {
-      ok: true,
-      reason: scheduled ? "next_scheduled" : "next_armed_master_disabled",
-      armed: true,
-      seconds: parsed.seconds,
-      conversationId: conversation.id
-    };
+    const value = { ok: true, conversationId: conversation.id, generation: conversation.generation };
+    if (parsed.action === "stop" || parsed.action === "pause") {
+      conversation.enabled = false;
+      conversation.nextRunAt = null;
+      if (parsed.action === "stop") conversation.intervalOverrideMinutes = null;
+      conversation.lastStatus = parsed.action === "stop" ? "stopped_by_assistant" : "paused_by_assistant";
+      value.reason = parsed.action === "stop" ? "stopped" : "paused";
+    } else if (parsed.action === "resume") {
+      conversation.enabled = true;
+      conversation.lastStatus = "resumed_by_assistant";
+      value.reason = "resumed";
+    } else if (parsed.action === "interval") {
+      conversation.intervalOverrideMinutes = parsed.mode === "auto" ? null : parsed.minutes;
+      conversation.lastStatus = parsed.mode === "auto" ? "interval_auto_by_assistant" : `interval_${parsed.minutes}_by_assistant`;
+      value.reason = parsed.mode === "auto" ? "interval_auto" : "interval_fixed";
+      if (parsed.mode === "fixed") value.minutes = parsed.minutes;
+    } else if (parsed.action === "next") {
+      conversation.enabled = true;
+      conversation.lastStatus = `next_${parsed.seconds}s_by_assistant`;
+      value.reason = state.settings.masterEnabled ? "next_scheduled" : "next_armed_master_disabled";
+      value.armed = true;
+      value.seconds = parsed.seconds;
+    }
+    return { state, value };
+  });
+  const value = result.value;
+  if (!value.ok || value.duplicate) return value;
+  if (parsed.action === "stop" || parsed.action === "pause") {
+    await clearConversationAlarm(value.conversationId, value.generation);
+  } else if (parsed.action === "next") {
+    await scheduleAt(value.conversationId, Date.now() + parsed.seconds * 1000, value.generation);
+  } else {
+    await scheduleDefault(value.conversationId, parsed.action === "resume", value.generation);
   }
-
-  return { ok: false, reason: "control_unsupported" };
+  return value;
 }
 
 async function runFeedbackCycle({ conversationId: chatId, manual = false } = {}) {
+  if (inFlightDeliveries.has(chatId)) return { ok: false, reason: "delivery_in_progress" };
+  inFlightDeliveries.add(chatId);
+  try {
+    return await deliverConversation(chatId, manual);
+  } finally {
+    inFlightDeliveries.delete(chatId);
+  }
+}
+
+async function deliverConversation(chatId, manual) {
   const state = await getBridgeState();
   const conversation = state.conversations[chatId];
   if (!conversation) return { ok: false, reason: "conversation_not_found" };
+  if (conversation.pendingDelivery) {
+    await updateConversationStatus(chatId, { enabled: false, lastStatus: "delivery_uncertain" });
+    await clearConversationAlarm(chatId);
+    return { ok: false, reason: "delivery_uncertain" };
+  }
 
   if (!stateModel.isBoundConversation(conversation)) {
     await updateConversationStatus(chatId, {
@@ -566,6 +569,11 @@ async function runFeedbackCycle({ conversationId: chatId, manual = false } = {})
   }
 
   const runtime = await loadRuntimeConfig(state, conversation);
+  if (runtime.source === "unavailable") {
+    await updateConversationStatus(chatId, { lastStatus: "runtime_unavailable", lastRuntimeSource: runtime.source });
+    if (!manual) await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes, conversation.generation);
+    return { ok: false, reason: "runtime_unavailable", runtime };
+  }
   const runtimeAgent = runtimeAgentForConversation(runtime, conversation);
   if (!runtimeAgent) {
     await updateConversationStatus(chatId, {
@@ -586,7 +594,7 @@ async function runFeedbackCycle({ conversationId: chatId, manual = false } = {})
       lastStatus: "conversation_tab_missing",
       lastRuntimeSource: runtime.source
     });
-    if (!manual) await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes);
+    if (!manual) await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes, conversation.generation);
     return { ok: false, reason: "conversation_tab_missing", runtime };
   }
 
@@ -598,36 +606,78 @@ async function runFeedbackCycle({ conversationId: chatId, manual = false } = {})
     ? buildBootstrapPrompt(runtime, conversation)
     : buildWakePrompt(runtime, conversation);
 
+  const deliveryId = crypto.randomUUID();
+  const prepared = await mutateState((current) => {
+    const latest = current.conversations[chatId];
+    if (!latest || latest.generation !== conversation.generation ||
+        latest.bindingRevision !== conversation.bindingRevision || latest.pendingDelivery ||
+        (!manual && (!latest.enabled || !current.settings.masterEnabled))) {
+      return { state: current, value: false };
+    }
+    latest.pendingDelivery = {
+      id: deliveryId, tabId: tab.id, generation: latest.generation,
+      bindingRevision: latest.bindingRevision, manual,
+      phase: "prepared", expiresAt: Date.now() + 10_000
+    };
+    return { state: current, value: true };
+  });
+  if (!prepared.value) return { ok: false, reason: "delivery_cancelled" };
+
   let response;
+  let deliveryTimeout;
   try {
-    response = await chrome.tabs.sendMessage(tab.id, {
+    response = await Promise.race([chrome.tabs.sendMessage(tab.id, {
       type: "bridge:feedback",
       prompt,
       expectedUrl: conversation.url,
+      deliveryId,
       bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake",
       agentBinding: conversation.agentBinding,
       repositoryId: conversation.repositoryId,
       repository: conversation.repository
-    });
+    }, { frameId: 0 }), new Promise((resolve) => {
+      deliveryTimeout = setTimeout(() => resolve({ ok: false, reason: "delivery_uncertain" }), 8000);
+    })]);
   } catch (error) {
-    response = { ok: false, reason: "content_script_unavailable", error: String(error) };
+    response = { ok: false, reason: "delivery_uncertain", error: String(error) };
+  } finally {
+    clearTimeout(deliveryTimeout);
   }
 
-  const status = response?.ok ? "sent" : String(response?.reason || "unknown_failure");
-  const patch = {
-    lastRunAt: runAt,
-    lastStatus: status,
-    lastRuntimeSource: runtime.source
-  };
-  if (response?.ok && conversation.bootstrapPending) patch.bootstrapPending = false;
-  await updateConversationStatus(chatId, patch);
+  if (response?.protocolVersion !== 1 || response?.reason === "unexpected_error") {
+    response = { ok: false, reason: "delivery_uncertain" };
+  }
+  const status = response?.ok ? "sent" : String(response?.reason || "delivery_uncertain");
+  await mutateState((current) => {
+    const latest = current.conversations[chatId];
+    if (!latest || latest.pendingDelivery?.id !== deliveryId) return current;
+    if (status === "delivery_uncertain") {
+      latest.enabled = false;
+      latest.lastStatus = status;
+      latest.nextRunAt = null;
+    } else {
+      if (response?.ok) {
+        latest.bootstrapPending = false;
+        latest.assistantBaseline = latest.pendingDelivery.assistantBaseline || "";
+      }
+      latest.pendingDelivery = null;
+      if (latest.generation === conversation.generation) {
+        latest.lastRunAt = runAt;
+        latest.lastStatus = status;
+        latest.lastRuntimeSource = runtime.source;
+      }
+    }
+    return current;
+  });
+  if (status === "delivery_uncertain") await clearConversationAlarm(chatId);
 
-  if (!manual) {
+  if (!manual && status !== "delivery_uncertain") {
     await scheduleAfterMinutes(
       chatId,
       response?.ok || !RETRY_REASONS.has(status)
         ? runtime.intervalMinutes
-        : runtime.busyRetryMinutes
+        : runtime.busyRetryMinutes,
+      conversation.generation
     );
   }
 
@@ -645,12 +695,11 @@ async function runFeedbackCycle({ conversationId: chatId, manual = false } = {})
 
 async function saveGlobalSettings(patch) {
   runtimeCache = null;
-  const result = await mutateState((state) => ({
-    state: {
-      ...state,
-      settings: stateModel.sanitizeSettings({ ...state.settings, ...patch })
-    }
-  }));
+  const result = await mutateState((state) => {
+    state.settings = stateModel.sanitizeSettings({ ...state.settings, ...patch });
+    for (const conversation of Object.values(state.conversations)) conversation.generation += 1;
+    return state;
+  });
   await reconcileSchedules();
   return result.state;
 }
@@ -669,12 +718,17 @@ async function upsertConversation(patch) {
 
   const result = await mutateState((state) => {
     const previous = state.conversations[id];
+    const currentAgent = previous ? runtimeAgentForConversation(runtime, previous) : agent;
+    if (!currentAgent || (previous && previous.url !== url)) {
+      throw new Error("Conversation identity changed during update; reopen the popup.");
+    }
     const upserted = stateModel.upsertConversation(state, {
-      ...patch,
+      label: patch.label, enabled: previous ? previous.enabled : patch.enabled,
+      preferredTabId: patch.preferredTabId,
       url,
-      repositoryId: agent.repositoryId,
-      repository: agent.repository,
-      agentBinding: agent.agentBinding,
+      repositoryId: currentAgent.repositoryId,
+      repository: currentAgent.repository,
+      agentBinding: currentAgent.agentBinding,
       bindingRevision: previous?.bindingRevision || 1,
       bindingSetAt: previous?.bindingSetAt || new Date().toISOString(),
       bootstrapPending: previous ? previous.bootstrapPending : true
@@ -697,12 +751,17 @@ async function rebindConversation(chatId, patch) {
   const result = await mutateState((nextState) => {
     const current = nextState.conversations[chatId];
     if (!current) throw new Error("conversation not found");
+    if (inFlightDeliveries.has(chatId) || current.pendingDelivery) {
+      throw new Error("Resolve the in-progress wake before rebinding this conversation.");
+    }
     const updated = stateModel.patchConversation(nextState, chatId, {
       repositoryId: agent.repositoryId,
       repository: agent.repository,
       agentBinding: agent.agentBinding,
       bindingRevision: Math.max(0, current.bindingRevision || 0) + 1,
       bindingSetAt: new Date().toISOString(),
+      generation: current.generation + 1,
+      assistantBaseline: "",
       bootstrapPending: true,
       lastControlFingerprint: "",
       lastControlAction: "",
@@ -733,6 +792,12 @@ async function updateConversation(chatId, patch) {
     if (safePatch.enabled && !stateModel.isBoundConversation(previous)) {
       throw new Error("conversation must be explicitly bound before it can be enabled");
     }
+    if (safePatch.enabled && previous.pendingDelivery) {
+      throw new Error("Resolve uncertain wake delivery before enabling this conversation.");
+    }
+    if ("enabled" in safePatch || "intervalOverrideMinutes" in safePatch) {
+      safePatch.generation = previous.generation + 1;
+    }
 
     const updated = stateModel.patchConversation(state, chatId, safePatch);
     return {
@@ -756,8 +821,13 @@ async function updateConversation(chatId, patch) {
 }
 
 async function deleteConversation(chatId) {
-  await chrome.alarms.clear(alarmName(chatId));
-  const result = await mutateState((state) => stateModel.removeConversation(state, chatId));
+  const result = await mutateState(async (state) => {
+    if (inFlightDeliveries.has(chatId) || state.conversations[chatId]?.pendingDelivery) {
+      throw new Error("Resolve the in-progress wake before removing this conversation.");
+    }
+    await chrome.alarms.clear(alarmName(chatId));
+    return stateModel.removeConversation(state, chatId);
+  });
   return result.state;
 }
 
@@ -791,6 +861,28 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== "object") return false;
+
+  const contentHandlers = {
+    "bridge:authorize-delivery": authorizeDelivery,
+    "bridge:control-context": controlContext,
+    "bridge:assistant-control": applyAssistantControl
+  };
+  if (Object.hasOwn(contentHandlers, message.type)) {
+    contentHandlers[message.type](message, sender).then(sendResponse)
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
+  if (sender?.id !== chrome.runtime.id || sender?.url !== chrome.runtime.getURL("popup.html")) {
+    sendResponse({ ok: false, reason: "operator_ui_required" });
+    return false;
+  }
+
+  if (message.type === "bridge:resolve-delivery") {
+    resolveDelivery(String(message.conversationId || ""), message.wasSent)
+      .then((conversation) => sendResponse({ ok: true, conversation }))
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    return true;
+  }
 
   if (message.type === "bridge:get-state") {
     (async () => {
@@ -844,13 +936,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       conversationId: String(message.conversationId || ""),
       manual: true
     })
-      .then(sendResponse)
-      .catch((error) => sendResponse({ ok: false, error: String(error) }));
-    return true;
-  }
-
-  if (message.type === "bridge:assistant-control") {
-    applyAssistantControl(message, sender)
       .then(sendResponse)
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
