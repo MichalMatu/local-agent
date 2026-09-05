@@ -2,8 +2,8 @@
   "schema_version": 3,
   "interval_minutes": 10,
   "busy_retry_minutes": 1,
-  "bootstrap_prompt": "Local Agent Chat Bridge is enabled for this hard-bound conversation. Continue only its active Local Agent goal from exact bound-repository daemon/run/result evidence. Follow docs/AUTONOMOUS_CHAT_LOOP.md and docs/OPERATIONS.md. Never infer or switch repository identity from model context.",
-  "wake_prompt": "[LA_WAKE] Continue the active Local Agent goal from exact bound-repository evidence. Do not recap unchanged state; keep this wake terse.",
+  "bootstrap_prompt": "Local Agent Chat Bridge is enabled for this hard-bound conversation. Continue only its active goal from exact bound-repository evidence. Use direct GitHub edits when the exact diff and relevant CI can verify them; use Local Agent for Mac command execution, local builds/tests and devices. Check active local tasks before editing the same branch. For hybrid work verify the exact committed SHA. Follow MichalMatu/local-agent docs/AUTONOMOUS_CHAT_LOOP.md and docs/OPERATIONS.md. Never infer or switch repository identity.",
+  "wake_prompt": "[LA_WAKE] Continue the active goal from exact bound-repository evidence. Choose direct GitHub work or bounded local execution as appropriate; verify the exact commit/result. Do not recap unchanged state; keep this wake terse.",
   "agents": [
     {
       "repository_id": "local-agent",
@@ -33,7 +33,7 @@
       "repository_id": "esp32-c6-zigbee",
       "repository": "MichalMatu/esp32_c6_zigbee",
       "agent_binding": "64877d7d-af3f-4312-a511-699c44aa42dd",
-      "execution_enabled": true
+      "execution_enabled": false
     },
     {
       "repository_id": "tracker",
