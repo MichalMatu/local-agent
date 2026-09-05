@@ -312,10 +312,6 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
   }, 5000);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === "bridge:capabilities") {
-      sendResponse({ ok: true, protocolVersion: 1 });
-      return false;
-    }
     if (message?.type !== "bridge:feedback") return false;
     sendFeedback(String(message.prompt || ""), String(message.expectedUrl || ""), message.deliveryId)
       .then((response) => sendResponse({ ...response, protocolVersion: 1 }))
