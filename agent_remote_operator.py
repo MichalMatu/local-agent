@@ -1,26 +1,11 @@
 #!/usr/bin/env python3
-"""Root import surface for repository-independent remote operator control."""
+"""Temporary module alias for packaged remote operator control."""
 
-from local_agent.operator.remote import (
-    POLL_SECONDS,
-    REMOTE_BRANCH,
-    REMOTE_STATE_PATH,
-    RemoteOperatorState,
-    _git,
-    _load_remote_payload,
-    _remote_ref,
-    _validated_state,
-    poll_remote_operator,
-)
+import sys
 
-__all__ = [
-    "POLL_SECONDS",
-    "REMOTE_BRANCH",
-    "REMOTE_STATE_PATH",
-    "RemoteOperatorState",
-    "_git",
-    "_load_remote_payload",
-    "_remote_ref",
-    "_validated_state",
-    "poll_remote_operator",
-]
+from local_agent.operator import remote as _implementation
+
+# Keep the old import name only while remaining callers are migrated. Making the
+# alias point at the implementation module preserves monkeypatch/test semantics
+# without maintaining a second wrapper layer.
+sys.modules[__name__] = _implementation
