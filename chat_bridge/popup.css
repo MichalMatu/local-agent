@@ -30,11 +30,23 @@ h2 {
 
 .heading-row,
 .section-title-row,
+.panel-title-row,
 .runtime-status {
   align-items: center;
   display: flex;
   justify-content: space-between;
   gap: 8px;
+}
+
+.panel-title-row h2 {
+  margin-bottom: 0;
+}
+
+.info-icon {
+  cursor: help;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.65;
 }
 
 .muted {
@@ -326,11 +338,11 @@ button:disabled {
 }
 
 .current-chat-title {
-  margin-bottom: 2px;
+  margin: 6px 0 2px;
 }
 
-.current-chat-panel .small-copy {
-  margin-bottom: 0;
+.current-chat-panel .actions {
+  margin-top: 6px;
 }
 
 @media (max-width: 440px) {
