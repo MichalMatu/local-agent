@@ -6,6 +6,17 @@ __pycache__/
 venv/
 env/
 
+# Verification / coverage
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+
 # macOS
 .DS_Store
 *.swp
