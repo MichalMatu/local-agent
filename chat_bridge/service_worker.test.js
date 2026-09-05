@@ -2,7 +2,7 @@
 const assert = require("node:assert/strict");
 const { createHarness } = require("./worker_test_harness.js");
 const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
-  MATRIX_BINDING, C6_BINDING, LOCAL_AGENT_BINDING } = createHarness();
+  MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING } = createHarness();
 
 (async () => {
   // New conversation is refused without explicit binding.
@@ -42,14 +42,14 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
       label: "Project B",
       enabled: true,
       preferredTabId: 22,
-      agentBinding: C6_BINDING
+      agentBinding: TRACKER_BINDING
     }
   });
   assert.equal(response.ok, true);
   const bId = response.conversation.id;
   assert.notEqual(aId, bId);
-  assert.equal(response.conversation.repositoryId, "esp32-c6-zigbee");
-  assert.equal(response.conversation.agentBinding, C6_BINDING);
+  assert.equal(response.conversation.repositoryId, "tracker");
+  assert.equal(response.conversation.agentBinding, TRACKER_BINDING);
   assert.equal(alarms.has(`local-agent-chat:${aId}`), true);
   assert.equal(alarms.has(`local-agent-chat:${bId}`), true);
 
@@ -60,14 +60,14 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   });
   assert.equal(response.ok, true);
   assert.equal(response.bridgeMode, "bootstrap");
-  assert.equal(response.agentBinding, C6_BINDING);
-  assert.equal(response.repositoryId, "esp32-c6-zigbee");
+  assert.equal(response.agentBinding, TRACKER_BINDING);
+  assert.equal(response.repositoryId, "tracker");
   const bootstrapMessage = sentMessages.at(-1).message;
-  assert.equal(bootstrapMessage.agentBinding, C6_BINDING);
-  assert.equal(bootstrapMessage.repositoryId, "esp32-c6-zigbee");
+  assert.equal(bootstrapMessage.agentBinding, TRACKER_BINDING);
+  assert.equal(bootstrapMessage.repositoryId, "tracker");
   assert.match(bootstrapMessage.prompt, /BOOTSTRAP/);
-  assert.match(bootstrapMessage.prompt, new RegExp(`\\[LA_AGENT=${C6_BINDING}\\]`));
-  assert.match(bootstrapMessage.prompt, /\[LA_REPO=esp32-c6-zigbee\]/);
+  assert.match(bootstrapMessage.prompt, new RegExp(`\\[LA_AGENT=${TRACKER_BINDING}\\]`));
+  assert.match(bootstrapMessage.prompt, /\[LA_REPO=tracker\]/);
   assert.match(bootstrapMessage.prompt, /Every Local Agent task JSON.*agent_binding/s);
   assert.match(bootstrapMessage.prompt, /Never infer, substitute, inspect, queue, cancel, or execute work for another repository/);
 
@@ -79,8 +79,8 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   assert.equal(response.bridgeMode, "wake");
   const wakeMessage = sentMessages.at(-1).message;
   assert.match(wakeMessage.prompt, /WAKE/);
-  assert.match(wakeMessage.prompt, new RegExp(`\\[LA_AGENT=${C6_BINDING}\\]`));
-  assert.match(wakeMessage.prompt, /\[LA_REPO=esp32-c6-zigbee\]/);
+  assert.match(wakeMessage.prompt, new RegExp(`\\[LA_AGENT=${TRACKER_BINDING}\\]`));
+  assert.match(wakeMessage.prompt, /\[LA_REPO=tracker\]/);
   assert.ok(wakeMessage.prompt.length < bootstrapMessage.prompt.length);
 
   await sendRuntimeMessage({ type: "bridge:run-now", conversationId: aId });
@@ -96,8 +96,8 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
     }
   });
   assert.equal(response.ok, true);
-  assert.equal(response.conversation.agentBinding, C6_BINDING);
-  assert.equal(response.conversation.repositoryId, "esp32-c6-zigbee");
+  assert.equal(response.conversation.agentBinding, TRACKER_BINDING);
+  assert.equal(response.conversation.repositoryId, "tracker");
 
   const originalBWhen = alarms.get(`local-agent-chat:${bId}`).when;
   response = await sendRuntimeMessage({
@@ -106,7 +106,7 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
     patch: { label: "Project B renamed", agentBinding: MATRIX_BINDING }
   });
   assert.equal(response.ok, true);
-  assert.equal(response.conversation.agentBinding, C6_BINDING);
+  assert.equal(response.conversation.agentBinding, TRACKER_BINDING);
   assert.equal(alarms.get(`local-agent-chat:${bId}`).when, originalBWhen);
 
   const beforePacingUpdate = Date.now();
@@ -145,7 +145,7 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   assert.equal(response.state.conversations[aId].enabled, false);
   assert.equal(response.state.conversations[bId].enabled, true);
   assert.equal(response.state.conversations[aId].agentBinding, MATRIX_BINDING);
-  assert.equal(response.state.conversations[bId].agentBinding, C6_BINDING);
+  assert.equal(response.state.conversations[bId].agentBinding, TRACKER_BINDING);
   assert.equal(alarms.has(`local-agent-chat:${aId}`), false);
   assert.equal(alarms.has(`local-agent-chat:${bId}`), true);
 
@@ -206,7 +206,7 @@ const { storage, alarms, sentMessages, runtimeAgents, sendRuntimeMessage,
   assert.equal(response.ok, true);
   assert.equal(response.bridgeMode, "bootstrap");
   assert.match(sentMessages.at(-1).message.prompt, new RegExp(`\\[LA_AGENT=${MATRIX_BINDING}\\]`));
-  assert.doesNotMatch(sentMessages.at(-1).message.prompt, new RegExp(C6_BINDING));
+  assert.doesNotMatch(sentMessages.at(-1).message.prompt, new RegExp(TRACKER_BINDING));
 
   // Infrastructure chat can be bound for wakes while explicitly forbidding project tasks.
   response = await sendRuntimeMessage({
