@@ -2,7 +2,7 @@
 
 > **Design goal:** keep planning outside the executor and make local execution deterministic, bounded, observable and recoverable.
 
-This document describes the current module boundaries and the direction of the v4.16 architecture cleanup. Runtime truth still comes from `main`, `AGENTS.md`, operational documentation and live daemon evidence.
+This document describes the current module boundaries established by the v4.16 architecture cleanup. Runtime truth still comes from `main`, `AGENTS.md`, operational documentation and live daemon evidence.
 
 ## System boundary
 
@@ -38,6 +38,7 @@ The planner chooses intent. The executor independently owns repository identity,
 ```text
 local_agent/
 ├── config.py
+├── entrypoint.py
 ├── operator/
 │   ├── local.py
 │   └── remote.py
@@ -58,12 +59,13 @@ local_agent/
     └── scheduling.py
 ```
 
-The root `agent_*.py` files are currently a mixture of production entrypoints and legacy import surfaces. The refactor moves implementation into `local_agent/` while keeping only genuinely executable entrypoints at repository root.
+Root `agent_*.py` files are now either production executables/orchestrators or deliberately retained compatibility import surfaces. New implementation belongs in `local_agent/` whenever a packaged owner exists.
 
 ## Ownership boundaries
 
 | Area | Owner | Responsibilities |
 | --- | --- | --- |
+| Guarded service lifecycle | `local_agent/entrypoint.py` | remote operator polling, safe supervisor start/stop/reexec and repository preparation |
 | Runtime configuration | `local_agent/config.py` | startup-loaded timeout policy |
 | Repository identity | `local_agent/repository/context.py` | registry parsing, workspace identity, lease keys |
 | Hard binding | `local_agent/repository/binding.py` | canonical UUID identity and control-binding validation |
@@ -75,16 +77,17 @@ The root `agent_*.py` files are currently a mixture of production entrypoints an
 | Telemetry | `local_agent/runtime/telemetry.py` | host/process telemetry and RSS sampling |
 | Supervisor policy | `local_agent/supervisor/policy.py` | shared polling/control policy |
 | Scheduling policy | `local_agent/supervisor/scheduling.py` | pure retry/due/backoff/max-worker decisions |
-| Resource admission | `local_agent/supervisor/resources.py` | machine/named-resource flock arbitration and inherited resource FDs |
+| Resource admission primitives | `local_agent/supervisor/resources.py` | machine/named-resource flock arbitration and inherited resource FDs |
+| Parallel orchestration | `agent_parallel.py` | released process/control/status orchestration around packaged policy/resources |
 | macOS integration | `local_agent/platform/macos_launchd.py` | portable LaunchAgent generation/lifecycle helpers |
 
 ## Dependency direction
 
-The desired direction is:
+The intended direction is:
 
 ```mermaid
 flowchart TD
-    Entry["root entrypoints"] --> SupervisorPkg["local_agent.supervisor"]
+    Entry["root entrypoints / orchestration"] --> SupervisorPkg["local_agent.supervisor"]
     Entry --> OperatorPkg["local_agent.operator"]
     Entry --> RepositoryPkg["local_agent.repository"]
     SupervisorPkg --> RepositoryPkg
@@ -94,66 +97,63 @@ flowchart TD
     RuntimePkg --> Foundation
 ```
 
-Package modules should not depend upward on convenience wrappers in the repository root once a packaged implementation exists. Temporary aliases are permitted only during the migration and should be removed after all callers move.
+Package modules should not depend upward on convenience wrappers in the repository root once a packaged implementation exists. Compatibility aliases are retained only where current runtime/test import seams still require them and must not become new implementation owners.
 
-### Known transitional edges
+### Remaining foundation seams
 
-The current refactor intentionally still has a few upward dependencies:
+The v4.16 refactor intentionally does not perform a high-risk rewrite of the low-level process/core foundation immediately before deployment:
 
 - `local_agent/operator/local.py` uses root process durability helpers;
 - `local_agent/operator/remote.py` uses the current root core process/log interface;
 - `local_agent/supervisor/resources.py` uses the current root process lease primitives;
-- scheduler orchestration still lives primarily in `agent_parallel.py`.
+- process/control/status orchestration still lives in `agent_parallel.py`, while retry/due/backoff/max-worker policy and resource locking now have packaged owners.
 
-These are migration seams, not target architecture.
+These seams are explicit and tested. Future decomposition should move them in small behavior-preserving steps rather than by copying the entire supervisor at once.
 
-## Root entrypoint target
+## Root entrypoints and compatibility surfaces
 
-The long-term root should contain only small commands that are useful to humans, launchd or subprocess workers. Their implementation should delegate into packages.
-
-A reasonable target is:
+The root intentionally keeps executable commands used by humans, launchd or subprocess workers:
 
 ```text
-agentd.py                 daemon CLI / compatibility entrypoint
-agent_entrypoint.py       guarded service entrypoint
-agent_parallel.py         parallel supervisor CLI
+agentd.py                 daemon core / compatibility entrypoint
+agent_entrypoint.py       thin executable/import shim -> local_agent.entrypoint
+agent_parallel.py         parallel supervisor orchestration CLI
 agent_parallel_worker.py  isolated worker CLI
 agent_multirepo.py        serial fallback CLI
 agent_repo_admin.py       repository administration CLI
-agent_operator.py         emergency operator CLI
+agent_operator.py         thin local-operator CLI/import shim
 agentctl.py               diagnostics CLI
 agent_version.py          release version
 ```
 
-Files such as `agent_config.py`, `agent_binding.py` and `agent_repository.py` are temporary import surfaces during the refactor and should disappear once direct package imports are complete.
+`agent_config.py`, `agent_binding.py`, `agent_repository.py` and `agent_remote_operator.py` remain compatibility import surfaces for existing callers. They are not implementation ownership locations.
 
 ## Supervisor decomposition
 
-`agent_parallel.py` remains the largest architectural concentration. It currently combines:
+`agent_parallel.py` remains the largest orchestration concentration. It coordinates:
 
 1. command-line parsing and startup;
 2. process spawning/reaping;
-3. retry/backoff scheduling;
-4. repository ordering/admission;
-5. global control draining/probing;
-6. status publication;
-7. local log maintenance;
-8. shutdown/signal handling.
+3. repository ordering/admission;
+4. global control draining/probing;
+5. status publication;
+6. local log maintenance;
+7. shutdown/signal handling.
 
-The extraction sequence is deliberately incremental:
+Pure scheduling decisions and resource-lock primitives have been extracted first:
 
 ```mermaid
 flowchart LR
-    Existing["agent_parallel.py"]
-    Existing --> Policy["supervisor/policy.py"]
-    Existing --> Resources["supervisor/resources.py"]
-    Existing --> Scheduling["supervisor/scheduling.py"]
-    Existing --> Control["supervisor/control.py"]
-    Existing --> Processes["future supervisor/processes.py"]
-    Existing --> Status["future supervisor/status.py"]
+    Orchestrator["agent_parallel.py"]
+    Orchestrator --> Policy["supervisor/policy.py"]
+    Orchestrator --> Resources["supervisor/resources.py"]
+    Orchestrator --> Scheduling["supervisor/scheduling.py"]
+    Orchestrator --> Control["supervisor/control.py"]
+    Orchestrator -.future.-> Processes["supervisor/processes.py"]
+    Orchestrator -.future.-> Status["supervisor/status.py"]
 ```
 
-Pure policy is extracted before process/Git orchestration because it is easier to prove behavior-preserving with direct tests.
+This is deliberate: pure policy and resource boundaries are easy to prove with focused tests, while a wholesale movement of process/Git orchestration would create unnecessary deployment risk.
 
 ## Safety invariants that module movement must not weaken
 
@@ -205,17 +205,17 @@ Tracked machine-specific plist files have been replaced by generated configurati
 
 `install` is intentionally non-disruptive. `restart` is the explicit service interruption boundary.
 
-## Refactor release gate
+## v4.16 release gate
 
-The architecture refactor is complete only when all of the following are true:
+The architecture refactor is release-ready when all of the following are true:
 
 - package ownership in this document matches code reality;
-- temporary aliases have either been removed or explicitly justified;
-- no package module imports a root compatibility wrapper when a packaged dependency exists;
-- exact candidate compile/lint/full tests are green;
+- retained root aliases are explicitly classified as compatibility surfaces rather than implementation owners;
+- no package module imports a root compatibility wrapper when a packaged dependency already exists;
+- exact-candidate compile/lint/full tests are green;
 - Python 3.14 compatibility is green;
 - macOS smoke is green;
 - critical scheduler/operator/process paths have targeted evidence;
-- docs and downstream planner contracts have been audited;
-- the live daemon is restarted only during an idle/safe window;
-- live status revision/version and a real queued task are verified after restart.
+- downstream planner contracts have been audited and either updated or explicitly found unchanged;
+- the live daemon is updated/restarted only during an idle/safe window;
+- live status revision/version and one real queued task are verified after update.
