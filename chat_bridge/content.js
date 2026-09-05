@@ -1,6 +1,9 @@
 if (!globalThis.__localAgentChatBridgeLoaded) {
   globalThis.__localAgentChatBridgeLoaded = true;
 
+  const CONTENT_PROTOCOL_VERSION = 2;
+  globalThis.__localAgentChatBridgeProtocolVersion = CONTENT_PROTOCOL_VERSION;
+
   const protocol = globalThis.LocalAgentBridgeProtocol;
   if (!protocol) {
     throw new Error("Local Agent Chat Bridge control protocol is unavailable");
@@ -312,11 +315,27 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
   }, 5000);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "bridge:capabilities") {
+      const expectedUrl = normalizeConversationUrl(String(message.expectedUrl || ""));
+      const currentUrl = normalizeConversationUrl(location.href);
+      const ok = Boolean(expectedUrl && currentUrl === expectedUrl);
+      sendResponse({
+        ok,
+        reason: ok ? "ready" : "wrong_conversation",
+        protocolVersion: CONTENT_PROTOCOL_VERSION
+      });
+      return false;
+    }
     if (message?.type !== "bridge:feedback") return false;
     sendFeedback(String(message.prompt || ""), String(message.expectedUrl || ""), message.deliveryId)
-      .then((response) => sendResponse({ ...response, protocolVersion: 1 }))
+      .then((response) => sendResponse({ ...response, protocolVersion: CONTENT_PROTOCOL_VERSION }))
       .catch((error) =>
-        sendResponse({ ok: false, reason: "unexpected_error", error: String(error) })
+        sendResponse({
+          ok: false,
+          reason: "unexpected_error",
+          error: String(error),
+          protocolVersion: CONTENT_PROTOCOL_VERSION
+        })
       );
     return true;
   });
