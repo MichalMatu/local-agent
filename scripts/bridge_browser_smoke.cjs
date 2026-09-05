@@ -174,16 +174,39 @@ document.querySelector('form').onsubmit = (event) => {
       return { width: Math.round(rect.width), height: Math.round(rect.height) };
     });
     assert.deepEqual(popupSize, { width: 420, height: 560 });
+    assert.equal(await popup.locator(".brand-orb").count(), 0);
+    assert.equal((await popup.locator(".brand-title").innerText()).replace(/\s+/g, " "), "Local Agent · Chat Bridge");
     assert.equal(await popup.locator(".card-editor").count(), 0);
     assert.equal(await popup.getByRole("button", { name: "Run now", exact: true }).count(), 8);
     assert.equal(await popup.locator(".wake-input-wrap input").count(), 8);
-    assert.equal(await popup.locator(".enable-check input").count(), 8);
+    assert.equal(await popup.locator(".enable-switch input").count(), 8);
+    assert.equal(await popup.locator(".switch-control .switch-track").count(), 9);
+    assert.equal(
+      await popup.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()),
+      ""
+    );
+    const switchGeometry = await popup.evaluate(() => {
+      const read = (selector) => {
+        const style = getComputedStyle(document.querySelector(selector));
+        return { width: style.width, height: style.height, borderRadius: style.borderRadius };
+      };
+      return {
+        master: read(".master-control .switch-track"),
+        chat: read(".enable-switch .switch-track")
+      };
+    });
+    assert.deepEqual(switchGeometry.master, switchGeometry.chat);
     assert.match(
       await popup.locator(".current-chat-panel .info-icon").getAttribute("title"),
       /remove the chat and add it again/i
     );
     assert.equal(await popup.locator(".has-pending-delivery .resolution-sent").count(), 2);
     assert.equal(await popup.locator(".has-pending-delivery .resolution-not-sent").count(), 2);
+    const resolutionColors = await popup.evaluate(() => ({
+      sent: getComputedStyle(document.querySelector(".resolution-sent")).color,
+      notSent: getComputedStyle(document.querySelector(".resolution-not-sent")).color
+    }));
+    assert.equal(resolutionColors.sent, resolutionColors.notSent);
 
     const successCard = popup.locator(".conversation-card").filter({ hasText: "success" });
     const wakeInput = successCard.locator(".wake-input-wrap input");
@@ -211,7 +234,7 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(remainingPending.length, 1);
     id = remainingPending[0].id;
     const pendingUrl = remainingPending[0].url;
-    console.log("PASS: stable glass popup has simple tick/time/run/remove controls and no native confirmation dialogs");
+    console.log("PASS: stable monochrome popup has unified switches, compact header and no native dialogs");
 
     await bounded("browser shutdown", context.close());
     context = await launch();

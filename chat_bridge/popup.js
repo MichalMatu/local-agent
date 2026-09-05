@@ -199,7 +199,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
   titleBlock.append(titleLine);
 
   const enableLabel = document.createElement("label");
-  enableLabel.className = "enable-check";
+  enableLabel.className = "switch-control enable-switch";
   enableLabel.title = conversation.pendingDelivery
     ? "Resolve the uncertain delivery or remove this chat."
     : "Enable or pause scheduled wakes.";
@@ -208,8 +208,13 @@ function renderConversation(conversation, settings, schedule, runtime) {
   enabled.checked = Boolean(conversation.enabled);
   enabled.disabled = Boolean(conversation.pendingDelivery);
   enabled.setAttribute("aria-label", `Enable ${conversation.label || conversation.id}`);
-  const checkVisual = makeMeta("✓", "check-visual");
-  enableLabel.append(enabled, checkVisual);
+  const switchTrack = document.createElement("span");
+  switchTrack.className = "switch-track";
+  switchTrack.setAttribute("aria-hidden", "true");
+  const switchThumb = document.createElement("span");
+  switchThumb.className = "switch-thumb";
+  switchTrack.append(switchThumb);
+  enableLabel.append(enabled, switchTrack);
   header.append(titleBlock, enableLabel);
 
   const meta = document.createElement("div");
