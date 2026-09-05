@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'v*-staging'
+      - 'work/**'
   pull_request:
 
 permissions:
@@ -15,8 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Install lint tooling
@@ -44,12 +45,23 @@ jobs:
       - name: Unit and integration tests
         run: python -m unittest discover -q
 
+  python-314:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - name: Python 3.14 compatibility suite
+        run: python -m unittest discover -q
+
   macos-smoke:
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Compile release modules
