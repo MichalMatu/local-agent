@@ -30,12 +30,6 @@
       "execution_enabled": true
     },
     {
-      "repository_id": "esp32-c6-zigbee",
-      "repository": "MichalMatu/esp32_c6_zigbee",
-      "agent_binding": "64877d7d-af3f-4312-a511-699c44aa42dd",
-      "execution_enabled": false
-    },
-    {
       "repository_id": "tracker",
       "repository": "MichalMatu/tracker",
       "agent_binding": "be481b25-9d97-4205-b93f-95f5c5827441",
