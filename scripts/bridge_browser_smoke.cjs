@@ -161,12 +161,36 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await page.evaluate(() => window.submits), 1);
     console.log("PASS: unconfirmed submission pauses without retry");
 
+    const removePendingId = await add("remove-pending");
+    await page.evaluate(() => { window.dropDelivery = true; });
+    assert.equal((await run(removePendingId)).reason, "delivery_uncertain");
+    await popup.reload();
+    assert.equal(await popup.locator(".current-chat-panel .small-copy").count(), 0);
+    assert.match(
+      await popup.locator(".current-chat-panel .info-icon").getAttribute("title"),
+      /explicitly bound to exactly one agent UUID and repository/
+    );
+    assert.equal(await popup.locator(".has-pending-delivery .resolution-sent").count(), 2);
+    assert.equal(await popup.locator(".has-pending-delivery .resolution-not-sent").count(), 2);
+    assert.equal(await popup.getByRole("button", { name: "Wake was sent", exact: true }).count(), 0);
+    assert.equal(await popup.getByRole("button", { name: "Wake was not sent", exact: true }).count(), 0);
+    popup.once("dialog", (dialog) => dialog.accept());
+    await popup.locator(".has-pending-delivery .danger").last().click();
+    await popup.waitForFunction(() => document.querySelectorAll(".has-pending-delivery").length === 1);
+    const stateAfterRemove = (await request({ type: "bridge:get-state" })).state;
+    assert.equal(Object.keys(stateAfterRemove.conversations).length, 7);
+    const remainingPending = Object.values(stateAfterRemove.conversations).filter((item) => item.pendingDelivery);
+    assert.equal(remainingPending.length, 1);
+    id = remainingPending[0].id;
+    const pendingUrl = remainingPending[0].url;
+    console.log("PASS: compact popup uses ✓/× resolution icons, tooltip help and working pending Remove");
+
     await bounded("browser shutdown", context.close());
     context = await launch();
     await context.setOffline(true);
     await installRoutes();
     page = await context.newPage();
-    await page.goto("https://chatgpt.com/c/bridge-fixture-uncertain");
+    await page.goto(pendingUrl);
     popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     assert.equal((await run(id)).reason, "delivery_uncertain");

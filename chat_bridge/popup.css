@@ -5,11 +5,11 @@
 
 body {
   margin: 0;
-  min-width: 460px;
+  min-width: 420px;
 }
 
 main {
-  padding: 14px;
+  padding: 10px;
 }
 
 h1,
@@ -19,27 +19,39 @@ p {
 }
 
 h1 {
-  font-size: 18px;
-  margin-bottom: 2px;
+  font-size: 17px;
+  margin-bottom: 1px;
 }
 
 h2 {
-  font-size: 14px;
-  margin-bottom: 10px;
+  font-size: 13px;
+  margin-bottom: 7px;
 }
 
 .heading-row,
 .section-title-row,
+.panel-title-row,
 .runtime-status {
   align-items: center;
   display: flex;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
+}
+
+.panel-title-row h2 {
+  margin-bottom: 0;
+}
+
+.info-icon {
+  cursor: help;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.65;
 }
 
 .muted {
-  font-size: 11px;
-  opacity: 0.68;
+  font-size: 10px;
+  opacity: 0.66;
 }
 
 .ellipsis {
@@ -50,24 +62,33 @@ h2 {
 
 .panel,
 .conversation-card {
-  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-  border-radius: 8px;
-  margin: 12px 0;
-  padding: 11px;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 7px;
+}
+
+.panel {
+  margin: 8px 0;
+  padding: 8px;
+}
+
+.conversation-card {
+  margin: 6px 0;
+  padding: 7px 8px;
 }
 
 label,
 summary {
   display: block;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 650;
-  margin: 9px 0 4px;
+}
+
+label {
+  margin: 6px 0 3px;
 }
 
 summary {
   cursor: pointer;
-  font-size: 13px;
-  margin: 0;
 }
 
 input,
@@ -81,33 +102,42 @@ button {
 input,
 select,
 textarea {
-  padding: 7px;
+  padding: 5px 6px;
   width: 100%;
 }
 
 select {
-  min-height: 32px;
+  min-height: 29px;
 }
 
 textarea {
   resize: vertical;
 }
 
-button {
+button,
+.button-like {
+  border-radius: 5px;
   cursor: pointer;
-  padding: 6px 9px;
+  padding: 4px 7px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .actions,
 .card-actions,
-.switch-row {
+.switch-row,
+.editor-actions,
+.delivery-resolution {
   align-items: center;
   display: flex;
-  gap: 7px;
+  gap: 5px;
 }
 
 .actions {
-  margin-top: 10px;
+  margin-top: 7px;
 }
 
 .switch-row {
@@ -119,13 +149,13 @@ button {
 }
 
 .switch-row.compact {
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .two-column,
 .card-grid {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   grid-template-columns: 1fr 1fr;
 }
 
@@ -136,68 +166,195 @@ button {
 .conversation-list:empty::before {
   content: "No conversations configured.";
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   opacity: 0.65;
-  padding: 8px 0 14px;
-}
-
-.conversation-card {
-  margin: 8px 0;
+  padding: 6px 0 10px;
 }
 
 .card-header {
   align-items: center;
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: 7px;
+}
+
+.card-title-block {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
 }
 
 .card-title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
+  max-width: 235px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-badge,
+.mode-badge,
+.badge {
+  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
+  border-radius: 999px;
+  font-size: 9px;
+  padding: 1px 5px;
+  white-space: nowrap;
 }
 
 .card-meta {
-  display: grid;
-  font-size: 11px;
-  gap: 3px;
-  margin: 8px 0;
-  opacity: 0.78;
-  overflow-wrap: anywhere;
+  align-items: center;
+  display: flex;
+  font-size: 10px;
+  gap: 5px 8px;
+  margin: 5px 0 6px;
+  min-width: 0;
 }
 
-.card-actions {
+.compact-meta {
   flex-wrap: wrap;
-  margin-top: 9px;
+}
+
+.status-text {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.next-wake {
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.compact-actions {
+  margin-top: 2px;
+}
+
+.small-action,
+.button-like {
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.card-editor {
+  display: inline-block;
+}
+
+.card-editor > summary {
+  border: 1px solid buttonborder;
+  list-style: none;
+  user-select: none;
+}
+
+.card-editor > summary::-webkit-details-marker {
+  display: none;
+}
+
+.card-editor[open] {
+  display: block;
+  flex: 1 0 100%;
+  width: 100%;
+}
+
+.card-editor[open] > summary {
+  display: inline-block;
+  margin-bottom: 6px;
+}
+
+.editor-body {
+  border-top: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  margin-top: 2px;
+  padding-top: 4px;
+}
+
+.editor-actions {
+  margin-top: 6px;
+}
+
+.disabled-summary {
+  cursor: default;
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .card-actions .danger {
   margin-left: auto;
 }
 
-.badge {
-  border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
-  border-radius: 999px;
-  font-size: 10px;
-  padding: 2px 7px;
+.delivery-resolution {
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 6px;
+  margin: 5px 0 6px;
+  padding: 4px 5px 4px 7px;
 }
 
-.status-running {
-  font-weight: 700;
+.delivery-label {
+  font-size: 10px;
+  font-weight: 650;
+  margin-right: auto;
+}
+
+.resolution-icon {
+  align-items: center;
+  display: inline-flex;
+  font-size: 15px;
+  font-weight: 800;
+  height: 24px;
+  justify-content: center;
+  line-height: 1;
+  min-width: 27px;
+  padding: 0;
+}
+
+.resolution-sent {
+  color: #24a148;
+}
+
+.resolution-not-sent {
+  color: #da1e28;
+}
+
+.has-pending-delivery .card-meta {
+  margin-bottom: 4px;
 }
 
 .settings-panel {
-  margin-top: 14px;
+  margin-top: 9px;
 }
 
 .runtime-status {
-  font-size: 11px;
-  margin-top: 10px;
+  font-size: 10px;
+  margin-top: 7px;
   opacity: 0.8;
 }
 
 #message {
-  font-size: 11px;
-  min-height: 16px;
-  margin: 10px 0 0;
+  font-size: 10px;
+  min-height: 14px;
+  margin: 7px 0 0;
+}
+
+.current-chat-title {
+  margin: 6px 0 2px;
+}
+
+.current-chat-panel .actions {
+  margin-top: 6px;
+}
+
+@media (max-width: 440px) {
+  body {
+    min-width: 360px;
+  }
+
+  .card-title {
+    max-width: 180px;
+  }
+
+  .status-text {
+    max-width: 145px;
+  }
 }
