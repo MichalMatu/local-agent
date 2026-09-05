@@ -13,10 +13,13 @@ const bindingFor = (repositoryId) => {
 const MATRIX_BINDING = bindingFor("matrixhub");
 const TRACKER_BINDING = bindingFor("tracker");
 const LOCAL_AGENT_BINDING = bindingFor("local-agent");
+const CONTENT_PROTOCOL_VERSION = 2;
 
 const storage = options.storage || {};
 const alarms = new Map();
 const sentMessages = [];
+const tabMessages = [];
+const injectedScripts = [];
 const runtimeMessageListeners = [];
 const alarmListeners = [];
 const installedListeners = [];
@@ -64,6 +67,16 @@ const chrome = {
       return clone(tabs);
     },
     async sendMessage(tabId, message) {
+      tabMessages.push({ tabId, message: clone(message) });
+      if (message.type === "bridge:capabilities") {
+        if (options.contentScriptProbe) {
+          return options.contentScriptProbe({ tabId, message, injectedScripts, tabMessages });
+        }
+        return { ok: true, reason: "ready", protocolVersion: CONTENT_PROTOCOL_VERSION };
+      }
+      if (message.type !== "bridge:feedback") {
+        throw new Error(`unsupported tabs.sendMessage type in test: ${message.type}`);
+      }
       sentMessages.push({ tabId, message: clone(message) });
       const authorize = () => sendRuntimeMessage({
         type: "bridge:authorize-delivery", conversationUrl: message.expectedUrl,
@@ -71,8 +84,15 @@ const chrome = {
       }, { tab: { id: tabId, url: message.expectedUrl } });
       if (options.sendMessage) return options.sendMessage({ tabId, message, authorize });
       const permission = await authorize();
-      return permission.ok ? { ok: true, reason: "sent", protocolVersion: 1 }
-        : { ok: false, reason: "delivery_cancelled", protocolVersion: 1 };
+      return permission.ok ? { ok: true, reason: "sent", protocolVersion: CONTENT_PROTOCOL_VERSION }
+        : { ok: false, reason: "delivery_cancelled", protocolVersion: CONTENT_PROTOCOL_VERSION };
+    }
+  },
+  scripting: {
+    async executeScript(details) {
+      injectedScripts.push(clone(details));
+      if (options.executeScript) return options.executeScript(details);
+      return [];
     }
   },
   runtime: {
@@ -173,8 +193,8 @@ async function sendRuntimeMessage(message, sender = { id: chrome.runtime.id, url
   });
 }
 
-return { storage, alarms, sentMessages, tabs, chrome, context, sendRuntimeMessage,
-  MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING, runtimeAgents,
+return { storage, alarms, sentMessages, tabMessages, injectedScripts, tabs, chrome, context, sendRuntimeMessage,
+  MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING, runtimeAgents, CONTENT_PROTOCOL_VERSION,
   evaluate: (source) => vm.runInContext(source, context),
   installed: () => installedListeners[0](), startup: () => startupListeners[0]() };
 }
