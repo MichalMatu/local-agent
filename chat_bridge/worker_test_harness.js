@@ -5,7 +5,7 @@ const vm = require("node:vm");
 function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 function createHarness(options = {}) {
 const MATRIX_BINDING = "033327ab-700d-43b4-9b3b-caff1acaa2c7";
-const C6_BINDING = "64877d7d-af3f-4312-a511-699c44aa42dd";
+const TRACKER_BINDING = "be481b25-9d97-4205-b93f-95f5c5827441";
 const LOCAL_AGENT_BINDING = "2180d453-1357-4fbc-be1a-e1e5b8fbb10a";
 const runtimeAgents = [
   {
@@ -21,9 +21,9 @@ const runtimeAgents = [
     execution_enabled: true
   },
   {
-    repository_id: "esp32-c6-zigbee",
-    repository: "MichalMatu/esp32_c6_zigbee",
-    agent_binding: C6_BINDING,
+    repository_id: "tracker",
+    repository: "MichalMatu/tracker",
+    agent_binding: TRACKER_BINDING,
     execution_enabled: true
   }
 ];
@@ -152,8 +152,6 @@ context.importScripts = (...filenames) => {
 const workerSource = fs.readFileSync(path.join(__dirname, "service_worker.js"), "utf8");
 vm.runInContext(workerSource, context, { filename: "service_worker.js" });
 
-
-
 async function sendRuntimeMessage(message, sender = { id: chrome.runtime.id, url: chrome.runtime.getURL("popup.html") }) {
   if (sender.tab) {
     sender = { id: chrome.runtime.id, frameId: 0, url: sender.tab.url, ...sender,
@@ -189,9 +187,8 @@ async function sendRuntimeMessage(message, sender = { id: chrome.runtime.id, url
   });
 }
 
-
 return { storage, alarms, sentMessages, tabs, chrome, context, sendRuntimeMessage,
-  MATRIX_BINDING, C6_BINDING, LOCAL_AGENT_BINDING, runtimeAgents,
+  MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING, runtimeAgents,
   evaluate: (source) => vm.runInContext(source, context),
   installed: () => installedListeners[0](), startup: () => startupListeners[0]() };
 }
