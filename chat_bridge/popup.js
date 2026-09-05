@@ -24,9 +24,16 @@ let latestState = null;
 let latestRuntime = null;
 let currentTab = null;
 let countdownTimer = null;
+let messageTimer = null;
 
 function showMessage(text) {
   elements.message.textContent = text;
+  clearTimeout(messageTimer);
+  if (text && !String(text).startsWith("Error:")) {
+    messageTimer = setTimeout(() => {
+      if (elements.message.textContent === text) elements.message.textContent = "";
+    }, 3200);
+  }
 }
 
 function formatRemaining(milliseconds) {
@@ -88,11 +95,7 @@ async function probeContentScript(tabId, expectedUrl) {
   try {
     const response = await chrome.tabs.sendMessage(
       tabId,
-      {
-        type: "bridge:capabilities",
-        expectedUrl,
-        protocolVersion: CONTENT_PROTOCOL_VERSION
-      },
+      { type: "bridge:capabilities", expectedUrl, protocolVersion: CONTENT_PROTOCOL_VERSION },
       { frameId: 0 }
     );
     return { reachable: true, response };
@@ -107,34 +110,19 @@ async function injectContentScript(tabId, expectedUrl) {
   if (before.reachable) {
     throw new Error("This ChatGPT tab has an older Bridge content script. Reload the tab, then try again.");
   }
-
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["control_protocol.js", "content.js"]
-    });
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["control_protocol.js", "content.js"] });
   } catch (error) {
     throw new Error(`Cannot activate bridge in this tab: ${error.message}`);
   }
-
   const after = await probeContentScript(tabId, expectedUrl);
   if (!after.response?.ok || after.response.protocolVersion !== CONTENT_PROTOCOL_VERSION) {
     throw new Error("Bridge content script did not become ready. Reload the ChatGPT tab, then try again.");
   }
 }
 
-function createTextInput(value, placeholder = "") {
-  const input = document.createElement("input");
-  input.type = "text";
-  input.value = value || "";
-  input.placeholder = placeholder;
-  input.maxLength = 120;
-  return input;
-}
-
 function agentLabel(agent) {
-  const mode = agent.executionEnabled === false ? "bridge only" : "executor";
-  return `${agent.repositoryId} · ${agent.repository} · ${mode}`;
+  return `${agent.repositoryId} · ${agent.repository}`;
 }
 
 function createAgentSelect(agents, selectedBinding = null, includeBlank = true) {
@@ -142,7 +130,7 @@ function createAgentSelect(agents, selectedBinding = null, includeBlank = true) 
   if (includeBlank) {
     const blank = document.createElement("option");
     blank.value = "";
-    blank.textContent = "Select agent binding...";
+    blank.textContent = "Choose repository...";
     select.append(blank);
   }
   for (const agent of agents || []) {
@@ -183,12 +171,18 @@ async function resolvePendingDelivery(conversation, wasSent) {
     wasSent
   });
   if (!response?.ok) throw new Error(response?.error || "delivery resolution failed");
-  return response;
+}
+
+async function updateConversation(conversationId, patch) {
+  const response = await request({ type: "bridge:update-conversation", conversationId, patch });
+  if (!response?.ok) throw new Error(response?.error || "update failed");
+  return response.conversation;
 }
 
 function renderConversation(conversation, settings, schedule, runtime) {
   const card = document.createElement("article");
   card.className = "conversation-card";
+  if (!conversation.enabled) card.classList.add("is-paused");
   if (conversation.pendingDelivery) card.classList.add("has-pending-delivery");
 
   const header = document.createElement("div");
@@ -196,154 +190,104 @@ function renderConversation(conversation, settings, schedule, runtime) {
 
   const titleBlock = document.createElement("div");
   titleBlock.className = "card-title-block";
-  const title = document.createElement("div");
-  title.className = "card-title";
-  title.textContent = conversation.label || conversation.id;
-  const repo = makeMeta(
-    conversation.agentBinding ? conversation.repositoryId : "UNBOUND",
-    "repo-badge"
-  );
-  titleBlock.append(title, repo);
+  const titleLine = document.createElement("div");
+  titleLine.className = "card-title-line";
+  const title = makeMeta(conversation.label || conversation.id, "card-title");
+  title.title = conversation.label || conversation.id;
+  const repo = makeMeta(conversation.repositoryId || "UNBOUND", "repo-badge");
+  titleLine.append(title, repo);
+  titleBlock.append(titleLine);
 
-  const toggleLabel = document.createElement("label");
-  toggleLabel.className = "switch-row compact";
+  const enableLabel = document.createElement("label");
+  enableLabel.className = "enable-check";
+  enableLabel.title = conversation.pendingDelivery
+    ? "Resolve the uncertain delivery or remove this chat."
+    : "Enable or pause scheduled wakes.";
   const enabled = document.createElement("input");
   enabled.type = "checkbox";
   enabled.checked = Boolean(conversation.enabled);
   enabled.disabled = Boolean(conversation.pendingDelivery);
-  const enabledText = document.createElement("span");
-  enabledText.textContent = enabled.checked ? "On" : "Off";
-  toggleLabel.title = conversation.pendingDelivery
-    ? "Resolve the uncertain delivery before changing scheduling."
-    : "Enable or pause scheduled wakes.";
-  toggleLabel.append(enabled, enabledText);
-  header.append(titleBlock, toggleLabel);
+  enabled.setAttribute("aria-label", `Enable ${conversation.label || conversation.id}`);
+  const checkVisual = makeMeta("✓", "check-visual");
+  enableLabel.append(enabled, checkVisual);
+  header.append(titleBlock, enableLabel);
 
   const meta = document.createElement("div");
-  meta.className = "card-meta compact-meta";
-  const status = makeMeta(conversation.lastStatus || "-", "status-text");
-  status.title = `Last status: ${conversation.lastStatus || "-"}`;
-
+  meta.className = "card-meta";
+  const status = makeMeta(conversation.lastStatus || "ready", "status-text");
+  status.title = `Last status: ${conversation.lastStatus || "ready"}`;
   const next = makeMeta("", "next-wake");
   next.dataset.nextRunAt = schedule?.nextRunAt || "";
   next.dataset.masterEnabled = settings.masterEnabled ? "true" : "false";
   next.dataset.conversationEnabled = conversation.enabled ? "true" : "false";
   updateNextWakeElement(next);
-
-  const mode = conversation.bootstrapPending
-    ? "Bootstrap"
-    : conversation.intervalOverrideMinutes === null
-      ? "Auto"
-      : `${conversation.intervalOverrideMinutes}m`;
-  meta.append(status, next, makeMeta(mode, "mode-badge"));
-
-  const primaryActions = document.createElement("div");
-  primaryActions.className = "card-actions compact-actions";
-
-  const run = makeButton("Run", "small-action");
-  run.disabled = Boolean(conversation.pendingDelivery);
-
-  const edit = document.createElement("details");
-  edit.className = "card-editor";
-  const editSummary = document.createElement("summary");
-  editSummary.textContent = "Edit";
-  editSummary.className = "button-like";
-  edit.append(editSummary);
-
-  const editorBody = document.createElement("div");
-  editorBody.className = "editor-body";
-
-  const grid = document.createElement("div");
-  grid.className = "card-grid compact-grid";
-
-  const labelWrap = document.createElement("div");
-  const labelLabel = document.createElement("label");
-  labelLabel.textContent = "Label";
-  const labelInput = createTextInput(conversation.label);
-  labelWrap.append(labelLabel, labelInput);
-
-  const intervalWrap = document.createElement("div");
-  const intervalLabel = document.createElement("label");
-  intervalLabel.textContent = "Interval (min)";
-  const intervalInput = document.createElement("input");
-  intervalInput.type = "number";
-  intervalInput.min = "1";
-  intervalInput.max = "1440";
-  intervalInput.placeholder = "auto";
-  intervalInput.value =
-    conversation.intervalOverrideMinutes === null ? "" : String(conversation.intervalOverrideMinutes);
-  intervalWrap.append(intervalLabel, intervalInput);
-
-  const bindingWrap = document.createElement("div");
-  bindingWrap.className = "full-width";
-  const bindingLabel = document.createElement("label");
-  bindingLabel.textContent = "Repository binding";
-  const bindingSelect = createAgentSelect(runtime?.agents || [], conversation.agentBinding, true);
-  bindingWrap.append(bindingLabel, bindingSelect);
-  grid.append(labelWrap, intervalWrap, bindingWrap);
-
-  const editActions = document.createElement("div");
-  editActions.className = "editor-actions";
-  const save = makeButton("Save", "small-action");
-  const rebind = makeButton(conversation.agentBinding ? "Rebind" : "Bind", "small-action");
-  rebind.disabled = Boolean(conversation.pendingDelivery);
-  editActions.append(save, rebind);
-  editorBody.append(grid, editActions);
-  edit.append(editorBody);
-
-  const remove = makeButton("Remove", "danger small-action");
-  primaryActions.append(run, edit, remove);
+  meta.append(status, next);
 
   let pendingResolution = null;
   if (conversation.pendingDelivery) {
     pendingResolution = document.createElement("div");
     pendingResolution.className = "delivery-resolution";
     const pendingText = makeMeta("Delivery uncertain", "delivery-label");
-    pendingText.title =
-      "Bridge cannot prove whether the previous wake reached ChatGPT. Confirm what you see in this chat.";
-
+    pendingText.title = "Bridge cannot prove whether the previous wake reached ChatGPT.";
     const sent = makeButton("✓", "resolution-icon resolution-sent");
     sent.setAttribute("aria-label", "Confirm wake was sent");
     sent.title = "Wake was sent";
-
     const notSent = makeButton("×", "resolution-icon resolution-not-sent");
     notSent.setAttribute("aria-label", "Confirm wake was not sent");
     notSent.title = "Wake was not sent";
 
     sent.addEventListener("click", async () => {
       try {
-        if (!confirm("Confirm that the previous wake is visible in this chat?")) return;
         await resolvePendingDelivery(conversation, true);
-        showMessage("Previous wake marked as sent. Conversation remains paused until you resume it.");
+        showMessage("Wake marked as sent.");
         await refresh();
       } catch (error) {
         showMessage(`Error: ${error.message}`);
       }
     });
-
     notSent.addEventListener("click", async () => {
       try {
-        if (!confirm("Confirm that the previous wake was not sent?")) return;
         await resolvePendingDelivery(conversation, false);
-        showMessage("Previous wake marked as not sent. Conversation remains paused until you resume it.");
+        showMessage("Wake marked as not sent.");
         await refresh();
       } catch (error) {
         showMessage(`Error: ${error.message}`);
       }
     });
-
     pendingResolution.append(pendingText, sent, notSent);
   }
 
+  const controls = document.createElement("div");
+  controls.className = "card-controls";
+
+  const wakeField = document.createElement("label");
+  wakeField.className = "wake-field";
+  const wakeLabel = makeMeta("Wake every", "field-label");
+  const wakeInputWrap = document.createElement("div");
+  wakeInputWrap.className = "wake-input-wrap";
+  const intervalInput = document.createElement("input");
+  intervalInput.type = "number";
+  intervalInput.min = "1";
+  intervalInput.max = "1440";
+  intervalInput.placeholder = String(runtime?.intervalMinutes || settings.fallbackIntervalMinutes || 10);
+  intervalInput.value = conversation.intervalOverrideMinutes === null
+    ? ""
+    : String(conversation.intervalOverrideMinutes);
+  intervalInput.disabled = Boolean(conversation.pendingDelivery);
+  intervalInput.title = `Leave empty to use global default (${runtime?.intervalMinutes || settings.fallbackIntervalMinutes || 10} min).`;
+  const unit = makeMeta("min");
+  wakeInputWrap.append(intervalInput, unit);
+  wakeField.append(wakeLabel, wakeInputWrap);
+
+  const run = makeButton("Run now", "run-button");
+  run.disabled = Boolean(conversation.pendingDelivery);
+  const remove = makeButton("Remove", "remove-button");
+  controls.append(wakeField, run, remove);
+
   enabled.addEventListener("change", async () => {
     try {
-      const response = await request({
-        type: "bridge:update-conversation",
-        conversationId: conversation.id,
-        patch: { enabled: enabled.checked }
-      });
-      if (!response?.ok) throw new Error(response?.error || "update failed");
-      showMessage(enabled.checked ? "Conversation resumed." : "Conversation paused.");
+      await updateConversation(conversation.id, { enabled: enabled.checked });
+      showMessage(enabled.checked ? "Scheduling enabled." : "Scheduling paused.");
       await refresh();
     } catch (error) {
       showMessage(`Error: ${error.message}`);
@@ -351,60 +295,37 @@ function renderConversation(conversation, settings, schedule, runtime) {
     }
   });
 
-  save.addEventListener("click", async () => {
+  const saveInterval = async () => {
     try {
-      const response = await request({
-        type: "bridge:update-conversation",
-        conversationId: conversation.id,
-        patch: {
-          label: labelInput.value,
-          intervalOverrideMinutes: intervalInput.value.trim()
-            ? Number(intervalInput.value)
-            : null
-        }
-      });
-      if (!response?.ok) throw new Error(response?.error || "save failed");
-      showMessage("Conversation saved. Binding unchanged.");
-      await refresh();
-    } catch (error) {
-      showMessage(`Error: ${error.message}`);
-    }
-  });
-
-  rebind.addEventListener("click", async () => {
-    try {
-      const agentBinding = bindingSelect.value;
-      if (!agentBinding) throw new Error("Select an agent binding first.");
-      if (agentBinding === conversation.agentBinding) {
-        showMessage("Binding is already set to this agent.");
-        return;
+      const raw = intervalInput.value.trim();
+      const nextValue = raw ? Number(raw) : null;
+      if (raw && (!Number.isFinite(nextValue) || nextValue < 1 || nextValue > 1440)) {
+        throw new Error("Wake time must be between 1 and 1440 minutes.");
       }
-      const target = (runtime?.agents || []).find((agent) => agent.agentBinding === agentBinding);
-      const description = target ? `${target.repositoryId} (${target.repository})` : agentBinding;
-      if (!confirm(`Rebind this conversation to ${description}? This resets bootstrap state.`)) return;
-      const response = await request({
-        type: "bridge:rebind-conversation",
-        conversationId: conversation.id,
-        binding: { agentBinding }
-      });
-      if (!response?.ok) throw new Error(response?.error || "rebind failed");
-      showMessage(`Conversation rebound to ${response.conversation.repositoryId}.`);
+      if (nextValue === conversation.intervalOverrideMinutes) return;
+      await updateConversation(conversation.id, { intervalOverrideMinutes: nextValue });
+      showMessage(nextValue === null ? "Using global wake time." : `Wake time set to ${nextValue} min.`);
       await refresh();
     } catch (error) {
       showMessage(`Error: ${error.message}`);
+      await refresh();
+    }
+  };
+  intervalInput.addEventListener("change", saveInterval);
+  intervalInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      intervalInput.blur();
     }
   });
 
   run.addEventListener("click", async () => {
     try {
       run.disabled = true;
-      showMessage(`Sending bound wake to ${conversation.label || conversation.id}...`);
-      const response = await request({
-        type: "bridge:run-now",
-        conversationId: conversation.id
-      });
+      showMessage(`Sending wake to ${conversation.repositoryId}...`);
+      const response = await request({ type: "bridge:run-now", conversationId: conversation.id });
       if (!response?.ok) throw new Error(response?.reason || response?.error || "run failed");
-      showMessage(`Sent ${response.bridgeMode || "wake"} to ${response.repositoryId}.`);
+      showMessage(`Wake sent to ${response.repositoryId}.`);
       await refresh();
     } catch (error) {
       showMessage(`Error: ${error.message}`);
@@ -415,38 +336,21 @@ function renderConversation(conversation, settings, schedule, runtime) {
 
   remove.addEventListener("click", async () => {
     try {
-      const unresolved = Boolean(conversation.pendingDelivery);
-      const prompt = unresolved
-        ? "Remove this conversation? Its previous wake is unresolved. Removal will mark that attempt as not sent, discard its journal, and will not send anything."
-        : "Remove this conversation from Local Agent Chat Bridge?";
-      if (!confirm(prompt)) return;
-
-      if (unresolved) await resolvePendingDelivery(conversation, false);
-
-      const response = await request({
-        type: "bridge:remove-conversation",
-        conversationId: conversation.id
-      });
+      remove.disabled = true;
+      if (conversation.pendingDelivery) await resolvePendingDelivery(conversation, false);
+      const response = await request({ type: "bridge:remove-conversation", conversationId: conversation.id });
       if (!response?.ok) throw new Error(response?.error || "remove failed");
       showMessage("Conversation removed.");
       await refresh();
     } catch (error) {
       showMessage(`Error: ${error.message}`);
-      await refresh();
+      remove.disabled = false;
     }
   });
 
-  if (conversation.pendingDelivery) {
-    editSummary.classList.add("disabled-summary");
-    editSummary.title = "Resolve the uncertain delivery first.";
-    edit.addEventListener("toggle", () => {
-      if (edit.open) edit.open = false;
-    });
-  }
-
   card.append(header, meta);
   if (pendingResolution) card.append(pendingResolution);
-  card.append(primaryActions);
+  card.append(controls);
   return card;
 }
 
@@ -456,15 +360,13 @@ function renderConversations(state, schedules = {}, runtime = null) {
     String(a.label || "").localeCompare(String(b.label || ""))
   );
   elements.conversationCount.textContent = String(conversations.length);
-
   if (!conversations.length) {
     const empty = document.createElement("p");
-    empty.className = "muted";
-    empty.textContent = "No conversations configured.";
+    empty.className = "empty-state";
+    empty.textContent = "No conversations yet.";
     elements.conversationList.append(empty);
     return;
   }
-
   for (const conversation of conversations) {
     elements.conversationList.append(
       renderConversation(conversation, state.settings, schedules[conversation.id] || null, runtime)
@@ -476,7 +378,7 @@ async function refreshCurrentTabForm(state, runtime) {
   currentTab = await getCurrentChatTab();
   if (!currentTab) {
     elements.currentTitle.textContent = "No ChatGPT conversation detected";
-    elements.currentUrl.textContent = "Open a concrete ChatGPT conversation, then open this popup again.";
+    elements.currentUrl.textContent = "Open a ChatGPT conversation, then open Bridge again.";
     replaceSelectOptions(elements.currentAgent, runtime?.agents || [], null, true);
     elements.currentAgent.disabled = true;
     elements.addCurrent.textContent = "Add current chat";
@@ -489,9 +391,9 @@ async function refreshCurrentTabForm(state, runtime) {
   elements.currentTitle.textContent = existing?.label || chatLabelFromTitle(currentTab.title);
   elements.currentUrl.textContent = currentTab.normalizedUrl;
   replaceSelectOptions(elements.currentAgent, runtime?.agents || [], existing?.agentBinding || null, true);
-  elements.currentAgent.disabled = Boolean(existing?.agentBinding);
-  elements.addCurrent.textContent = existing ? "Update current chat" : "Add current chat";
-  elements.addCurrent.disabled = !existing && !elements.currentAgent.value;
+  elements.currentAgent.disabled = Boolean(existing);
+  elements.addCurrent.textContent = existing ? "Already added" : "Add current chat";
+  elements.addCurrent.disabled = Boolean(existing) || !elements.currentAgent.value;
 }
 
 async function refresh() {
@@ -508,8 +410,7 @@ async function refresh() {
   elements.fallbackWakePrompt.value = settings.fallbackWakePrompt || "";
   elements.fallbackBootstrapPrompt.value = settings.fallbackBootstrapPrompt || "";
   elements.runtimeSource.textContent = response.runtime?.source || "-";
-  elements.runtimeInterval.textContent =
-    `${response.runtime?.intervalMinutes || settings.fallbackIntervalMinutes} min`;
+  elements.runtimeInterval.textContent = `${response.runtime?.intervalMinutes || settings.fallbackIntervalMinutes} min`;
 
   renderConversations(latestState, response.schedules || {}, response.runtime || null);
   restartCountdownTimer();
@@ -533,32 +434,27 @@ async function saveGlobal() {
   await refresh();
 }
 
-async function addOrUpdateCurrent() {
+async function addCurrent() {
   currentTab = await getCurrentChatTab();
   if (!currentTab) throw new Error("Open a concrete ChatGPT conversation first.");
-
   const id = protocol.conversationId(currentTab.normalizedUrl);
-  const existing = latestState?.conversations?.[id];
-  const agentBinding = existing?.agentBinding || elements.currentAgent.value;
-  if (!agentBinding) throw new Error("Select the exact agent/repository binding first.");
+  if (latestState?.conversations?.[id]) return;
+  const agentBinding = elements.currentAgent.value;
+  if (!agentBinding) throw new Error("Choose repository first.");
   await injectContentScript(currentTab.id, currentTab.normalizedUrl);
 
   const response = await request({
     type: "bridge:upsert-conversation",
     conversation: {
       url: currentTab.normalizedUrl,
-      label: existing?.label || chatLabelFromTitle(currentTab.title),
-      enabled: existing ? Boolean(existing.enabled) : true,
+      label: chatLabelFromTitle(currentTab.title),
+      enabled: true,
       preferredTabId: currentTab.id,
       agentBinding
     }
   });
-  if (!response?.ok) throw new Error(response?.error || "save failed");
-  showMessage(
-    existing
-      ? `Current conversation updated; binding remains ${response.conversation.repositoryId}.`
-      : `Current conversation bound to ${response.conversation.repositoryId} and scheduled.`
-  );
+  if (!response?.ok) throw new Error(response?.error || "add failed");
+  showMessage(`Added ${response.conversation.repositoryId}.`);
   await refresh();
 }
 
@@ -572,8 +468,7 @@ elements.masterEnabled.addEventListener("change", () => {
 elements.currentAgent.addEventListener("change", () => {
   if (!currentTab) return;
   const id = protocol.conversationId(currentTab.normalizedUrl);
-  const existing = latestState?.conversations?.[id];
-  if (!existing) elements.addCurrent.disabled = !elements.currentAgent.value;
+  if (!latestState?.conversations?.[id]) elements.addCurrent.disabled = !elements.currentAgent.value;
 });
 
 elements.saveGlobal.addEventListener("click", () => {
@@ -581,7 +476,7 @@ elements.saveGlobal.addEventListener("click", () => {
 });
 
 elements.addCurrent.addEventListener("click", () => {
-  addOrUpdateCurrent().catch((error) => showMessage(`Error: ${error.message}`));
+  addCurrent().catch((error) => showMessage(`Error: ${error.message}`));
 });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
