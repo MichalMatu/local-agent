@@ -8,7 +8,11 @@ import platform
 import sys
 from pathlib import Path
 
-from local_agent.platform.macos_launchd import (
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from local_agent.platform.macos_launchd import (  # noqa: E402
     LABEL,
     bootout,
     bootstrap,
@@ -34,7 +38,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--repo-root",
         type=Path,
-        default=Path(__file__).resolve().parents[1],
+        default=REPO_ROOT,
     )
     parser.add_argument("--home", type=Path, default=Path.home())
     parser.add_argument("--registry", type=Path)
