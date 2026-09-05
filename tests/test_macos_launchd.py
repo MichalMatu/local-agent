@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import plistlib
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,6 +14,8 @@ from local_agent.platform.macos_launchd import (
     default_launch_agent_path,
     render_launch_agent,
 )
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class MacOSLaunchdTests(unittest.TestCase):
@@ -81,6 +86,28 @@ class MacOSLaunchdTests(unittest.TestCase):
             home=self.home,
         )
         payload = plistlib.loads(rendered)
+        self.assertEqual(payload["Label"], LABEL)
+        self.assertEqual(payload["WorkingDirectory"], str(self.repo))
+
+    def test_render_cli_runs_from_outside_repository(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "scripts" / "macos_launchd.py"),
+                    "render",
+                    "--home",
+                    str(self.home),
+                    "--repo-root",
+                    str(self.repo),
+                ],
+                cwd=tmp,
+                text=False,
+                capture_output=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+        payload = plistlib.loads(result.stdout)
         self.assertEqual(payload["Label"], LABEL)
         self.assertEqual(payload["WorkingDirectory"], str(self.repo))
 
