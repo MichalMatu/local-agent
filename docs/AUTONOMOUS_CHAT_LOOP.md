@@ -66,7 +66,7 @@ local-agent
 
 The bridge is transport and scheduling only. ChatGPT remains the planner. `local-agent` remains the deterministic executor; no LLM or heuristic planning layer belongs inside the executor.
 
-The `local-agent` binding is deliberately `execution_enabled: false`. A conversation bound to it is bridge/operator-only: it may inspect/operate Local Agent infrastructure, but it must not create project task files for Growbox, C6, MatrixHub, LiteGraph or any other repository.
+The `local-agent` binding is deliberately `execution_enabled: false`. A conversation bound to it is bridge/operator-only: it may inspect/operate Local Agent infrastructure, but it must not create project task files for Growbox, MatrixHub, LiteGraph, Tracker or any other repository.
 
 ## Runtime schema 3
 
@@ -247,8 +247,10 @@ Canonical executor and rollout rules remain in `AGENTS.md` and `docs/OPERATIONS.
 
 ## Delivery recovery in Bridge 0.5
 
-Each wake is journaled before sending and authorized again immediately before the click. The content script checks the conversation URL and unchanged composer, and confirms the new user message in the DOM. Overlapping sends are rejected. A lost reply, worker interruption or unconfirmed click leaves `pendingDelivery`, pauses the conversation as `delivery_uncertain` and never automatically replays the wake.
+Each wake is journaled before sending and authorized again immediately before submission. Before creating that delivery journal, the worker preflights the bound tab's content protocol and exact conversation URL. A tab with no receiving content script is safely re-injected and checked again before any send can be authorized. A reachable older or mismatched content script is never over-injected; it is treated as a safe unsent protocol mismatch until the ChatGPT tab is reloaded.
+
+The content script checks the conversation URL and unchanged composer, and confirms the exact new user message in the DOM. Overlapping sends are rejected. If the receiver disappears before the feedback message can be delivered, the attempt is classified as safely unsent rather than uncertain. A lost reply after submission, worker interruption or unconfirmed submission leaves `pendingDelivery`, pauses the conversation as `delivery_uncertain` and never automatically replays the wake.
 
 Inspect the exact chat, then select **Wake was sent** or **Wake was not sent** in the popup. Either choice clears the journal and leaves the conversation paused; resume explicitly after resolving it. Rebind and removal are blocked while delivery is pending. Old assistant controls from before bootstrap/Rebind cannot schedule the new binding.
 
-After reloading the extension, reload its open ChatGPT tabs to install the matching content protocol. Browser fixture tests verify DOM and worker lifecycle behavior in an isolated Chromium profile; they do not prove the current live ChatGPT DOM or an operator's loaded extension version.
+After reloading the extension, an open ChatGPT tab with no receiver can be reactivated automatically by the worker. If the bridge reports `content_script_protocol_mismatch`, reload that ChatGPT tab once so the matching content protocol is installed. Browser fixture tests verify DOM, submission and worker lifecycle behavior in an isolated Chromium profile; they do not prove the current live ChatGPT DOM or an operator's loaded extension version.

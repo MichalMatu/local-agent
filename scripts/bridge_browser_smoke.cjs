@@ -20,19 +20,30 @@ async function bounded(label, promise) {
 
 const fixture = `<!doctype html><html><body>
 <div data-message-author-role="assistant" data-message-id="old-answer">Previous answer</div>
-<form><textarea id="prompt-textarea"></textarea><button type="button" data-testid="send-button">Send</button></form>
+<form id="composer-form">
+  <div id="prompt-textarea" class="ProseMirror" contenteditable="true" role="textbox"></div>
+  <button id="composer-submit-button" type="submit">Send</button>
+</form>
 <script>
-window.clicks = 0;
+window.submits = 0;
 window.dropDelivery = false;
-document.querySelector('button').onclick = () => {
-  window.clicks++;
+window.replaceComposerOnSubmit = false;
+document.querySelector('form').onsubmit = (event) => {
+  event.preventDefault();
+  window.submits++;
   if (window.dropDelivery) return;
-  const input = document.querySelector('textarea');
+  const form = document.querySelector('#composer-form');
+  const input = form.querySelector('#prompt-textarea');
   const message = document.createElement('div');
   message.dataset.messageAuthorRole = 'user';
-  message.textContent = input.value;
+  message.textContent = input.innerText || input.textContent || '';
   document.body.append(message);
-  input.value = '';
+  if (window.replaceComposerOnSubmit) {
+    form.innerHTML = '<div id="prompt-textarea" class="ProseMirror" contenteditable="true" role="textbox"></div><button id="composer-submit-button" type="submit">Send</button>';
+    return;
+  }
+  input.textContent = '';
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 };
 </script></body></html>`;
 
@@ -77,24 +88,47 @@ document.querySelector('button').onclick = () => {
     };
     const run = (id) => request({ type: "bridge:run-now", conversationId: id });
     const prepare = () => page.evaluate(() => { document.querySelector("button").disabled = true; });
-    const waitInsertion = () => page.waitForFunction(() => document.querySelector("textarea").value.length > 0);
+    const waitInsertion = () => page.waitForFunction(() => document.querySelector("#prompt-textarea").textContent.length > 0);
+    const composerText = () => page.locator("#prompt-textarea").textContent();
 
     let id = await add("success");
     assert.equal((await run(id)).reason, "sent");
-    assert.equal(await page.evaluate(() => window.clicks), 1);
+    assert.equal(await page.evaluate(() => window.submits), 1);
     assert.match(await page.locator('[data-message-author-role="user"]').innerText(), /LA_REPO=tracker/);
     assert.equal((await readChat(id)).bootstrapPending, false);
-    console.log("PASS: confirmed delivery and exact repository binding");
+    console.log("PASS: confirmed contenteditable form delivery, capability preflight and exact repository binding");
+
+    id = await add("replacement");
+    await page.evaluate(() => { window.replaceComposerOnSubmit = true; });
+    assert.equal((await run(id)).reason, "sent");
+    assert.equal(await page.evaluate(() => window.submits), 1);
+    assert.match(await page.locator('[data-message-author-role="user"]').innerText(), /LA_REPO=tracker/);
+    console.log("PASS: composer DOM replacement after submit still confirms exact user delivery");
 
     id = await add("draft");
     await prepare();
     let delivery = run(id);
     await waitInsertion();
-    await page.locator("textarea").fill("Operator draft must survive");
+    await page.locator("#prompt-textarea").fill("Operator draft must survive");
     assert.equal((await delivery).reason, "send_button_not_ready");
-    assert.equal(await page.locator("textarea").inputValue(), "Operator draft must survive");
-    assert.equal(await page.evaluate(() => window.clicks), 0);
+    assert.equal(await composerText(), "Operator draft must survive");
+    assert.equal(await page.evaluate(() => window.submits), 0);
     console.log("PASS: concurrent operator draft preserved");
+
+    id = await add("whitespace-edit");
+    await prepare();
+    delivery = run(id);
+    await waitInsertion();
+    await page.evaluate(() => {
+      const input = document.querySelector("#prompt-textarea");
+      input.textContent = ` ${input.textContent}`;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector("button").disabled = false;
+    });
+    assert.equal((await delivery).reason, "composer_changed");
+    assert.ok((await composerText()).startsWith(" "));
+    assert.equal(await page.evaluate(() => window.submits), 0);
+    console.log("PASS: whitespace-only operator edit is preserved and never submitted");
 
     id = await add("navigation");
     await prepare();
@@ -105,7 +139,7 @@ document.querySelector('button').onclick = () => {
       document.querySelector("button").disabled = false;
     });
     assert.equal((await delivery).ok, false);
-    assert.equal(await page.evaluate(() => window.clicks), 0);
+    assert.equal(await page.evaluate(() => window.submits), 0);
     console.log("PASS: SPA navigation cannot redirect a wake");
 
     id = await add("overlap");
@@ -115,8 +149,8 @@ document.querySelector('button').onclick = () => {
     assert.equal((await run(id)).reason, "delivery_in_progress");
     await page.evaluate(() => { document.querySelector("button").disabled = false; });
     assert.equal((await delivery).reason, "sent");
-    assert.equal(await page.evaluate(() => window.clicks), 1);
-    console.log("PASS: overlapping sends click once");
+    assert.equal(await page.evaluate(() => window.submits), 1);
+    console.log("PASS: overlapping sends submit once");
 
     id = await add("uncertain");
     await page.evaluate(() => { window.dropDelivery = true; });
@@ -124,8 +158,8 @@ document.querySelector('button').onclick = () => {
     assert.equal((await readChat(id)).enabled, false);
     assert.ok((await readChat(id)).pendingDelivery);
     assert.equal((await run(id)).reason, "delivery_uncertain");
-    assert.equal(await page.evaluate(() => window.clicks), 1);
-    console.log("PASS: unconfirmed click pauses without retry");
+    assert.equal(await page.evaluate(() => window.submits), 1);
+    console.log("PASS: unconfirmed submission pauses without retry");
 
     await bounded("browser shutdown", context.close());
     context = await launch();
@@ -136,12 +170,12 @@ document.querySelector('button').onclick = () => {
     popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     assert.equal((await run(id)).reason, "delivery_uncertain");
-    assert.equal(await page.evaluate(() => window.clicks), 0);
+    assert.equal(await page.evaluate(() => window.submits), 0);
     const resolved = await request({ type: "bridge:resolve-delivery", conversationId: id, wasSent: false });
     assert.equal(resolved.ok, true, resolved.error);
     assert.equal(resolved.conversation.enabled, false);
     assert.equal(resolved.conversation.pendingDelivery, null);
-    assert.equal(await page.evaluate(() => window.clicks), 0);
+    assert.equal(await page.evaluate(() => window.submits), 0);
     console.log("PASS: browser/worker restart preserves journal; explicit resolution does not send");
   } finally {
     if (context) await context.close();

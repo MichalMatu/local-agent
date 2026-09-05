@@ -4,33 +4,22 @@ const path = require("node:path");
 const vm = require("node:vm");
 function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 function createHarness(options = {}) {
-const MATRIX_BINDING = "033327ab-700d-43b4-9b3b-caff1acaa2c7";
-const C6_BINDING = "64877d7d-af3f-4312-a511-699c44aa42dd";
-const LOCAL_AGENT_BINDING = "2180d453-1357-4fbc-be1a-e1e5b8fbb10a";
-const runtimeAgents = [
-  {
-    repository_id: "local-agent",
-    repository: "MichalMatu/local-agent",
-    agent_binding: LOCAL_AGENT_BINDING,
-    execution_enabled: false
-  },
-  {
-    repository_id: "matrixhub",
-    repository: "MichalMatu/MatrixHub",
-    agent_binding: MATRIX_BINDING,
-    execution_enabled: true
-  },
-  {
-    repository_id: "esp32-c6-zigbee",
-    repository: "MichalMatu/esp32_c6_zigbee",
-    agent_binding: C6_BINDING,
-    execution_enabled: true
-  }
-];
+const runtimeAgents = require("./runtime.example.json").agents;
+const bindingFor = (repositoryId) => {
+  const agent = runtimeAgents.find((item) => item.repository_id === repositoryId);
+  if (!agent) throw new Error(`missing runtime test agent: ${repositoryId}`);
+  return agent.agent_binding;
+};
+const MATRIX_BINDING = bindingFor("matrixhub");
+const TRACKER_BINDING = bindingFor("tracker");
+const LOCAL_AGENT_BINDING = bindingFor("local-agent");
+const CONTENT_PROTOCOL_VERSION = 2;
 
 const storage = options.storage || {};
 const alarms = new Map();
 const sentMessages = [];
+const tabMessages = [];
+const injectedScripts = [];
 const runtimeMessageListeners = [];
 const alarmListeners = [];
 const installedListeners = [];
@@ -78,6 +67,16 @@ const chrome = {
       return clone(tabs);
     },
     async sendMessage(tabId, message) {
+      tabMessages.push({ tabId, message: clone(message) });
+      if (message.type === "bridge:capabilities") {
+        if (options.contentScriptProbe) {
+          return options.contentScriptProbe({ tabId, message, injectedScripts, tabMessages });
+        }
+        return { ok: true, reason: "ready", protocolVersion: CONTENT_PROTOCOL_VERSION };
+      }
+      if (message.type !== "bridge:feedback") {
+        throw new Error(`unsupported tabs.sendMessage type in test: ${message.type}`);
+      }
       sentMessages.push({ tabId, message: clone(message) });
       const authorize = () => sendRuntimeMessage({
         type: "bridge:authorize-delivery", conversationUrl: message.expectedUrl,
@@ -85,8 +84,15 @@ const chrome = {
       }, { tab: { id: tabId, url: message.expectedUrl } });
       if (options.sendMessage) return options.sendMessage({ tabId, message, authorize });
       const permission = await authorize();
-      return permission.ok ? { ok: true, reason: "sent", protocolVersion: 1 }
-        : { ok: false, reason: "delivery_cancelled", protocolVersion: 1 };
+      return permission.ok ? { ok: true, reason: "sent", protocolVersion: CONTENT_PROTOCOL_VERSION }
+        : { ok: false, reason: "delivery_cancelled", protocolVersion: CONTENT_PROTOCOL_VERSION };
+    }
+  },
+  scripting: {
+    async executeScript(details) {
+      injectedScripts.push(clone(details));
+      if (options.executeScript) return options.executeScript(details);
+      return [];
     }
   },
   runtime: {
@@ -152,8 +158,6 @@ context.importScripts = (...filenames) => {
 const workerSource = fs.readFileSync(path.join(__dirname, "service_worker.js"), "utf8");
 vm.runInContext(workerSource, context, { filename: "service_worker.js" });
 
-
-
 async function sendRuntimeMessage(message, sender = { id: chrome.runtime.id, url: chrome.runtime.getURL("popup.html") }) {
   if (sender.tab) {
     sender = { id: chrome.runtime.id, frameId: 0, url: sender.tab.url, ...sender,
@@ -189,9 +193,8 @@ async function sendRuntimeMessage(message, sender = { id: chrome.runtime.id, url
   });
 }
 
-
-return { storage, alarms, sentMessages, tabs, chrome, context, sendRuntimeMessage,
-  MATRIX_BINDING, C6_BINDING, LOCAL_AGENT_BINDING, runtimeAgents,
+return { storage, alarms, sentMessages, tabMessages, injectedScripts, tabs, chrome, context, sendRuntimeMessage,
+  MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING, runtimeAgents, CONTENT_PROTOCOL_VERSION,
   evaluate: (source) => vm.runInContext(source, context),
   installed: () => installedListeners[0](), startup: () => startupListeners[0]() };
 }

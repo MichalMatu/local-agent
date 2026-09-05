@@ -1,5 +1,15 @@
-if (!globalThis.__localAgentChatBridgeLoaded) {
+(() => {
+  const CONTENT_PROTOCOL_VERSION = 2;
+  const existingBridge = globalThis.__localAgentChatBridgeState;
+  if (existingBridge?.protocolVersion === CONTENT_PROTOCOL_VERSION) return;
+  try {
+    existingBridge?.dispose?.();
+  } catch (_error) {
+    // A stale extension context may already be detached; continue with a fresh listener.
+  }
+
   globalThis.__localAgentChatBridgeLoaded = true;
+  globalThis.__localAgentChatBridgeProtocolVersion = CONTENT_PROTOCOL_VERSION;
 
   const protocol = globalThis.LocalAgentBridgeProtocol;
   if (!protocol) {
@@ -77,26 +87,46 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
   }
 
   function clearComposer(composer, insertedText) {
-    if (!composer.isConnected || composerText(composer).trim() !== insertedText.trim()) return;
+    if (!composer.isConnected || composerText(composer) !== insertedText) return;
     try {
       setComposerText(composer, "");
     } catch (_error) {
-      // Remove only our unchanged insertion; preserve user edits.
+      // Remove only our exact unchanged insertion; preserve every operator edit.
     }
   }
 
   function findSendButton(composer) {
     const selectors = [
+      "#composer-submit-button",
       'button[data-testid="send-button"]',
       'button[data-testid="composer-submit-button"]',
-      'button[type="submit"]'
+      'button[aria-label="Send prompt"]',
+      'button[aria-label="Send message"]',
+      'button[aria-label="Send"]'
     ];
-    const form = composer.closest("form") || document;
-    for (const selector of selectors) {
-      const button = form.querySelector(selector) || document.querySelector(selector);
-      if (button instanceof HTMLButtonElement && !button.disabled) return button;
+    const form = composer.closest("form");
+    const scopes = form ? [form, document] : [document];
+    for (const scope of scopes) {
+      for (const selector of selectors) {
+        const button = scope.querySelector(selector);
+        if (button instanceof HTMLButtonElement && !button.disabled) return button;
+      }
     }
     return null;
+  }
+
+  function submitComposer(composer, sendButton) {
+    const form = composer.closest("form");
+    if (
+      form instanceof HTMLFormElement &&
+      sendButton.form === form &&
+      sendButton.type === "submit" &&
+      typeof form.requestSubmit === "function"
+    ) {
+      form.requestSubmit(sendButton);
+      return;
+    }
+    sendButton.click();
   }
 
   async function waitForSendButton(composer, timeoutMs = 2000) {
@@ -145,10 +175,14 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
     } catch (error) {
       return { ok: false, reason: "composer_write_failed", error: String(error) };
     }
+    const insertedComposerText = composerText(composer);
+    if (!insertedComposerText.trim()) {
+      return { ok: false, reason: "composer_write_failed" };
+    }
 
     const sendButton = await waitForSendButton(composer);
     if (!sendButton) {
-      clearComposer(composer, prompt);
+      clearComposer(composer, insertedComposerText);
       return { ok: false, reason: "send_button_not_ready" };
     }
 
@@ -160,30 +194,29 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
       assistantBaseline: baseline
     });
     if (!authorized?.ok) {
-      clearComposer(composer, prompt);
+      clearComposer(composer, insertedComposerText);
       return { ok: false, reason: "delivery_cancelled" };
     }
     if (normalizeConversationUrl(location.href) !== normalizedUrl) {
-      clearComposer(composer, prompt);
+      clearComposer(composer, insertedComposerText);
       return { ok: false, reason: "wrong_conversation" };
     }
-    if (!composer.isConnected || findComposer() !== composer || composerText(composer).trim() !== prompt.trim()) {
+    if (!composer.isConnected || findComposer() !== composer || composerText(composer) !== insertedComposerText) {
       return { ok: false, reason: "composer_changed" };
     }
     if (assistantIsGenerating() || !sendButton.isConnected || sendButton.disabled) {
-      clearComposer(composer, prompt);
+      clearComposer(composer, insertedComposerText);
       return { ok: false, reason: "send_button_not_ready" };
     }
     const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
     const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
-    sendButton.click();
+    submitComposer(composer, sendButton);
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline) {
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
       const userMessages = document.querySelectorAll('[data-message-author-role="user"]');
       const lastUser = userMessages[userMessages.length - 1];
-      if (composer.isConnected && !composerText(composer).trim() &&
-          userMessages.length > previousUserMessages &&
+      if (userMessages.length > previousUserMessages &&
           normalizedText(lastUser?.innerText || lastUser?.textContent) === normalizedText(prompt)) {
         return { ok: true, reason: "sent" };
       }
@@ -274,8 +307,8 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
   }
 
   const observerTarget = document.body || document.documentElement;
-  if (observerTarget) {
-    const observer = new MutationObserver(scheduleControlScan);
+  const observer = observerTarget ? new MutationObserver(scheduleControlScan) : null;
+  if (observer && observerTarget) {
     observer.observe(observerTarget, {
       childList: true,
       subtree: true,
@@ -284,17 +317,44 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
   }
   scheduleControlScan();
   // Retry unchanged final controls after a transient worker/message failure.
-  setInterval(() => {
+  const controlRetryInterval = setInterval(() => {
     scanLatestAssistantControl().catch((error) => console.warn(error));
   }, 5000);
 
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  const messageListener = (message, _sender, sendResponse) => {
+    if (message?.type === "bridge:capabilities") {
+      const expectedUrl = normalizeConversationUrl(String(message.expectedUrl || ""));
+      const currentUrl = normalizeConversationUrl(location.href);
+      const ok = Boolean(expectedUrl && currentUrl === expectedUrl);
+      sendResponse({
+        ok,
+        reason: ok ? "ready" : "wrong_conversation",
+        protocolVersion: CONTENT_PROTOCOL_VERSION
+      });
+      return false;
+    }
     if (message?.type !== "bridge:feedback") return false;
     sendFeedback(String(message.prompt || ""), String(message.expectedUrl || ""), message.deliveryId)
-      .then((response) => sendResponse({ ...response, protocolVersion: 1 }))
+      .then((response) => sendResponse({ ...response, protocolVersion: CONTENT_PROTOCOL_VERSION }))
       .catch((error) =>
-        sendResponse({ ok: false, reason: "unexpected_error", error: String(error) })
+        sendResponse({
+          ok: false,
+          reason: "unexpected_error",
+          error: String(error),
+          protocolVersion: CONTENT_PROTOCOL_VERSION
+        })
       );
     return true;
-  });
-}
+  };
+  chrome.runtime.onMessage.addListener(messageListener);
+
+  globalThis.__localAgentChatBridgeState = {
+    protocolVersion: CONTENT_PROTOCOL_VERSION,
+    dispose() {
+      try { chrome.runtime.onMessage.removeListener(messageListener); } catch (_error) {}
+      try { observer?.disconnect(); } catch (_error) {}
+      if (controlScanTimer !== null) clearTimeout(controlScanTimer);
+      clearInterval(controlRetryInterval);
+    }
+  };
+})();
