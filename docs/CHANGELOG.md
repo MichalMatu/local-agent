@@ -2,6 +2,17 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `agent_version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.16.0
+
+- Refactored implementation ownership into `local_agent/` packages while keeping root compatibility shims/entrypoints where existing runtime callers still require them.
+- Added centralized `scripts/verify.py`, explicit Ruff configuration and branch-aware coverage reporting in CI.
+- Moved configuration, repository identity/hard binding, local/remote operator control and guarded entrypoint implementation into packaged owners.
+- Extracted external-resource flock/FD handling and directly tested pure scheduling policy under `local_agent/supervisor/`.
+- Replaced machine-specific tracked macOS plist files with portable generated LaunchAgent configuration and separated non-disruptive install from explicit restart.
+- Added targeted regression coverage for parallel worker admission, guarded entrypoint lifecycle, remote fail-closed operator control and diagnostics.
+- Added architecture/contributor/review documentation for the new ownership boundaries.
+- Preserved the existing planner/task, hard-binding, resource and Chat Bridge control contracts; no downstream task-contract migration is required.
+
 ## v4.15.0
 
 - Introduced hard binding between one ChatGPT conversation, one canonical `agent_binding` UUID and one exact repository identity.
