@@ -9,9 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from agent_binding import DEFAULT_CATALOG_PATH, apply_catalog_to_registry_payload
 from agent_process import atomic_write_text, fsync_directory
-from agent_repository import default_registry_path, load_repository_registry
+from local_agent.repository.binding import (
+    DEFAULT_CATALOG_PATH,
+    apply_catalog_to_registry_payload,
+)
+from local_agent.repository.context import default_registry_path, load_repository_registry
 
 STATE_DIR = Path.home() / "Library" / "Application Support" / "local-agent"
 DISABLED_PATH = STATE_DIR / "disabled.json"
