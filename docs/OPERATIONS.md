@@ -171,6 +171,14 @@ Resource acquisition is non-blocking before claim. Contention leaves the immutab
 
 For substantial staged work, prefer `workflow_policy: "efficient-verification-v1"`: `work` stages for implementation, `focused` stages for affected verification and exactly one final `full` verification stage.
 
+For Local Agent itself, use the centralized repository verifier instead of maintaining a second file list:
+
+```bash
+python scripts/verify.py
+python scripts/verify.py --only tests
+python scripts/verify.py --profile macos-smoke
+```
+
 An autonomous conversation follows one active task at a time for its own goal. Independent repositories/conversations may overlap when executor resource admission permits it.
 
 ## Multi-repository administration
@@ -220,13 +228,40 @@ Command stdout capture is bounded. Runtime limits are loaded at daemon startup.
 
 ## macOS deployment
 
-Recommended template:
+LaunchAgent definitions are generated from the current checkout and user home. The repository does not track machine-specific plist files with hard-coded `/Users/<name>/...` paths. The full workflow is documented in [`deploy/macos/README.md`](../deploy/macos/README.md).
 
-```text
-deploy/macos/com.michal.local-agent.parallel.plist
+Inspect the generated definition without changing the machine:
+
+```bash
+cd ~/local-agent
+.venv/bin/python scripts/macos_launchd.py render
 ```
 
-It runs `~/local-agent/agent_parallel.py --max-workers 2` under label `com.michal.local-agent`. Serial templates use the same label and are replacements, never additional services.
+Write/update `~/Library/LaunchAgents/com.michal.local-agent.plist` without touching the currently running service:
+
+```bash
+.venv/bin/python scripts/macos_launchd.py install \
+  --mode parallel \
+  --max-workers 2
+```
+
+Inspect the loaded service:
+
+```bash
+.venv/bin/python scripts/macos_launchd.py status
+```
+
+Only when it is safe to interrupt active work, explicitly regenerate and restart the LaunchAgent:
+
+```bash
+.venv/bin/python scripts/macos_launchd.py restart \
+  --mode parallel \
+  --max-workers 2
+```
+
+`install` and `restart` are intentionally separate operations. A configuration write must never silently interrupt an active Local Agent task.
+
+All modes use the same `com.michal.local-agent` label and are replacement configurations, never additional concurrent services. `parallel` is the production default, `multirepo` is the serial fallback and `single` is the direct daemon mode.
 
 Cold-start rollout should begin disabled. Verify:
 
