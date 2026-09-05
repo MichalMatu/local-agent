@@ -28,7 +28,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 1 };
     await ready.promise;
     const second = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
     assert.equal(second.reason, "delivery_in_progress");
-    const rebind = await h.sendRuntimeMessage({ type: "bridge:rebind-conversation", conversationId: id, binding: { agentBinding: h.C6_BINDING } });
+    const rebind = await h.sendRuntimeMessage({ type: "bridge:rebind-conversation", conversationId: id, binding: { agentBinding: h.TRACKER_BINDING } });
     assert.equal(rebind.ok, false);
     assert.match(rebind.error, /in-progress wake/);
     const remove = await h.sendRuntimeMessage({ type: "bridge:remove-conversation", conversationId: id });
@@ -99,7 +99,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 1 };
   {
     const h = createHarness(); const id = await add(h);
     for (const type of ["bridge:rebind-conversation", "bridge:save-global-settings", "bridge:remove-conversation", "bridge:run-now"]) {
-      const result = await h.sendRuntimeMessage({ type, conversationId: id, binding: { agentBinding: h.C6_BINDING } }, { tab: { id: 11, url: "https://chatgpt.com/c/a" } });
+      const result = await h.sendRuntimeMessage({ type, conversationId: id, binding: { agentBinding: h.TRACKER_BINDING } }, { tab: { id: 11, url: "https://chatgpt.com/c/a" } });
       assert.equal(result.reason, "operator_ui_required");
     }
     assert.equal(h.storage.bridgeState.conversations[id].agentBinding, h.MATRIX_BINDING);
@@ -109,7 +109,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 1 };
   {
     const h = createHarness(); const id = await add(h);
     await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
-    await h.sendRuntimeMessage({ type: "bridge:rebind-conversation", conversationId: id, binding: { agentBinding: h.C6_BINDING } });
+    await h.sendRuntimeMessage({ type: "bridge:rebind-conversation", conversationId: id, binding: { agentBinding: h.TRACKER_BINDING } });
     await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
     for (const patch of [{ bindingRevision: 1 }, { bindingRevision: 2, assistantIdentity: "old-assistant" }]) {
       const result = await h.sendRuntimeMessage({ type: "bridge:assistant-control", conversationUrl: "https://chatgpt.com/c/a", fingerprint: "abcd1234", control: { marker: "[LAB:STOP]" }, ...patch }, { tab: { id: 11, url: "https://chatgpt.com/c/a" } });
@@ -134,7 +134,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 1 };
   {
     const h = createHarness(); await add(h);
     await h.sendRuntimeMessage({ type: "bridge:upsert-conversation", conversation: {
-      url: "https://chatgpt.com/c/b", agentBinding: h.C6_BINDING, enabled: true
+      url: "https://chatgpt.com/c/b", agentBinding: h.TRACKER_BINDING, enabled: true
     } });
     assert.equal(h.alarms.size, 2);
     await h.sendRuntimeMessage({ type: "bridge:save-global-settings", settings: { masterEnabled: false } });
