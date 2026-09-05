@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import agent_core as core
-import agent_operator
+from local_agent.operator import local as agent_operator
 
 REMOTE_BRANCH = "operator-control"
 REMOTE_STATE_PATH = ".agent/operator/state.json"
