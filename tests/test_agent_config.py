@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from agent_config import load_timeout_config
+from local_agent.config import load_timeout_config
 
 
 class TimeoutConfigTests(unittest.TestCase):

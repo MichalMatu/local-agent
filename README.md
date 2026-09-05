@@ -55,7 +55,7 @@ A ChatGPT conversation can be hard-bound to one canonical repository identity. T
 - validated fast-forward self-update from a clean `main` checkout;
 - repository-scoped task cancellation and persistent global emergency disable;
 - hard Chat Bridge conversation-to-repository binding;
-- macOS `launchd` deployment templates.
+- generated, user-portable macOS `launchd` deployment.
 
 ## Production execution model
 
@@ -122,8 +122,8 @@ agent_core.py                     deterministic task execution and publication
 agent_runtime.py                  staged execution/watchdogs and runtime facade
 agent_process.py                  process groups and inherited execution leases
 agent_storage.py                  bounded control-Git helpers and diagnostics
-agent_binding.py                  canonical repository/agent identity binding
-agent_repository.py               registry and workspace identity
+agent_binding.py                  temporary root import surface for repository binding
+agent_repository.py               temporary root import surface for repository identity
 agent_repo_worker.py              isolated serial repository worker turn
 agent_multirepo.py                serial multi-repository fallback
 agent_parallel.py                 bounded parallel supervisor
@@ -134,11 +134,15 @@ agent_entrypoint.py               guarded launchd/supervisor entrypoint
 agentctl.py                       diagnostics
 agent_version.py                  release-version source of truth
 
+local_agent/config.py             runtime configuration
+local_agent/repository/           repository identity, registry and hard binding
 local_agent/runtime/              extracted runtime components
 local_agent/supervisor/           shared supervisor policy/control components
+local_agent/platform/             operating-system integration helpers
+scripts/                          verification and deployment CLIs
 chat_bridge/                      Chrome Manifest V3 planner bridge
-config/                           binding and registry examples
-deploy/macos/                     launchd deployment definitions
+config/                           binding and registry data/examples
+deploy/macos/                     generated launchd deployment documentation
 docs/                             operations, architecture records and releases
 tests/                            unit, process and temporary-Git integration tests
 ```
@@ -167,31 +171,30 @@ Each project repository keeps its own `agent-control` branch and repository-scop
 
 ## Development verification
 
-The normal verification stack is deliberately small: Python compile checks, Ruff, the Python unit/integration suite and zero-dependency Node tests for Chat Bridge.
+Repository verification has one executable entrypoint so CI, local development and documentation do not maintain divergent file lists:
 
 ```bash
-python -m py_compile \
-  agentd.py agent_binding.py agent_config.py agent_core.py agent_runtime.py \
-  agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py \
-  agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py \
-  agent_cleanup.py agent_operator.py agent_remote_operator.py agent_entrypoint.py \
-  agentctl.py agent_version.py local_agent/supervisor/control.py \
-  local_agent/supervisor/policy.py
-
-ruff check \
-  agentd.py agent_binding.py agent_config.py agent_core.py agent_runtime.py \
-  agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py \
-  agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py \
-  agent_cleanup.py agent_operator.py agent_remote_operator.py agent_entrypoint.py \
-  agentctl.py agent_version.py local_agent tests
-
-python -m unittest discover -q
-node chat_bridge/control_protocol.test.js
-node chat_bridge/bridge_state.test.js
-node chat_bridge/service_worker.test.js
+python scripts/verify.py
 ```
 
-CI additionally runs a Python 3.14 compatibility suite and a focused macOS smoke suite. Parallel releases require real two-repository overlap, machine-exclusion, inherited-resource-lock and macOS smoke evidence on the exact candidate SHA.
+Run one stage when iterating:
+
+```bash
+python scripts/verify.py --only compile
+python scripts/verify.py --only lint
+python scripts/verify.py --only bridge
+python scripts/verify.py --only tests
+```
+
+Run the focused macOS-compatible supervisor smoke profile with:
+
+```bash
+python scripts/verify.py --profile macos-smoke
+```
+
+CI additionally measures branch-aware Python coverage, runs the full test suite on Python 3.14 and runs the focused smoke suite on macOS/Python 3.13. Coverage is used to locate risk gaps; releases do not chase an arbitrary percentage at the expense of meaningful scheduler/process tests.
+
+Parallel releases require real two-repository overlap, machine-exclusion, inherited-resource-lock and macOS smoke evidence on the exact candidate SHA.
 
 ## Release flow
 
@@ -207,10 +210,28 @@ CI additionally runs a Python 3.14 compatibility suite and a focused macOS smoke
 
 ## macOS deployment
 
-The production bounded-parallel definition is `deploy/macos/com.michal.local-agent.parallel.plist`. All serial/parallel definitions use the same `com.michal.local-agent` service identity and are replacement configurations, never concurrent services.
+The LaunchAgent is generated from the current checkout and user home instead of storing machine-specific absolute paths in Git. See [`deploy/macos/README.md`](deploy/macos/README.md).
+
+Inspect the definition without changing the machine:
+
+```bash
+.venv/bin/python scripts/macos_launchd.py render
+```
+
+Install/update the plist **without restarting the running service**:
+
+```bash
+.venv/bin/python scripts/macos_launchd.py install --mode parallel --max-workers 2
+```
+
+When it is safe to interrupt active work, explicitly activate the generated definition:
+
+```bash
+.venv/bin/python scripts/macos_launchd.py restart --mode parallel --max-workers 2
+```
 
 > [!WARNING]
-> Do not start a foreground daemon while the LaunchAgent is running. All entrypoints share the same OS daemon lock.
+> `restart` is intentionally explicit and disruptive. Do not run it while an important task is active, and do not start a foreground daemon while the LaunchAgent is running. All entrypoints share the same OS daemon lock.
 
 ## Documentation
 

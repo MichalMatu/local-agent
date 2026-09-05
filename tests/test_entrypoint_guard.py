@@ -186,6 +186,13 @@ class AgentCtlStatusTests(unittest.TestCase):
 
 
 class GuardedEntrypointTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.previous_stop = agent_entrypoint._stop_requested
+        agent_entrypoint._stop_requested = False
+
+    def tearDown(self) -> None:
+        agent_entrypoint._stop_requested = self.previous_stop
+
     def test_prepare_removes_generated_bytecode_and_provisions_missing_work(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -216,6 +223,146 @@ class GuardedEntrypointTests(unittest.TestCase):
         env = popen.call_args.kwargs["env"]
         self.assertEqual(env["PYTHONDONTWRITEBYTECODE"], "1")
         self.assertTrue(popen.call_args.kwargs["start_new_session"])
+
+    def test_commands_preserve_registry_and_worker_count(self) -> None:
+        args = argparse.Namespace(registry=Path("/tmp/registry.json"), max_workers=3)
+        supervisor = agent_entrypoint.supervisor_command(args)
+        reexec = agent_entrypoint._self_reexec_args(args)
+        self.assertEqual(supervisor[-4:], ["--registry", "/tmp/registry.json", "--max-workers", "3"])
+        self.assertEqual(reexec[-4:], ["--registry", "/tmp/registry.json", "--max-workers", "3"])
+
+    def test_stop_supervisor_terminates_only_live_child(self) -> None:
+        live = mock.Mock()
+        live.poll.return_value = None
+        exited = mock.Mock()
+        exited.poll.return_value = 0
+        with mock.patch.object(agent_entrypoint, "terminate_process_group") as terminate:
+            agent_entrypoint.stop_supervisor(None)
+            agent_entrypoint.stop_supervisor(exited)
+            agent_entrypoint.stop_supervisor(live)
+        terminate.assert_called_once_with(live, agent_entrypoint.log)
+
+    def test_disabled_loop_publishes_status_without_starting_supervisor(self) -> None:
+        args = argparse.Namespace(registry=Path("/tmp/registry.json"), max_workers=2)
+
+        def stop_after_sleep(_seconds: float) -> None:
+            agent_entrypoint._stop_requested = True
+
+        with mock.patch.object(agent_entrypoint, "parse_args", return_value=args), mock.patch.object(
+            agent_entrypoint,
+            "install_signal_handlers",
+        ), mock.patch.object(
+            agent_entrypoint.agentd,
+            "self_revision",
+            return_value="rev-a",
+        ), mock.patch.object(
+            agent_entrypoint.agent_remote_operator,
+            "poll_remote_operator",
+        ), mock.patch.object(
+            agent_entrypoint.agent_operator,
+            "is_disabled",
+            return_value=True,
+        ), mock.patch.object(
+            agent_entrypoint.time,
+            "monotonic",
+            return_value=10.0,
+        ), mock.patch.object(
+            agent_entrypoint,
+            "publish_guard_status",
+        ) as publish, mock.patch.object(
+            agent_entrypoint,
+            "start_supervisor",
+        ) as start, mock.patch.object(
+            agent_entrypoint.time,
+            "sleep",
+            side_effect=stop_after_sleep,
+        ):
+            self.assertEqual(agent_entrypoint.main(), 0)
+
+        publish.assert_called_once_with("disabled", max_workers=2)
+        start.assert_not_called()
+
+    def test_enabled_loop_prepares_and_starts_supervisor_once(self) -> None:
+        args = argparse.Namespace(registry=Path("/tmp/registry.json"), max_workers=2)
+        repository = RepositoryContext(
+            repository_id="project-a",
+            repository="owner/project-a",
+            control=Path("/tmp/control"),
+            work=Path("/tmp/work"),
+            checkpoints=Path("/tmp/checkpoints"),
+        )
+        child = mock.Mock()
+
+        def stop_after_sleep(_seconds: float) -> None:
+            agent_entrypoint._stop_requested = True
+
+        with mock.patch.object(agent_entrypoint, "parse_args", return_value=args), mock.patch.object(
+            agent_entrypoint,
+            "install_signal_handlers",
+        ), mock.patch.object(
+            agent_entrypoint.agentd,
+            "self_revision",
+            return_value="rev-a",
+        ), mock.patch.object(
+            agent_entrypoint.agent_remote_operator,
+            "poll_remote_operator",
+        ), mock.patch.object(
+            agent_entrypoint.agent_operator,
+            "is_disabled",
+            return_value=False,
+        ), mock.patch.object(
+            agent_entrypoint,
+            "load_repository_registry",
+            return_value=[repository],
+        ), mock.patch.object(
+            agent_entrypoint,
+            "prepare_repositories",
+        ) as prepare, mock.patch.object(
+            agent_entrypoint,
+            "start_supervisor",
+            return_value=child,
+        ) as start, mock.patch.object(
+            agent_entrypoint,
+            "stop_supervisor",
+        ) as stop, mock.patch.object(
+            agent_entrypoint.time,
+            "sleep",
+            side_effect=stop_after_sleep,
+        ):
+            self.assertEqual(agent_entrypoint.main(), 0)
+
+        prepare.assert_called_once_with([repository])
+        start.assert_called_once_with(args)
+        stop.assert_called_once_with(child)
+
+    def test_revision_change_reexecs_guard_before_task_admission(self) -> None:
+        args = argparse.Namespace(registry=Path("/tmp/registry.json"), max_workers=2)
+        with mock.patch.object(agent_entrypoint, "parse_args", return_value=args), mock.patch.object(
+            agent_entrypoint,
+            "install_signal_handlers",
+        ), mock.patch.object(
+            agent_entrypoint.agentd,
+            "self_revision",
+            side_effect=["rev-a", "rev-b"],
+        ), mock.patch.object(
+            agent_entrypoint.agent_remote_operator,
+            "poll_remote_operator",
+        ), mock.patch.object(
+            agent_entrypoint,
+            "stop_supervisor",
+        ) as stop, mock.patch.object(
+            agent_entrypoint.os,
+            "execv",
+            side_effect=RuntimeError("reexec intercepted"),
+        ) as execv:
+            with self.assertRaisesRegex(RuntimeError, "reexec intercepted"):
+                agent_entrypoint.main()
+
+        stop.assert_called_once_with(None)
+        execv.assert_called_once_with(
+            agent_entrypoint.sys.executable,
+            agent_entrypoint._self_reexec_args(args),
+        )
 
 
 if __name__ == "__main__":

@@ -7,12 +7,14 @@
 | Goal | Read this |
 | --- | --- |
 | Operate or recover Local Agent | [`OPERATIONS.md`](OPERATIONS.md) |
+| Understand current module boundaries | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | Understand security boundaries and assumptions | [`SECURITY_MODEL.md`](SECURITY_MODEL.md) |
 | Understand repository scheduling | [`MULTI_REPOSITORY.md`](MULTI_REPOSITORY.md) |
 | Understand current production invariants | [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) |
 | Use the ChatGPT / Chat Bridge autonomous loop | [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) |
 | Stop, cancel or recover autonomous execution | [`EMERGENCY_CONTROLS.md`](EMERGENCY_CONTROLS.md) |
 | Recreate the established macOS environment | [`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md) |
+| Contribute code safely | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) |
 | Review release history | [`CHANGELOG.md`](CHANGELOG.md) |
 
 ## System map
@@ -45,6 +47,7 @@ The planner decides **what** should change. Local Agent owns deterministic, boun
 ### Runtime and operations
 
 - [`OPERATIONS.md`](OPERATIONS.md) — queues, task resources, deployment, rollback and recovery.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — package ownership, dependency direction and refactor target.
 - [`SECURITY_MODEL.md`](SECURITY_MODEL.md) — trust boundaries, enforced safety properties and explicit non-goals.
 - [`MULTI_REPOSITORY.md`](MULTI_REPOSITORY.md) — repository registry, workers and scheduling model.
 - [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) — current production invariants and accepted operating model.
@@ -57,6 +60,7 @@ The planner decides **what** should change. Local Agent owns deterministic, boun
 
 ### Development and verification
 
+- [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — setup, verification workflow and architecture guardrails.
 - [`../AGENTS.md`](../AGENTS.md) — repository ownership rules, safety invariants and release requirements.
 - [`TEST_EXECUTION_GOLDEN_PLAN.md`](TEST_EXECUTION_GOLDEN_PLAN.md) — verification design and execution evidence.
 - [`PARALLEL_EXECUTION_PLAN.md`](PARALLEL_EXECUTION_PLAN.md) — historical design/audit record for bounded parallel execution; current resource policy is defined by the operational docs above.
