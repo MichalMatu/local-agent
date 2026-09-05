@@ -4,29 +4,15 @@ const path = require("node:path");
 const vm = require("node:vm");
 function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 function createHarness(options = {}) {
-const MATRIX_BINDING = "033327ab-700d-43b4-9b3b-caff1acaa2c7";
-const TRACKER_BINDING = "be481b25-9d97-4205-b93f-95f5c5827441";
-const LOCAL_AGENT_BINDING = "2180d453-1357-4fbc-be1a-e1e5b8fbb10a";
-const runtimeAgents = [
-  {
-    repository_id: "local-agent",
-    repository: "MichalMatu/local-agent",
-    agent_binding: LOCAL_AGENT_BINDING,
-    execution_enabled: false
-  },
-  {
-    repository_id: "matrixhub",
-    repository: "MichalMatu/MatrixHub",
-    agent_binding: MATRIX_BINDING,
-    execution_enabled: true
-  },
-  {
-    repository_id: "tracker",
-    repository: "MichalMatu/tracker",
-    agent_binding: TRACKER_BINDING,
-    execution_enabled: true
-  }
-];
+const runtimeAgents = require("./runtime.example.json").agents;
+const bindingFor = (repositoryId) => {
+  const agent = runtimeAgents.find((item) => item.repository_id === repositoryId);
+  if (!agent) throw new Error(`missing runtime test agent: ${repositoryId}`);
+  return agent.agent_binding;
+};
+const MATRIX_BINDING = bindingFor("matrixhub");
+const TRACKER_BINDING = bindingFor("tracker");
+const LOCAL_AGENT_BINDING = bindingFor("local-agent");
 
 const storage = options.storage || {};
 const alarms = new Map();
