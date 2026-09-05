@@ -77,11 +77,11 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
   }
 
   function clearComposer(composer, insertedText) {
-    if (!composer.isConnected || composerText(composer).trim() !== insertedText.trim()) return;
+    if (!composer.isConnected || composerText(composer) !== insertedText) return;
     try {
       setComposerText(composer, "");
     } catch (_error) {
-      // Remove only our unchanged insertion; preserve user edits.
+      // Remove only our exact unchanged insertion; preserve every operator edit.
     }
   }
 
@@ -165,10 +165,14 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
     } catch (error) {
       return { ok: false, reason: "composer_write_failed", error: String(error) };
     }
+    const insertedComposerText = composerText(composer);
+    if (!insertedComposerText.trim()) {
+      return { ok: false, reason: "composer_write_failed" };
+    }
 
     const sendButton = await waitForSendButton(composer);
     if (!sendButton) {
-      clearComposer(composer, prompt);
+      clearComposer(composer, insertedComposerText);
       return { ok: false, reason: "send_button_not_ready" };
     }
 
@@ -180,18 +184,18 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
       assistantBaseline: baseline
     });
     if (!authorized?.ok) {
-      clearComposer(composer, prompt);
+      clearComposer(composer, insertedComposerText);
       return { ok: false, reason: "delivery_cancelled" };
     }
     if (normalizeConversationUrl(location.href) !== normalizedUrl) {
-      clearComposer(composer, prompt);
+      clearComposer(composer, insertedComposerText);
       return { ok: false, reason: "wrong_conversation" };
     }
-    if (!composer.isConnected || findComposer() !== composer || composerText(composer).trim() !== prompt.trim()) {
+    if (!composer.isConnected || findComposer() !== composer || composerText(composer) !== insertedComposerText) {
       return { ok: false, reason: "composer_changed" };
     }
     if (assistantIsGenerating() || !sendButton.isConnected || sendButton.disabled) {
-      clearComposer(composer, prompt);
+      clearComposer(composer, insertedComposerText);
       return { ok: false, reason: "send_button_not_ready" };
     }
     const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
@@ -202,8 +206,7 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
       const userMessages = document.querySelectorAll('[data-message-author-role="user"]');
       const lastUser = userMessages[userMessages.length - 1];
-      if (composer.isConnected && !composerText(composer).trim() &&
-          userMessages.length > previousUserMessages &&
+      if (userMessages.length > previousUserMessages &&
           normalizedText(lastUser?.innerText || lastUser?.textContent) === normalizedText(prompt)) {
         return { ok: true, reason: "sent" };
       }
