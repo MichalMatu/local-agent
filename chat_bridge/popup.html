@@ -7,79 +7,108 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <main>
-      <div class="heading-row">
-        <div>
-          <h1>Local Agent Chat Bridge</h1>
-          <p class="muted">Hard-bound multi-chat autonomous wake scheduler</p>
+    <main class="app-shell">
+      <header class="app-header glass-bar">
+        <div class="brand-block">
+          <span class="brand-orb" aria-hidden="true"></span>
+          <div>
+            <h1>Local Agent</h1>
+            <p>Chat Bridge</p>
+          </div>
         </div>
-        <label class="switch-row compact">
-          <input id="masterEnabled" type="checkbox" />
+        <label class="master-control" title="Enable or pause all scheduled wakes">
           <span>Master</span>
+          <input id="masterEnabled" type="checkbox" aria-label="Master scheduler" />
+          <span class="master-track" aria-hidden="true"><span></span></span>
         </label>
+      </header>
+
+      <div class="content-scroll">
+        <section class="glass-panel current-chat-panel">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">Current chat</span>
+              <p id="currentTitle" class="current-chat-title">Detecting current conversation...</p>
+            </div>
+            <span
+              class="info-icon"
+              role="img"
+              aria-label="Binding information"
+              title="A conversation cannot run until it is explicitly bound to exactly one agent UUID and repository. Existing bindings can change only by removing the chat and adding it again."
+            >ⓘ</span>
+          </div>
+          <p id="currentUrl" class="current-url ellipsis">Open a concrete ChatGPT conversation.</p>
+          <div class="current-chat-controls">
+            <label class="field-label" for="currentAgent">Repository</label>
+            <select id="currentAgent"></select>
+            <button id="addCurrent" class="primary-button" type="button">Add current chat</button>
+          </div>
+        </section>
+
+        <section class="conversation-section">
+          <div class="section-title-row">
+            <div>
+              <span class="eyebrow">Scheduler</span>
+              <h2>Conversations</h2>
+            </div>
+            <span id="conversationCount" class="count-pill">0</span>
+          </div>
+          <div id="conversationList" class="conversation-list"></div>
+        </section>
+
+        <details class="glass-panel settings-panel">
+          <summary>
+            <span>Advanced settings</span>
+            <span class="chevron" aria-hidden="true">›</span>
+          </summary>
+
+          <div class="settings-body">
+            <label class="field-label" for="runtimeUrl">Remote runtime URL</label>
+            <input id="runtimeUrl" type="url" />
+
+            <div class="two-column">
+              <div>
+                <label class="field-label" for="fallbackInterval">Default interval</label>
+                <div class="input-with-unit"><input id="fallbackInterval" type="number" min="1" max="1440" /><span>min</span></div>
+              </div>
+              <div>
+                <label class="field-label" for="fallbackRetry">Busy retry</label>
+                <div class="input-with-unit"><input id="fallbackRetry" type="number" min="1" max="60" /><span>min</span></div>
+              </div>
+            </div>
+
+            <label class="field-label" for="fallbackWakePrompt">Compact wake prompt</label>
+            <textarea id="fallbackWakePrompt" rows="3" maxlength="2000"></textarea>
+
+            <label class="field-label" for="fallbackBootstrapPrompt">One-time bootstrap prompt</label>
+            <textarea id="fallbackBootstrapPrompt" rows="5" maxlength="8000"></textarea>
+
+            <div class="settings-footer">
+              <button id="saveGlobal" class="secondary-button" type="button">Save settings</button>
+              <div class="runtime-status">
+                <span><strong id="runtimeSource">-</strong> runtime</span>
+                <span><strong id="runtimeInterval">-</strong> default</span>
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
 
-      <section class="panel current-chat-panel">
-        <div class="panel-title-row">
-          <h2>Current chat</h2>
-          <span
-            class="info-icon"
-            role="img"
-            aria-label="Binding information"
-            title="A conversation cannot run until it is explicitly bound to exactly one agent UUID and repository. Existing bindings can change only through the Rebind action."
-          >ⓘ</span>
-        </div>
-        <p id="currentTitle" class="current-chat-title">Detecting current conversation...</p>
-        <p id="currentUrl" class="muted ellipsis">Open a concrete ChatGPT conversation.</p>
-        <label for="currentAgent">Bound agent / repository</label>
-        <select id="currentAgent"></select>
-        <div class="actions">
-          <button id="addCurrent" type="button">Add current chat</button>
-        </div>
-      </section>
-
-      <section>
-        <div class="section-title-row">
-          <h2>Conversations</h2>
-          <span id="conversationCount" class="badge">0</span>
-        </div>
-        <div id="conversationList" class="conversation-list"></div>
-      </section>
-
-      <details class="panel settings-panel">
-        <summary>Global configuration</summary>
-
-        <label for="runtimeUrl">Remote runtime URL</label>
-        <input id="runtimeUrl" type="url" />
-
-        <div class="two-column">
-          <div>
-            <label for="fallbackInterval">Default interval (min)</label>
-            <input id="fallbackInterval" type="number" min="1" max="1440" />
-          </div>
-          <div>
-            <label for="fallbackRetry">Busy retry (min)</label>
-            <input id="fallbackRetry" type="number" min="1" max="60" />
-          </div>
-        </div>
-
-        <label for="fallbackWakePrompt">Compact wake prompt</label>
-        <textarea id="fallbackWakePrompt" rows="3" maxlength="2000"></textarea>
-
-        <label for="fallbackBootstrapPrompt">One-time bootstrap prompt</label>
-        <textarea id="fallbackBootstrapPrompt" rows="7" maxlength="8000"></textarea>
-
-        <div class="actions">
-          <button id="saveGlobal" type="button">Save global settings</button>
-        </div>
-        <div class="runtime-status">
-          <span><strong>Runtime:</strong> <span id="runtimeSource">-</span></span>
-          <span><strong>Default:</strong> <span id="runtimeInterval">-</span></span>
-        </div>
-      </details>
-
-      <p id="message" role="status"></p>
+      <p id="message" class="toast-line" role="status" aria-live="polite"></p>
     </main>
+
+    <dialog id="confirmDialog" class="confirm-dialog">
+      <form method="dialog" class="confirm-card">
+        <div class="dialog-icon" aria-hidden="true">!</div>
+        <h3 id="confirmTitle">Confirm action</h3>
+        <p id="confirmMessage"></p>
+        <div class="dialog-actions">
+          <button id="confirmCancel" class="secondary-button" value="cancel" type="submit">Cancel</button>
+          <button id="confirmAccept" class="danger-button" value="confirm" type="submit">Remove</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="control_protocol.js"></script>
     <script src="popup.js"></script>
   </body>
