@@ -1,3 +1,7 @@
-"""Single source of truth for the local-agent release version."""
+"""Compatibility module alias for packaged release version."""
 
-RELEASE_VERSION = "4.16.0"
+import sys
+
+from local_agent import version as _implementation
+
+sys.modules[__name__] = _implementation
