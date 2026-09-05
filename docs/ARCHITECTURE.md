@@ -76,9 +76,9 @@ Root `agent_*.py` files are now either production executables/orchestrators or d
 | Progress | `local_agent/runtime/progress.py` | validated progress markers/publication |
 | Telemetry | `local_agent/runtime/telemetry.py` | host/process telemetry and RSS sampling |
 | Supervisor policy | `local_agent/supervisor/policy.py` | shared polling/control policy |
-| Scheduling policy | `local_agent/supervisor/scheduling.py` | pure retry/due/backoff/max-worker decisions |
+| Scheduling extraction target | `local_agent/supervisor/scheduling.py` | pure retry/due/backoff/max-worker model kept in parity with the released orchestrator |
 | Resource admission primitives | `local_agent/supervisor/resources.py` | machine/named-resource flock arbitration and inherited resource FDs |
-| Parallel orchestration | `agent_parallel.py` | released process/control/status orchestration around packaged policy/resources |
+| Parallel orchestration | `agent_parallel.py` | released process/control/status orchestration and current production scheduling semantics |
 | macOS integration | `local_agent/platform/macos_launchd.py` | portable LaunchAgent generation/lifecycle helpers |
 
 ## Dependency direction
@@ -101,12 +101,13 @@ Package modules should not depend upward on convenience wrappers in the reposito
 
 ### Remaining foundation seams
 
-The v4.16 refactor intentionally does not perform a high-risk rewrite of the low-level process/core foundation immediately before deployment:
+The v4.16 refactor intentionally does not perform a high-risk rewrite of the low-level process/core/supervisor foundation immediately before deployment:
 
 - `local_agent/operator/local.py` uses root process durability helpers;
 - `local_agent/operator/remote.py` uses the current root core process/log interface;
 - `local_agent/supervisor/resources.py` uses the current root process lease primitives;
-- process/control/status orchestration still lives in `agent_parallel.py`, while retry/due/backoff/max-worker policy and resource locking now have packaged owners.
+- process/control/status orchestration and released retry/due/backoff scheduling behavior still live in `agent_parallel.py`;
+- `local_agent/supervisor/scheduling.py` is the directly tested extraction target, with parity tests preventing silent drift until a later focused rewire.
 
 These seams are explicit and tested. Future decomposition should move them in small behavior-preserving steps rather than by copying the entire supervisor at once.
 
@@ -134,26 +135,27 @@ agent_version.py          release version
 
 1. command-line parsing and startup;
 2. process spawning/reaping;
-3. repository ordering/admission;
-4. global control draining/probing;
-5. status publication;
-6. local log maintenance;
-7. shutdown/signal handling.
+3. retry/backoff scheduling;
+4. repository ordering/admission;
+5. global control draining/probing;
+6. status publication;
+7. local log maintenance;
+8. shutdown/signal handling.
 
-Pure scheduling decisions and resource-lock primitives have been extracted first:
+The first decomposition steps are already isolated and directly tested:
 
 ```mermaid
 flowchart LR
     Orchestrator["agent_parallel.py"]
     Orchestrator --> Policy["supervisor/policy.py"]
     Orchestrator --> Resources["supervisor/resources.py"]
-    Orchestrator --> Scheduling["supervisor/scheduling.py"]
+    Orchestrator -.parity-tested extraction target.-> Scheduling["supervisor/scheduling.py"]
     Orchestrator --> Control["supervisor/control.py"]
     Orchestrator -.future.-> Processes["supervisor/processes.py"]
     Orchestrator -.future.-> Status["supervisor/status.py"]
 ```
 
-This is deliberate: pure policy and resource boundaries are easy to prove with focused tests, while a wholesale movement of process/Git orchestration would create unnecessary deployment risk.
+Resource locking is already used by the runtime. Pure scheduling policy has been extracted and placed under parity tests first, but the released orchestrator remains the production owner until a separate focused rewire removes the duplicate implementation. This avoids a large late-stage rewrite while making future extraction mechanically checkable.
 
 ## Safety invariants that module movement must not weaken
 
@@ -212,6 +214,7 @@ The architecture refactor is release-ready when all of the following are true:
 - package ownership in this document matches code reality;
 - retained root aliases are explicitly classified as compatibility surfaces rather than implementation owners;
 - no package module imports a root compatibility wrapper when a packaged dependency already exists;
+- extracted-but-not-yet-rewired scheduling behavior is protected by explicit parity tests against the released orchestrator;
 - exact-candidate compile/lint/full tests are green;
 - Python 3.14 compatibility is green;
 - macOS smoke is green;
