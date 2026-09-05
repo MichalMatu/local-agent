@@ -21,7 +21,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install lint tooling
-        run: python -m pip install --disable-pip-version-check ruff==0.16.6
+        run: python -m pip install --disable-pip-version-check ruff==0.12.11
       - name: Compile
         run: python -m py_compile agentd.py agent_binding.py agent_config.py agent_core.py agent_runtime.py agent_process.py agent_repository.py agent_repo_worker.py agent_multirepo.py agent_parallel.py agent_parallel_worker.py agent_repo_admin.py agent_storage.py agent_cleanup.py agent_operator.py agent_remote_operator.py agent_entrypoint.py agentctl.py agent_version.py local_agent/supervisor/control.py local_agent/supervisor/policy.py
       - name: Lint
