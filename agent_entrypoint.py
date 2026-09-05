@@ -12,12 +12,12 @@ import time
 from pathlib import Path
 
 import agent_operator
-import agent_remote_operator
 import agentd
 from agent_process import terminate_process_group
 from agent_repo_admin import provision_repository
 from agent_repository import RepositoryContext, load_repository_registry
 from agent_version import RELEASE_VERSION
+from local_agent.operator import remote as agent_remote_operator
 
 LOOP_SECONDS = 0.5
 DISABLED_STATUS_SECONDS = 5.0
