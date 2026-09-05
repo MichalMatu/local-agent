@@ -6,9 +6,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_repo_admin as admin
-import agent_storage as storage
-from agent_repository import RepositoryContext
+import local_agent.repository.admin as admin
+import local_agent.foundation.storage as storage
+from local_agent.repository.context import RepositoryContext
 
 
 def repository(root: Path) -> RepositoryContext:

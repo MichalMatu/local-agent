@@ -58,7 +58,7 @@ Before re-enabling after a destructive remote queue reset, clear local ephemeral
 
 ```bash
 cd ~/local-agent
-.venv/bin/python agent_operator.py reset-runtime
+.venv/bin/python -m local_agent.operator.local reset-runtime
 ```
 
 The command refuses to run unless the persistent disable marker exists. It clears only local ephemeral runtime (`claims`, `corrupt-claims`, `runs`, `result-spool`, repository status), not repositories, checkpoints, registry configuration, or the disable marker.
@@ -66,19 +66,19 @@ The command refuses to run unless the persistent disable marker exists. It clear
 Re-enable explicitly on the Mac only after the remote operator desired state is `enabled`:
 
 ```bash
-.venv/bin/python agent_operator.py enable
+.venv/bin/python -m local_agent.operator.local enable
 ```
 
 Inspect state:
 
 ```bash
-.venv/bin/python agent_operator.py status
+.venv/bin/python -m local_agent.operator.local status
 ```
 
 Disable locally:
 
 ```bash
-.venv/bin/python agent_operator.py disable --reason operator_cli
+.venv/bin/python -m local_agent.operator.local disable --reason operator_cli
 ```
 
 ## Startup repair

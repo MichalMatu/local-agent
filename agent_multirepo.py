@@ -1,16 +1,7 @@
 #!/usr/bin/env python3
-"""Root launcher and compatibility alias for the packaged serial supervisor."""
-from __future__ import annotations
+"""Operational launcher for local_agent.supervisor.serial."""
 
-import sys
-
-from local_agent.supervisor import serial as _implementation
-
-# Preserve the historical root-derived worker/restart paths until the packaged
-# serial supervisor owns explicit repo-root path resolution.
-_implementation.__file__ = __file__
+from local_agent.supervisor.serial import main
 
 if __name__ == "__main__":
-    raise SystemExit(_implementation.main())
-
-sys.modules[__name__] = _implementation
+    raise SystemExit(main())

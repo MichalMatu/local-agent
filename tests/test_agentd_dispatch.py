@@ -5,8 +5,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agentd
-from agent_process import LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV
+import local_agent.daemon.service as agentd
+from local_agent.foundation.process import LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV
 
 
 class AgentEntrypointDispatchTests(unittest.TestCase):

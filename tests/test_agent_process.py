@@ -9,8 +9,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_process
-from agent_process import (
+import local_agent.foundation.process as agent_process
+from local_agent.foundation.process import (
     BoundedTextBuffer,
     ExecutionLeaseBusy,
     acquire_execution_leases,
@@ -56,12 +56,12 @@ class ProcessGroupTests(unittest.TestCase):
         proc.pid = 123
         setattr(proc, "_local_agent_process_group", 456)
         log = mock.Mock()
-        with mock.patch("agent_process.os.getpgrp", return_value=999), mock.patch(
-            "agent_process.os.killpg"
+        with mock.patch("local_agent.foundation.process.os.getpgrp", return_value=999), mock.patch(
+            "local_agent.foundation.process.os.killpg"
         ) as killpg, mock.patch(
-            "agent_process.process_group_alive", side_effect=[True, True, True]
-        ), mock.patch("agent_process.time.monotonic", side_effect=[0.0, 0.0, 1.0]), mock.patch(
-            "agent_process.time.sleep"
+            "local_agent.foundation.process.process_group_alive", side_effect=[True, True, True]
+        ), mock.patch("local_agent.foundation.process.time.monotonic", side_effect=[0.0, 0.0, 1.0]), mock.patch(
+            "local_agent.foundation.process.time.sleep"
         ):
             terminate_process_group(proc, log, grace_seconds=0.5)
 
@@ -92,10 +92,10 @@ class ProcessGroupTests(unittest.TestCase):
         proc = mock.Mock(spec=subprocess.Popen)
         proc.pid = 12345
         proc.poll.return_value = -signal.SIGKILL
-        with mock.patch("agent_process.subprocess.Popen", return_value=proc):
+        with mock.patch("local_agent.foundation.process.subprocess.Popen", return_value=proc):
             agent_process.popen_registered(["ignored"], start_new_session=True)
-        with mock.patch("agent_process.os.getpgrp", return_value=99999), mock.patch(
-            "agent_process.os.killpg",
+        with mock.patch("local_agent.foundation.process.os.getpgrp", return_value=99999), mock.patch(
+            "local_agent.foundation.process.os.killpg",
             side_effect=PermissionError(1, "operation not permitted"),
         ):
             self.assertEqual(
@@ -123,7 +123,7 @@ class ProcessGroupTests(unittest.TestCase):
 
         signal.signal(signal.SIGUSR1, handler)
         try:
-            with mock.patch("agent_process.subprocess.Popen", side_effect=spawn):
+            with mock.patch("local_agent.foundation.process.subprocess.Popen", side_effect=spawn):
                 with self.assertRaisesRegex(SystemExit, str(128 + signal.SIGUSR1)):
                     agent_process.popen_registered(
                         ["ignored"],
@@ -151,7 +151,7 @@ class ProcessGroupTests(unittest.TestCase):
 
         signal.signal(signal.SIGUSR1, handler)
         try:
-            with mock.patch("agent_process.subprocess.Popen", return_value=proc):
+            with mock.patch("local_agent.foundation.process.subprocess.Popen", return_value=proc):
                 with self.assertRaisesRegex(SystemExit, str(128 + signal.SIGUSR1)):
                     with termination_critical_section():
                         os.kill(os.getpid(), signal.SIGUSR1)
@@ -186,7 +186,7 @@ class ExecutionLeaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             lock_dir = Path(tmp) / "locks"
             with mock.patch(
-                "agent_process.os.fsync",
+                "local_agent.foundation.process.os.fsync",
                 side_effect=OSError("fsync failed"),
             ):
                 with self.assertRaisesRegex(OSError, "fsync failed"):
@@ -208,7 +208,7 @@ class ExecutionLeaseTests(unittest.TestCase):
             env[agent_process.RESOURCE_LEASE_FDS_ENV] = str(resource_fd)
             try:
                 with mock.patch(
-                    "agent_process.subprocess.Popen", return_value=proc
+                    "local_agent.foundation.process.subprocess.Popen", return_value=proc
                 ) as popen:
                     spawned = agent_process.popen_registered(["ignored"], env=env)
                 self.assertEqual(

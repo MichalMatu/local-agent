@@ -7,9 +7,9 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_multirepo as multi
-from agent_repo_worker import WORKER_IDLE, WORKER_PROCESSED
-from agent_repository import RepositoryContext
+import local_agent.supervisor.serial as multi
+from local_agent.repository.worker import WORKER_IDLE, WORKER_PROCESSED
+from local_agent.repository.context import RepositoryContext
 
 
 def repository(repository_id: str) -> RepositoryContext:
@@ -103,8 +103,8 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             registry = Path(tmp) / "repositories.json"
             command = multi.worker_command(repository("a"), registry_path=registry)
-        self.assertIn("agent_repo_worker.py", command[1])
-        self.assertEqual(command[2:4], ["--repository-id", "a"])
+        self.assertEqual(command[1:3], ["-m", "local_agent.repository.worker"])
+        self.assertEqual(command[3:5], ["--repository-id", "a"])
         self.assertIn("--expected-config-digest", command)
         self.assertEqual(command[-2:], ["--registry", str(registry)])
 

@@ -5,7 +5,7 @@ This file records the current production invariants for `MichalMatu/local-agent`
 ## Release/runtime invariants
 
 - `main` is the production source of truth and normal installed runtime checkout.
-- `agent_version.RELEASE_VERSION` matches the release tag `vX.Y.Z`.
+- `local_agent.version.RELEASE_VERSION` matches the release tag `vX.Y.Z`.
 - `v*-staging` branches/worktrees are temporary candidate-validation infrastructure and are removed after a release is established.
 - The production multi-repository scheduler is `agent_parallel.py --max-workers 2`.
 - `agent_multirepo.py` remains the unchanged serial fallback with concurrency one.

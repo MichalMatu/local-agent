@@ -16,17 +16,20 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from local_agent.paths import repository_root
+
 from local_agent.supervisor import control as supervisor_control
 from local_agent.supervisor import policy as supervisor_policy
-import agent_operator
-import agent_repo_worker as serial_worker
-import agentd
-from agent_parallel_worker import (
+from local_agent.supervisor import scheduling
+import local_agent.operator.local as agent_operator
+import local_agent.repository.worker as serial_worker
+import local_agent.daemon.service as agentd
+from local_agent.supervisor.worker import (
     PARALLEL_DAEMON_VERSION,
     WORKER_MACHINE_BUSY,
     WORKER_RESOURCE_BUSY,
 )
-from agent_process import (
+from local_agent.foundation.process import (
     LEASE_FDS_ENV,
     LEASE_KEYS_DIGEST_ENV,
     RESOURCE_LEASE_FDS_ENV,
@@ -38,30 +41,18 @@ from agent_process import (
     terminate_process_group,
     unregister_process,
 )
-from agent_repository import (
+from local_agent.repository.context import (
     RepositoryContext,
     load_repository_registry,
     repository_config_digest,
     repository_lease_keys,
 )
 
-MAX_WORKERS_ENV = "LOCAL_AGENT_MAX_PARALLEL_WORKERS"
-DEFAULT_MAX_WORKERS = 1
-MAX_MAX_WORKERS = 3
 REAP_INTERVAL_SECONDS = 0.25
 DISABLED_POLL_SECONDS = 0.5
 REPOSITORY_RETRY_SECONDS = 1.0
-RESOURCE_RETRY_BACKOFF_SECONDS = (2.0, 5.0, 10.0, 30.0, 60.0)
 ERROR_RETRY_SECONDS = 1.0
-WORKER_FAILURE_RETRY_BASE_SECONDS = 2.0
-WORKER_FAILURE_RETRY_MAX_SECONDS = 300.0
-CONTROL_DEFER_RETRY_BASE_SECONDS = 2.0
-CONTROL_DEFER_RETRY_MAX_SECONDS = 15.0
-CONTROL_LEASE_BUSY_DRAIN_ATTEMPTS = 6
-REPEATED_FAILURE_LOG_SECONDS = 60.0
 MAX_ONCE_DEFERRALS = 120
-OPERATOR_IDLE_HEARTBEAT_SECONDS = 300.0
-LOCAL_LOG_MAINTENANCE_SECONDS = 30.0
 LOCAL_LOG_MAX_BYTES = 2 * 1024 * 1024
 LOCAL_LOG_KEEP_BYTES = 1024 * 1024
 LOCAL_STDOUT_LOG_PATH = Path.home() / "Library" / "Logs" / "local-agent.log"
@@ -75,17 +66,6 @@ class ControlProbeResult(Enum):
     PENDING = "pending"
     LEASE_BUSY = "lease_busy"
     DEFERRED = "deferred"
-
-
-@dataclass
-class RepositorySchedule:
-    last_poll_at: float | None = None
-    last_activity_at: float | None = None
-    retry_not_before: float = 0.0
-    consecutive_failures: int = 0
-    last_failure_code: int | None = None
-    last_failure_log_at: float | None = None
-    resource_deferrals: int = 0
 
 
 @dataclass
@@ -109,31 +89,6 @@ def supervisor_status_fields(
         "max_parallel_workers": max_workers,
         "supervisor_control_repository": control_repository.repository_id,
     }
-
-
-def format_operator_idle_summary(repository_count: int, max_workers: int) -> str:
-    noun = "repository" if repository_count == 1 else "repositories"
-    return (
-        f"IDLE no active task ({repository_count} {noun}); "
-        f"max_workers={max_workers}"
-    )
-
-
-def operator_idle_log_due(last_idle_log_at: float | None, now: float) -> bool:
-    return (
-        last_idle_log_at is None
-        or now - last_idle_log_at >= OPERATOR_IDLE_HEARTBEAT_SECONDS
-    )
-
-
-def local_log_maintenance_due(
-    last_maintenance_at: float | None,
-    now: float,
-) -> bool:
-    return (
-        last_maintenance_at is None
-        or now - last_maintenance_at >= LOCAL_LOG_MAINTENANCE_SECONDS
-    )
 
 
 def compact_inherited_log_file(
@@ -201,69 +156,6 @@ def maintain_local_log_files() -> tuple[str, ...]:
     return tuple(compacted)
 
 
-def bounded_retry_seconds(attempt: int, *, base: float, maximum: float) -> float:
-    if attempt <= 0:
-        return 0.0
-    return min(maximum, base * (2 ** min(attempt - 1, 16)))
-
-
-def resource_retry_seconds(attempt: int) -> float:
-    if attempt <= 0:
-        return 0.0
-    index = min(attempt - 1, len(RESOURCE_RETRY_BACKOFF_SECONDS) - 1)
-    return RESOURCE_RETRY_BACKOFF_SECONDS[index]
-
-
-def worker_failure_retry_seconds(attempt: int) -> float:
-    return bounded_retry_seconds(
-        attempt,
-        base=WORKER_FAILURE_RETRY_BASE_SECONDS,
-        maximum=WORKER_FAILURE_RETRY_MAX_SECONDS,
-    )
-
-
-def control_defer_retry_seconds(attempt: int) -> float:
-    return bounded_retry_seconds(
-        attempt,
-        base=CONTROL_DEFER_RETRY_BASE_SECONDS,
-        maximum=CONTROL_DEFER_RETRY_MAX_SECONDS,
-    )
-
-
-def control_lease_busy_should_force_drain(attempt: int) -> bool:
-    return attempt >= CONTROL_LEASE_BUSY_DRAIN_ATTEMPTS
-
-
-def repeated_failure_log_due(last_log_at: float | None, now: float) -> bool:
-    return last_log_at is None or now - last_log_at >= REPEATED_FAILURE_LOG_SECONDS
-
-
-def reset_worker_failure_state(schedule: RepositorySchedule) -> None:
-    schedule.consecutive_failures = 0
-    schedule.last_failure_code = None
-    schedule.last_failure_log_at = None
-
-
-def reset_resource_deferral_state(schedule: RepositorySchedule) -> None:
-    schedule.resource_deferrals = 0
-
-
-def resolve_max_workers(cli_value: int | None) -> int:
-    raw: object = cli_value if cli_value is not None else os.environ.get(
-        MAX_WORKERS_ENV,
-        str(DEFAULT_MAX_WORKERS),
-    )
-    try:
-        value = int(raw)
-    except (TypeError, ValueError):
-        raise ValueError(f"invalid {MAX_WORKERS_ENV}: {raw!r}") from None
-    if value < 1 or value > MAX_MAX_WORKERS:
-        raise ValueError(
-            f"{MAX_WORKERS_ENV} must be 1..{MAX_MAX_WORKERS}, got {value}"
-        )
-    return value
-
-
 def worker_command(
     repository: RepositoryContext,
     *,
@@ -271,7 +163,8 @@ def worker_command(
 ) -> list[str]:
     command = [
         sys.executable,
-        str(Path(__file__).resolve().with_name("agent_parallel_worker.py")),
+        "-m",
+        "local_agent.supervisor.worker",
         "--repository-id",
         repository.repository_id,
         "--expected-config-digest",
@@ -295,7 +188,7 @@ def start_worker(
             env["LOCAL_AGENT_SUPERVISOR_PID"] = str(os.getpid())
             proc = popen_registered(
                 worker_command(repository, registry_path=registry_path),
-                cwd=Path(__file__).resolve().parent,
+                cwd=repository_root(),
                 env=env,
                 text=True,
                 start_new_session=True,
@@ -314,7 +207,7 @@ def start_worker(
 
 def reap_workers(
     running: dict[str, RunningWorker],
-    schedules: dict[str, RepositorySchedule],
+    schedules: dict[str, scheduling.RepositorySchedule],
 ) -> dict[str, int]:
     completed: dict[str, int] = {}
     now = time.monotonic()
@@ -337,7 +230,7 @@ def reap_workers(
         unregister_process(slot.proc)
         del running[repository_id]
         completed[repository_id] = return_code
-        schedule = schedules.setdefault(repository_id, RepositorySchedule())
+        schedule = schedules.setdefault(repository_id, scheduling.RepositorySchedule())
         completed_at = time.monotonic()
 
         normal = {
@@ -349,11 +242,11 @@ def reap_workers(
             serial_worker.WORKER_CONFIG_CHANGED,
         }
         if return_code in normal:
-            reset_worker_failure_state(schedule)
+            scheduling.reset_worker_failure_state(schedule)
 
         if return_code in {WORKER_MACHINE_BUSY, WORKER_RESOURCE_BUSY}:
             schedule.resource_deferrals += 1
-            retry = resource_retry_seconds(schedule.resource_deferrals)
+            retry = scheduling.resource_retry_seconds(schedule.resource_deferrals)
             schedule.retry_not_before = completed_at + retry
             kind = "machine exclusion" if return_code == WORKER_MACHINE_BUSY else "named resource"
             log(
@@ -362,7 +255,7 @@ def reap_workers(
             )
             continue
 
-        reset_resource_deferral_state(schedule)
+        scheduling.reset_resource_deferral_state(schedule)
         if return_code == serial_worker.WORKER_PROCESSED:
             schedule.last_activity_at = completed_at
             schedule.retry_not_before = 0.0
@@ -382,9 +275,9 @@ def reap_workers(
                 schedule.consecutive_failures = 1
                 schedule.last_failure_code = return_code
                 schedule.last_failure_log_at = None
-            retry = worker_failure_retry_seconds(schedule.consecutive_failures)
+            retry = scheduling.worker_failure_retry_seconds(schedule.consecutive_failures)
             schedule.retry_not_before = completed_at + retry
-            if repeated_failure_log_due(schedule.last_failure_log_at, completed_at):
+            if scheduling.repeated_failure_log_due(schedule.last_failure_log_at, completed_at):
                 log(
                     f"repository worker failed repository={repository_id} "
                     f"exit={return_code} consecutive={schedule.consecutive_failures} "
@@ -407,31 +300,6 @@ def record_once_deferral(
     if count >= limit:
         failed.add(repository_id)
     return count
-
-
-def repository_due(schedule: RepositorySchedule, now: float) -> bool:
-    if schedule.retry_not_before > 0.0:
-        return now >= schedule.retry_not_before
-    _, interval = supervisor_policy.adaptive_poll_tier(schedule.last_activity_at, now)
-    return supervisor_policy.interval_due(schedule.last_poll_at, interval, now)
-
-
-def next_repository_delay(
-    schedules: dict[str, RepositorySchedule],
-    repositories: list[RepositoryContext],
-    now: float,
-) -> float:
-    if not repositories:
-        return supervisor_policy.POLL_SECONDS
-    delays: list[float] = []
-    for repository in repositories:
-        schedule = schedules.setdefault(repository.repository_id, RepositorySchedule())
-        if schedule.retry_not_before > 0.0:
-            delays.append(max(0.0, schedule.retry_not_before - now))
-            continue
-        _, interval = supervisor_policy.adaptive_poll_tier(schedule.last_activity_at, now)
-        delays.append(supervisor_policy.interval_remaining(schedule.last_poll_at, interval, now))
-    return min(delays)
 
 
 def _restore_env_value(target: dict[str, str], name: str, previous: str | None) -> None:
@@ -484,7 +352,7 @@ def restart_parallel_supervisor(
         os.environ.pop(name, None)
         agentd.core.ENV.pop(name, None)
 
-    command = [sys.executable, str(Path(__file__).resolve())]
+    command = [sys.executable, str(repository_root() / "agent_parallel.py")]
     if registry_path is not None:
         command.extend(["--registry", str(registry_path)])
     command.extend(["--max-workers", str(max_workers)])
@@ -713,7 +581,7 @@ def main() -> int:
     global _daemon_lock_handle
     args = parse_args()
     try:
-        max_workers = resolve_max_workers(args.max_workers)
+        max_workers = scheduling.resolve_max_workers(args.max_workers)
     except ValueError as exc:
         log(str(exc))
         return 2
@@ -722,7 +590,7 @@ def main() -> int:
     install_signal_handlers()
 
     running: dict[str, RunningWorker] = {}
-    schedules: dict[str, RepositorySchedule] = {}
+    schedules: dict[str, scheduling.RepositorySchedule] = {}
     last_repository: str | None = None
     last_control_at: float | None = None
     control_retry_not_before = 0.0
@@ -774,9 +642,9 @@ def main() -> int:
         nonlocal control_defer_count, control_retry_not_before, last_control_defer_log_at
         control_defer_count += 1
         now = time.monotonic()
-        retry = control_defer_retry_seconds(control_defer_count)
+        retry = scheduling.control_defer_retry_seconds(control_defer_count)
         control_retry_not_before = now + retry
-        if emit_log and repeated_failure_log_due(last_control_defer_log_at, now):
+        if emit_log and scheduling.repeated_failure_log_due(last_control_defer_log_at, now):
             log(f"{message}; consecutive={control_defer_count} retry_in={retry:.0f}s")
             last_control_defer_log_at = now
         return retry
@@ -846,7 +714,7 @@ def main() -> int:
             schedules = {
                 repository.repository_id: schedules.get(
                     repository.repository_id,
-                    RepositorySchedule(),
+                    scheduling.RepositorySchedule(),
                 )
                 for repository in repositories
             }
@@ -926,7 +794,7 @@ def main() -> int:
                             "global control probe deferred; control repository lease busy",
                             emit_log=False,
                         )
-                        if control_lease_busy_should_force_drain(control_defer_count):
+                        if scheduling.control_lease_busy_should_force_drain(control_defer_count):
                             control_pending = True
                             log(
                                 "global control probe lease busy repeatedly; "
@@ -965,7 +833,7 @@ def main() -> int:
             now = time.monotonic()
             if (
                 not running
-                and local_log_maintenance_due(last_log_maintenance_at, now)
+                and scheduling.local_log_maintenance_due(last_log_maintenance_at, now)
             ):
                 compacted_logs = maintain_local_log_files()
                 last_log_maintenance_at = now
@@ -1021,7 +889,7 @@ def main() -> int:
                         ):
                             continue
                         schedule = schedules[repository.repository_id]
-                        if not args.once and not repository_due(schedule, now):
+                        if not args.once and not scheduling.repository_due(schedule, now):
                             continue
                         if args.once and now < schedule.retry_not_before:
                             continue
@@ -1057,9 +925,9 @@ def main() -> int:
                 not running
                 and not control_pending
                 and priority_repository is None
-                and operator_idle_log_due(last_idle_log_at, now)
+                and scheduling.operator_idle_log_due(last_idle_log_at, now)
             ):
-                log(format_operator_idle_summary(len(repositories), max_workers))
+                log(scheduling.format_operator_idle_summary(len(repositories), max_workers))
                 last_idle_log_at = now
 
             if running or control_pending:
@@ -1071,9 +939,9 @@ def main() -> int:
                     min(REPOSITORY_RETRY_SECONDS, retry_at - now),
                 )
             else:
-                repository_delay = next_repository_delay(
+                repository_delay = scheduling.next_repository_delay(
                     schedules,
-                    repositories,
+                    [repo.repository_id for repo in repositories],
                     now,
                 )
                 control_delay = max(

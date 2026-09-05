@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_operator
-import agent_repo_worker as worker
-import agentd
-from agent_repository import RepositoryContext
+import local_agent.operator.local as agent_operator
+import local_agent.repository.worker as worker
+import local_agent.daemon.service as agentd
+from local_agent.repository.context import RepositoryContext
 
 MATRIX_BINDING = "033327ab-700d-43b4-9b3b-caff1acaa2c7"
 C6_BINDING = "64877d7d-af3f-4312-a511-699c44aa42dd"

@@ -8,11 +8,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_core as core
-import agent_repo_worker as worker
-import agent_storage as storage
-import agentd
-from agent_repository import RepositoryContext, repository_config_digest
+import local_agent.foundation.core as core
+import local_agent.repository.worker as worker
+import local_agent.foundation.storage as storage
+import local_agent.daemon.service as agentd
+from local_agent.repository.context import RepositoryContext, repository_config_digest
 
 PROJECT_BINDING = "3da0947d-9acf-4ecf-adce-a29be7dc5c09"
 

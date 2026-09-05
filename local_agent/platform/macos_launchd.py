@@ -122,6 +122,14 @@ def validate_checkout(repo_root: Path) -> None:
         repo_root / "agent_entrypoint.py",
         repo_root / "agent_multirepo.py",
         repo_root / "agentd.py",
+        repo_root / "agent_parallel.py",
+        repo_root / "local_agent" / "paths.py",
+        repo_root / "local_agent" / "daemon" / "service.py",
+        repo_root / "local_agent" / "entrypoint.py",
+        repo_root / "local_agent" / "supervisor" / "orchestrator.py",
+        repo_root / "local_agent" / "supervisor" / "serial.py",
+        repo_root / "local_agent" / "supervisor" / "worker.py",
+        repo_root / "local_agent" / "repository" / "worker.py",
     )
     missing = [str(path) for path in required if not path.exists()]
     if missing:

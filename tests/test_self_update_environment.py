@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-import agentd
+import local_agent.daemon.service as agentd
 
 
 class SelfUpdateEnvironmentTests(unittest.TestCase):

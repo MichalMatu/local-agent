@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agentd
+import local_agent.daemon.service as agentd
 
 
 class StatusControlMetadataTests(unittest.TestCase):

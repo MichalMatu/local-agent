@@ -62,9 +62,9 @@ A 4.15 upgrade must be fail-closed:
 
 ```bash
 cd ~/local-agent
-.venv/bin/python agent_operator.py disable --reason binding-migration
-.venv/bin/python agent_operator.py status
-.venv/bin/python agent_operator.py migrate-bindings
+.venv/bin/python -m local_agent.operator.local disable --reason binding-migration
+.venv/bin/python -m local_agent.operator.local status
+.venv/bin/python -m local_agent.operator.local migrate-bindings
 ```
 
 `migrate-bindings` refuses to run unless Local Agent is disabled. It applies the canonical catalog to the local repository registry and refuses an existing UUID that disagrees with the catalog.
@@ -192,10 +192,10 @@ Registry:
 Commands:
 
 ```bash
-python agent_repo_admin.py list
-python agent_repo_admin.py validate
-python agent_repo_admin.py provision --repository-id <id>
-python agent_operator.py migrate-bindings
+python -m local_agent.repository.admin list
+python -m local_agent.repository.admin validate
+python -m local_agent.repository.admin provision --repository-id <id>
+python -m local_agent.operator.local migrate-bindings
 ```
 
 Provisioning is explicit and never a poll-loop side effect. Repository ids/remotes/bindings and normalized control/work/checkpoint paths must remain disjoint and stable.
@@ -206,7 +206,7 @@ Do not remove or identity-mutate an active registry entry while workers/descenda
 
 ## Emergency controls
 
-Local operator commands are in `agent_operator.py` and `docs/EMERGENCY_CONTROLS.md`. The global marker blocks admission independently of GitHub/control-branch health.
+Local operator commands are in `local_agent.operator.local` and `docs/EMERGENCY_CONTROLS.md`. The global marker blocks admission independently of GitHub/control-branch health.
 
 Repository controls include `cancel_task`, `disable` and status handling. Active-task control watching periodically synchronizes the target repository control branch. An active cancel is valid only when the fetched control request targets the exact active task and the control id is not already remotely acknowledged.
 
@@ -265,17 +265,31 @@ All modes use the same `com.michal.local-agent` label and are replacement config
 
 Cold-start rollout should begin disabled. Verify:
 
-- launchd runs only the supervisor while disabled;
-- `agent_operator.py status` reports disabled;
+- launchd runs only the guarded entrypoint while disabled;
+- `python -m local_agent.operator.local status` reports disabled;
 - daemon state is `disabled`;
 - no repository workers/tasks start;
 - a queued probe remains unclaimed while disabled.
 
-Only after binding/bridge/E2E gates are complete should `agent_operator.py enable` remove the marker.
+Only after binding/bridge/E2E gates are complete should `python -m local_agent.operator.local enable` remove the marker.
 
 Rollback to `agent_multirepo.py` does not weaken hard binding in 4.15: the serial repository worker enforces the same registry/control/task equality. Do not roll back to a pre-4.15 binary while bound task queues are considered trusted.
 
 ## Release flow
+
+### Package-layout transition from v4.17
+
+The v4.17 updater's in-memory validation command names root aliases removed in v4.18. It correctly rejects the new layout. Perform this one-time transition through the operator: wait for idle, persist local disable with the installed `agent_operator.py disable`, stop the LaunchAgent, fast-forward the production checkout to the validated release, and restart using `scripts/macos_launchd.py restart --mode parallel --max-workers 2`. Verify disabled startup and live cancellation/disable E2E before leaving execution enabled. Keep registry, claims, result spool, workspaces and checkpoints intact.
+
+### Interrupted self-update recovery
+
+Updates record original and candidate revisions in `~/Library/Application Support/local-agent/installation-pending.json` before changing the checkout. The installation lock prevents the guard from interrupting validation. Failed validation rolls back and clears the journal; process interruption leaves it durable. The guard persists `disabled` with reason `interrupted_self_update`, and supervisor startup and local enable refuse an unfinished installation.
+
+Recovery is explicit: stop the service while disabled, inspect and preserve the journal and any unexpected checkout changes, restore its recorded original revision (or complete full verification of the installed candidate), and only then remove the journal. Restart disabled and inspect the installed revision/status before explicit local enable. Never delete the journal merely to bypass validation. A runtime reset does not clear installation state.
+
+Remote emergency polling remains active during an installation transaction. Local enable never clears an incomplete transaction.
+
+### Candidate gates
 
 For non-trivial runtime changes:
 
@@ -285,7 +299,7 @@ For non-trivial runtime changes:
 4. review `main...candidate` and verify no unrelated/fallback-breaking changes;
 5. audit planner-facing Local Agent docs in every registered downstream repository;
 6. advance `main` only after the exact candidate is green;
-7. tag released `main` `vX.Y.Z` matching `agent_version.RELEASE_VERSION`;
+7. tag released `main` `vX.Y.Z` matching `local_agent.version.RELEASE_VERSION`;
 8. switch production to `~/local-agent` on released `main` and verify live status/result evidence;
 9. remove obsolete staging branches/worktrees after release is established.
 

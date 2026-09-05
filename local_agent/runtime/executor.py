@@ -7,7 +7,7 @@ import threading
 import time
 from typing import Any, Callable
 
-from agent_process import (
+from local_agent.foundation.process import (
     BoundedTextBuffer,
     spawn_shell,
     start_output_pump,
@@ -16,68 +16,29 @@ from agent_process import (
 )
 
 from local_agent.runtime.task_contract import (
-    DEFAULT_IDLE_TIMEOUT as DEFAULT_IDLE_TIMEOUT,
-    DEFAULT_MEMORY_LIMIT_MB as DEFAULT_MEMORY_LIMIT_MB,
-    DEFAULT_TASK_TIMEOUT as DEFAULT_TASK_TIMEOUT,
-    MAX_COMMAND_CHARS as MAX_COMMAND_CHARS,
-    MAX_IDLE_TIMEOUT as MAX_IDLE_TIMEOUT,
-    MAX_MEMORY_LIMIT_MB as MAX_MEMORY_LIMIT_MB,
-    MAX_PATCH_BYTES as MAX_PATCH_BYTES,
-    MAX_TASK_FILE_BYTES as MAX_TASK_FILE_BYTES,
-    MAX_TASK_LIST_ITEMS as MAX_TASK_LIST_ITEMS,
-    MAX_TASK_PATH_CHARS as MAX_TASK_PATH_CHARS,
-    MAX_TASK_TIMEOUT as MAX_TASK_TIMEOUT,
-    MAX_TOTAL_WRITE_BYTES as MAX_TOTAL_WRITE_BYTES,
-    MAX_WRITE_BYTES as MAX_WRITE_BYTES,
-    TASK_FINALIZATION_RESERVE as TASK_FINALIZATION_RESERVE,
-    _TASK_ID_RE as _TASK_ID_RE,
-    _bounded_int as _bounded_int,
-    idle_timeout_for as idle_timeout_for,
-    memory_limit_for as memory_limit_for,
-    task_digest as task_digest,
-    task_timeout_for as task_timeout_for,
-    validate_task as validate_task,
+    DEFAULT_IDLE_TIMEOUT,
+    DEFAULT_MEMORY_LIMIT_MB,
+    TASK_FINALIZATION_RESERVE,
+    idle_timeout_for,
+    memory_limit_for,
+    task_digest,
+    task_timeout_for,
+    validate_task,
 )
 from local_agent.runtime.progress import (
-    MAX_PROGRESS_MARKER as MAX_PROGRESS_MARKER,
-    MAX_PROGRESS_METRICS as MAX_PROGRESS_METRICS,
-    MAX_PROGRESS_TEXT as MAX_PROGRESS_TEXT,
-    PROGRESS_EVENT_QUEUE_CAPACITY as PROGRESS_EVENT_QUEUE_CAPACITY,
-    PROGRESS_FLUSH_TIMEOUT as PROGRESS_FLUSH_TIMEOUT,
-    ProgressCallback as ProgressCallback,
-    ProgressDispatcher as ProgressDispatcher,
-    parse_progress_marker as parse_progress_marker,
+    ProgressCallback,
+    ProgressDispatcher,
+    parse_progress_marker,
 )
-from local_agent.runtime import telemetry as runtime_telemetry
 from local_agent.runtime.output import (
-    LIVE_DIFF_MAX_CHARS as LIVE_DIFF_MAX_CHARS,
-    LIVE_DIFF_MAX_LINES as LIVE_DIFF_MAX_LINES,
     SUMMARY_FAILURE_TAIL_CHARS,
     LiveCommandOutput,
     emit_summary_failure_tail,
 )
 from local_agent.runtime.telemetry import (
-    collect_host_telemetry as collect_host_telemetry,
-    collect_process_telemetry as collect_process_telemetry,
+    sample_process_group_rss_mb,
     collect_telemetry,
-    normalize_host_cpu_percent as normalize_host_cpu_percent,
-    parse_mac_ps_cpu as parse_mac_ps_cpu,
-    parse_mac_swapusage as parse_mac_swapusage,
-    parse_mac_top_cpu as parse_mac_top_cpu,
-    parse_mac_vm_stat as parse_mac_vm_stat,
-    parse_process_group_ps as parse_process_group_ps,
 )
-
-# Compatibility seam: existing tests/callers may patch agent_runtime._safe_command.
-_safe_command = runtime_telemetry._safe_command
-
-def sample_process_group_rss_mb(process_group: int) -> float | None:
-    text = _safe_command(["ps", "-axo", "pid=,pgid=,%cpu=,rss="], timeout=5.0)
-    if not text:
-        return None
-    telemetry = parse_process_group_ps(text, process_group)
-    value = telemetry.get("command_rss_mb")
-    return float(value) if isinstance(value, (int, float)) else None
 
 MEMORY_SAMPLE_INTERVAL = 2.0
 PROGRESS_INTERVAL = 30

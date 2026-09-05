@@ -78,7 +78,7 @@ local_agent supervisor/operator/repository/runtime/platform
 low-level process/storage foundations
 ```
 
-Avoid introducing package-to-root imports when an equivalent packaged dependency exists. Temporary compatibility aliases created during the architecture migration should be removed once all real callers have moved.
+Import packaged owners directly. The four root Python files are operational launchers; root module imports and historical compatibility aliases are unsupported.
 
 Keep modules cohesive. A file should have a clear owner role rather than becoming a collection of unrelated helpers.
 
@@ -146,4 +146,4 @@ A useful runtime PR should state:
 - whether downstream docs changed;
 - whether a live restart/E2E is required after merge.
 
-For architecture-only movement, explicitly state whether runtime behavior is intended to remain unchanged and call out any temporary compatibility surface that remains.
+For architecture-only movement, explicitly state whether runtime behavior is intended to remain unchanged and explain any operational launchers that remain.

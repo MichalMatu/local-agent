@@ -12,8 +12,10 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-import agentd
-from agent_process import (
+from local_agent.paths import repository_root
+
+import local_agent.daemon.service as agentd
+from local_agent.foundation.process import (
     ExecutionLeaseBusy,
     LEASE_FDS_ENV,
     LEASE_KEYS_DIGEST_ENV,
@@ -24,19 +26,19 @@ from agent_process import (
     terminate_process_group,
     unregister_process,
 )
-from agent_repository import (
+from local_agent.repository.context import (
     RepositoryContext,
     load_repository_registry,
     repository_config_digest,
 )
-from agent_repo_worker import (
+from local_agent.repository.worker import (
     WORKER_BUSY,
     WORKER_CONFIG_CHANGED,
     WORKER_IDLE,
     WORKER_PROCESSED,
     repository_execution_lease,
 )
-from agent_version import RELEASE_VERSION
+from local_agent.version import RELEASE_VERSION
 from local_agent.supervisor.control import (
     bind_supervisor_control as bind_shared_supervisor_control,
     sync_control_quietly,
@@ -163,7 +165,7 @@ def supervisor_restart_command(
     once: bool,
 ) -> list[str]:
     """Return the exact supervisor command that must survive restart/self-update."""
-    command = [sys.executable, str(Path(__file__).resolve())]
+    command = [sys.executable, str(repository_root() / "agent_multirepo.py")]
     if registry_path is not None:
         command.extend(["--registry", str(registry_path)])
     if once:
@@ -264,7 +266,8 @@ def worker_command(
 ) -> list[str]:
     command = [
         sys.executable,
-        str(Path(__file__).resolve().with_name("agent_repo_worker.py")),
+        "-m",
+        "local_agent.repository.worker",
         "--repository-id",
         repository.repository_id,
         "--expected-config-digest",
@@ -287,7 +290,7 @@ def run_worker(
             env["LOCAL_AGENT_SUPERVISOR_PID"] = str(os.getpid())
             proc = popen_registered(
                 command,
-                cwd=Path(__file__).resolve().parent,
+                cwd=repository_root(),
                 env=env,
                 text=True,
                 start_new_session=True,

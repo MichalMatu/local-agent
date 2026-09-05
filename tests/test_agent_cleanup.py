@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import agent_cleanup as cleanup
+import local_agent.repository.cleanup as cleanup
 
 
 def write_json(path: Path, payload: dict[str, object]) -> None:

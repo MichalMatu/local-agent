@@ -6,13 +6,13 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 
-import agent_core as core
-import agent_operator
-import agentd
-import agent_repo_worker as serial_worker
-from agent_binding import validate_repository_control_binding
-from agent_process import ExecutionLeaseBusy
-from agent_repository import RepositoryContext
+import local_agent.foundation.core as core
+import local_agent.operator.local as agent_operator
+import local_agent.daemon.service as agentd
+import local_agent.repository.worker as serial_worker
+from local_agent.repository.binding import validate_repository_control_binding
+from local_agent.foundation.process import ExecutionLeaseBusy
+from local_agent.repository.context import RepositoryContext
 from local_agent.runtime.task_contract import require_task_agent_binding
 from local_agent.supervisor import resources as resource_admission
 
@@ -47,6 +47,8 @@ def _waiting_status_context(task_id: str, resource: str) -> tuple[str, bool]:
     try:
         payload = json.loads(agentd.LOCAL_STATUS_PATH.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError, AttributeError):
+        payload = {}
+    if not isinstance(payload, dict):
         payload = {}
     same_wait = (
         payload.get("state") == "waiting_resource"
@@ -149,6 +151,12 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
         agentd.recover_stale_claims()
         agentd.recover_invalid_task_files()
         serial_worker.handle_repository_control(repository)
+        if agent_operator.is_disabled():
+            serial_worker.publish_repository_status(
+                repository, "disabled", force_remote=True,
+                execution_variant="parallel",
+            )
+            return False
         pending = agentd.pending_tasks()
         if not pending:
             state = "publication_pending" if agentd.has_pending_publications() else "idle"

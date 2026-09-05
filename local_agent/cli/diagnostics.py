@@ -7,13 +7,16 @@ import os
 from pathlib import Path
 from typing import Any
 
-import agent_core as core
-import agent_storage as storage
-import agentd
-from agent_repo_admin import validate_repository
-from agent_repository import RepositoryContext, load_repository_registry
-from agent_runtime import idle_timeout_for, task_timeout_for
-from agent_version import RELEASE_VERSION
+import local_agent.foundation.core as core
+import local_agent.foundation.storage as storage
+import local_agent.daemon.service as agentd
+from local_agent.repository.admin import validate_repository
+from local_agent.repository.context import RepositoryContext, load_repository_registry
+from local_agent.runtime.task_contract import (
+    idle_timeout_for,
+    task_timeout_for,
+)
+from local_agent.version import RELEASE_VERSION
 
 
 def print_json(payload: Any) -> None:

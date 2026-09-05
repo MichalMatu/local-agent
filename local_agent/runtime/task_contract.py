@@ -6,8 +6,8 @@ import re
 import secrets
 from typing import Any
 
-from agent_binding import canonical_agent_binding
-from agent_config import TIMEOUTS
+from local_agent.repository.binding import canonical_agent_binding
+from local_agent.config import TIMEOUTS
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _RESOURCE_RE = re.compile(r"^[a-z0-9._:-]+$")
@@ -162,7 +162,8 @@ def validate_task(task: dict[str, Any], *, require_agent_binding: bool = False) 
             command = item.get("command")
             if isinstance(command, str) and len(command) > MAX_COMMAND_CHARS:
                 raise ValueError(f"{field} item command exceeds {MAX_COMMAND_CHARS} characters")
-    core_module = __import__("agent_core")
+    from local_agent.foundation import core as core_module
+
     stage_plan = core_module.stage_plan_for(task)
     command_timeout = core_module.command_timeout_for(task)
     idle_timeout_for(task)

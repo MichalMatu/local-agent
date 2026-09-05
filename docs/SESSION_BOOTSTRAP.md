@@ -36,11 +36,11 @@ daemon stdout:             ~/Library/Logs/local-agent.log
 daemon stderr:             ~/Library/Logs/local-agent-error.log
 ```
 
-All four current registry entries use the default non-legacy workspace layout derived from their repository ids. The loaded LaunchAgent runs `~/local-agent/agent_parallel.py --registry "$HOME/Library/Application Support/local-agent/repositories.json" --max-workers 2` from `~/local-agent`.
+All four current registry entries use the default non-legacy workspace layout derived from their repository ids. The loaded LaunchAgent runs `~/local-agent/agent_entrypoint.py --registry "$HOME/Library/Application Support/local-agent/repositories.json" --max-workers 2` from `~/local-agent`.
 
 The user's normal ESP32 checkout is not the disposable agent worktree. Never reset, clean or overwrite it during normal daemon execution.
 
-The production bounded-parallel LaunchAgent template is `deploy/macos/com.michal.local-agent.parallel.plist`. The installed service remains `~/Library/LaunchAgents/com.michal.local-agent.plist` with label `com.michal.local-agent`; the serial templates are rollback configurations, not additional simultaneous services.
+Generate the guarded parallel LaunchAgent with `python scripts/macos_launchd.py install --mode parallel --max-workers 2`. The installed service is `~/Library/LaunchAgents/com.michal.local-agent.plist` with label `com.michal.local-agent`. The generator also supports serial rollback configuration; serial and parallel services must never run simultaneously.
 
 ## Current ESP32 bench
 

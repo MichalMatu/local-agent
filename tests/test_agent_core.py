@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_core as core
+import local_agent.foundation.core as core
 
 
 class WorkspaceCheckpointTests(unittest.TestCase):

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from local_agent.foundation import storage
-from agent_process import termination_critical_section
+from local_agent.foundation.process import termination_critical_section
 
 TERMINAL_PAIR_RETENTION = 32
 RUN_RETENTION = 32

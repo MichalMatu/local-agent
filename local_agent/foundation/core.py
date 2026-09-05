@@ -15,9 +15,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
-import agent_storage as storage
-from agent_config import TIMEOUTS
-from agent_process import (
+import local_agent.foundation.storage as storage
+from local_agent.config import TIMEOUTS
+from local_agent.foundation.process import (
     BoundedTextBuffer,
     atomic_write_text,
     fsync_directory,

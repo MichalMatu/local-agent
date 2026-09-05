@@ -9,7 +9,7 @@ Local Agent separates planning from execution: an AI planner decides **what shou
 > [!IMPORTANT]
 > The planner proposes work. The executor owns repository identity, admission, process lifecycle, time/memory bounds, recovery evidence and emergency controls.
 
-**Release source of truth:** `agent_version.RELEASE_VERSION` plus the matching `vX.Y.Z` Git tag. Verify a running daemon against `.agent/status/daemon.json` rather than assuming the checkout version is live.
+**Release source of truth:** `local_agent.version.RELEASE_VERSION` plus the matching `vX.Y.Z` Git tag. Verify a running daemon against `.agent/status/daemon.json` rather than assuming the checkout version is live.
 
 ## Why Local Agent exists
 
@@ -117,28 +117,21 @@ Resource admission is independent from the per-task RSS watchdog.
 ## Repository map
 
 ```text
-agentd.py                         daemon core, claims/results/control/self-update
-agent_core.py                     deterministic task execution and publication
-agent_runtime.py                  staged execution/watchdogs and runtime facade
-agent_process.py                  process groups and inherited execution leases
-agent_storage.py                  bounded control-Git helpers and diagnostics
-agent_binding.py                  temporary root import surface for repository binding
-agent_repository.py               temporary root import surface for repository identity
-agent_repo_worker.py              isolated serial repository worker turn
-agent_multirepo.py                serial multi-repository fallback
-agent_parallel.py                 bounded parallel supervisor
-agent_parallel_worker.py          task/resource/binding admission
-agent_repo_admin.py               repository registry administration
-agent_operator.py                 local emergency operator controls
-agent_entrypoint.py               guarded launchd/supervisor entrypoint
-agentctl.py                       diagnostics
-agent_version.py                  release-version source of truth
-
-local_agent/config.py             runtime configuration
-local_agent/repository/           repository identity, registry and hard binding
-local_agent/runtime/              extracted runtime components
-local_agent/supervisor/           shared supervisor policy/control components
+agentd.py                         operational daemon launcher
+agent_entrypoint.py               operational guarded LaunchAgent launcher
+agent_parallel.py                 operational direct parallel launcher
+agent_multirepo.py                operational serial fallback launcher
+local_agent/daemon/               daemon service, claims/results/control/self-update
+local_agent/foundation/           execution core, process groups, leases and storage
+local_agent/repository/           repository identity, binding, administration and worker
+local_agent/runtime/              staged execution, watchdogs, output and telemetry
+local_agent/supervisor/           parallel/serial orchestration, scheduling and resources
+local_agent/operator/             local and remote emergency controls
+local_agent/cli/                  diagnostics
 local_agent/platform/             operating-system integration helpers
+local_agent/paths.py              explicit installed-checkout resolver
+local_agent/version.py            release-version source of truth
+local_agent/config.py             runtime configuration
 scripts/                          verification and deployment CLIs
 chat_bridge/                      Chrome Manifest V3 planner bridge
 config/                           binding and registry data/examples
@@ -147,7 +140,7 @@ docs/                             operations, architecture records and releases
 tests/                            unit, process and temporary-Git integration tests
 ```
 
-The package extraction is intentionally in progress: root scripts still provide the production entrypoint surface while implementation is gradually moved into focused `local_agent/` modules.
+All runtime implementation lives in `local_agent/`. Four tiny root launchers retain the executable paths used by installed launchd definitions and in-flight restarts. Internal imports use packaged owners; legacy import aliases are removed.
 
 ## Multi-repository administration
 
@@ -160,10 +153,10 @@ The machine-local registry is stored at:
 Useful diagnostics and administration commands:
 
 ```bash
-python agent_repo_admin.py list
-python agent_repo_admin.py validate
-python agent_repo_admin.py provision --repository-id <id>
-python agentctl.py doctor
+python -m local_agent.repository.admin list
+python -m local_agent.repository.admin validate
+python -m local_agent.repository.admin provision --repository-id <id>
+python -m local_agent.cli.diagnostics doctor
 python agent_parallel.py --max-workers 2 --once
 ```
 
@@ -203,7 +196,7 @@ Parallel releases require real two-repository overlap, machine-exclusion, inheri
 3. Require exact-SHA compile, Ruff, full tests and macOS smoke.
 4. Audit planner-facing documentation in registered downstream repositories when the execution/control contract changes.
 5. Advance `main` only after every required gate is green.
-6. Tag the released commit `vX.Y.Z` and keep `agent_version.RELEASE_VERSION` synchronized.
+6. Tag the released commit `vX.Y.Z` and keep `local_agent.version.RELEASE_VERSION` synchronized.
 7. Run the LaunchAgent from `~/local-agent` on `main`, not from the candidate worktree.
 8. Verify live version/revision and a real queued task.
 9. Remove obsolete candidate worktrees/branches after the release is established.

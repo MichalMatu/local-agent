@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agentctl
-from agent_repository import RepositoryContext
+import local_agent.cli.diagnostics as agentctl
+from local_agent.repository.context import RepositoryContext
 
 
 class AgentCtlStatusTests(unittest.TestCase):

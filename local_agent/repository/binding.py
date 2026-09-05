@@ -8,10 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from local_agent.paths import repository_root
+
 CATALOG_VERSION = 1
 CONTROL_BINDING_VERSION = 1
 CONTROL_BINDING_RELATIVE = ".agent/binding.json"
-DEFAULT_CATALOG_PATH = Path(__file__).resolve().parents[2] / "config" / "agent_bindings.json"
+DEFAULT_CATALOG_PATH = repository_root() / "config" / "agent_bindings.json"
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +40,7 @@ def canonical_agent_binding(value: Any, *, field: str = "agent_binding") -> str:
 def load_binding_catalog(path: Path | None = None) -> list[AgentBindingRecord]:
     catalog_path = path or DEFAULT_CATALOG_PATH
     payload = json.loads(catalog_path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or payload.get("version") != CATALOG_VERSION:
+    if not isinstance(payload, dict) or type(payload.get("version")) is not int or payload["version"] != CATALOG_VERSION:
         raise ValueError(f"unsupported agent binding catalog: {catalog_path}")
     raw_agents = payload.get("agents")
     if not isinstance(raw_agents, list):
@@ -106,7 +108,9 @@ def control_binding_payload(control_dir: Path) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
         raise ValueError(f"repository control binding is missing: {path}") from exc
-    if not isinstance(payload, dict) or payload.get("version") != CONTROL_BINDING_VERSION:
+    except OSError as exc:
+        raise ValueError(f"repository control binding cannot be read: {path}") from exc
+    if not isinstance(payload, dict) or type(payload.get("version")) is not int or payload["version"] != CONTROL_BINDING_VERSION:
         raise ValueError(f"invalid repository control binding: {path}")
     return payload
 

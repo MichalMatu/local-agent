@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Iterable
 
-import agent_core as core
+import local_agent.foundation.core as core
 from local_agent.foundation import storage
 from local_agent.repository.context import RepositoryContext, load_repository_registry
 

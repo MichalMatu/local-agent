@@ -9,8 +9,8 @@ import unittest
 import uuid
 from pathlib import Path
 
-from agent_repo_worker import MULTIREPO_DAEMON_VERSION
-from agent_repository import load_repository_registry, repository_config_digest
+from local_agent.repository.worker import MULTIREPO_DAEMON_VERSION
+from local_agent.repository.context import load_repository_registry, repository_config_digest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -204,7 +204,7 @@ class MultiRepositoryIntegrationTests(unittest.TestCase):
                 result = subprocess.run(
                     [
                         sys.executable,
-                        str(REPO_ROOT / "agent_repo_worker.py"),
+                        "-m", "local_agent.repository.worker",
                         "--repository-id",
                         repository_id,
                         "--expected-config-digest",

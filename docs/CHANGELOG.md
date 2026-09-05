@@ -2,6 +2,18 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.0
+
+- Completed package ownership for daemon, parallel and serial supervisors; retained four thin operational launchers and removed 15 obsolete root aliases/shims.
+- Centralized checkout resolution and switched workers to package module execution with explicit cwd; preserved restart mode and arguments.
+- Connected production scheduling directly to its tested packaged owner and removed duplicated policy and runtime compatibility exports.
+- Fixed same-turn disable admission, nonregular disable markers, malformed waiting status, remote operator ref races and guard child cleanup.
+- Removed process-wide stdout redirection from concurrent control polling so task output remains visible and bounded.
+- Pinned self-update to the inspected commit, serialized validation/reexec and added durable fail-closed recovery after interrupted installation.
+- Expanded real Git/process regression and macOS smoke coverage, including revived deferred-control admission integration coverage.
+- Audited downstream instructions and updated the Growbox development branch's release-version owner path. Task, binding, resource and result schemas remain stable.
+- Requires an operator-managed transition from v4.17; see [release notes](RELEASE_NOTES_V4.18.0.md).
+
 ## v4.17.0
 
 - Completed the next package-ownership phase by moving execution core/process/storage foundations, repository admin/cleanup/worker, task executor, parallel worker, diagnostics and release version under `local_agent/`.

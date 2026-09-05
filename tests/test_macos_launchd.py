@@ -13,6 +13,7 @@ from local_agent.platform.macos_launchd import (
     build_program_arguments,
     default_launch_agent_path,
     render_launch_agent,
+    validate_checkout,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -110,6 +111,25 @@ class MacOSLaunchdTests(unittest.TestCase):
         payload = plistlib.loads(result.stdout)
         self.assertEqual(payload["Label"], LABEL)
         self.assertEqual(payload["WorkingDirectory"], str(self.repo))
+
+    def test_checkout_validation_requires_packaged_workers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp)
+            files = (
+                ".venv/bin/python", "agentd.py", "agent_entrypoint.py",
+                "agent_parallel.py", "agent_multirepo.py", "local_agent/paths.py",
+                "local_agent/daemon/service.py", "local_agent/entrypoint.py",
+                "local_agent/supervisor/orchestrator.py", "local_agent/supervisor/serial.py",
+                "local_agent/supervisor/worker.py", "local_agent/repository/worker.py",
+            )
+            for filename in files:
+                path = checkout / filename
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+            validate_checkout(checkout)
+            (checkout / "local_agent/supervisor/worker.py").unlink()
+            with self.assertRaisesRegex(FileNotFoundError, "supervisor/worker.py"):
+                validate_checkout(checkout)
 
     def test_default_install_location_is_user_launch_agents(self) -> None:
         self.assertEqual(

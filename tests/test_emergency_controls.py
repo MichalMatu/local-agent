@@ -9,13 +9,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_core as core
-import agent_operator
-import agent_parallel
-import agent_parallel_worker
-import agent_repo_worker as worker
-import agentd
-from agent_repository import RepositoryContext
+import local_agent.foundation.core as core
+import local_agent.operator.local as agent_operator
+import local_agent.supervisor.orchestrator as agent_parallel
+import local_agent.supervisor.worker as agent_parallel_worker
+import local_agent.repository.worker as worker
+import local_agent.daemon.service as agentd
+from local_agent.repository.context import RepositoryContext
 
 
 class OperatorStateTests(unittest.TestCase):
@@ -219,7 +219,7 @@ class DisabledSupervisorTests(unittest.TestCase):
         )
         args = argparse.Namespace(registry=Path("/tmp/registry.json"), max_workers=2, once=True)
         with mock.patch.object(agent_parallel, "parse_args", return_value=args), mock.patch.object(
-            agent_parallel, "resolve_max_workers", return_value=2
+            agent_parallel.scheduling, "resolve_max_workers", return_value=2
         ), mock.patch.object(agentd, "acquire_daemon_lock", return_value=object()), mock.patch.object(
             agent_parallel, "install_signal_handlers"
         ), mock.patch.object(

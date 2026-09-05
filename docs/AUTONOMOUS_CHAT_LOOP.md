@@ -138,7 +138,7 @@ For every bridge wake:
 9. If the goal is complete, use `STOP`.
 10. Otherwise use a suitable one-shot `NEXT` or allow normal pacing to resume.
 
-The planner loop is sequential per active conversation goal, not globally serial. Independent bound conversations may proceed concurrently; `agent_parallel.py` still owns repository/resource concurrency.
+The planner loop is sequential per active conversation goal, not globally serial. Independent bound conversations may proceed concurrently; `local_agent/supervisor/orchestrator.py` owns repository/resource concurrency.
 
 ## Task contract
 

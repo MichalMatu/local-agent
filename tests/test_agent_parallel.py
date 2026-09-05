@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_parallel as parallel
-import agent_repo_worker as serial_worker
-from agent_process import ExecutionLeaseBusy
-from agent_repository import RepositoryContext
+import local_agent.supervisor.orchestrator as parallel
+import local_agent.repository.worker as serial_worker
+from local_agent.foundation.process import ExecutionLeaseBusy
+from local_agent.repository.context import RepositoryContext
 
 
 def repository(repository_id: str) -> RepositoryContext:
@@ -26,47 +26,47 @@ def repository(repository_id: str) -> RepositoryContext:
 class ParallelSupervisorTests(unittest.TestCase):
     def test_default_concurrency_is_one(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(parallel.resolve_max_workers(None), 1)
+            self.assertEqual(parallel.scheduling.resolve_max_workers(None), 1)
 
     def test_cli_concurrency_overrides_environment(self) -> None:
         with mock.patch.dict(
             os.environ,
-            {parallel.MAX_WORKERS_ENV: "2"},
+            {parallel.scheduling.MAX_WORKERS_ENV: "2"},
             clear=False,
         ):
-            self.assertEqual(parallel.resolve_max_workers(3), 3)
+            self.assertEqual(parallel.scheduling.resolve_max_workers(3), 3)
 
     def test_invalid_concurrency_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
-            parallel.resolve_max_workers(0)
+            parallel.scheduling.resolve_max_workers(0)
         with self.assertRaises(ValueError):
-            parallel.resolve_max_workers(parallel.MAX_MAX_WORKERS + 1)
+            parallel.scheduling.resolve_max_workers(parallel.scheduling.MAX_MAX_WORKERS + 1)
         with mock.patch.dict(
             os.environ,
-            {parallel.MAX_WORKERS_ENV: "not-a-number"},
+            {parallel.scheduling.MAX_WORKERS_ENV: "not-a-number"},
             clear=False,
         ):
             with self.assertRaises(ValueError):
-                parallel.resolve_max_workers(None)
+                parallel.scheduling.resolve_max_workers(None)
 
     def test_parallel_concurrency_is_capped_at_three(self) -> None:
-        self.assertEqual(parallel.MAX_MAX_WORKERS, 3)
+        self.assertEqual(parallel.scheduling.MAX_MAX_WORKERS, 3)
 
     def test_operator_idle_summary_is_human_readable(self) -> None:
         self.assertEqual(
-            parallel.format_operator_idle_summary(3, 2),
+            parallel.scheduling.format_operator_idle_summary(3, 2),
             "IDLE no active task (3 repositories); max_workers=2",
         )
 
     def test_operator_idle_heartbeat_is_periodic(self) -> None:
-        self.assertTrue(parallel.operator_idle_log_due(None, now=100.0))
-        self.assertFalse(parallel.operator_idle_log_due(100.0, now=399.9))
-        self.assertTrue(parallel.operator_idle_log_due(100.0, now=400.0))
+        self.assertTrue(parallel.scheduling.operator_idle_log_due(None, now=100.0))
+        self.assertFalse(parallel.scheduling.operator_idle_log_due(100.0, now=399.9))
+        self.assertTrue(parallel.scheduling.operator_idle_log_due(100.0, now=400.0))
 
     def test_local_log_maintenance_is_periodic(self) -> None:
-        self.assertTrue(parallel.local_log_maintenance_due(None, now=100.0))
-        self.assertFalse(parallel.local_log_maintenance_due(100.0, now=129.9))
-        self.assertTrue(parallel.local_log_maintenance_due(100.0, now=130.0))
+        self.assertTrue(parallel.scheduling.local_log_maintenance_due(None, now=100.0))
+        self.assertFalse(parallel.scheduling.local_log_maintenance_due(100.0, now=129.9))
+        self.assertTrue(parallel.scheduling.local_log_maintenance_due(100.0, now=130.0))
 
     def test_compact_inherited_log_keeps_recent_tail_and_append_semantics(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -121,71 +121,71 @@ class ParallelSupervisorTests(unittest.TestCase):
 
     def test_worker_command_uses_parallel_worker(self) -> None:
         command = parallel.worker_command(repository("a"), registry_path=None)
-        self.assertIn("agent_parallel_worker.py", command[1])
-        self.assertEqual(command[2:4], ["--repository-id", "a"])
+        self.assertEqual(command[1:3], ["-m", "local_agent.supervisor.worker"])
+        self.assertEqual(command[3:5], ["--repository-id", "a"])
         self.assertIn("--expected-config-digest", command)
 
     def test_new_repository_is_due_immediately(self) -> None:
         self.assertTrue(
-            parallel.repository_due(
-                parallel.RepositorySchedule(),
+            parallel.scheduling.repository_due(
+                parallel.scheduling.RepositorySchedule(),
                 now=100.0,
             )
         )
 
     def test_retry_deadline_blocks_poll_until_due(self) -> None:
-        schedule = parallel.RepositorySchedule(last_poll_at=100.0, retry_not_before=101.0)
-        self.assertFalse(parallel.repository_due(schedule, now=100.9))
-        self.assertTrue(parallel.repository_due(schedule, now=101.0))
+        schedule = parallel.scheduling.RepositorySchedule(last_poll_at=100.0, retry_not_before=101.0)
+        self.assertFalse(parallel.scheduling.repository_due(schedule, now=100.9))
+        self.assertTrue(parallel.scheduling.repository_due(schedule, now=101.0))
 
     def test_next_repository_delay_prefers_explicit_retry_deadline(self) -> None:
         target = repository("retry-delay")
-        schedule = parallel.RepositorySchedule(
+        schedule = parallel.scheduling.RepositorySchedule(
             last_poll_at=100.0,
             retry_not_before=102.0,
         )
-        delay = parallel.next_repository_delay(
+        delay = parallel.scheduling.next_repository_delay(
             {target.repository_id: schedule},
-            [target],
+            [target.repository_id],
             now=100.0,
         )
         self.assertEqual(delay, 2.0)
 
     def test_recently_active_repository_uses_hot_polling(self) -> None:
-        schedule = parallel.RepositorySchedule(
+        schedule = parallel.scheduling.RepositorySchedule(
             last_poll_at=100.0,
             last_activity_at=100.0,
         )
-        self.assertFalse(parallel.repository_due(schedule, now=101.9))
-        self.assertTrue(parallel.repository_due(schedule, now=102.0))
+        self.assertFalse(parallel.scheduling.repository_due(schedule, now=101.9))
+        self.assertTrue(parallel.scheduling.repository_due(schedule, now=102.0))
 
     def test_retry_helpers_and_reset(self) -> None:
         self.assertEqual(
-            [parallel.resource_retry_seconds(i) for i in range(1, 8)],
+            [parallel.scheduling.resource_retry_seconds(i) for i in range(1, 8)],
             [2.0, 5.0, 10.0, 30.0, 60.0, 60.0, 60.0],
         )
         self.assertEqual(
-            [parallel.worker_failure_retry_seconds(i) for i in range(1, 10)],
+            [parallel.scheduling.worker_failure_retry_seconds(i) for i in range(1, 10)],
             [2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 300.0],
         )
         self.assertEqual(
-            [parallel.control_defer_retry_seconds(i) for i in range(1, 6)],
+            [parallel.scheduling.control_defer_retry_seconds(i) for i in range(1, 6)],
             [2.0, 4.0, 8.0, 15.0, 15.0],
         )
-        self.assertFalse(parallel.control_lease_busy_should_force_drain(5))
-        self.assertTrue(parallel.control_lease_busy_should_force_drain(6))
-        self.assertTrue(parallel.control_lease_busy_should_force_drain(100))
-        self.assertTrue(parallel.repeated_failure_log_due(None, 100.0))
-        self.assertFalse(parallel.repeated_failure_log_due(100.0, 159.9))
-        self.assertTrue(parallel.repeated_failure_log_due(100.0, 160.0))
+        self.assertFalse(parallel.scheduling.control_lease_busy_should_force_drain(5))
+        self.assertTrue(parallel.scheduling.control_lease_busy_should_force_drain(6))
+        self.assertTrue(parallel.scheduling.control_lease_busy_should_force_drain(100))
+        self.assertTrue(parallel.scheduling.repeated_failure_log_due(None, 100.0))
+        self.assertFalse(parallel.scheduling.repeated_failure_log_due(100.0, 159.9))
+        self.assertTrue(parallel.scheduling.repeated_failure_log_due(100.0, 160.0))
 
-        schedule = parallel.RepositorySchedule(
+        schedule = parallel.scheduling.RepositorySchedule(
             consecutive_failures=4,
             last_failure_code=7,
             last_failure_log_at=100.0,
             resource_deferrals=4,
         )
-        parallel.reset_worker_failure_state(schedule)
+        parallel.scheduling.reset_worker_failure_state(schedule)
         self.assertEqual(
             (
                 schedule.consecutive_failures,
@@ -194,7 +194,7 @@ class ParallelSupervisorTests(unittest.TestCase):
             ),
             (0, None, None),
         )
-        parallel.reset_resource_deferral_state(schedule)
+        parallel.scheduling.reset_resource_deferral_state(schedule)
         self.assertEqual(schedule.resource_deferrals, 0)
 
     def test_control_probe_distinguishes_lease_busy_from_degraded_probe(self) -> None:

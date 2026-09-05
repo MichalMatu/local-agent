@@ -14,8 +14,8 @@ class EntrypointCliTests(unittest.TestCase):
     def test_packaged_entrypoint_resolves_repository_root(self) -> None:
         self.assertEqual(entrypoint.REPO_ROOT, REPO_ROOT)
         self.assertEqual(
-            Path(entrypoint.supervisor_command(type("Args", (), {"registry": None, "max_workers": 2})())[1]),
-            REPO_ROOT / "agent_parallel.py",
+            entrypoint.supervisor_command(type("Args", (), {"registry": None, "max_workers": 2})())[1:3],
+            ["-m", "local_agent.supervisor.orchestrator"],
         )
 
     def test_root_entrypoint_shim_executes_as_cli(self) -> None:

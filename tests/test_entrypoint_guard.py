@@ -7,11 +7,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_entrypoint
-import agent_operator
-import agent_remote_operator
-import agentctl
-from agent_repository import RepositoryContext
+import local_agent.entrypoint as agent_entrypoint
+import local_agent.operator.local as agent_operator
+import local_agent.operator.remote as agent_remote_operator
+import local_agent.cli.diagnostics as agentctl
+from local_agent.repository.context import RepositoryContext
 
 
 class RemoteOperatorControlTests(unittest.TestCase):
@@ -187,6 +187,9 @@ class AgentCtlStatusTests(unittest.TestCase):
 
 class GuardedEntrypointTests(unittest.TestCase):
     def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.enterContext(mock.patch.object(agent_entrypoint.agentd, "STATE_DIR", Path(temporary.name)))
         self.previous_stop = agent_entrypoint._stop_requested
         agent_entrypoint._stop_requested = False
 
@@ -217,7 +220,7 @@ class GuardedEntrypointTests(unittest.TestCase):
     def test_start_supervisor_disables_python_bytecode_writes(self) -> None:
         args = argparse.Namespace(registry=Path("/tmp/registry.json"), max_workers=2)
         fake = mock.Mock(pid=1234)
-        with mock.patch.object(agent_entrypoint.subprocess, "Popen", return_value=fake) as popen:
+        with mock.patch.object(agent_entrypoint, "popen_registered", return_value=fake) as popen:
             result = agent_entrypoint.start_supervisor(args)
         self.assertIs(result, fake)
         env = popen.call_args.kwargs["env"]
@@ -240,7 +243,7 @@ class GuardedEntrypointTests(unittest.TestCase):
             agent_entrypoint.stop_supervisor(None)
             agent_entrypoint.stop_supervisor(exited)
             agent_entrypoint.stop_supervisor(live)
-        terminate.assert_called_once_with(live, agent_entrypoint.log)
+        self.assertEqual(terminate.call_args_list, [mock.call(exited, agent_entrypoint.log), mock.call(live, agent_entrypoint.log)])
 
     def test_disabled_loop_publishes_status_without_starting_supervisor(self) -> None:
         args = argparse.Namespace(registry=Path("/tmp/registry.json"), max_workers=2)
@@ -343,7 +346,7 @@ class GuardedEntrypointTests(unittest.TestCase):
         ), mock.patch.object(
             agent_entrypoint.agentd,
             "self_revision",
-            side_effect=["rev-a", "rev-b"],
+            side_effect=["rev-a", "rev-b", "rev-b"],
         ), mock.patch.object(
             agent_entrypoint.agent_remote_operator,
             "poll_remote_operator",

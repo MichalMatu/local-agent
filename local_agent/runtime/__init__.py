@@ -1,1 +1,1 @@
-"""Runtime support modules with compatibility re-exports from agent_runtime."""
+"""Bounded task execution, output, progress and telemetry."""

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import io
 import json
 import os
 import re
@@ -14,12 +13,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import agent_core as core
+import local_agent.foundation.core as core
 from local_agent.operator import local as agent_operator
 from local_agent.foundation import storage
-import agentd
+import local_agent.daemon.service as agentd
 from local_agent.repository.binding import validate_repository_control_binding
-from agent_process import (
+from local_agent.foundation.process import (
     ExecutionLeaseBusy,
     LEASE_KEYS_DIGEST_ENV,
     acquire_execution_leases,
@@ -34,7 +33,7 @@ from local_agent.repository.context import (
     repository_config_digest,
     repository_lease_keys,
 )
-from agent_version import RELEASE_VERSION
+from local_agent.version import RELEASE_VERSION
 from local_agent.runtime.task_contract import require_task_agent_binding
 
 MULTIREPO_DAEMON_VERSION = RELEASE_VERSION
@@ -248,8 +247,7 @@ def publish_repository_status(
 
 def sync_control_quietly() -> None:
     """Run bounded routine control-branch sync without printing low-level Git commands."""
-    with contextlib.redirect_stdout(io.StringIO()):
-        storage.sync_control(core)
+    storage.sync_control(core)
 
 
 def repository_binding_ready(
@@ -645,6 +643,11 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
         agentd.recover_stale_claims()
         agentd.recover_invalid_task_files()
         handle_repository_control(repository)
+        if agent_operator.is_disabled():
+            publish_repository_status(
+                repository, "disabled", force_remote=True,
+            )
+            return False
         pending = agentd.pending_tasks()
         if not pending:
             state = "publication_pending" if agentd.has_pending_publications() else "idle"

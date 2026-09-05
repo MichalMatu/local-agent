@@ -28,8 +28,8 @@ def run_contender(state_dir: Path, task: dict[str, object]) -> subprocess.Comple
         import sys
         from pathlib import Path
 
-        import agent_parallel_worker as worker
-        import agentd
+        import local_agent.supervisor.worker as worker
+        import local_agent.daemon.service as agentd
 
         agentd.STATE_DIR = Path(sys.argv[1])
         task = json.loads(sys.argv[2])
@@ -61,8 +61,8 @@ class ParallelResourceProcessTests(unittest.TestCase):
             import time
             from pathlib import Path
 
-            import agent_parallel_worker as worker
-            import agentd
+            import local_agent.supervisor.worker as worker
+            import local_agent.daemon.service as agentd
 
             agentd.STATE_DIR = Path(sys.argv[1])
             task = {"id": "holder", "resources": [], "memory_limit_mb": 4096}
@@ -107,9 +107,9 @@ class ParallelResourceProcessTests(unittest.TestCase):
             import sys
             from pathlib import Path
 
-            import agent_parallel_worker as worker
-            import agentd
-            from agent_process import popen_registered
+            import local_agent.supervisor.worker as worker
+            import local_agent.daemon.service as agentd
+            from local_agent.foundation.process import popen_registered
 
             agentd.STATE_DIR = Path(sys.argv[1])
             pid_path = Path(sys.argv[2])

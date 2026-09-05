@@ -6,13 +6,13 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_multirepo as multi
-from agent_process import (
+import local_agent.supervisor.serial as multi
+from local_agent.foundation.process import (
     LEASE_FDS_ENV,
     LEASE_KEYS_DIGEST_ENV,
     RESOURCE_LEASE_FDS_ENV,
 )
-from agent_repository import RepositoryContext
+from local_agent.repository.context import RepositoryContext
 
 
 def repository(repository_id: str) -> RepositoryContext:
@@ -34,7 +34,7 @@ class MultiRepositoryRestartTests(unittest.TestCase):
             command,
             [
                 sys.executable,
-                str(Path(multi.__file__).resolve()),
+                str(multi.repository_root() / "agent_multirepo.py"),
                 "--registry",
                 str(registry),
                 "--once",

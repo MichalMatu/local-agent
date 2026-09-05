@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_repository import (
+from local_agent.repository.context import (
     DEFAULT_REPOSITORY,
     DEFAULT_REPOSITORY_ID,
     RepositoryContext,

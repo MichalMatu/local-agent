@@ -9,7 +9,7 @@ from collections.abc import Iterator, MutableMapping
 from pathlib import Path
 from typing import TextIO
 
-from agent_process import RESOURCE_LEASE_FDS_ENV, execution_lease_path
+from local_agent.foundation.process import RESOURCE_LEASE_FDS_ENV, execution_lease_path
 from local_agent.runtime.task_contract import task_resources_for
 
 

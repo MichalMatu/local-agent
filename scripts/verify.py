@@ -17,6 +17,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 MACOS_SMOKE_TESTS = (
+    "tests.test_package_layout",
+    "tests.test_release_hardening",
+    "tests.test_guard_process",
+    "tests.test_agent_multirepo_restart",
+    "tests.test_agentd_dispatch",
+    "tests.test_self_update_environment",
+    "tests.test_macos_launchd",
+    "tests.test_remote_operator",
     "tests.test_agent_process",
     "tests.test_agent_core",
     "tests.test_agent_runtime",

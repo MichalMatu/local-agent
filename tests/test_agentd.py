@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agentd
+import local_agent.daemon.service as agentd
 
 
 class AgentDaemonSafetyTests(unittest.TestCase):
@@ -273,11 +273,9 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         self.assertEqual(error, "")
         self.assertEqual(len(calls), 2)
         compile_command, compile_kwargs = calls[0]
-        self.assertIn("agent_config.py", compile_command)
-        self.assertIn("agent_repository.py", compile_command)
-        self.assertIn("agent_parallel.py", compile_command)
-        self.assertIn("agent_parallel_worker.py", compile_command)
-        self.assertIn("agent_version.py", compile_command)
+        self.assertEqual(
+            compile_command, [agentd.sys.executable, "scripts/verify.py", "--only", "compile"]
+        )
         self.assertEqual(compile_kwargs["timeout"], agentd.SELF_UPDATE_VALIDATION_TIMEOUT_SECONDS)
         self.assertEqual(calls[1][1]["timeout"], agentd.SELF_UPDATE_VALIDATION_TIMEOUT_SECONDS)
         self.assertNotEqual(compile_kwargs["environment"]["HOME"], str(agentd.HOME))

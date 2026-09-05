@@ -3,10 +3,10 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
-import agent_multirepo as multi
-import agent_parallel as parallel
-import agentd
-from agent_repository import RepositoryContext
+import local_agent.supervisor.serial as multi
+import local_agent.supervisor.orchestrator as parallel
+import local_agent.daemon.service as agentd
+from local_agent.repository.context import RepositoryContext
 from local_agent.supervisor import control, policy
 
 
@@ -24,7 +24,7 @@ def repository(repository_id: str) -> RepositoryContext:
 class SupervisorModuleBoundaryTests(unittest.TestCase):
     def test_parallel_does_not_depend_on_serial_fallback_entrypoint(self) -> None:
         source = Path(parallel.__file__).read_text(encoding="utf-8")
-        self.assertNotIn("import agent_multirepo", source)
+        self.assertNotIn("local_agent.supervisor.serial", source)
         self.assertNotIn("serial.", source)
 
     def test_serial_consumes_shared_policy_primitives(self) -> None:

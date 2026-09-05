@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import agent_storage as storage
+import local_agent.foundation.storage as storage
 
 
 class StoragePolicyTests(unittest.TestCase):

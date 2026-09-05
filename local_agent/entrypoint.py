@@ -11,15 +11,17 @@ import sys
 import time
 from pathlib import Path
 
-import agentd
-from agent_process import terminate_process_group
-from agent_repo_admin import provision_repository
-from agent_version import RELEASE_VERSION
+import local_agent.daemon.service as agentd
+from local_agent.daemon.installation import installation_pending, installation_transaction
+from local_agent.foundation.process import popen_registered, terminate_process_group, unregister_process
+from local_agent.repository.admin import provision_repository
+from local_agent.version import RELEASE_VERSION
+from local_agent.paths import repository_root
 from local_agent.operator import local as agent_operator
 from local_agent.operator import remote as agent_remote_operator
 from local_agent.repository.context import RepositoryContext, load_repository_registry
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = repository_root()
 LOOP_SECONDS = 0.5
 DISABLED_STATUS_SECONDS = 5.0
 _stop_requested = False
@@ -86,7 +88,8 @@ def prepare_repositories(repositories: list[RepositoryContext]) -> None:
 def supervisor_command(args: argparse.Namespace) -> list[str]:
     command = [
         sys.executable,
-        str(REPO_ROOT / "agent_parallel.py"),
+        "-m",
+        "local_agent.supervisor.orchestrator",
     ]
     if args.registry is not None:
         command.extend(["--registry", str(args.registry)])
@@ -97,7 +100,7 @@ def supervisor_command(args: argparse.Namespace) -> list[str]:
 def start_supervisor(args: argparse.Namespace) -> subprocess.Popen[str]:
     env = os.environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    proc = subprocess.Popen(
+    proc = popen_registered(
         supervisor_command(args),
         cwd=REPO_ROOT,
         env=env,
@@ -109,9 +112,12 @@ def start_supervisor(args: argparse.Namespace) -> subprocess.Popen[str]:
 
 
 def stop_supervisor(proc: subprocess.Popen[str] | None) -> None:
-    if proc is None or proc.poll() is not None:
+    if proc is None:
         return
-    terminate_process_group(proc, log)
+    try:
+        terminate_process_group(proc, log)
+    finally:
+        unregister_process(proc)
 
 
 def publish_guard_status(state: str, *, max_workers: int) -> None:
@@ -147,56 +153,84 @@ def main() -> int:
         f"revision={initial_revision}"
     )
 
-    while not _stop_requested:
-        try:
-            agent_remote_operator.poll_remote_operator(
-                remote,
-                self_repo=agentd.SELF_REPO,
-            )
-        except Exception as exc:
-            log(f"remote operator poll degraded: {type(exc).__name__}: {exc}")
-
-        current_revision = agentd.self_revision()
-        if (
-            initial_revision is not None
-            and current_revision is not None
-            and current_revision != initial_revision
-        ):
-            log(
-                f"self revision changed {initial_revision} -> {current_revision}; "
-                "re-executing guarded entrypoint"
-            )
-            stop_supervisor(child)
-            os.execv(sys.executable, _self_reexec_args(args))
-
-        if agent_operator.is_disabled():
-            if child is not None:
-                stop_supervisor(child)
-                child = None
-            now = time.monotonic()
-            if now - last_disabled_status >= DISABLED_STATUS_SECONDS:
-                publish_guard_status("disabled", max_workers=args.max_workers)
-                last_disabled_status = now
-            time.sleep(LOOP_SECONDS)
-            continue
-
-        if child is not None and child.poll() is not None:
-            log(f"parallel supervisor exited code={child.returncode}; scheduling restart")
-            child = None
-
-        if child is None:
+    try:
+        while not _stop_requested:
             try:
-                repositories = load_repository_registry(path=args.registry)
-                if not repositories:
-                    raise RuntimeError("repository registry is empty")
-                prepare_repositories(repositories)
-                child = start_supervisor(args)
+                agent_remote_operator.poll_remote_operator(
+                    remote,
+                    self_repo=agentd.SELF_REPO,
+                )
             except Exception as exc:
-                log(f"guarded supervisor start deferred: {type(exc).__name__}: {exc}")
-                time.sleep(2.0)
+                log(f"remote operator poll degraded: {type(exc).__name__}: {exc}")
+
+            current_revision = agentd.self_revision()
+            pending_installation = installation_pending(agentd.STATE_DIR)
+            if pending_installation or (
+                initial_revision is not None
+                and current_revision is not None
+                and current_revision != initial_revision
+            ):
+                with installation_transaction(agentd.STATE_DIR) as acquired:
+                    if acquired:
+                        if installation_pending(agentd.STATE_DIR):
+                            if not agent_operator.is_disabled():
+                                agent_operator.disable_agent(reason="interrupted_self_update")
+                            stop_supervisor(child)
+                            child = None
+                        # The updater may have rolled back while the guard was
+                        # waiting. Re-read only after validation releases its lock.
+                        current_revision = agentd.self_revision()
+                        if (
+                            not installation_pending(agentd.STATE_DIR)
+                            and current_revision is not None
+                            and current_revision != initial_revision
+                        ):
+                            log(
+                                f"self revision changed {initial_revision} -> {current_revision}; "
+                                "re-executing guarded entrypoint"
+                            )
+                            stop_supervisor(child)
+                            child = None
+                            os.execv(sys.executable, _self_reexec_args(args))
+
+            if agent_operator.is_disabled():
+                if child is not None:
+                    stop_supervisor(child)
+                    child = None
+                now = time.monotonic()
+                if now - last_disabled_status >= DISABLED_STATUS_SECONDS:
+                    publish_guard_status("disabled", max_workers=args.max_workers)
+                    last_disabled_status = now
+                time.sleep(LOOP_SECONDS)
                 continue
 
-        time.sleep(LOOP_SECONDS)
+            if child is not None and child.poll() is not None:
+                log(f"parallel supervisor exited code={child.returncode}; scheduling restart")
+                stop_supervisor(child)
+                child = None
 
-    stop_supervisor(child)
+            if child is None:
+                if pending_installation:
+                    time.sleep(LOOP_SECONDS)
+                    continue
+                try:
+                    repositories = load_repository_registry(path=args.registry)
+                    if not repositories:
+                        raise RuntimeError("repository registry is empty")
+                    prepare_repositories(repositories)
+                    child = start_supervisor(args)
+                except Exception as exc:
+                    log(f"guarded supervisor start deferred: {type(exc).__name__}: {exc}")
+                    time.sleep(2.0)
+                    continue
+
+            time.sleep(LOOP_SECONDS)
+
+    finally:
+        if child is not None:
+            stop_supervisor(child)
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

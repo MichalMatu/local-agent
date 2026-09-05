@@ -11,20 +11,27 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-import agent_core as core
-import agent_runtime as runtime_module
-from agent_runtime import (
+import local_agent.foundation.core as core
+import local_agent.runtime.executor as runtime_module
+from local_agent.runtime import task_contract
+from local_agent.runtime.executor import (
     RuntimeExecutor,
+)
+from local_agent.runtime.task_contract import (
     idle_timeout_for,
+    task_digest,
+    task_timeout_for,
+    validate_task,
+)
+from local_agent.runtime.telemetry import (
     parse_mac_swapusage,
     parse_mac_ps_cpu,
     parse_mac_top_cpu,
     parse_mac_vm_stat,
     parse_process_group_ps,
+)
+from local_agent.runtime.progress import (
     parse_progress_marker,
-    task_digest,
-    task_timeout_for,
-    validate_task,
 )
 
 
@@ -93,7 +100,7 @@ class RuntimeExecutorTests(unittest.TestCase):
                 {
                     "id": "large-patch",
                     "resources": [],
-                    "patch": "x" * (runtime_module.MAX_PATCH_BYTES + 1),
+                    "patch": "x" * (task_contract.MAX_PATCH_BYTES + 1),
                 }
             )
         with self.assertRaisesRegex(ValueError, "commands exceeds"):
@@ -101,7 +108,7 @@ class RuntimeExecutorTests(unittest.TestCase):
                 {
                     "id": "many-commands",
                     "resources": [],
-                    "commands": ["true"] * (runtime_module.MAX_TASK_LIST_ITEMS + 1),
+                    "commands": ["true"] * (task_contract.MAX_TASK_LIST_ITEMS + 1),
                 }
             )
 
@@ -642,13 +649,13 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.assertEqual(heartbeats[0]["host_cpu_percent"], 12.5)
 
     def test_watchdog_defaults_and_bounds(self) -> None:
-        self.assertEqual(idle_timeout_for({}), runtime_module.DEFAULT_IDLE_TIMEOUT)
-        self.assertEqual(task_timeout_for({}), runtime_module.DEFAULT_TASK_TIMEOUT)
+        self.assertEqual(idle_timeout_for({}), task_contract.DEFAULT_IDLE_TIMEOUT)
+        self.assertEqual(task_timeout_for({}), task_contract.DEFAULT_TASK_TIMEOUT)
         self.assertEqual(idle_timeout_for({"idle_timeout": 0}), 0)
         with self.assertRaises(ValueError):
-            task_timeout_for({"task_timeout": runtime_module.MAX_TASK_TIMEOUT + 1})
+            task_timeout_for({"task_timeout": task_contract.MAX_TASK_TIMEOUT + 1})
         with self.assertRaises(ValueError):
-            idle_timeout_for({"idle_timeout": runtime_module.MAX_IDLE_TIMEOUT + 1})
+            idle_timeout_for({"idle_timeout": task_contract.MAX_IDLE_TIMEOUT + 1})
 
     def test_idle_timeout_kills_silent_command(self) -> None:
         self.runtime._idle_timeout = 1

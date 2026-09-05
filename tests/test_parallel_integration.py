@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_version import RELEASE_VERSION
+from local_agent.version import RELEASE_VERSION
 from tests.test_multirepo_integration import (
     REPO_ROOT,
     create_repository_fixture,

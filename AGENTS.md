@@ -6,35 +6,36 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 
 - All machine-generated execution content is English-only: source, comments, identifiers, tests, documentation, prompts, task metadata, runtime logs, shell-visible status text and commit messages.
 - Interactive ChatGPT conversation language is independent from that execution contract.
-- `agentd.py` owns the root daemon lifecycle, durable claims/results, remote status/control and self-update. Its root location is operational because restart/self-update paths are location-sensitive.
-- `agent_parallel.py` owns released bounded-parallel supervisor orchestration and current production scheduling semantics. Its root location is currently operational because worker/restart paths are location-sensitive.
-- `agent_multirepo.py` remains the direct serial fallback with global concurrency one and a location-sensitive root restart path.
-- `local_agent/version.py` owns the release version. Root `agent_version.py` is a compatibility module alias only.
-- `local_agent/config.py` owns startup-loaded timeout configuration. Root `agent_config.py` is a compatibility module alias only.
-- `local_agent/foundation/core.py` owns deterministic task execution, workspace preparation/checkpointing and result publication. Root `agent_core.py` is a compatibility module alias only.
-- `local_agent/foundation/process.py` owns registered spawning, bounded stdout transport, process groups, durable text writes and inherited execution-lease descriptors. Root `agent_process.py` is a compatibility module alias only.
-- `local_agent/foundation/storage.py` owns bounded control Git sync, transient-network retry and storage diagnostics. Root `agent_storage.py` is a compatibility module alias only.
-- `local_agent/repository/binding.py` owns canonical immutable agent/repository binding identities, control-binding validation and registry migration. Root `agent_binding.py` is a compatibility module alias only.
-- `local_agent/repository/context.py` owns repository registry parsing, workspace identity/config digests and repository lease keys. Root `agent_repository.py` is a compatibility module alias only.
-- `local_agent/repository/admin.py` owns explicit repository provisioning and checkout validation. Root `agent_repo_admin.py` is an executable/module shim only.
-- `local_agent/repository/cleanup.py` owns bounded runtime/control metadata cleanup. Root `agent_cleanup.py` is a compatibility module alias only.
-- `local_agent/repository/worker.py` owns one short-lived process-isolated repository turn, hard binding admission and repository-scoped controls. Root `agent_repo_worker.py` is an executable/module shim only.
-- `local_agent/runtime/executor.py` owns staged command lifecycle, watchdog orchestration and task execution budgets. Root `agent_runtime.py` is a compatibility module alias only.
+- `local_agent/daemon/service.py` owns daemon lifecycle, durable claims/results, remote status/control and self-update. `local_agent/paths.py` resolves the installed checkout independently of cwd.
+- `local_agent/supervisor/orchestrator.py` owns bounded-parallel supervisor orchestration and directly consumes `local_agent/supervisor/scheduling.py`.
+- `local_agent/supervisor/serial.py` owns the direct serial fallback with global concurrency one.
+- `local_agent/version.py` owns the release version.
+- `local_agent/config.py` owns startup-loaded timeout configuration.
+- `local_agent/foundation/core.py` owns deterministic task execution, workspace preparation/checkpointing and result publication.
+- `local_agent/foundation/process.py` owns registered spawning, bounded stdout transport, process groups, durable text writes and inherited execution-lease descriptors.
+- `local_agent/foundation/storage.py` owns bounded control Git sync, transient-network retry and storage diagnostics.
+- `local_agent/repository/binding.py` owns canonical immutable agent/repository binding identities, control-binding validation and registry migration.
+- `local_agent/repository/context.py` owns repository registry parsing, workspace identity/config digests and repository lease keys.
+- `local_agent/repository/admin.py` owns explicit repository provisioning and checkout validation.
+- `local_agent/repository/cleanup.py` owns bounded runtime/control metadata cleanup.
+- `local_agent/repository/worker.py` owns one short-lived process-isolated repository turn, hard binding admission and repository-scoped controls.
+- `local_agent/runtime/executor.py` owns staged command lifecycle, watchdog orchestration and task execution budgets.
 - `local_agent/runtime/task_contract.py` owns immutable task digests, task-schema limits/validation, agent-binding task validation and bounded task timeout/memory parsing.
 - `local_agent/runtime/progress.py` owns validated progress-marker parsing and bounded asynchronous progress publication.
 - `local_agent/runtime/output.py` owns live command-output rendering, unified-diff collapsing and bounded summary-failure tails.
 - `local_agent/runtime/telemetry.py` owns host/process telemetry parsing and collection plus process-group RSS sampling.
-- `local_agent/operator/local.py` owns the persistent fail-closed disable marker, disabled-only runtime reset and binding migration. Root `agent_operator.py` is the executable/module shim.
-- `local_agent/operator/remote.py` owns repository-independent remote emergency desired-state polling and fail-closed validation. Root `agent_remote_operator.py` is a compatibility module alias only.
-- `local_agent/entrypoint.py` owns the guarded service lifecycle, remote operator polling and safe supervisor start/stop/reexec. Root `agent_entrypoint.py` is the executable/module shim.
-- `local_agent/cli/diagnostics.py` owns diagnostics/status/task inspection. Root `agentctl.py` is the executable/module shim; the daemon must not depend on diagnostics.
+- `local_agent/operator/local.py` owns the persistent fail-closed disable marker, disabled-only runtime reset and binding migration.
+- `local_agent/operator/remote.py` owns repository-independent remote emergency desired-state polling and fail-closed validation.
+- `local_agent/entrypoint.py` owns the guarded service lifecycle, remote operator polling and safe supervisor start/stop/reexec.
+- `local_agent/cli/diagnostics.py` owns diagnostics/status/task inspection. The daemon must not depend on diagnostics.
 - `local_agent/supervisor/resources.py` owns external machine/named-resource flock arbitration and inherited resource descriptors used by the parallel worker.
 - `local_agent/supervisor/policy.py` owns shared polling/order/control policy.
-- `local_agent/supervisor/scheduling.py` is the directly tested pure scheduling extraction target. Until `agent_parallel.py` is rewired in a focused change, parity tests must keep retry/backoff/due/max-worker behavior synchronized.
-- `local_agent/supervisor/worker.py` owns parallel worker task admission/dispatch and hard-binding admission. Root `agent_parallel_worker.py` is an executable/module shim only.
+- `local_agent/supervisor/scheduling.py` owns production retry/backoff/due/max-worker policy; do not duplicate that policy in the orchestrator.
+- `local_agent/supervisor/worker.py` owns parallel worker task admission/dispatch and hard-binding admission.
 - `local_agent/platform/macos_launchd.py` owns portable macOS LaunchAgent generation/lifecycle helpers. Machine-specific plist content must not be committed.
-- Root compatibility/executable shims are not implementation owners. `tests/test_package_layout.py` enforces packaged module identity and a strict thin-source bound. New implementation belongs in `local_agent/`, and new code should import packaged owners directly rather than adding dependencies on legacy root aliases.
-- Moving `agentd.py`, `agent_parallel.py` or `agent_multirepo.py` is not a cosmetic refactor: any change to their `__file__`-derived self-update, restart, worker or cwd paths requires explicit behavior-preserving tests before merge.
+- Root Python files are limited to four operational launchers: `agentd.py`, `agent_entrypoint.py`, `agent_parallel.py` and `agent_multirepo.py`. Existing launchd definitions and in-flight self-update/restart paths require these filenames. They contain no implementation or import aliases.
+- `tests/test_package_layout.py` enforces the launcher allowlist, source bound, packaged imports and executable path behavior. Internal code and tests import packaged owners directly.
+- Worker subprocesses use `python -m local_agent.supervisor.worker` or `python -m local_agent.repository.worker` with explicit checkout cwd. Restarts use absolute supported launcher paths and preserve supervisor mode/options. Changes require behavior-preserving tests.
 
 ## Safety invariants
 
@@ -61,6 +62,7 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - Repository workers must never execute global daemon restart/self-update directly.
 - Remote daemon control ids must use only ASCII letters, digits, `.`, `_` and `-`, with a 120-character maximum, and generated ACK paths must remain under `.agent/daemon/acks/` after normalization.
 - All daemon self-updates must validate before restart and roll back on validation failure.
+- Self-update installs the inspected commit under the installation lock. A durable pending-installation journal blocks supervisor startup and local enable after interrupted validation until explicit operator recovery.
 - Keep Git staging path-exact; never use `git add -A` in publication logic.
 - Preserve ignored build caches unless a task explicitly requests a clean rebuild.
 - Never destroy a dirty disposable workspace without first creating a recoverable checkpoint outside the worktree.
@@ -68,7 +70,7 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 
 ## Production scheduling invariants
 
-The bounded-parallel production path is `agent_parallel.py`:
+The bounded-parallel production owner is `local_agent/supervisor/orchestrator.py`:
 
 - recommended production `max_workers` is `2`;
 - default remains `1` and the hard cap remains `3`;

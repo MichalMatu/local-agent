@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agent_process import run_argv_bounded
+from local_agent.foundation.process import run_argv_bounded
 
 def _safe_command(args: list[str], timeout: float = 2.0) -> str | None:
     try:

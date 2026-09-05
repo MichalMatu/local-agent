@@ -7,10 +7,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_parallel as parallel
-import agentd
-from agent_process import ExecutionLeaseBusy
-from agent_repository import RepositoryContext
+import local_agent.supervisor.orchestrator as parallel
+import local_agent.daemon.service as agentd
+from local_agent.foundation.process import ExecutionLeaseBusy
+from local_agent.repository.context import RepositoryContext
 
 
 def repository(root: Path) -> RepositoryContext:

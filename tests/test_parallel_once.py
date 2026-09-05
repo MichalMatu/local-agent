@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-import agent_parallel as parallel
+import local_agent.supervisor.orchestrator as parallel
 
 
 class ParallelOnceTests(unittest.TestCase):

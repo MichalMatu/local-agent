@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agent_repository import RepositoryContext
+from local_agent.repository.context import RepositoryContext
 
 POLL_SECONDS = 15.0
 HOT_POLL_SECONDS = 2.0

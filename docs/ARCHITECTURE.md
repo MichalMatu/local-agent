@@ -39,10 +39,14 @@ The planner chooses intent. The executor independently owns repository identity,
 local_agent/
 ├── __init__.py
 ├── config.py
+├── paths.py
 ├── entrypoint.py
 ├── version.py
 ├── cli/
 │   └── diagnostics.py
+├── daemon/
+│   ├── installation.py
+│   └── service.py
 ├── foundation/
 │   ├── core.py
 │   ├── process.py
@@ -67,6 +71,8 @@ local_agent/
 └── supervisor/
     ├── control.py
     ├── policy.py
+    ├── orchestrator.py
+    ├── serial.py
     ├── resources.py
     ├── scheduling.py
     └── worker.py
@@ -78,6 +84,11 @@ The package is the implementation home for reusable code. New implementation mus
 
 | Area | Owner | Responsibilities |
 | --- | --- | --- |
+| Installation transaction | `local_agent/daemon/installation.py` | installation lock, durable pending revisions and fail-closed admission after interrupted validation |
+| Daemon service | `local_agent/daemon/service.py` | lifecycle, durable claims/results, control and validated self-update |
+| Parallel orchestration | `local_agent/supervisor/orchestrator.py` | worker admission/reaping, control draining, status and shutdown |
+| Serial fallback | `local_agent/supervisor/serial.py` | serial repository polling and mode-preserving restart |
+| Checkout paths | `local_agent/paths.py` | explicit source checkout resolution, independent of cwd |
 | Release version | `local_agent/version.py` | one release version constant |
 | Runtime configuration | `local_agent/config.py` | startup-loaded timeout policy |
 | Execution core | `local_agent/foundation/core.py` | deterministic task execution, workspace preparation/checkpointing and result publication |
@@ -98,50 +109,29 @@ The package is the implementation home for reusable code. New implementation mus
 | Guarded service lifecycle | `local_agent/entrypoint.py` | operator polling plus safe supervisor start/stop/reexec |
 | Diagnostics CLI | `local_agent/cli/diagnostics.py` | status, task inspection, task validation and doctor checks |
 | Supervisor policy | `local_agent/supervisor/policy.py` | shared polling/order/control policy |
-| Scheduling extraction target | `local_agent/supervisor/scheduling.py` | pure retry/due/backoff/max-worker model, parity-protected against production parallel orchestration |
+| Production scheduling | `local_agent/supervisor/scheduling.py` | pure retry/due/backoff/max-worker policy consumed directly by the parallel orchestrator |
 | Resource admission | `local_agent/supervisor/resources.py` | machine/named-resource flock arbitration and inherited resource FDs |
 | Parallel repository worker | `local_agent/supervisor/worker.py` | resource-aware parallel task admission and dispatch |
 | macOS integration | `local_agent/platform/macos_launchd.py` | portable LaunchAgent generation/lifecycle helpers |
 
 ## Root boundary
 
-The repository root is no longer an implementation bucket. It contains two kinds of Python files.
+All implementation lives under `local_agent/`. Four root Python files remain as operational launchers, with no module aliases or `__file__` mutation:
 
-### Production entrypoints/orchestrators
+| Launcher | Operational requirement |
+| --- | --- |
+| `agent_entrypoint.py` | installed guarded LaunchAgent and guard self-reexec |
+| `agent_parallel.py` | existing direct parallel LaunchAgents and parallel self-update/restart |
+| `agent_multirepo.py` | serial LaunchAgent, daemon registry dispatch and serial restart |
+| `agentd.py` | single-daemon LaunchAgent and daemon self-update/restart |
 
-```text
-agentd.py          daemon lifecycle, durable claims/results, control and self-update
-agent_parallel.py  released bounded-parallel supervisor orchestration
-agent_multirepo.py serial fallback supervisor orchestration
-```
+Keeping these filenames preserves installed launchd configuration and explicit restart commands. The v4.17 updater still needs an operator-managed transition because its in-memory validator names deleted files; see [v4.18 release notes](RELEASE_NOTES_V4.18.0.md). They are executable boundaries, not supported import APIs. All other root aliases and worker/admin/diagnostic/operator shims are removed.
 
-These three remain root owners intentionally because their current restart/self-update/subprocess contracts depend on stable root entrypoint paths. Moving them is a behavior change, not a cosmetic file move, and must be handled separately with explicit restart-path tests.
+Workers run as package modules with an explicit checkout cwd. Direct supervisor module invocation is also supported. Restart uses an absolute launcher under `repository_root()` and preserves the exact serial/parallel mode, registry, one-shot flag and worker count. The daemon's `SELF_REPO` uses the same resolver for Git revision and self-update. Installed-update compile discovery delegates to `scripts/verify.py --only compile`; validation still isolates HOME, strips lease metadata, bounds each command and runs the full Python suite before accepting an update.
 
-### Thin executable/compatibility surfaces
+The guard and updater serialize source acceptance through an installation lock. The updater records both revisions durably before installing the inspected commit. Validation failure rolls back; interrupted validation leaves a journal that blocks supervisor startup and local enable until operator recovery. The guard keeps emergency polling active while validation is running. See [operations](OPERATIONS.md#interrupted-self-update-recovery).
 
-```text
-agent_entrypoint.py
-agent_operator.py
-agent_repo_admin.py
-agent_repo_worker.py
-agent_parallel_worker.py
-agentctl.py
-
-agent_binding.py
-agent_cleanup.py
-agent_config.py
-agent_core.py
-agent_process.py
-agent_remote_operator.py
-agent_repository.py
-agent_runtime.py
-agent_storage.py
-agent_version.py
-```
-
-These files are not implementation owners. They point at packaged modules so existing executable/import seams keep one module object rather than a second wrapper implementation. `tests/test_package_layout.py` enforces both module identity and a strict thin-source bound.
-
-Do not add new callers to compatibility import names. New code should import the packaged owner directly. Compatibility surfaces may be removed once all runtime, tests and deployment entrypoints have migrated.
+`tests/test_package_layout.py` enforces this boundary and tests launcher/module execution and restart paths. The launchd generator keeps the installed launcher contract and validates packaged runtime files before installation.
 
 ## Dependency direction
 
@@ -149,7 +139,7 @@ The intended direction is:
 
 ```mermaid
 flowchart TD
-    Root["root entrypoints / orchestrators"] --> Supervisor["local_agent.supervisor"]
+    Root["operational root launchers"] --> Supervisor["local_agent.supervisor"]
     Root --> Repo["local_agent.repository"]
     Root --> Runtime["local_agent.runtime"]
     Root --> Operator["local_agent.operator"]
@@ -162,28 +152,13 @@ flowchart TD
     Operator --> Foundation
 ```
 
-Packaged modules should increasingly import other packaged owners directly. A package-to-root compatibility import is a migration seam, not an accepted new dependency direction.
+Packaged modules and tests import packaged owners directly. Imports of root launcher names are unsupported and prohibited.
 
-## Remaining orchestration seams
+## Remaining decomposition opportunities
 
-Three root orchestrators remain deliberately large:
+The daemon service and parallel orchestrator are still substantial coordination modules. A future change may extract daemon update operations or supervisor process/status handling when it creates a clean ownership boundary. This refactor deliberately keeps claim/result, update rollback, resource admission, control drain and shutdown behavior together with their existing tests.
 
-- `agentd.py` still owns durable claims/results, control publication and validated self-update. Its `SELF_REPO` and restart logic are path-sensitive.
-- `agent_multirepo.py` remains the serial fallback and restarts through its own root entrypoint path.
-- `agent_parallel.py` remains the released production supervisor and coordinates process spawning/reaping, repository admission, global control draining, status publication, log maintenance and shutdown.
-
-`local_agent/supervisor/scheduling.py` remains a directly tested extraction target. Its behavior is kept in parity with `agent_parallel.py`, but the production orchestrator is still the scheduling owner until a focused rewire removes the duplicate implementation. Do not claim that migration is complete before that rewire lands.
-
-Future decomposition should prefer small behavior-preserving slices such as:
-
-```text
-local_agent/supervisor/processes.py
-local_agent/supervisor/status.py
-local_agent/daemon/service.py
-local_agent/daemon/update.py
-```
-
-A file move that changes `__file__`-derived restart or self-update paths requires explicit tests and is not a mechanical refactor.
+The scheduling extraction is complete: production calls `scheduling.py` directly and the duplicate policy is removed. Scheduling tests now exercise that owner; supervisor and temporary-Git integration tests exercise its production consumers.
 
 ## Safety invariants that layout work must not weaken
 

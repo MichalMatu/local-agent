@@ -9,10 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import agent_core as core
+import local_agent.foundation.core as core
 from local_agent.operator import local as agent_operator
 
 REMOTE_BRANCH = "operator-control"
+REMOTE_TRACKING_REF = f"refs/remotes/origin/{REMOTE_BRANCH}"
 REMOTE_STATE_PATH = ".agent/operator/state.json"
 POLL_SECONDS = 2.0
 _CONTROL_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -60,22 +61,23 @@ def _load_remote_payload(self_repo: Path, ref: str) -> dict[str, Any]:
             "fetch",
             "--quiet",
             "--no-tags",
+            "--no-write-fetch-head",
             "origin",
-            f"refs/heads/{REMOTE_BRANCH}",
+            f"+refs/heads/{REMOTE_BRANCH}:{REMOTE_TRACKING_REF}",
         ],
         self_repo,
         timeout=30,
     )
     if fetch["exit_code"] != 0:
         raise RuntimeError(str(fetch.get("output", "")).strip() or "operator control fetch failed")
-    resolved = _git(["rev-parse", "FETCH_HEAD"], self_repo, timeout=10)
+    resolved = _git(["rev-parse", REMOTE_TRACKING_REF], self_repo, timeout=10)
     fetched_ref = str(resolved.get("output", "")).strip().lower()
     if resolved["exit_code"] != 0 or fetched_ref != ref:
         raise RuntimeError(
             f"operator control ref changed during fetch: expected={ref} "
             f"got={fetched_ref or 'unknown'}"
         )
-    show = _git(["show", f"FETCH_HEAD:{REMOTE_STATE_PATH}"], self_repo, timeout=15)
+    show = _git(["show", f"{ref}:{REMOTE_STATE_PATH}"], self_repo, timeout=15)
     if show["exit_code"] != 0:
         raise ValueError(str(show.get("output", "")).strip() or "operator control state missing")
     payload = json.loads(str(show.get("output", "")))
@@ -85,13 +87,13 @@ def _load_remote_payload(self_repo: Path, ref: str) -> dict[str, Any]:
 
 
 def _validated_state(payload: dict[str, Any]) -> tuple[str, str]:
-    if payload.get("version") != 1:
+    if type(payload.get("version")) is not int or payload["version"] != 1:
         raise ValueError("operator control version must be 1")
     desired_state = payload.get("desired_state")
     if desired_state not in {"enabled", "disabled"}:
         raise ValueError("operator desired_state must be enabled or disabled")
     request_id = payload.get("request_id")
-    if not isinstance(request_id, str) or not _CONTROL_ID_RE.fullmatch(request_id):
+    if not isinstance(request_id, str) or len(request_id) > 120 or not _CONTROL_ID_RE.fullmatch(request_id):
         raise ValueError("operator request_id is invalid")
     return desired_state, request_id
 

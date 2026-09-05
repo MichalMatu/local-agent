@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-import contextlib
-import io
-
-import agent_storage as storage
-import agentd
-from agent_repository import RepositoryContext
+import local_agent.foundation.storage as storage
+import local_agent.daemon.service as agentd
+from local_agent.repository.context import RepositoryContext
 
 
 def sync_control_quietly() -> None:
     "Run bounded routine control-branch sync without low-level Git output."
-    with contextlib.redirect_stdout(io.StringIO()):
-        storage.sync_control(agentd.core)
+    storage.sync_control(agentd.core)
 
 
 def bind_supervisor_control(

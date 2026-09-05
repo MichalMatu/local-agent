@@ -60,8 +60,8 @@ class ParallelResourceWaitIntegrationTests(unittest.TestCase):
             import time
             from pathlib import Path
 
-            import agent_parallel_worker as worker
-            import agentd
+            import local_agent.supervisor.worker as worker
+            import local_agent.daemon.service as agentd
 
             state_dir = Path(sys.argv[1])
             release = Path(sys.argv[2])

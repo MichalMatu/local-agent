@@ -31,9 +31,9 @@ The first enabled registry entry is the supervisor control repository in registr
 Provisioning is explicit:
 
 ```bash
-python agent_repo_admin.py list
-python agent_repo_admin.py validate
-python agent_repo_admin.py provision --repository-id <id>
+python -m local_agent.repository.admin list
+python -m local_agent.repository.admin validate
+python -m local_agent.repository.admin provision --repository-id <id>
 ```
 
 Polling never implicitly clones, repairs or overwrites a checkout.

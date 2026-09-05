@@ -10,14 +10,18 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-import agent_core as core
-import agent_runtime as runtime_module
-from agent_runtime import (
+import local_agent.foundation.core as core
+from local_agent.runtime import telemetry
+from local_agent.runtime.task_contract import (
     DEFAULT_MEMORY_LIMIT_MB,
     MAX_MEMORY_LIMIT_MB,
+    memory_limit_for,
+)
+from local_agent.runtime.executor import (
     MAX_OUTPUT,
     RuntimeExecutor,
-    memory_limit_for,
+)
+from local_agent.runtime.telemetry import (
     sample_process_group_rss_mb,
 )
 
@@ -44,7 +48,7 @@ class RuntimeHardeningTests(unittest.TestCase):
 
     def test_process_group_rss_sampler_uses_existing_telemetry_parser(self) -> None:
         ps_output = "1 77 1.0 1024\n2 77 2.0 3072\n3 88 9.0 9999\n"
-        with mock.patch.object(runtime_module, "_safe_command", return_value=ps_output):
+        with mock.patch.object(telemetry, "_safe_command", return_value=ps_output):
             self.assertEqual(sample_process_group_rss_mb(77), 4.0)
 
     def test_large_runtime_output_capture_is_strictly_bounded(self) -> None:

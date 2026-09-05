@@ -9,8 +9,8 @@ from argparse import Namespace
 from contextlib import redirect_stdout
 from pathlib import Path
 
-import agentctl
-import agentd
+import local_agent.cli.diagnostics as agentctl
+import local_agent.daemon.service as agentd
 
 
 class AgentControlDiagnosticsTests(unittest.TestCase):

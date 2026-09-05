@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_operator
+import local_agent.operator.local as agent_operator
 from local_agent.operator import remote
 
 
@@ -21,6 +21,9 @@ class RemoteOperatorValidationTests(unittest.TestCase):
             ("disabled", "stop-1"),
         )
         invalid = (
+            {"version": True, "desired_state": "disabled", "request_id": "stop-1"},
+            {"version": 1.0, "desired_state": "disabled", "request_id": "stop-1"},
+            {"version": 1, "desired_state": "disabled", "request_id": "x" * 121},
             {"version": 2, "desired_state": "disabled", "request_id": "stop-1"},
             {"version": 1, "desired_state": "paused", "request_id": "stop-1"},
             {"version": 1, "desired_state": "disabled", "request_id": "../stop"},

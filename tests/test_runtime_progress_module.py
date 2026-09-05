@@ -3,16 +3,10 @@ from __future__ import annotations
 import json
 import unittest
 
-import agent_runtime
 from local_agent.runtime import progress
 
 
 class RuntimeProgressModuleTests(unittest.TestCase):
-    def test_root_runtime_reexports_progress_contract(self) -> None:
-        self.assertIs(agent_runtime.parse_progress_marker, progress.parse_progress_marker)
-        self.assertIs(agent_runtime.ProgressDispatcher, progress.ProgressDispatcher)
-        self.assertIs(agent_runtime.ProgressCallback, progress.ProgressCallback)
-
     def test_progress_marker_parses_independently(self) -> None:
         marker = progress.parse_progress_marker(
             "[AGENT_PROGRESS] "

@@ -8,10 +8,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import agent_parallel_worker as worker
-from agent_process import ExecutionLeaseBusy, RESOURCE_LEASE_FDS_ENV
-from agent_repository import RepositoryContext
-from agent_version import RELEASE_VERSION
+import local_agent.supervisor.worker as worker
+from local_agent.foundation.process import ExecutionLeaseBusy, RESOURCE_LEASE_FDS_ENV
+from local_agent.repository.context import RepositoryContext
+from local_agent.version import RELEASE_VERSION
 from local_agent.runtime.task_contract import MAX_MEMORY_LIMIT_MB, MAX_TASK_RESOURCES
 
 

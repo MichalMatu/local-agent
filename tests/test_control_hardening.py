@@ -13,8 +13,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_parallel as parallel
-import agentd
+import local_agent.supervisor.orchestrator as parallel
+import local_agent.daemon.service as agentd
 from tests.test_multirepo_integration import (
     REPO_ROOT,
     configure_identity,
@@ -82,6 +82,7 @@ def queue_late_task(root: Path, item: dict[str, Path | str]) -> None:
     configure_identity(queue)
     task = {
         "id": "late-task",
+        "agent_binding": str(item["agent_binding"]),
         "mode": "commands",
         "work_branch": "main",
         "allow_write": False,
@@ -166,7 +167,6 @@ class ControlIdentifierHardeningTests(unittest.TestCase):
 
 
 class DeferredControlAdmissionIntegrationTests(unittest.TestCase):
-    @unittest.skip("Temporarily disabled: flaky multi-repository timing harness; scheduler behavior is covered by focused supervisor tests pending deterministic admission probe.")
     def test_busy_control_repository_does_not_starve_unrelated_late_task(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -185,13 +185,12 @@ class DeferredControlAdmissionIntegrationTests(unittest.TestCase):
 
             code = (
                 "import sys; "
-                "import agent_multirepo as serial; "
-                "import agent_parallel as parallel; "
-                "serial.POLL_SECONDS=0.1; "
-                "serial.SUPERVISOR_CONTROL_POLL_SECONDS=0.1; "
+                "from local_agent.supervisor import policy; "
+                "import local_agent.supervisor.orchestrator as parallel; "
+                "policy.POLL_SECONDS=0.1; "
+                "policy.SUPERVISOR_CONTROL_POLL_SECONDS=0.1; "
                 "parallel.ERROR_RETRY_SECONDS=0.1; "
                 "parallel.REAP_INTERVAL_SECONDS=0.05; "
-                "parallel.RESOURCE_RETRY_SECONDS=0.1; "
                 f"sys.argv=['agent_parallel.py','--registry',{str(registry)!r},'--max-workers','2']; "
                 "raise SystemExit(parallel.main())"
             )

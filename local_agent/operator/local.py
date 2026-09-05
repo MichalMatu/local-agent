@@ -9,7 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from agent_process import atomic_write_text, fsync_directory
+from local_agent.foundation.process import atomic_write_text, fsync_directory
+from local_agent.daemon.installation import require_completed_installation
 from local_agent.repository.binding import (
     DEFAULT_CATALOG_PATH,
     apply_catalog_to_registry_payload,
@@ -36,7 +37,13 @@ def disabled_state() -> dict[str, Any]:
 
 def is_disabled() -> bool:
     # Marker presence is intentionally fail-closed, even when its JSON is damaged.
-    return DISABLED_PATH.is_file()
+    try:
+        DISABLED_PATH.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return True
+    return True
 
 
 def disable_agent(
@@ -64,6 +71,7 @@ def disable_agent(
 
 
 def enable_agent() -> bool:
+    require_completed_installation(STATE_DIR)
     try:
         DISABLED_PATH.unlink()
     except FileNotFoundError:
@@ -261,3 +269,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     return int(args.func(args))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

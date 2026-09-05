@@ -6,11 +6,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_binding
-import agent_operator
-import agent_parallel_worker
-import agent_storage
-from agent_repository import RepositoryContext, repository_from_dict, validate_repository_set
+import local_agent.repository.binding as agent_binding
+import local_agent.operator.local as agent_operator
+import local_agent.supervisor.worker as agent_parallel_worker
+import local_agent.foundation.storage as agent_storage
+from local_agent.repository.context import RepositoryContext, repository_from_dict, validate_repository_set
 from local_agent.runtime.task_contract import (
     require_task_agent_binding,
     task_agent_binding,
@@ -22,6 +22,20 @@ C6_BINDING = "64877d7d-af3f-4312-a511-699c44aa42dd"
 
 
 class AgentBindingHelpersTests(unittest.TestCase):
+    def test_control_binding_rejects_noninteger_versions_and_unreadable_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / ".agent/binding.json"
+            path.parent.mkdir()
+            for version in (True, 1.0, "1", None):
+                with self.subTest(version=version):
+                    path.write_text(json.dumps({"version": version}))
+                    with self.assertRaisesRegex(ValueError, "invalid repository control binding"):
+                        agent_binding.control_binding_payload(root)
+            with mock.patch.object(Path, "read_text", side_effect=PermissionError("denied")):
+                with self.assertRaisesRegex(ValueError, "cannot be read"):
+                    agent_binding.control_binding_payload(root)
+
     def test_canonical_binding_requires_lowercase_uuid(self) -> None:
         self.assertEqual(agent_binding.canonical_agent_binding(MATRIX_BINDING), MATRIX_BINDING)
         with self.assertRaisesRegex(ValueError, "canonical UUID"):

@@ -7,8 +7,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-import agent_repo_admin as admin
-from agent_repository import RepositoryContext
+import local_agent.repository.admin as admin
+from local_agent.repository.context import RepositoryContext
 
 
 def git(args: list[str], *, cwd: Path | None = None) -> str:
