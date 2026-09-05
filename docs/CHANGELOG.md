@@ -1,6 +1,62 @@
 # Changelog
 
-This changelog records operationally relevant Local Agent releases. Historical per-release notes through v4.11.5 remain available as `docs/RELEASE_NOTES_V4.11.x.md`. The release tag and `agent_version.RELEASE_VERSION` are the version source of truth.
+This changelog records operationally relevant Local Agent releases. The release tag and `agent_version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
+
+## v4.15.0
+
+- Introduced hard binding between one ChatGPT conversation, one canonical `agent_binding` UUID and one exact repository identity.
+- Made unbound or mismatched bridge/runtime state fail closed instead of inferring a repository from chat context.
+- Added explicit operator-only **Rebind** semantics; normal chat edits and assistant control markers cannot change repository identity.
+- Required matching registry binding, control-branch `.agent/binding.json` and task `agent_binding` before serial or parallel execution may claim work.
+- Added terminal pre-claim rejection for missing or wrong task bindings so rejected work executes no task command.
+- Updated Chat Bridge to v0.4/state schema v3 with exact identity envelopes on bootstrap and wake messages.
+- Hardened control synchronization by materializing the fetched remote control ref before active cancellation/ACK checks.
+
+## v4.14.3
+
+- Made `reset-runtime` remove global ephemeral daemon status as well as repository/legacy runtime state.
+- Added status-owner liveness semantics so dead owners are reported as stale rather than presented as a live daemon.
+- Aligned `agentctl status` and `agentctl doctor` with guarded-entrypoint ownership.
+
+## v4.14.2
+
+- Added guarded `agent_entrypoint.py` ownership of the supervisor lifecycle.
+- Added repository-independent `operator-control` desired-state emergency control.
+- Added disabled-only `reset-runtime` for stale local claim/spool/run state after destructive queue recovery.
+- Added guarded cleanup of generated control bytecode and provisioning of completely missing control/work checkouts.
+- Runs the supervisor with `PYTHONDONTWRITEBYTECODE=1` and expanded Linux/macOS emergency-control coverage.
+
+## v4.14.1
+
+- Added repository-scoped `cancel_task` for pending and active work.
+- Added a global persistent Local Agent disable marker that survives supervisor and launchd restarts.
+- Added explicit local `agent_operator.py enable|disable|status` control.
+- Made malformed disable state fail closed and expanded emergency-control tests/documentation.
+
+## v4.14.0
+
+- Added bounded garbage collection for Git-backed runtime metadata after control synchronization.
+- Pending tasks are never pruned; terminal task/result files are pruned as pairs and pending-task run records stay protected.
+- The ACK matching the current control request is always protected.
+- Cleanup failures remain fail-open for task execution while unexpected `.agent/tasks` mutations remain fail closed.
+- Default retention is 32 terminal task/result pairs, 32 runs, 16 ACKs and 8 orphan results.
+
+## v4.13.1
+
+- Fixed remote idle-heartbeat freshness so stale daemon status/version cannot persist because of locally rewritten status-file mtimes.
+- Made explicit retry deadlines override normal adaptive polling for resource and worker backoff.
+- Preserved parallel/serial execution metadata during supervisor-wide status control.
+- Separated inherited repository execution leases from external resource-lock descriptors.
+- Extracted shared supervisor polling/order policy and control-binding primitives under `local_agent/supervisor/`.
+
+## v4.13.0
+
+- Made task `resources` mandatory and strictly validated instead of silently falling back to whole-machine exclusivity.
+- Defined `resources: []` as repository-local work with no exclusive external resource.
+- Reserved named resources for concrete shared devices/state and `machine` for genuine whole-host operations.
+- Decoupled `memory_limit_mb` from resource admission.
+- Added durable resource waiting with bounded retry and published `waiting_resource` status.
+- Improved Chat Bridge `NEXT=<duration>` continuation behavior and regression coverage.
 
 ## v4.12.2
 
