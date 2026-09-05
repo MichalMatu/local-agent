@@ -1,6 +1,16 @@
 # Changelog
 
-This changelog records operationally relevant Local Agent releases. The release tag and `agent_version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
+This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
+
+## v4.17.0
+
+- Completed the next package-ownership phase by moving execution core/process/storage foundations, repository admin/cleanup/worker, task executor, parallel worker, diagnostics and release version under `local_agent/`.
+- Reduced historical root library modules to thin aliases/shims and added `tests/test_package_layout.py` to prevent implementation from growing back into compatibility surfaces.
+- Standardized root compatibility modules on one-module-object aliases so monkeypatch/runtime semantics do not create a second wrapper implementation.
+- Updated `docs/ARCHITECTURE.md` and `AGENTS.md` to make packaged ownership and the root entrypoint boundary explicit.
+- Kept `agentd.py`, `agent_parallel.py` and `agent_multirepo.py` as deliberate location-sensitive root orchestrators rather than performing unsafe cosmetic moves.
+- Kept `local_agent/supervisor/scheduling.py` parity-protected but not runtime-wired; production scheduling semantics still live in `agent_parallel.py`.
+- Preserved task, hard-binding, control, resource, watchdog, publication and Chat Bridge contracts; no downstream task-contract migration is required.
 
 ## v4.16.0
 
