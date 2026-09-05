@@ -76,6 +76,16 @@ document.querySelector('form').onsubmit = (event) => {
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     const request = (message) => bounded(message.type, popup.evaluate((value) => chrome.runtime.sendMessage(value), message));
     const readChat = async (id) => (await request({ type: "bridge:get-state" })).state.conversations[id];
+    const popupMetrics = () => popup.evaluate(() => {
+      const rect = document.body.getBoundingClientRect();
+      const scroll = document.querySelector(".content-scroll");
+      return {
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        clientHeight: Math.round(scroll.clientHeight),
+        scrollHeight: Math.round(scroll.scrollHeight)
+      };
+    });
     const add = async (suffix) => {
       const url = `https://chatgpt.com/c/bridge-fixture-${suffix}`;
       await page.goto(url);
@@ -92,6 +102,36 @@ document.querySelector('form').onsubmit = (event) => {
     const prepare = () => page.evaluate(() => { document.querySelector("button").disabled = true; });
     const waitInsertion = () => page.waitForFunction(() => document.querySelector("#prompt-textarea").textContent.length > 0);
     const composerText = () => page.locator("#prompt-textarea").textContent();
+
+    const compactPopup = await popupMetrics();
+    assert.equal(compactPopup.width, 420);
+    assert.ok(compactPopup.height < 560, `compact popup should shrink to content, got ${compactPopup.height}px`);
+    assert.ok(
+      compactPopup.scrollHeight <= compactPopup.clientHeight + 1,
+      `compact popup should not scroll: ${compactPopup.scrollHeight}/${compactPopup.clientHeight}`
+    );
+
+    const settingsSummary = popup.locator(".settings-panel summary");
+    await settingsSummary.click();
+    await popup.waitForFunction(
+      (height) => document.body.getBoundingClientRect().height > height,
+      compactPopup.height
+    );
+    const advancedPopup = await popupMetrics();
+    assert.equal(advancedPopup.width, 420);
+    assert.ok(advancedPopup.height <= 600, `advanced popup exceeded 600px: ${advancedPopup.height}`);
+    assert.equal(await popup.locator(".current-chat-panel").isVisible(), false);
+    assert.equal(await popup.locator(".conversation-section").isVisible(), false);
+    assert.ok(
+      advancedPopup.scrollHeight <= advancedPopup.clientHeight + 1,
+      `advanced view should use available height before scrolling: ${advancedPopup.scrollHeight}/${advancedPopup.clientHeight}`
+    );
+    await settingsSummary.click();
+    await popup.waitForFunction(
+      (height) => document.body.getBoundingClientRect().height <= height + 1,
+      compactPopup.height
+    );
+    console.log("PASS: compact popup grows into a dedicated Advanced view without unnecessary scrolling");
 
     let id = await add("success");
     const successId = id;
@@ -169,11 +209,11 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal((await run(removePendingId)).reason, "delivery_uncertain");
     await popup.reload();
 
-    const popupSize = await popup.evaluate(() => {
-      const rect = document.body.getBoundingClientRect();
-      return { width: Math.round(rect.width), height: Math.round(rect.height) };
-    });
-    assert.deepEqual(popupSize, { width: 420, height: 560 });
+    const popupSize = await popupMetrics();
+    assert.equal(popupSize.width, 420);
+    assert.ok(popupSize.height <= 600, `crowded popup exceeded 600px: ${popupSize.height}`);
+    assert.ok(popupSize.height > compactPopup.height, "crowded popup should grow beyond compact height");
+    assert.ok(popupSize.scrollHeight > popupSize.clientHeight, "crowded popup should scroll only after reaching its height cap");
     assert.equal(await popup.locator(".brand-orb").count(), 0);
     assert.equal((await popup.locator(".brand-title").innerText()).replace(/\s+/g, " "), "Local Agent · Chat Bridge");
     assert.equal(await popup.locator(".card-editor").count(), 0);
@@ -234,7 +274,7 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(remainingPending.length, 1);
     id = remainingPending[0].id;
     const pendingUrl = remainingPending[0].url;
-    console.log("PASS: stable monochrome popup has unified switches, compact header and no native dialogs");
+    console.log("PASS: adaptive monochrome popup has unified switches, compact header and no native dialogs");
 
     await bounded("browser shutdown", context.close());
     context = await launch();
