@@ -2,124 +2,44 @@
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
-import os
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TextIO
 
 import agent_core as core
 import agent_operator
 import agentd
 import agent_repo_worker as serial_worker
 from agent_binding import validate_repository_control_binding
-from agent_process import (
-    ExecutionLeaseBusy,
-    RESOURCE_LEASE_FDS_ENV,
-    execution_lease_path,
-)
+from agent_process import ExecutionLeaseBusy
 from agent_repository import RepositoryContext
-from local_agent.runtime.task_contract import require_task_agent_binding, task_resources_for
+from local_agent.runtime.task_contract import require_task_agent_binding
+from local_agent.supervisor import resources as resource_admission
 
 WORKER_RESOURCE_BUSY = 13
 WORKER_MACHINE_BUSY = 14
 PARALLEL_DAEMON_VERSION = serial_worker.MULTIREPO_DAEMON_VERSION
-
-
-class MachineResourceBusy(RuntimeError):
-    def __init__(self, resource: str) -> None:
-        super().__init__(f"machine resource is busy: {resource}")
-        self.resource = resource
+MachineResourceBusy = resource_admission.MachineResourceBusy
 
 
 def resource_lock_dir() -> Path:
-    return agentd.STATE_DIR / "locks" / "machine-resources"
+    return resource_admission.resource_lock_dir(agentd.STATE_DIR)
 
 
 def task_resources(task: dict[str, object]) -> tuple[str, ...]:
     """Return the explicit validated external resource contract for one task."""
-    return task_resources_for(task)
-
-
-def _acquire_flock(
-    handle: TextIO,
-    operation: int,
-    *,
-    resource: str,
-) -> None:
-    try:
-        fcntl.flock(handle.fileno(), operation | fcntl.LOCK_NB)
-    except BlockingIOError:
-        raise MachineResourceBusy(resource) from None
-
-
-def _restore_env_value(target: dict[str, str], name: str, previous: str | None) -> None:
-    if previous is None:
-        target.pop(name, None)
-    else:
-        target[name] = previous
-
-
-@contextlib.contextmanager
-def _inherit_resource_fds(handles: list[TextIO]) -> Iterator[None]:
-    existing_raw = os.environ.get(RESOURCE_LEASE_FDS_ENV, "").strip()
-    existing = [item for item in existing_raw.split(",") if item]
-    combined = existing + [str(handle.fileno()) for handle in handles]
-    value = ",".join(dict.fromkeys(combined))
-
-    previous_os = os.environ.get(RESOURCE_LEASE_FDS_ENV)
-    previous_core = core.ENV.get(RESOURCE_LEASE_FDS_ENV)
-    os.environ[RESOURCE_LEASE_FDS_ENV] = value
-    core.ENV[RESOURCE_LEASE_FDS_ENV] = value
-    try:
-        yield
-    finally:
-        _restore_env_value(os.environ, RESOURCE_LEASE_FDS_ENV, previous_os)
-        _restore_env_value(core.ENV, RESOURCE_LEASE_FDS_ENV, previous_core)
+    return resource_admission.task_resources(task)
 
 
 @contextlib.contextmanager
 def machine_resource_lease(task: dict[str, object]) -> Iterator[tuple[str, ...]]:
     """Acquire external machine resources without waiting after task selection."""
-    resources = task_resources(task)
-    lock_dir = resource_lock_dir()
-    lock_dir.mkdir(parents=True, exist_ok=True)
-
-    gate = (lock_dir / "arbitration-gate.lock").open("a+", encoding="utf-8")
-    machine = (lock_dir / "machine.lock").open("a+", encoding="utf-8")
-    resource_handles: list[TextIO] = []
-    try:
-        _acquire_flock(gate, fcntl.LOCK_EX, resource="arbitration-gate")
-        machine_mode = fcntl.LOCK_EX if resources == ("machine",) else fcntl.LOCK_SH
-        _acquire_flock(machine, machine_mode, resource="machine")
-
-        if resources != ("machine",):
-            for resource in resources:
-                path = execution_lease_path(lock_dir, f"resource:{resource}")
-                handle = path.open("a+", encoding="utf-8")
-                try:
-                    _acquire_flock(handle, fcntl.LOCK_EX, resource=resource)
-                except BaseException:
-                    handle.close()
-                    raise
-                resource_handles.append(handle)
-
-        fcntl.flock(gate.fileno(), fcntl.LOCK_UN)
-        gate.close()
-
-        inherited = [machine, *resource_handles]
-        with _inherit_resource_fds(inherited):
-            yield resources
-    finally:
-        for handle in reversed(resource_handles):
-            with contextlib.suppress(OSError):
-                handle.close()
-        with contextlib.suppress(OSError):
-            machine.close()
-        if not gate.closed:
-            with contextlib.suppress(OSError):
-                gate.close()
+    with resource_admission.machine_resource_lease(
+        task,
+        lock_dir=resource_lock_dir(),
+        command_env=core.ENV,
+    ) as resources:
+        yield resources
 
 
 def _waiting_status_context(task_id: str, resource: str) -> tuple[str, bool]:
