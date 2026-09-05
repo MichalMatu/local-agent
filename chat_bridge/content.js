@@ -87,16 +87,36 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
 
   function findSendButton(composer) {
     const selectors = [
+      "#composer-submit-button",
       'button[data-testid="send-button"]',
       'button[data-testid="composer-submit-button"]',
-      'button[type="submit"]'
+      'button[aria-label="Send prompt"]',
+      'button[aria-label="Send message"]',
+      'button[aria-label="Send"]'
     ];
-    const form = composer.closest("form") || document;
-    for (const selector of selectors) {
-      const button = form.querySelector(selector) || document.querySelector(selector);
-      if (button instanceof HTMLButtonElement && !button.disabled) return button;
+    const form = composer.closest("form");
+    const scopes = form ? [form, document] : [document];
+    for (const scope of scopes) {
+      for (const selector of selectors) {
+        const button = scope.querySelector(selector);
+        if (button instanceof HTMLButtonElement && !button.disabled) return button;
+      }
     }
     return null;
+  }
+
+  function submitComposer(composer, sendButton) {
+    const form = composer.closest("form");
+    if (
+      form instanceof HTMLFormElement &&
+      sendButton.form === form &&
+      sendButton.type === "submit" &&
+      typeof form.requestSubmit === "function"
+    ) {
+      form.requestSubmit(sendButton);
+      return;
+    }
+    sendButton.click();
   }
 
   async function waitForSendButton(composer, timeoutMs = 2000) {
@@ -176,7 +196,7 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
     }
     const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
     const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
-    sendButton.click();
+    submitComposer(composer, sendButton);
     const deadline = Date.now() + 3000;
     while (Date.now() < deadline) {
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
@@ -289,6 +309,10 @@ if (!globalThis.__localAgentChatBridgeLoaded) {
   }, 5000);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "bridge:capabilities") {
+      sendResponse({ ok: true, protocolVersion: 1 });
+      return false;
+    }
     if (message?.type !== "bridge:feedback") return false;
     sendFeedback(String(message.prompt || ""), String(message.expectedUrl || ""), message.deliveryId)
       .then((response) => sendResponse({ ...response, protocolVersion: 1 }))
