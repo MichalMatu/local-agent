@@ -6,12 +6,18 @@ from pathlib import Path
 
 
 ALIASES = (
+    ("agent_binding", "local_agent.repository.binding"),
     ("agent_cleanup", "local_agent.repository.cleanup"),
+    ("agent_config", "local_agent.config"),
     ("agent_core", "local_agent.foundation.core"),
+    ("agent_entrypoint", "local_agent.entrypoint"),
+    ("agent_operator", "local_agent.operator.local"),
     ("agent_parallel_worker", "local_agent.supervisor.worker"),
     ("agent_process", "local_agent.foundation.process"),
+    ("agent_remote_operator", "local_agent.operator.remote"),
     ("agent_repo_admin", "local_agent.repository.admin"),
     ("agent_repo_worker", "local_agent.repository.worker"),
+    ("agent_repository", "local_agent.repository.context"),
     ("agent_runtime", "local_agent.runtime.executor"),
     ("agent_storage", "local_agent.foundation.storage"),
     ("agent_version", "local_agent.version"),

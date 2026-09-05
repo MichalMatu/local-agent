@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-"""Legacy root import surface for Local Agent runtime configuration."""
+"""Compatibility module alias for packaged runtime configuration."""
 
-from local_agent.config import MIN_TIMEOUT, TIMEOUTS, TimeoutConfig, load_timeout_config
+import sys
 
-__all__ = [
-    "MIN_TIMEOUT",
-    "TIMEOUTS",
-    "TimeoutConfig",
-    "load_timeout_config",
-]
+from local_agent import config as _implementation
+
+sys.modules[__name__] = _implementation
