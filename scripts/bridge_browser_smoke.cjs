@@ -92,6 +92,7 @@ document.querySelector('form').onsubmit = (event) => {
     const composerText = () => page.locator("#prompt-textarea").textContent();
 
     let id = await add("success");
+    const successId = id;
     assert.equal((await run(id)).reason, "sent");
     assert.equal(await page.evaluate(() => window.submits), 1);
     assert.match(await page.locator('[data-message-author-role="user"]').innerText(), /LA_REPO=tracker/);
@@ -165,25 +166,50 @@ document.querySelector('form').onsubmit = (event) => {
     await page.evaluate(() => { window.dropDelivery = true; });
     assert.equal((await run(removePendingId)).reason, "delivery_uncertain");
     await popup.reload();
-    assert.equal(await popup.locator(".current-chat-panel .small-copy").count(), 0);
+
+    const popupSize = await popup.evaluate(() => {
+      const rect = document.body.getBoundingClientRect();
+      return { width: Math.round(rect.width), height: Math.round(rect.height) };
+    });
+    assert.deepEqual(popupSize, { width: 420, height: 560 });
+    assert.equal(await popup.locator(".card-editor").count(), 0);
+    assert.equal(await popup.getByRole("button", { name: "Run now", exact: true }).count(), 8);
+    assert.equal(await popup.locator(".wake-input-wrap input").count(), 8);
+    assert.equal(await popup.locator(".enable-check input").count(), 8);
     assert.match(
       await popup.locator(".current-chat-panel .info-icon").getAttribute("title"),
-      /explicitly bound to exactly one agent UUID and repository/
+      /remove the chat and add it again/i
     );
     assert.equal(await popup.locator(".has-pending-delivery .resolution-sent").count(), 2);
     assert.equal(await popup.locator(".has-pending-delivery .resolution-not-sent").count(), 2);
-    assert.equal(await popup.getByRole("button", { name: "Wake was sent", exact: true }).count(), 0);
-    assert.equal(await popup.getByRole("button", { name: "Wake was not sent", exact: true }).count(), 0);
-    popup.once("dialog", (dialog) => dialog.accept());
-    await popup.locator(".has-pending-delivery .danger").last().click();
-    await popup.waitForFunction(() => document.querySelectorAll(".has-pending-delivery").length === 1);
+
+    const successCard = popup.locator(".conversation-card").filter({ hasText: "success" });
+    const wakeInput = successCard.locator(".wake-input-wrap input");
+    await wakeInput.fill("17");
+    await wakeInput.press("Enter");
+    await popup.waitForFunction(() => document.querySelector("#message").textContent.includes("17 min"));
+    assert.equal((await readChat(successId)).intervalOverrideMinutes, 17);
+
+    let nativeDialogSeen = false;
+    popup.on("dialog", async (dialog) => {
+      nativeDialogSeen = true;
+      await dialog.dismiss();
+    });
+    const pendingCard = popup.locator(".has-pending-delivery").filter({ hasText: "remove-pending" });
+    await pendingCard.getByRole("button", { name: "Remove", exact: true }).click();
+    await popup.waitForFunction((conversationId) => {
+      return !Array.from(document.querySelectorAll(".conversation-card")).some((card) =>
+        card.textContent.includes(conversationId)
+      );
+    }, removePendingId);
+    assert.equal(nativeDialogSeen, false);
     const stateAfterRemove = (await request({ type: "bridge:get-state" })).state;
-    assert.equal(Object.keys(stateAfterRemove.conversations).length, 7);
+    assert.equal(stateAfterRemove.conversations[removePendingId], undefined);
     const remainingPending = Object.values(stateAfterRemove.conversations).filter((item) => item.pendingDelivery);
     assert.equal(remainingPending.length, 1);
     id = remainingPending[0].id;
     const pendingUrl = remainingPending[0].url;
-    console.log("PASS: compact popup uses ✓/× resolution icons, tooltip help and working pending Remove");
+    console.log("PASS: stable glass popup has simple tick/time/run/remove controls and no native confirmation dialogs");
 
     await bounded("browser shutdown", context.close());
     context = await launch();
