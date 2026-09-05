@@ -27,15 +27,21 @@ const fixture = `<!doctype html><html><body>
 <script>
 window.submits = 0;
 window.dropDelivery = false;
+window.replaceComposerOnSubmit = false;
 document.querySelector('form').onsubmit = (event) => {
   event.preventDefault();
   window.submits++;
   if (window.dropDelivery) return;
-  const input = document.querySelector('#prompt-textarea');
+  const form = document.querySelector('#composer-form');
+  const input = form.querySelector('#prompt-textarea');
   const message = document.createElement('div');
   message.dataset.messageAuthorRole = 'user';
   message.textContent = input.innerText || input.textContent || '';
   document.body.append(message);
+  if (window.replaceComposerOnSubmit) {
+    form.innerHTML = '<div id="prompt-textarea" class="ProseMirror" contenteditable="true" role="textbox"></div><button id="composer-submit-button" type="submit">Send</button>';
+    return;
+  }
   input.textContent = '';
   input.dispatchEvent(new Event('input', { bubbles: true }));
 };
@@ -90,7 +96,14 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await page.evaluate(() => window.submits), 1);
     assert.match(await page.locator('[data-message-author-role="user"]').innerText(), /LA_REPO=tracker/);
     assert.equal((await readChat(id)).bootstrapPending, false);
-    console.log("PASS: confirmed contenteditable form delivery and exact repository binding");
+    console.log("PASS: confirmed contenteditable form delivery, capability preflight and exact repository binding");
+
+    id = await add("replacement");
+    await page.evaluate(() => { window.replaceComposerOnSubmit = true; });
+    assert.equal((await run(id)).reason, "sent");
+    assert.equal(await page.evaluate(() => window.submits), 1);
+    assert.match(await page.locator('[data-message-author-role="user"]').innerText(), /LA_REPO=tracker/);
+    console.log("PASS: composer DOM replacement after submit still confirms exact user delivery");
 
     id = await add("draft");
     await prepare();
@@ -101,6 +114,21 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await composerText(), "Operator draft must survive");
     assert.equal(await page.evaluate(() => window.submits), 0);
     console.log("PASS: concurrent operator draft preserved");
+
+    id = await add("whitespace-edit");
+    await prepare();
+    delivery = run(id);
+    await waitInsertion();
+    await page.evaluate(() => {
+      const input = document.querySelector("#prompt-textarea");
+      input.textContent = ` ${input.textContent}`;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector("button").disabled = false;
+    });
+    assert.equal((await delivery).reason, "composer_changed");
+    assert.ok((await composerText()).startsWith(" "));
+    assert.equal(await page.evaluate(() => window.submits), 0);
+    console.log("PASS: whitespace-only operator edit is preserved and never submitted");
 
     id = await add("navigation");
     await prepare();
@@ -131,7 +159,7 @@ document.querySelector('form').onsubmit = (event) => {
     assert.ok((await readChat(id)).pendingDelivery);
     assert.equal((await run(id)).reason, "delivery_uncertain");
     assert.equal(await page.evaluate(() => window.submits), 1);
-    console.log("PASS: unconfirmed submit pauses without retry");
+    console.log("PASS: unconfirmed submission pauses without retry");
 
     await bounded("browser shutdown", context.close());
     context = await launch();
