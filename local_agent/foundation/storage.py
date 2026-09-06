@@ -18,6 +18,11 @@ CONTROL_RECOVERABLE_DIRS = (
     ".agent/runs",
     ".agent/results",
     ".agent/daemon/acks",
+    # Task files are remote control-plane input. The daemon never authors new
+    # pending tasks in its local control clone, but runtime GC can delete old
+    # terminal task files. Recover an interrupted GC by restoring the clone to
+    # HEAD before the next pull instead of permanently crash-looping on dirt.
+    ".agent/tasks",
 )
 CONTROL_RECOVERABLE_UNTRACKED_BASENAMES = frozenset({".DS_Store"})
 GIT_NETWORK_RETRY_DELAYS = (2.0, 5.0, 15.0)
