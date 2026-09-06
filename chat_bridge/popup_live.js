@@ -1,9 +1,9 @@
-(function attachPopupLiveState(root, factory) {
-  const api = factory();
-  root.LocalAgentBridgePopupLive = api;
-  if (typeof module !== "undefined" && module.exports) module.exports = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function createPopupLiveState() {
+(function startPopupLiveState(root) {
   "use strict";
+
+  const LIVE_SYNC_MS = 500;
+  let syncPromise = null;
+  let timer = null;
 
   function orderedConversations(state) {
     return Object.values(state?.conversations || {}).sort((a, b) =>
@@ -11,16 +11,26 @@
     );
   }
 
-  function cardMap(root) {
-    return new Map(
-      Array.from(root.querySelectorAll(".conversation-card[data-conversation-id]"), (card) => [
-        card.dataset.conversationId,
-        card
-      ])
-    );
+  function conversationCards(conversations) {
+    const cards = Array.from(elements.conversationList.querySelectorAll(".conversation-card"));
+    if (cards.length !== conversations.length) return null;
+
+    const identified = cards.every((card) => card.dataset.conversationId);
+    if (identified) {
+      const byId = new Map(cards.map((card) => [card.dataset.conversationId, card]));
+      if (conversations.every((conversation) => byId.has(conversation.id))) return byId;
+      return null;
+    }
+
+    const byId = new Map();
+    conversations.forEach((conversation, index) => {
+      cards[index].dataset.conversationId = conversation.id;
+      byId.set(conversation.id, cards[index]);
+    });
+    return byId;
   }
 
-  function patchCard(card, conversation, settings, schedule, runtime, updateNextWakeElement) {
+  function patchCard(card, conversation, settings, schedule, runtime) {
     card.classList.toggle("is-paused", !conversation.enabled);
 
     const title = card.querySelector(".card-title");
@@ -54,7 +64,7 @@
       const fallback = runtime?.intervalMinutes || settings?.fallbackIntervalMinutes || 10;
       intervalInput.placeholder = String(fallback);
       intervalInput.title = `Leave empty to use global default (${fallback} min).`;
-      if (intervalInput.ownerDocument.activeElement !== intervalInput) {
+      if (document.activeElement !== intervalInput) {
         intervalInput.value = conversation.intervalOverrideMinutes === null
           ? ""
           : String(conversation.intervalOverrideMinutes);
@@ -62,24 +72,61 @@
     }
   }
 
-  function patchConversationCards(root, state, schedules, runtime, updateNextWakeElement) {
-    const conversations = orderedConversations(state);
-    const cards = cardMap(root);
-    if (cards.size !== conversations.length) return false;
-    if (conversations.some((conversation) => !cards.has(conversation.id))) return false;
+  async function syncNow() {
+    if (syncPromise) return syncPromise;
+    syncPromise = (async () => {
+      const response = await request({ type: "bridge:get-state" });
+      if (!response?.state) return;
 
-    for (const conversation of conversations) {
-      patchCard(
-        cards.get(conversation.id),
-        conversation,
-        state.settings,
-        schedules?.[conversation.id] || null,
-        runtime,
-        updateNextWakeElement
-      );
-    }
-    return true;
+      const state = response.state;
+      const runtime = response.runtime || null;
+      const schedules = response.schedules || {};
+      const conversations = orderedConversations(state);
+      let cards = conversationCards(conversations);
+
+      latestState = state;
+      latestRuntime = runtime;
+      elements.masterEnabled.checked = Boolean(state.settings.masterEnabled);
+      elements.runtimeSource.textContent = runtime?.source || "-";
+      elements.runtimeInterval.textContent = runtime?.intervalMinutes ? `${runtime.intervalMinutes} min` : "-";
+      elements.conversationCount.textContent = String(conversations.length);
+
+      if (!cards) {
+        renderConversations(state, schedules, runtime);
+        cards = conversationCards(conversations);
+        await refreshCurrentTabForm(state, runtime);
+        restartCountdownTimer();
+      }
+
+      if (!cards) return;
+      for (const conversation of conversations) {
+        patchCard(
+          cards.get(conversation.id),
+          conversation,
+          state.settings,
+          schedules[conversation.id] || null,
+          runtime
+        );
+      }
+    })().catch((error) => {
+      console.warn("Local Agent Chat Bridge live popup sync failed:", error);
+    }).finally(() => {
+      syncPromise = null;
+    });
+    return syncPromise;
   }
 
-  return { patchConversationCards };
-});
+  function stop() {
+    if (timer !== null) clearInterval(timer);
+    timer = null;
+  }
+
+  timer = setInterval(syncNow, LIVE_SYNC_MS);
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === "local" && changes.bridgeState) syncNow();
+  });
+  addEventListener("pagehide", stop, { once: true });
+  syncNow();
+
+  root.LocalAgentBridgePopupLive = { syncNow, stop };
+})(typeof globalThis !== "undefined" ? globalThis : this);
