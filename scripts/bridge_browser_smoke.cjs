@@ -75,6 +75,12 @@ document.querySelector('form').onsubmit = (event) => {
     let popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     const request = (message) => bounded(message.type, popup.evaluate((value) => chrome.runtime.sendMessage(value), message));
+    const localRuntimeUrl = `chrome-extension://${extensionId}/runtime.example.json`;
+    const runtimeSetup = await request({
+      type: "bridge:save-global-settings",
+      settings: { runtimeUrl: localRuntimeUrl }
+    });
+    assert.equal(runtimeSetup?.ok, true, runtimeSetup?.error || "could not persist local runtime fixture");
     const readChat = async (id) => (await request({ type: "bridge:get-state" })).state.conversations[id];
     const popupMetrics = () => popup.evaluate(() => {
       const rect = document.body.getBoundingClientRect();
@@ -210,6 +216,11 @@ document.querySelector('form').onsubmit = (event) => {
     await page.evaluate(() => { window.dropDelivery = true; });
     assert.equal((await run(removeUnconfirmedId)).reason, "delivery_unconfirmed");
     await popup.reload();
+    await popup.waitForFunction(() => document.querySelectorAll(".conversation-card").length === 8);
+    await popup.waitForFunction(
+      (height) => document.body.getBoundingClientRect().height > height,
+      compactPopup.height
+    );
 
     const popupSize = await popupMetrics();
     assert.equal(popupSize.width, 420);
@@ -273,10 +284,6 @@ document.querySelector('form').onsubmit = (event) => {
     context = await launch();
     await context.setOffline(true);
     await installRoutes();
-    const restartedWorker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
-    await bounded("runtime fixture reset", restartedWorker.evaluate((runtime) => {
-      globalThis.fetch = async () => ({ ok: true, json: async () => runtime });
-    }, catalog));
     page = await context.newPage();
     await page.goto(unconfirmedUrl);
     await page.evaluate(() => { window.dropDelivery = true; });
