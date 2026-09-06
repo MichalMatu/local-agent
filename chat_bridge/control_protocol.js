@@ -11,8 +11,6 @@
   const MAX_INTERVAL_MINUTES = 1440;
   const MIN_NEXT_SECONDS = 30;
   const MAX_NEXT_SECONDS = 86400;
-  const LONG_PREFIX = "[LOCAL_AGENT_BRIDGE:";
-  const SHORT_PREFIX = "[LAB:";
 
   function normalizeConversationUrl(rawUrl) {
     if (!rawUrl) return "";
@@ -52,13 +50,11 @@
   }
 
   function parseAssistantControl(text) {
-    const marker = lastNonEmptyLine(text);
-    const isLong = marker.startsWith(LONG_PREFIX) && marker.endsWith("]");
-    const isShort = marker.startsWith(SHORT_PREFIX) && marker.endsWith("]");
-    if (!isLong && !isShort) return null;
-
-    const prefix = isLong ? LONG_PREFIX : SHORT_PREFIX;
-    const body = marker.slice(prefix.length, -1);
+    const line = lastNonEmptyLine(text);
+    const match = line.match(/(?:^|\s)(\[(?:LAB|LOCAL_AGENT_BRIDGE):([^\[\]\r\n]+)\])$/);
+    if (!match) return null;
+    const marker = match[1];
+    const body = match[2];
 
     if (body === "STOP") return { action: "stop", marker };
     if (body === "PAUSE") return { action: "pause", marker };

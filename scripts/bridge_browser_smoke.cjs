@@ -280,6 +280,58 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(Object.values(stateAfterRemove.conversations).some((item) => Object.hasOwn(item, "pendingDelivery")), false);
     console.log("PASS: adaptive monochrome popup has unified switches, no delivery-resolution UI and no native dialogs");
 
+    id = await add("busy-pause");
+    await request({ type: "bridge:update-conversation", conversationId: id,
+      patch: { enabled: true, intervalOverrideMinutes: 17 } });
+    // Keep fixture alarms away from the assertions while preserving Master authority.
+    await request({ type: "bridge:save-global-settings", settings: { masterEnabled: false } });
+    await page.evaluate(() => {
+      const stop = document.createElement("button");
+      stop.dataset.testid = "stop-button";
+      stop.textContent = "Stop";
+      document.body.append(stop);
+      const answer = document.createElement("div");
+      answer.dataset.messageAuthorRole = "assistant";
+      answer.dataset.messageId = "new-pause-answer";
+      answer.textContent = "Acknowledged. [LAB:PAUSE]";
+      document.body.append(answer);
+    });
+    assert.equal((await run(id)).reason, "assistant_busy");
+    await page.waitForTimeout(800);
+    assert.equal((await readChat(id)).enabled, true, "streaming controls must wait for completion");
+    assert.equal(await page.evaluate(() => window.submits), 0);
+    // ChatGPT can retain the stop node and change only its visibility after completion.
+    await page.locator('[data-testid="stop-button"]').evaluate((button) => { button.hidden = true; });
+    await popup.waitForFunction((chatId) =>
+      document.querySelector(`[data-conversation-id="${chatId}"] .status-text`)?.textContent === "paused_by_assistant",
+    id, { timeout: 4000 });
+    const pausedChat = await readChat(id);
+    assert.equal(pausedChat.enabled, false);
+    assert.equal(pausedChat.nextRunAt, null);
+    assert.equal(pausedChat.intervalOverrideMinutes, 17);
+    assert.equal((await request({ type: "bridge:get-state" })).state.settings.masterEnabled, false);
+    assert.equal(await worker.evaluate((chatId) => chrome.alarms.get(`local-agent-chat:${chatId}`), id), undefined);
+    console.log("PASS: inline PAUSE waits for visible generation to end, clears the alarm and updates the open popup");
+
+    id = await add("hidden-stop");
+    for (const testId of ["stop-button", "composer-stop-button"]) {
+      for (const style of ["display:none", "visibility:hidden", "opacity:0"]) {
+        await page.evaluate(({ testId, style }) => {
+          document.querySelectorAll('[data-testid="stop-button"], [data-testid="composer-stop-button"]').forEach((e) => e.remove());
+          const stop = document.createElement("button");
+          stop.dataset.testid = testId;
+          stop.textContent = "Stop";
+          stop.style.cssText = style;
+          document.body.append(stop);
+        }, { testId, style });
+        assert.equal((await run(id)).reason, "sent", `${testId} with ${style} must not block delivery`);
+      }
+    }
+    await page.locator('[data-testid="composer-stop-button"]').evaluate((button) => { button.style.cssText = ""; });
+    assert.equal((await run(id)).reason, "assistant_busy");
+    assert.equal(await page.evaluate(() => window.submits), 6);
+    console.log("PASS: hidden stop controls allow delivery; a visible stop control still blocks submission");
+
     await bounded("browser shutdown", context.close());
     context = await launch();
     await context.setOffline(true);

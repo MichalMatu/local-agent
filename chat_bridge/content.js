@@ -32,10 +32,13 @@
   }
 
   function assistantIsGenerating() {
-    return Boolean(
-      document.querySelector('button[data-testid="stop-button"]') ||
-      document.querySelector('button[data-testid="composer-stop-button"]')
+    const buttons = document.querySelectorAll(
+      'button[data-testid="stop-button"], button[data-testid="composer-stop-button"]'
     );
+    return Array.from(buttons).some((button) => button.checkVisibility({
+      checkVisibilityCSS: true,
+      checkOpacity: true
+    }));
   }
 
   function selectContent(element) {
@@ -280,7 +283,13 @@
   const observerTarget = document.body || document.documentElement;
   const observer = observerTarget ? new MutationObserver(scheduleControlScan) : null;
   if (observer && observerTarget) {
-    observer.observe(observerTarget, { childList: true, subtree: true, characterData: true });
+    observer.observe(observerTarget, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["hidden", "style", "class", "data-testid"]
+    });
   }
   scheduleControlScan();
   const controlRetryInterval = setInterval(() => {

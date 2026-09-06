@@ -56,7 +56,29 @@ assert.equal(parse("[LAB:NEXT=1441m]"), null);
 assert.equal(parse("[LOCAL_AGENT_BRIDGE:INTERVAL=0]"), null);
 assert.equal(parse("[LOCAL_AGENT_BRIDGE:INTERVAL=1441]"), null);
 assert.equal(parse("[LAB:STOP]\nThis is only an example."), null);
-assert.equal(parse("prefix [LAB:STOP]"), null);
+assert.deepEqual(parse("Acknowledged. [LAB:PAUSE]"), {
+  action: "pause",
+  marker: "[LAB:PAUSE]"
+});
+assert.deepEqual(parse("Done. [LAB:STOP]"), {
+  action: "stop",
+  marker: "[LAB:STOP]"
+});
+assert.deepEqual(parse("Check later. [LAB:NEXT=10m]  \n\n"), {
+  action: "next",
+  seconds: 600,
+  marker: "[LAB:NEXT=10m]"
+});
+assert.deepEqual(parse("Waiting. [LOCAL_AGENT_BRIDGE:PAUSE]"), {
+  action: "pause",
+  marker: "[LOCAL_AGENT_BRIDGE:PAUSE]"
+});
+assert.equal(parse("Acknowledged.[LAB:PAUSE]"), null);
+assert.equal(parse("Example: `[LAB:PAUSE]`"), null);
+assert.equal(parse('Example: "[LAB:PAUSE]"'), null);
+assert.equal(parse("[LAB:PAUSE] Continue."), null);
+assert.equal(parse("[LAB:PAUSE]\nContinue."), null);
+assert.equal(parse("Acknowledged. [LAB:NEXT=29s]"), null);
 assert.equal(parse("No control marker."), null);
 
 assert.equal(

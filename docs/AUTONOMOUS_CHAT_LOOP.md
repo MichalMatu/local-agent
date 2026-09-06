@@ -199,7 +199,7 @@ Use it only to catch immediate deterministic failure or failure to claim. If exe
 
 ## Conversation-scoped bridge controls
 
-A bridge control is accepted only as the final non-empty line of the latest assistant message in the same configured conversation:
+A bridge control is accepted only at the end of the final non-empty line of the latest assistant message in the same configured conversation. Prefer a separate line; a whitespace-separated trailing marker such as `Acknowledged. [LAB:PAUSE]` also works. Quoted or backtick-wrapped markers and markers followed by more text are not controls:
 
 ```text
 [LAB:STOP]

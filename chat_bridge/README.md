@@ -33,7 +33,7 @@ Adding a conversation captures the current latest assistant-message identity as 
 
 ## Conversation controls
 
-A control is accepted only from the final non-empty line of the latest assistant message in that exact configured conversation.
+A control is accepted only at the end of the final non-empty line of the latest assistant message in that exact configured conversation. Prefer a separate line; a whitespace-separated trailing marker such as `Acknowledged. [LAB:PAUSE]` also works. Quoted or backtick-wrapped markers and markers followed by more text are not controls.
 
 ```text
 [LAB:STOP]

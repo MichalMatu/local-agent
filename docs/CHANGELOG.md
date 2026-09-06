@@ -2,6 +2,14 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.4
+
+- Accept a whitespace-separated Bridge control at the end of the final assistant line, including `Acknowledged. [LAB:PAUSE]`.
+- Ignore hidden Stop buttons when detecting assistant generation so retained DOM nodes cannot block controls or wake delivery.
+- Observe visibility attribute changes to process completed-answer controls promptly and update the open popup.
+- Release Chat Bridge 0.5.3 with isolated Chromium coverage of inline pause, hidden/visible Stop buttons and popup synchronization.
+- Audit all registered downstream planner instructions; their existing control guidance remains valid and requires no edits. See `RELEASE_NOTES_V4.18.4.md`.
+
 ## v4.18.3
 
 - Finalized Chat Bridge 0.5.2 after live operator validation of `RESUME`, `STOP`, `PAUSE`, `NEXT` and `INTERVAL` controls.
