@@ -29,6 +29,7 @@ Deterministic Local Agent executor
 - [`ROADMAP.md`](ROADMAP.md) — staged delivery plan from documentation and fixtures to automatic rollover and multi-goal supervision.
 - [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — concrete expected code changes, tests and migration order.
 - [`RESEARCH_LOG.md`](RESEARCH_LOG.md) — observed facts, unknowns, experiments and decisions that still need evidence.
+- [`EVIDENCE.md`](EVIDENCE.md) — concrete browser/DOM artifacts already captured and evidence still needed for automatic rollover.
 - [`../CHATGPT_DOM_CONTRACT.md`](../CHATGPT_DOM_CONTRACT.md) — canonical observed ChatGPT DOM contract for conversation exhaustion.
 - [`../AUTONOMOUS_CHAT_LOOP.md`](../AUTONOMOUS_CHAT_LOOP.md) — current child planner / deterministic executor contract.
 
