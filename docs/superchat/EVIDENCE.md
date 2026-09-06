@@ -25,22 +25,6 @@ This evidence is sufficient for the current terminal exhaustion detector and is 
 - `chat_bridge/dom_contract.js`;
 - `chat_bridge/exhaustion_guard.js`.
 
-### Saved page archive: `lc.zip`
-
-The operator also saved the exhausted ChatGPT page and provided `lc.zip`.
-
-Archive inspection on 2026-09-06 found:
-
-- archive size approximately 334 KiB;
-- a `LiteGraph - Oczekiwanie na zadanie.html` entry exists but its uncompressed length is **0 bytes**;
-- the archive contains a screenshot (`Screenshot 2026-09-06 at 16.03.51.png`, approximately 45 KiB);
-- the archive contains downloaded CSS/assets from the saved page;
-- because the main HTML entry is empty, this archive cannot be used as a raw full-page DOM regression fixture.
-
-Conclusion:
-
-Do not commit `lc.zip` as a DOM fixture. Build the fixture from the already captured terminal DOM fragment and keep it minimal/sanitized. The screenshot may remain useful as visual evidence, but runtime detection must be based on structural/textual DOM signals, not pixels.
-
 ## Evidence still needed for automatic rollover
 
 The hard-exhaustion detector is sufficiently evidenced. Automatic replacement-chat creation still needs live evidence for the following states.
