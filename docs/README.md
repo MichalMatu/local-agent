@@ -12,7 +12,7 @@
 | Understand repository scheduling | [`MULTI_REPOSITORY.md`](MULTI_REPOSITORY.md) |
 | Understand current production invariants | [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) |
 | Use the ChatGPT / Chat Bridge autonomous loop | [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) |
-| Design the higher-level Superchat supervisor and rollover | [`SUPERCHAT_SUPERVISOR.md`](SUPERCHAT_SUPERVISOR.md) |
+| Design the higher-level Superchat supervisor and rollover | [`superchat/`](superchat/) |
 | Stop, cancel or recover autonomous execution | [`EMERGENCY_CONTROLS.md`](EMERGENCY_CONTROLS.md) |
 | Recreate the established macOS environment | [`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md) |
 | Contribute code safely | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) |
@@ -58,7 +58,7 @@ The planner decides **what** should change. Local Agent owns deterministic, boun
 ### Planner and bridge
 
 - [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) — planner/executor loop and continuation rules.
-- [`SUPERCHAT_SUPERVISOR.md`](SUPERCHAT_SUPERVISOR.md) — deterministic higher-level goal supervision, worker generations, rollover journals and restart recovery.
+- [`superchat/`](superchat/) — higher-level Superchat architecture, roadmap, implementation plan and research log.
 - [`../chat_bridge/README.md`](../chat_bridge/README.md) — extension installation, hard binding and conversation controls.
 
 ### Development and verification
