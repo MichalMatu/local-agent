@@ -220,6 +220,8 @@ Compatibility forms using `LOCAL_AGENT_BRIDGE:` remain accepted.
 - `INTERVAL=<minutes>`: set a persistent conversation pacing override.
 - `INTERVAL=AUTO`: return to configured runtime pacing.
 
+Per-chat operator settings are ordinary conversation state rather than a permanent operator lock. A later assistant control may overwrite the chat's manual pause/enabled state, next-wake timing or interval override. The global Bridge **Master** switch is the exception: it is operator-only, assistant controls must never mutate it, and content-script messages cannot call the global-settings mutation path. While Master is off, chat controls may still update their own conversation state and desired timing, but no scheduled wake alarm may fire.
+
 All of these controls work for new assistant answers immediately after the first binding is added; a first bootstrap is not a prerequisite. The global bridge master switch may suspend all alarms but never alters bindings. No assistant marker can change the repository binding.
 
 ## Completion and pause policy
@@ -243,7 +245,8 @@ A hard-binding rollout is complete only after all of these are demonstrated:
 9. the serial fallback preserves the same binding enforcement;
 10. active `cancel_task` is observed through a remote-grounded ACK and terminates the targeted active task;
 11. global `disable` prevents admission and can terminate active execution according to the emergency-control contract;
-12. two conversations retain independent alarms/control state and cannot alter each other's binding through assistant controls.
+12. two conversations retain independent alarms/control state and cannot alter each other's binding through assistant controls;
+13. assistant controls can overwrite operator-set per-chat pause/interval/timing state, but cannot change the global Bridge Master switch; Master-off suspends alarms without erasing per-chat desired timing.
 
 Canonical executor and rollout rules remain in `AGENTS.md` and `docs/OPERATIONS.md`.
 
