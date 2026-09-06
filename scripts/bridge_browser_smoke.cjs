@@ -9,12 +9,11 @@ const { chromium } = require(process.env.LOCAL_AGENT_PLAYWRIGHT_MODULE || "playw
 const root = path.resolve(__dirname, "..");
 const catalog = require(path.join(root, "chat_bridge/runtime.example.json"));
 
-async function bounded(label, promise, timeoutMs = 10_000) {
+async function bounded(label, promise) {
   let timer;
   try {
     return await Promise.race([promise, new Promise((_, reject) => {
-      const seconds = Math.ceil(timeoutMs / 1000);
-      timer = setTimeout(() => reject(new Error(`${label} exceeded ${seconds} seconds`)), timeoutMs);
+      timer = setTimeout(() => reject(new Error(`${label} exceeded 10 seconds`)), 10_000);
     })]);
   } finally { clearTimeout(timer); }
 }
@@ -76,6 +75,12 @@ document.querySelector('form').onsubmit = (event) => {
     let popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     const request = (message) => bounded(message.type, popup.evaluate((value) => chrome.runtime.sendMessage(value), message));
+    const localRuntimeUrl = `chrome-extension://${extensionId}/runtime.example.json`;
+    const runtimeSetup = await request({
+      type: "bridge:save-global-settings",
+      settings: { runtimeUrl: localRuntimeUrl }
+    });
+    assert.equal(runtimeSetup?.ok, true, runtimeSetup?.error || "could not persist local runtime fixture");
     const readChat = async (id) => (await request({ type: "bridge:get-state" })).state.conversations[id];
     const popupMetrics = () => popup.evaluate(() => {
       const rect = document.body.getBoundingClientRect();
@@ -279,10 +284,6 @@ document.querySelector('form').onsubmit = (event) => {
     context = await launch();
     await context.setOffline(true);
     await installRoutes();
-    const restartedWorker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
-    await bounded("runtime fixture reset", restartedWorker.evaluate((runtime) => {
-      globalThis.fetch = async () => ({ ok: true, json: async () => runtime });
-    }, catalog), 20_000);
     page = await context.newPage();
     await page.goto(unconfirmedUrl);
     await page.evaluate(() => { window.dropDelivery = true; });
