@@ -1,6 +1,10 @@
 importScripts(
-  "worker_core.js",
+  "worker_base.js",
+  "worker_state.js",
+  "worker_runtime.js",
+  "worker_binding.js",
   "worker_schedule.js",
+  "worker_transport.js",
   "worker_controls.js",
   "worker_delivery.js",
   "worker_conversations.js",
