@@ -13,7 +13,7 @@ const bindingFor = (repositoryId) => {
 const MATRIX_BINDING = bindingFor("matrixhub");
 const TRACKER_BINDING = bindingFor("tracker");
 const LOCAL_AGENT_BINDING = bindingFor("local-agent");
-const CONTENT_PROTOCOL_VERSION = 2;
+const CONTENT_PROTOCOL_VERSION = 3;
 
 const storage = options.storage || {};
 const alarms = new Map();
@@ -72,7 +72,7 @@ const chrome = {
         if (options.contentScriptProbe) {
           return options.contentScriptProbe({ tabId, message, injectedScripts, tabMessages });
         }
-        return { ok: true, reason: "ready", protocolVersion: CONTENT_PROTOCOL_VERSION };
+        return { ok: true, reason: "ready", protocolVersion: CONTENT_PROTOCOL_VERSION, assistantIdentity: "old-assistant" };
       }
       if (message.type !== "bridge:feedback") {
         throw new Error(`unsupported tabs.sendMessage type in test: ${message.type}`);
@@ -98,21 +98,9 @@ const chrome = {
   runtime: {
     id: "test-bridge",
     getURL: (path) => `chrome-extension://test-bridge/${path}`,
-    onInstalled: {
-      addListener(listener) {
-        installedListeners.push(listener);
-      }
-    },
-    onStartup: {
-      addListener(listener) {
-        startupListeners.push(listener);
-      }
-    },
-    onMessage: {
-      addListener(listener) {
-        runtimeMessageListeners.push(listener);
-      }
-    }
+    onInstalled: { addListener(listener) { installedListeners.push(listener); } },
+    onStartup: { addListener(listener) { startupListeners.push(listener); } },
+    onMessage: { addListener(listener) { runtimeMessageListeners.push(listener); } }
   }
 };
 
@@ -129,6 +117,7 @@ const context = vm.createContext({
   Object,
   Array,
   Set,
+  Map,
   Promise,
   AbortController,
   setTimeout,

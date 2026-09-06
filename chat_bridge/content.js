@@ -1,5 +1,5 @@
 (() => {
-  const CONTENT_PROTOCOL_VERSION = 2;
+  const CONTENT_PROTOCOL_VERSION = 3;
   const existingBridge = globalThis.__localAgentChatBridgeState;
   if (existingBridge?.protocolVersion === CONTENT_PROTOCOL_VERSION) return;
   try {
@@ -12,15 +12,8 @@
   globalThis.__localAgentChatBridgeProtocolVersion = CONTENT_PROTOCOL_VERSION;
 
   const protocol = globalThis.LocalAgentBridgeProtocol;
-  if (!protocol) {
-    throw new Error("Local Agent Chat Bridge control protocol is unavailable");
-  }
-  const {
-    normalizeConversationUrl,
-    parseAssistantControl,
-    controlFingerprint,
-    fnv1a32
-  } = protocol;
+  if (!protocol) throw new Error("Local Agent Chat Bridge control protocol is unavailable");
+  const { normalizeConversationUrl, parseAssistantControl, controlFingerprint, fnv1a32 } = protocol;
 
   function findComposer() {
     return (
@@ -41,7 +34,7 @@
   function assistantIsGenerating() {
     return Boolean(
       document.querySelector('button[data-testid="stop-button"]') ||
-        document.querySelector('button[data-testid="composer-stop-button"]')
+      document.querySelector('button[data-testid="composer-stop-button"]')
     );
   }
 
@@ -56,33 +49,25 @@
 
   function setComposerText(composer, text) {
     composer.focus();
-
     if (composer instanceof HTMLTextAreaElement) {
-      const setter = Object.getOwnPropertyDescriptor(
-        HTMLTextAreaElement.prototype,
-        "value"
-      )?.set;
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
       if (!setter) throw new Error("textarea value setter unavailable");
       setter.call(composer, text);
       composer.dispatchEvent(new Event("input", { bubbles: true }));
       return;
     }
-
     if (!(composer instanceof HTMLElement) || composer.contentEditable !== "true") {
       throw new Error("unsupported composer element");
     }
-
     selectContent(composer);
     const inserted = document.execCommand("insertText", false, text);
     if (!inserted) {
       composer.textContent = text;
-      composer.dispatchEvent(
-        new InputEvent("input", {
-          bubbles: true,
-          inputType: "insertText",
-          data: text
-        })
-      );
+      composer.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        inputType: "insertText",
+        data: text
+      }));
     }
   }
 
@@ -140,6 +125,15 @@
     return null;
   }
 
+  function latestAssistantMessage() {
+    const messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+    if (!messages.length) return null;
+    const latest = messages[messages.length - 1];
+    const text = latest.innerText || latest.textContent || "";
+    const stableId = latest.getAttribute("data-message-id") || latest.getAttribute("data-testid") || latest.id || "";
+    return { text, identity: stableId || `${messages.length}:${fnv1a32(text)}` };
+  }
+
   let deliveryInFlight = false;
 
   async function sendFeedback(prompt, expectedUrl, deliveryId) {
@@ -157,18 +151,12 @@
     if (!normalizedUrl || normalizeConversationUrl(location.href) !== normalizedUrl) {
       return { ok: false, reason: "wrong_conversation" };
     }
-    if (document.visibilityState === "prerender") {
-      return { ok: false, reason: "page_not_ready" };
-    }
-    if (assistantIsGenerating()) {
-      return { ok: false, reason: "assistant_busy" };
-    }
+    if (document.visibilityState === "prerender") return { ok: false, reason: "page_not_ready" };
+    if (assistantIsGenerating()) return { ok: false, reason: "assistant_busy" };
 
     const composer = findComposer();
     if (!composer) return { ok: false, reason: "composer_not_found" };
-    if (composerText(composer).trim()) {
-      return { ok: false, reason: "composer_not_empty" };
-    }
+    if (composerText(composer).trim()) return { ok: false, reason: "composer_not_empty" };
 
     try {
       setComposerText(composer, prompt);
@@ -176,9 +164,7 @@
       return { ok: false, reason: "composer_write_failed", error: String(error) };
     }
     const insertedComposerText = composerText(composer);
-    if (!insertedComposerText.trim()) {
-      return { ok: false, reason: "composer_write_failed" };
-    }
+    if (!insertedComposerText.trim()) return { ok: false, reason: "composer_write_failed" };
 
     const sendButton = await waitForSendButton(composer);
     if (!sendButton) {
@@ -208,6 +194,7 @@
       clearComposer(composer, insertedComposerText);
       return { ok: false, reason: "send_button_not_ready" };
     }
+
     const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
     const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
     submitComposer(composer, sendButton);
@@ -216,26 +203,16 @@
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
       const userMessages = document.querySelectorAll('[data-message-author-role="user"]');
       const lastUser = userMessages[userMessages.length - 1];
-      if (userMessages.length > previousUserMessages &&
-          normalizedText(lastUser?.innerText || lastUser?.textContent) === normalizedText(prompt)) {
+      if (
+        userMessages.length > previousUserMessages &&
+        normalizedText(lastUser?.innerText || lastUser?.textContent) === normalizedText(prompt)
+      ) {
         return { ok: true, reason: "sent" };
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    return { ok: false, reason: "delivery_uncertain" };
-  }
-
-  function latestAssistantMessage() {
-    const messages = document.querySelectorAll('[data-message-author-role="assistant"]');
-    if (!messages.length) return null;
-    const latest = messages[messages.length - 1];
-    const text = latest.innerText || latest.textContent || "";
-    const stableId =
-      latest.getAttribute("data-message-id") || latest.getAttribute("data-testid") || latest.id || "";
-    return {
-      text,
-      identity: stableId || `${messages.length}:${fnv1a32(text)}`
-    };
+    clearComposer(composer, insertedComposerText);
+    return { ok: false, reason: "delivery_unconfirmed" };
   }
 
   let controlScanTimer = null;
@@ -248,7 +225,6 @@
     if (assistantIsGenerating()) return;
     const latest = latestAssistantMessage();
     if (!latest) return;
-
     const url = normalizeConversationUrl(location.href);
     if (!url) return;
     const signature = fnv1a32(`${url}\n${latest.identity}\n${latest.text}`);
@@ -259,13 +235,7 @@
       lastScannedAssistantSignature = signature;
       return;
     }
-
-    const fingerprint = controlFingerprint(
-      location.href,
-      latest.text,
-      control,
-      latest.identity
-    );
+    const fingerprint = controlFingerprint(location.href, latest.text, control, latest.identity);
     if (fingerprint === lastSubmittedControlFingerprint) return;
     if (controlRetrySignature !== signature) {
       controlRetrySignature = signature;
@@ -276,12 +246,13 @@
 
     try {
       const context = await chrome.runtime.sendMessage({
-        type: "bridge:control-context", conversationUrl: url
+        type: "bridge:control-context",
+        conversationUrl: url
       });
       if (!context?.ok || context.assistantBaseline === latest.identity) return;
       const response = await chrome.runtime.sendMessage({
         type: "bridge:assistant-control",
-        conversationUrl: normalizeConversationUrl(location.href),
+        conversationUrl: url,
         fingerprint,
         bindingRevision: context.bindingRevision,
         assistantIdentity: latest.identity,
@@ -309,14 +280,9 @@
   const observerTarget = document.body || document.documentElement;
   const observer = observerTarget ? new MutationObserver(scheduleControlScan) : null;
   if (observer && observerTarget) {
-    observer.observe(observerTarget, {
-      childList: true,
-      subtree: true,
-      characterData: true
-    });
+    observer.observe(observerTarget, { childList: true, subtree: true, characterData: true });
   }
   scheduleControlScan();
-  // Retry unchanged final controls after a transient worker/message failure.
   const controlRetryInterval = setInterval(() => {
     scanLatestAssistantControl().catch((error) => console.warn(error));
   }, 5000);
@@ -329,21 +295,20 @@
       sendResponse({
         ok,
         reason: ok ? "ready" : "wrong_conversation",
-        protocolVersion: CONTENT_PROTOCOL_VERSION
+        protocolVersion: CONTENT_PROTOCOL_VERSION,
+        assistantIdentity: latestAssistantMessage()?.identity || ""
       });
       return false;
     }
     if (message?.type !== "bridge:feedback") return false;
     sendFeedback(String(message.prompt || ""), String(message.expectedUrl || ""), message.deliveryId)
       .then((response) => sendResponse({ ...response, protocolVersion: CONTENT_PROTOCOL_VERSION }))
-      .catch((error) =>
-        sendResponse({
-          ok: false,
-          reason: "unexpected_error",
-          error: String(error),
-          protocolVersion: CONTENT_PROTOCOL_VERSION
-        })
-      );
+      .catch((error) => sendResponse({
+        ok: false,
+        reason: "unexpected_error",
+        error: String(error),
+        protocolVersion: CONTENT_PROTOCOL_VERSION
+      }));
     return true;
   };
   chrome.runtime.onMessage.addListener(messageListener);

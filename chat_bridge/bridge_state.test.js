@@ -8,7 +8,7 @@ assert.equal(new Set(catalog.map((agent) => agent.id)).size, catalog.length);
 assert.deepEqual(runtimeAgents, catalog.map(({ id, ...agent }) => ({ repository_id: id, ...agent })));
 
 const MATRIX_BINDING = "033327ab-700d-43b4-9b3b-caff1acaa2c7";
-const C6_BINDING = "64877d7d-af3f-4312-a511-699c44aa42dd";
+const TRACKER_BINDING = "be481b25-9d97-4205-b93f-95f5c5827441";
 
 // v2 conversations migrate fail-closed: no binding means no wake/admission.
 const migratedV2 = stateModel.migrateLegacyStorage({
@@ -54,6 +54,31 @@ assert.equal(legacy.intervalOverrideMinutes, 12);
 assert.equal(legacy.lastControlFingerprint, "abcd1234");
 assert.equal(legacy.lastStatus, "binding_required");
 
+// Old delivery uncertainty state is erased during schema-3 normalization.
+const migratedDeliveryState = stateModel.migrateLegacyStorage({
+  bridgeState: {
+    schemaVersion: 3,
+    settings: {},
+    conversations: {
+      oldDelivery: {
+        url: "https://chatgpt.com/c/delivery",
+        label: "Delivery legacy",
+        enabled: false,
+        repositoryId: "matrixhub",
+        repository: "MichalMatu/MatrixHub",
+        agentBinding: MATRIX_BINDING,
+        bindingRevision: 1,
+        pendingDelivery: { id: "legacy-delivery" },
+        lastStatus: "delivery_uncertain"
+      }
+    }
+  }
+});
+assert.equal(migratedDeliveryState.migrated, true);
+const deliveryLegacy = Object.values(migratedDeliveryState.state.conversations)[0];
+assert.equal(Object.hasOwn(deliveryLegacy, "pendingDelivery"), false);
+assert.equal(deliveryLegacy.lastStatus, "delivery_unconfirmed");
+
 let state = stateModel.emptyState();
 let result = stateModel.upsertConversation(state, {
   url: "https://chatgpt.com/c/a",
@@ -69,11 +94,11 @@ state = result.state;
 const aId = result.conversation.id;
 result = stateModel.upsertConversation(state, {
   url: "https://chatgpt.com/c/b",
-  label: "C6 chat",
+  label: "Tracker chat",
   preferredTabId: 20,
-  repositoryId: "esp32-c6-zigbee",
-  repository: "MichalMatu/esp32_c6_zigbee",
-  agentBinding: C6_BINDING,
+  repositoryId: "tracker",
+  repository: "MichalMatu/tracker",
+  agentBinding: TRACKER_BINDING,
   bindingRevision: 1,
   bindingSetAt: "2026-09-03T00:00:00Z"
 });
@@ -85,7 +110,7 @@ assert.equal(state.conversations[aId].bootstrapPending, true);
 assert.equal(state.conversations[aId].repositoryId, "matrixhub");
 assert.equal(state.conversations[aId].agentBinding, MATRIX_BINDING);
 assert.equal(stateModel.isBoundConversation(state.conversations[aId]), true);
-assert.equal(state.conversations[bId].agentBinding, C6_BINDING);
+assert.equal(state.conversations[bId].agentBinding, TRACKER_BINDING);
 
 const patched = stateModel.patchConversation(state, aId, {
   enabled: false,
@@ -110,10 +135,7 @@ result = stateModel.upsertConversation(state, {
 assert.equal(result.conversation.agentBinding, null);
 assert.equal(stateModel.isBoundConversation(result.conversation), false);
 
-assert.equal(
-  stateModel.findConversationByUrl(state, "https://chat.openai.com/c/b")?.id,
-  bId
-);
+assert.equal(stateModel.findConversationByUrl(state, "https://chat.openai.com/c/b")?.id, bId);
 state = stateModel.removeConversation(state, aId);
 assert.equal(Object.keys(state.conversations).length, 1);
 assert.equal(Boolean(state.conversations[bId]), true);

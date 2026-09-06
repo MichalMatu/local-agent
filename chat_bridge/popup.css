@@ -322,34 +322,6 @@ button:not(:disabled):active { transform: scale(.985); background: var(--control
 .wake-input-wrap span { padding-right: 8px; color: var(--subtle); font-size: 8px; }
 .run-button { min-width: 66px; }
 .remove-button { min-width: 51px; padding-inline: 5px; }
-
-.delivery-resolution {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin: 0 0 7px;
-  padding: 5px 6px 5px 8px;
-  border: 1px solid var(--hairline);
-  border-radius: 10px;
-  background: var(--control);
-}
-.delivery-label { margin-right: auto; color: var(--muted); font-size: 8px; font-weight: 650; }
-.resolution-icon {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--hairline);
-  border-radius: 50%;
-  color: var(--muted);
-  background: var(--surface);
-  font-size: 13px;
-  font-weight: 780;
-}
-.resolution-icon:hover { color: var(--text); background: var(--control-hover); }
-.resolution-sent,
-.resolution-not-sent { color: var(--muted); }
-
 .settings-panel { margin: 0; padding: 0; overflow: clip; box-shadow: none; }
 .settings-panel summary {
   display: flex;

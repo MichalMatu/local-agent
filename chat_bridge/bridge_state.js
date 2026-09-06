@@ -4,9 +4,7 @@
     (typeof require === "function" ? require("./control_protocol.js") : null);
   const api = factory(protocol);
   root.LocalAgentBridgeState = api;
-  if (typeof module !== "undefined" && module.exports) {
-    module.exports = api;
-  }
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function createBridgeState(protocol) {
   "use strict";
 
@@ -51,9 +49,7 @@
         1,
         60
       ),
-      fallbackBootstrapPrompt: String(
-        raw.fallbackBootstrapPrompt || DEFAULT_BOOTSTRAP_PROMPT
-      ).trim(),
+      fallbackBootstrapPrompt: String(raw.fallbackBootstrapPrompt || DEFAULT_BOOTSTRAP_PROMPT).trim(),
       fallbackWakePrompt: String(raw.fallbackWakePrompt || DEFAULT_WAKE_PROMPT).trim()
     };
   }
@@ -97,8 +93,6 @@
       bindingRevision: Math.max(0, Math.trunc(Number(raw.bindingRevision) || 0)),
       bindingSetAt: raw.bindingSetAt || null,
       generation: Math.max(0, Math.trunc(Number(raw.generation) || 0)),
-      pendingDelivery: raw.pendingDelivery && typeof raw.pendingDelivery === "object"
-        ? { ...raw.pendingDelivery } : null,
       assistantBaseline: String(raw.assistantBaseline || ""),
       intervalOverrideMinutes:
         raw.intervalOverrideMinutes === null || raw.intervalOverrideMinutes === undefined
@@ -130,18 +124,13 @@
   }
 
   function emptyState(settings = {}) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      settings: sanitizeSettings(settings),
-      conversations: {}
-    };
+    return { schemaVersion: SCHEMA_VERSION, settings: sanitizeSettings(settings), conversations: {} };
   }
 
   function normalizeState(raw) {
     const state = emptyState(raw?.settings || {});
     const sourceConversations = raw?.conversations;
     if (!sourceConversations || typeof sourceConversations !== "object") return state;
-
     for (const value of Object.values(sourceConversations)) {
       const conversation = sanitizeConversation(value);
       if (conversation) state.conversations[conversation.id] = conversation;
@@ -151,7 +140,17 @@
 
   function migrateLegacyStorage(raw = {}) {
     if (raw.bridgeState?.schemaVersion === SCHEMA_VERSION) {
-      return { state: normalizeState(raw.bridgeState), migrated: false };
+      const state = normalizeState(raw.bridgeState);
+      const hadLegacyDeliveryState = Object.values(raw.bridgeState.conversations || {}).some(
+        (conversation) => Object.hasOwn(conversation || {}, "pendingDelivery") ||
+          String(conversation?.lastStatus || "") === "delivery_uncertain"
+      );
+      if (hadLegacyDeliveryState) {
+        for (const conversation of Object.values(state.conversations)) {
+          if (conversation.lastStatus === "delivery_uncertain") conversation.lastStatus = "delivery_unconfirmed";
+        }
+      }
+      return { state, migrated: hadLegacyDeliveryState };
     }
 
     if (raw.bridgeState?.schemaVersion === 2) {
@@ -182,8 +181,7 @@
         url: legacyUrl,
         label: "Migrated conversation",
         enabled: false,
-        intervalOverrideMinutes:
-          raw.intervalOverrideMinutes === undefined ? null : raw.intervalOverrideMinutes,
+        intervalOverrideMinutes: raw.intervalOverrideMinutes === undefined ? null : raw.intervalOverrideMinutes,
         bootstrapPending: true,
         lastStatus: "binding_required",
         lastRunAt: raw.lastRunAt,
@@ -238,8 +236,7 @@
   function findConversationByUrl(state, url) {
     const normalizedUrl = protocol.normalizeConversationUrl(url);
     if (!normalizedUrl) return null;
-    const id = protocol.conversationId(normalizedUrl);
-    return normalizeState(state).conversations[id] || null;
+    return normalizeState(state).conversations[protocol.conversationId(normalizedUrl)] || null;
   }
 
   return Object.freeze({

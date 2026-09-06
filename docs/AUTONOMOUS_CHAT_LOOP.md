@@ -19,7 +19,7 @@ A normal wake must never infer or switch repository identity from model context.
 [LA_CHAT=<conversation id>]
 ```
 
-The stored binding is immutable during normal conversation updates. Changing repository identity requires the explicit operator **Rebind** action in the extension. Rebind increments `bindingRevision`, records a new `bindingSetAt`, clears conversation control dedupe state and forces a fresh bootstrap.
+The stored binding is immutable during normal conversation updates. The normal popup changes repository identity by removing the conversation and adding it again with the intended binding. The privileged operator Rebind path remains binding-revision aware for migration/testing: it increments `bindingRevision`, records a new `bindingSetAt`, clears conversation control dedupe state and forces a fresh bootstrap.
 
 Unbound migrated conversations are disabled with `binding_required` and have no alarm. A runtime-catalog mismatch disables the conversation with `binding_catalog_mismatch`. The bridge must never guess a replacement binding.
 
@@ -70,7 +70,7 @@ The `local-agent` binding is deliberately `execution_enabled: false`. A conversa
 
 ## Runtime schema 3
 
-Chat Bridge 0.5 state uses schema version 3. The remote runtime also supports schema 3 with an explicit agent catalog:
+Chat Bridge 0.5 state uses schema version 3. The remote runtime also uses schema 3 with an explicit agent catalog:
 
 ```json
 {
@@ -92,9 +92,13 @@ Chat Bridge 0.5 state uses schema version 3. The remote runtime also supports sc
 
 Repository ids, repository names and binding UUIDs must each be unique. A binding UUID must be canonical lowercase UUID text. Only runtime schema 3 is accepted and `execution_enabled` must be a JSON boolean. Missing, invalid or unavailable runtime configuration prevents sending (`runtime_unavailable`); there is no replacement identity catalog.
 
-## Bootstrap and compact wakes
+## Bootstrap, baseline and compact wakes
 
-A newly bound or explicitly rebound conversation receives one bootstrap prompt. Later alarms send a compact wake prompt. Every prompt is prefixed with the binding envelope and hard-binding policy.
+A newly added or explicitly rebound conversation receives one bootstrap prompt on its first actual wake. Later alarms send a compact wake prompt. Every prompt is prefixed with the binding envelope and hard-binding policy.
+
+When the operator adds a chat, Bridge records the identity of the latest assistant answer already present in the conversation as `assistantBaseline`. That existing answer cannot become a control after the chat is added. Any **new** assistant answer after the add can use the complete `[LAB:*]` control protocol immediately, even while the first bootstrap is still pending. This means a freshly added chat can be paused, resumed, stopped, paced or armed with `NEXT` without requiring `Run now` first.
+
+A privileged Rebind uses a new `bindingRevision` and still blocks old/pre-rebind controls until the new bootstrap establishes the new baseline.
 
 On every wake, the planner must:
 
@@ -169,9 +173,7 @@ Every task created by an executable bound conversation must include its exact `a
 }
 ```
 
-`resources` remains mandatory and follows `docs/OPERATIONS.md`. Task ids/payloads are immutable within a repository. A new continuation uses a new id.
-
-The planner must never consider queueing itself proof of success. Terminal result evidence is authoritative.
+`resources` remains mandatory and follows `docs/OPERATIONS.md`. Task ids/payloads are immutable within a repository. A new continuation uses a new id. The planner must never consider queueing itself proof of success; terminal result evidence is authoritative.
 
 ## Evidence order
 
@@ -183,7 +185,7 @@ For local execution, use evidence in this order:
 4. source/diff/test evidence referenced by the result;
 5. planner analysis.
 
-Binding failures are terminal safety evidence, not retry candidates with altered routing. Correct the operator/catalog/control configuration or explicitly rebind the conversation instead.
+Binding failures are terminal safety evidence, not retry candidates with altered routing. Correct the operator/catalog/control configuration or explicitly change the conversation binding instead.
 
 ## Post-queue liveness
 
@@ -211,14 +213,14 @@ A bridge control is accepted only as the final non-empty line of the latest assi
 
 Compatibility forms using `LOCAL_AGENT_BRIDGE:` remain accepted.
 
-- `STOP`: goal complete; disable this conversation and clear its interval override.
-- `PAUSE`: manual/external action or repository rebind required.
+- `STOP`: disable this conversation and clear its interval override.
+- `PAUSE`: disable this conversation while preserving its interval override.
 - `RESUME`: re-enable this conversation; it does not change its binding.
-- `NEXT=<duration>`: arm/re-arm one conversation for a one-shot wake; 30 seconds through 24 hours.
-- `INTERVAL=<minutes>`: persistent conversation pacing override.
+- `NEXT=<duration>`: **set `enabled=true` and arm/re-arm** one conversation for a one-shot wake; 30 seconds through 24 hours. It changes neither the normal interval nor the global master switch.
+- `INTERVAL=<minutes>`: set a persistent conversation pacing override.
 - `INTERVAL=AUTO`: return to configured runtime pacing.
 
-The global bridge master switch may suspend all alarms but never alters bindings. No assistant marker can perform Rebind.
+All of these controls work for new assistant answers immediately after the first binding is added; a first bootstrap is not a prerequisite. The global bridge master switch may suspend all alarms but never alters bindings. No assistant marker can change the repository binding.
 
 ## Completion and pause policy
 
@@ -232,7 +234,7 @@ A hard-binding rollout is complete only after all of these are demonstrated:
 
 1. schema-3 runtime/catalog loads and a newly configured conversation stores one exact binding;
 2. normal edits cannot change that conversation's repository/binding;
-3. explicit Rebind changes it and forces bootstrap;
+3. a privileged binding revision change forces bootstrap and rejects old-revision controls;
 4. an unbound/migrated conversation has no scheduled wake;
 5. a task with the correct binding executes and publishes terminal evidence;
 6. a task with a missing binding is terminally rejected before claim/command execution;
@@ -241,16 +243,27 @@ A hard-binding rollout is complete only after all of these are demonstrated:
 9. the serial fallback preserves the same binding enforcement;
 10. active `cancel_task` is observed through a remote-grounded ACK and terminates the targeted active task;
 11. global `disable` prevents admission and can terminate active execution according to the emergency-control contract;
-12. two conversations retain independent alarms/control state and cannot alter each other's binding without explicit operator Rebind.
+12. two conversations retain independent alarms/control state and cannot alter each other's binding through assistant controls.
 
 Canonical executor and rollout rules remain in `AGENTS.md` and `docs/OPERATIONS.md`.
 
-## Delivery recovery in Bridge 0.5
+## Delivery behavior in Bridge 0.5
 
-Each wake is journaled before sending and authorized again immediately before submission. Before creating that delivery journal, the worker preflights the bound tab's content protocol and exact conversation URL. A tab with no receiving content script is safely re-injected and checked again before any send can be authorized. A reachable older or mismatched content script is never over-injected; it is treated as a safe unsent protocol mismatch until the ChatGPT tab is reloaded.
+The worker preflights the bound tab's content protocol and exact conversation URL before sending. A tab with no receiving content script is safely re-injected and checked again. A reachable older/mismatched content script is not over-injected; reload that ChatGPT tab so it receives the matching protocol version.
 
-The content script checks the conversation URL and unchanged composer, and confirms the exact new user message in the DOM. Overlapping sends are rejected. If the receiver disappears before the feedback message can be delivered, the attempt is classified as safely unsent rather than uncertain. A lost reply after submission, worker interruption or unconfirmed submission leaves `pendingDelivery`, pauses the conversation as `delivery_uncertain` and never automatically replays the wake.
+The content script checks the exact conversation URL, requires an empty/unchanged composer, authorizes the active delivery immediately before submission, and attempts to confirm the exact new user message in the DOM. Concurrent sends for the same conversation are rejected by an in-memory `delivery_in_progress` guard.
 
-Inspect the exact chat, then select **Wake was sent** or **Wake was not sent** in the popup. Either choice clears the journal and leaves the conversation paused; resume explicitly after resolving it. Rebind and removal are blocked while delivery is pending. Old assistant controls from before bootstrap/Rebind cannot schedule the new binding.
+There is deliberately **no durable ambiguous-delivery journal**. If submission occurred but the exact DOM insertion/reply cannot be confirmed within the bounded observation window, Bridge records `delivery_unconfirmed` as diagnostic status only. It does not:
 
-After reloading the extension, an open ChatGPT tab with no receiver can be reactivated automatically by the worker. If the bridge reports `content_script_protocol_mismatch`, reload that ChatGPT tab once so the matching content protocol is installed. Browser fixture tests verify DOM, submission and worker lifecycle behavior in an isolated Chromium profile; they do not prove the current live ChatGPT DOM or an operator's loaded extension version.
+- pause or disable the conversation;
+- create `pendingDelivery`;
+- clear the next schedule because of uncertainty;
+- block `STOP`, `PAUSE`, `RESUME`, `NEXT` or `INTERVAL`;
+- require a manual ✓/× decision;
+- block removal.
+
+This intentionally accepts a small duplicate-send risk after lost confirmation in exchange for preventing transport uncertainty from deadlocking normal chat operation. Only a send that is currently in progress is protected; the guard is in memory and is gone after completion or service-worker restart.
+
+Old schema-v3 `pendingDelivery` state is removed during normalization, and legacy `delivery_uncertain` status becomes non-blocking `delivery_unconfirmed`.
+
+Browser fixture tests verify DOM submission, control/binding behavior, non-blocking unconfirmed delivery and worker restart in an isolated Chromium profile. They do not prove the current live ChatGPT DOM or the operator's currently loaded extension version.
