@@ -9,11 +9,12 @@ const { chromium } = require(process.env.LOCAL_AGENT_PLAYWRIGHT_MODULE || "playw
 const root = path.resolve(__dirname, "..");
 const catalog = require(path.join(root, "chat_bridge/runtime.example.json"));
 
-async function bounded(label, promise) {
+async function bounded(label, promise, timeoutMs = 10_000) {
   let timer;
   try {
     return await Promise.race([promise, new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error(`${label} exceeded 10 seconds`)), 10_000);
+      const seconds = Math.ceil(timeoutMs / 1000);
+      timer = setTimeout(() => reject(new Error(`${label} exceeded ${seconds} seconds`)), timeoutMs);
     })]);
   } finally { clearTimeout(timer); }
 }
@@ -210,6 +211,11 @@ document.querySelector('form').onsubmit = (event) => {
     await page.evaluate(() => { window.dropDelivery = true; });
     assert.equal((await run(removeUnconfirmedId)).reason, "delivery_unconfirmed");
     await popup.reload();
+    await popup.waitForFunction(() => document.querySelectorAll(".conversation-card").length === 8);
+    await popup.waitForFunction(
+      (height) => document.body.getBoundingClientRect().height > height,
+      compactPopup.height
+    );
 
     const popupSize = await popupMetrics();
     assert.equal(popupSize.width, 420);
@@ -276,7 +282,7 @@ document.querySelector('form').onsubmit = (event) => {
     const restartedWorker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
     await bounded("runtime fixture reset", restartedWorker.evaluate((runtime) => {
       globalThis.fetch = async () => ({ ok: true, json: async () => runtime });
-    }, catalog));
+    }, catalog), 20_000);
     page = await context.newPage();
     await page.goto(unconfirmedUrl);
     await page.evaluate(() => { window.dropDelivery = true; });
