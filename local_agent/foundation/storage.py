@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -97,6 +98,7 @@ def run_git_with_network_retry(
     timeout: int = 120,
     retry_delays: tuple[float, ...] = GIT_NETWORK_RETRY_DELAYS,
     log_commands: bool = True,
+    environment: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Run one Git command, retrying only transient transport failures.
 
@@ -108,12 +110,13 @@ def run_git_with_network_retry(
     """
     result: dict[str, Any] = {}
     for attempt in range(len(retry_delays) + 1):
-        result = core_module.process(
-            args,
-            cwd,
-            timeout=timeout,
-            log_commands=log_commands,
-        )
+        process_kwargs: dict[str, Any] = {
+            "timeout": timeout,
+            "log_commands": log_commands,
+        }
+        if environment is not None:
+            process_kwargs["environment"] = environment
+        result = core_module.process(args, cwd, **process_kwargs)
         if result["exit_code"] == 0:
             return result
         transient = is_transient_git_network_failure(result)
