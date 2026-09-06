@@ -15,6 +15,7 @@
 | Stop, cancel or recover autonomous execution | [`EMERGENCY_CONTROLS.md`](EMERGENCY_CONTROLS.md) |
 | Recreate the established macOS environment | [`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md) |
 | Contribute code safely | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) |
+| Track known bugs and planned fixes | [`BUG_BACKLOG.md`](BUG_BACKLOG.md) |
 | Review release history | [`CHANGELOG.md`](CHANGELOG.md) |
 
 ## System map
@@ -62,6 +63,7 @@ The planner decides **what** should change. Local Agent owns deterministic, boun
 
 - [`../CONTRIBUTING.md`](../CONTRIBUTING.md) — setup, verification workflow and architecture guardrails.
 - [`../AGENTS.md`](../AGENTS.md) — repository ownership rules, safety invariants and release requirements.
+- [`BUG_BACKLOG.md`](BUG_BACKLOG.md) — confirmed defects, priorities, repair plans and required regression coverage.
 - [`TEST_EXECUTION_GOLDEN_PLAN.md`](TEST_EXECUTION_GOLDEN_PLAN.md) — verification design and execution evidence.
 - [`PARALLEL_EXECUTION_PLAN.md`](PARALLEL_EXECUTION_PLAN.md) — historical design/audit record for bounded parallel execution; current resource policy is defined by the operational docs above.
 
