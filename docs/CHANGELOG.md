@@ -2,6 +2,31 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.3
+
+- Finalized Chat Bridge 0.5.2 after live operator validation of `RESUME`, `STOP`, `PAUSE`, `NEXT` and `INTERVAL` controls.
+- Removed the durable ambiguous-delivery blocker introduced in 4.18.1; lost post-submit confirmation is now diagnostic-only `delivery_unconfirmed`, with no `pendingDelivery` journal or manual ✓/× recovery gate.
+- Split the Bridge service worker into focused state, runtime, binding, scheduling, transport, control, delivery, conversation and event modules; `service_worker.js` is composition only.
+- Made the global Bridge Master switch operator-only while allowing assistant controls to overwrite ordinary per-chat pause/enabled, interval and next-wake state.
+- Added live popup synchronization in a separate `popup_live.js` module so externally applied chat controls update the open popup without reopening it.
+- Kept standalone C6 execution retired; no active catalog, workspace, test or documentation path reintroduces it.
+- Synchronized architecture documentation with the released Bridge ownership and non-blocking delivery model.
+
+## v4.18.2
+
+- Removed standalone `esp32-c6-zigbee` execution from the canonical agent catalog, live registry and Chat Bridge runtime.
+- Preserved historical recovery inputs outside the active workspace while removing active C6 control/work/checkpoint state.
+- Kept C6 development inside LiteGraph and made stale C6-bound conversations fail closed instead of rebinding automatically.
+- Preserved all 4.18.1 executor and hard-binding behavior outside the explicit C6 retirement.
+
+## v4.18.1
+
+- Hardened Chat Bridge delivery authorization, composer/navigation protection, runtime-schema validation and serialized state/alarm handling.
+- Added exact content-protocol preflight and isolated Chromium delivery/restart coverage.
+- Made direct GitHub edits an explicit planner path when exact diff and relevant CI evidence are sufficient; Local Agent remains the path for Mac/local-tool/device execution.
+- Completed Tracker onboarding and synchronized downstream hard-binding instructions.
+- This release used a durable ambiguous-delivery journal; 4.18.3 intentionally replaces that mechanism with non-blocking `delivery_unconfirmed` behavior.
+
 ## v4.18.0
 
 - Completed package ownership for daemon, parallel and serial supervisors; retained four thin operational launchers and removed 15 obsolete root aliases/shims.
