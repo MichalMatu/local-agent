@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from local_agent.foundation import storage
-from local_agent.foundation.process import termination_critical_section
+from local_agent.foundation.process import RESOURCE_LEASE_FDS_ENV, termination_critical_section
 
 TERMINAL_PAIR_RETENTION = 32
 RUN_RETENTION = 32
@@ -66,6 +67,33 @@ def _json_files(directory: Path) -> list[Path]:
 
 def _relative(control: Path, path: Path) -> str:
     return path.relative_to(control).as_posix()
+
+
+def _control_git_environment(core_module: Any) -> Mapping[str, str] | None:
+    """Keep repository leases but exclude task-resource FDs from runtime-GC Git."""
+    raw = getattr(core_module, "ENV", None)
+    if not isinstance(raw, Mapping):
+        return None
+    environment = dict(raw)
+    environment.pop(RESOURCE_LEASE_FDS_ENV, None)
+    return environment
+
+
+def _control_process(
+    core_module: Any,
+    args: list[str],
+    *,
+    timeout: int,
+    log_commands: bool,
+) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {
+        "timeout": timeout,
+        "log_commands": log_commands,
+    }
+    environment = _control_git_environment(core_module)
+    if environment is not None:
+        kwargs["environment"] = environment
+    return core_module.process(args, core_module.CONTROL, **kwargs)
 
 
 def control_cleanup_plan(
@@ -161,18 +189,18 @@ def prune_control_runtime(core_module: Any) -> dict[str, Any]:
                     raise ValueError(f"cleanup path is outside runtime allowlist: {relative!r}")
                 target.unlink(missing_ok=True)
 
-            add = core_module.process(
+            add = _control_process(
+                core_module,
                 ["git", "add", "-A", "--", *paths],
-                core_module.CONTROL,
                 timeout=30,
                 log_commands=False,
             )
             if add["exit_code"] != 0:
                 raise RuntimeError(storage.git_failure_diagnostic(add))
 
-            staged = core_module.process(
+            staged = _control_process(
+                core_module,
                 ["git", "diff", "--cached", "--quiet", "--", *paths],
-                core_module.CONTROL,
                 timeout=30,
                 log_commands=False,
             )
@@ -181,7 +209,8 @@ def prune_control_runtime(core_module: Any) -> dict[str, Any]:
             if staged["exit_code"] != 1:
                 raise RuntimeError(storage.git_failure_diagnostic(staged))
 
-            commit = core_module.process(
+            commit = _control_process(
+                core_module,
                 [
                     "git",
                     "commit",
@@ -190,19 +219,20 @@ def prune_control_runtime(core_module: Any) -> dict[str, Any]:
                     "--",
                     *paths,
                 ],
-                core_module.CONTROL,
                 timeout=60,
                 log_commands=False,
             )
             if commit["exit_code"] != 0:
                 raise RuntimeError(storage.git_failure_diagnostic(commit))
 
+        environment = _control_git_environment(core_module)
         pull = storage.run_git_with_network_retry(
             core_module,
             ["git", *storage.bounded_control_pull_args(core_module.CONTROL_BRANCH)],
             core_module.CONTROL,
             timeout=120,
             log_commands=False,
+            environment=environment,
         )
         if pull["exit_code"] != 0:
             raise RuntimeError(pull["output"])
@@ -213,6 +243,7 @@ def prune_control_runtime(core_module: Any) -> dict[str, Any]:
             core_module.CONTROL,
             timeout=120,
             log_commands=False,
+            environment=environment,
         )
         if push["exit_code"] != 0:
             raise RuntimeError(push["output"])

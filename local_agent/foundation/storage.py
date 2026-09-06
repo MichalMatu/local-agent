@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ CONTROL_RECOVERABLE_DIRS = (
     ".agent/results",
     ".agent/daemon/acks",
 )
+CONTROL_RUNTIME_TASK_PREFIX = ".agent/tasks/"
 CONTROL_RECOVERABLE_UNTRACKED_BASENAMES = frozenset({".DS_Store"})
 GIT_NETWORK_RETRY_DELAYS = (2.0, 5.0, 15.0)
 TRANSIENT_GIT_NETWORK_MARKERS = (
@@ -96,6 +98,7 @@ def run_git_with_network_retry(
     timeout: int = 120,
     retry_delays: tuple[float, ...] = GIT_NETWORK_RETRY_DELAYS,
     log_commands: bool = True,
+    environment: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Run one Git command, retrying only transient transport failures.
 
@@ -107,12 +110,13 @@ def run_git_with_network_retry(
     """
     result: dict[str, Any] = {}
     for attempt in range(len(retry_delays) + 1):
-        result = core_module.process(
-            args,
-            cwd,
-            timeout=timeout,
-            log_commands=log_commands,
-        )
+        process_kwargs: dict[str, Any] = {
+            "timeout": timeout,
+            "log_commands": log_commands,
+        }
+        if environment is not None:
+            process_kwargs["environment"] = environment
+        result = core_module.process(args, cwd, **process_kwargs)
         if result["exit_code"] == 0:
             return result
         transient = is_transient_git_network_failure(result)
@@ -180,6 +184,11 @@ def _recoverable_control_path(path: str) -> bool:
     )
 
 
+def _recoverable_runtime_task_deletion(code: str, path: str) -> bool:
+    """Recover only task deletions that an interrupted runtime GC could have made."""
+    return path.startswith(CONTROL_RUNTIME_TASK_PREFIX) and "D" in code
+
+
 def _recoverable_untracked_control_noise(code: str, path: str) -> bool:
     return (
         code == "??"
@@ -198,6 +207,7 @@ def recover_daemon_owned_control_changes(core_module: Any) -> None:
         path
         for code, path in entries
         if not _recoverable_control_path(path)
+        and not _recoverable_runtime_task_deletion(code, path)
         and not _recoverable_untracked_control_noise(code, path)
     )
     if unexpected:

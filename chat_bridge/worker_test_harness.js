@@ -14,6 +14,7 @@ const MATRIX_BINDING = bindingFor("matrixhub");
 const TRACKER_BINDING = bindingFor("tracker");
 const LOCAL_AGENT_BINDING = bindingFor("local-agent");
 const CONTENT_PROTOCOL_VERSION = 3;
+const EXHAUSTION_GUARD_VERSION = 1;
 
 const storage = options.storage || {};
 const alarms = new Map();
@@ -73,6 +74,12 @@ const chrome = {
           return options.contentScriptProbe({ tabId, message, injectedScripts, tabMessages });
         }
         return { ok: true, reason: "ready", protocolVersion: CONTENT_PROTOCOL_VERSION, assistantIdentity: "old-assistant" };
+      }
+      if (message.type === "bridge:exhaustion-capabilities") {
+        if (options.exhaustionGuardProbe) {
+          return options.exhaustionGuardProbe({ tabId, message, injectedScripts, tabMessages });
+        }
+        return { ok: true, reason: "ready", guardVersion: EXHAUSTION_GUARD_VERSION };
       }
       if (message.type !== "bridge:feedback") {
         throw new Error(`unsupported tabs.sendMessage type in test: ${message.type}`);
@@ -184,6 +191,7 @@ async function sendRuntimeMessage(message, sender = { id: chrome.runtime.id, url
 
 return { storage, alarms, sentMessages, tabMessages, injectedScripts, tabs, chrome, context, sendRuntimeMessage,
   MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING, runtimeAgents, CONTENT_PROTOCOL_VERSION,
+  EXHAUSTION_GUARD_VERSION,
   evaluate: (source) => vm.runInContext(source, context),
   installed: () => installedListeners[0](), startup: () => startupListeners[0]() };
 }
