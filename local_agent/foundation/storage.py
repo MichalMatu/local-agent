@@ -18,12 +18,8 @@ CONTROL_RECOVERABLE_DIRS = (
     ".agent/runs",
     ".agent/results",
     ".agent/daemon/acks",
-    # Task files are remote control-plane input. The daemon never authors new
-    # pending tasks in its local control clone, but runtime GC can delete old
-    # terminal task files. Recover an interrupted GC by restoring the clone to
-    # HEAD before the next pull instead of permanently crash-looping on dirt.
-    ".agent/tasks",
 )
+CONTROL_RUNTIME_TASK_PREFIX = ".agent/tasks/"
 CONTROL_RECOVERABLE_UNTRACKED_BASENAMES = frozenset({".DS_Store"})
 GIT_NETWORK_RETRY_DELAYS = (2.0, 5.0, 15.0)
 TRANSIENT_GIT_NETWORK_MARKERS = (
@@ -185,6 +181,11 @@ def _recoverable_control_path(path: str) -> bool:
     )
 
 
+def _recoverable_runtime_task_deletion(code: str, path: str) -> bool:
+    """Recover only task deletions that an interrupted runtime GC could have made."""
+    return path.startswith(CONTROL_RUNTIME_TASK_PREFIX) and "D" in code
+
+
 def _recoverable_untracked_control_noise(code: str, path: str) -> bool:
     return (
         code == "??"
@@ -203,6 +204,7 @@ def recover_daemon_owned_control_changes(core_module: Any) -> None:
         path
         for code, path in entries
         if not _recoverable_control_path(path)
+        and not _recoverable_runtime_task_deletion(code, path)
         and not _recoverable_untracked_control_noise(code, path)
     )
     if unexpected:
