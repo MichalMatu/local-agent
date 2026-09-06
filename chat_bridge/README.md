@@ -54,6 +54,8 @@ Compatibility `LOCAL_AGENT_BRIDGE:` forms remain accepted.
 - `INTERVAL=<minutes>` sets the persistent per-conversation interval override.
 - `INTERVAL=AUTO` returns that conversation to runtime/default pacing.
 
+Per-conversation operator values are ordinary chat state, not a higher-priority lock. A later assistant control may therefore overwrite the chat's enabled/paused state, next wake or interval. The global **Master** switch is different: it is operator-only, assistant controls cannot modify it, and content-script messages are not authorized to call global-settings mutations.
+
 The control fingerprint is deduplicated per conversation. Controls cannot change repository identity.
 
 ## Delivery model
@@ -85,7 +87,22 @@ The popup deliberately keeps each conversation card small. Per chat it exposes o
 
 Binding is selected only when adding the current chat. To choose another binding in normal UI, remove the conversation and add it again. Wake interval changes auto-save. Remove is one click and uses no native confirmation dialog. Global runtime/prompt settings stay under **Advanced settings**.
 
-The global Master switch suspends scheduled alarms without deleting per-conversation state or changing bindings.
+The global Master switch suspends scheduled alarms without deleting per-conversation state or changing bindings. A chat may continue to update its own paused/enabled state and desired timing while Master is off; no wake alarm fires until the operator turns Master back on.
+
+## Worker module boundaries
+
+`service_worker.js` is composition only. Runtime responsibilities are deliberately split so no replacement god object accumulates:
+
+- `worker_base.js` — shared protocol constants and small process-local registries;
+- `worker_state.js` — serialized Chrome storage reads/writes;
+- `worker_runtime.js` — runtime fetch/cache/validation;
+- `worker_binding.js` — catalog binding lookup and prompt policy;
+- `worker_schedule.js` — Chrome alarms and schedule reconciliation;
+- `worker_transport.js` — tab discovery, content-script preflight and delivery authorization;
+- `worker_controls.js` — assistant control validation and per-chat state transitions;
+- `worker_delivery.js` — one feedback delivery lifecycle;
+- `worker_conversations.js` — operator conversation/global-setting mutations;
+- `worker_events.js` — Chrome event/message routing only.
 
 ## Runtime catalog
 

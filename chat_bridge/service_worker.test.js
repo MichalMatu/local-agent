@@ -90,6 +90,63 @@ async function assistantControl(url, fingerprint, marker, extra = {}) {
   assert.equal(alarms.has(`local-agent-chat:${aId}`), true);
   assert.equal(sentMessages.length, 0);
 
+  // Operator per-chat settings are writable chat state, not a higher-priority lock.
+  response = await sendRuntimeMessage({
+    type: "bridge:update-conversation",
+    conversationId: aId,
+    patch: { enabled: false, intervalOverrideMinutes: 21 }
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.conversation.enabled, false);
+  assert.equal(response.conversation.intervalOverrideMinutes, 21);
+
+  response = await assistantControl("https://chatgpt.com/c/a", "10000009", "[LAB:RESUME]");
+  assert.equal(response.reason, "resumed");
+  assert.equal(storage.bridgeState.conversations[aId].enabled, true);
+
+  response = await assistantControl("https://chatgpt.com/c/a", "1000000a", "[LAB:INTERVAL=7m]");
+  assert.equal(response.reason, "interval_fixed");
+  assert.equal(storage.bridgeState.conversations[aId].intervalOverrideMinutes, 7);
+
+  // Master is operator-only. Chat controls may mutate their conversation while Master stays off.
+  response = await sendRuntimeMessage({
+    type: "bridge:save-global-settings",
+    settings: { masterEnabled: false }
+  });
+  assert.equal(response.ok, true);
+  assert.equal(storage.bridgeState.settings.masterEnabled, false);
+  assert.equal(alarms.size, 0);
+
+  response = await assistantControl("https://chatgpt.com/c/a", "1000000b", "[LAB:PAUSE]");
+  assert.equal(response.reason, "paused");
+  assert.equal(storage.bridgeState.conversations[aId].enabled, false);
+  assert.equal(storage.bridgeState.settings.masterEnabled, false);
+
+  const beforeMasterOffNext = Date.now();
+  response = await assistantControl("https://chatgpt.com/c/a", "1000000c", "[LAB:NEXT=30s]");
+  assert.equal(response.reason, "next_armed_master_disabled");
+  assert.equal(response.armed, true);
+  assert.equal(storage.bridgeState.conversations[aId].enabled, true);
+  assert.equal(storage.bridgeState.settings.masterEnabled, false);
+  assert.equal(alarms.has(`local-agent-chat:${aId}`), false);
+  const suspendedNext = Date.parse(storage.bridgeState.conversations[aId].nextRunAt);
+  assert.ok(suspendedNext >= beforeMasterOffNext + 29_000);
+  assert.ok(suspendedNext <= beforeMasterOffNext + 31_500);
+
+  response = await assistantControl("https://chatgpt.com/c/a", "1000000d", "[LAB:INTERVAL=9m]");
+  assert.equal(response.reason, "interval_fixed");
+  assert.equal(storage.bridgeState.conversations[aId].intervalOverrideMinutes, 9);
+  assert.equal(storage.bridgeState.settings.masterEnabled, false);
+  assert.equal(alarms.has(`local-agent-chat:${aId}`), false);
+
+  response = await sendRuntimeMessage({
+    type: "bridge:save-global-settings",
+    settings: { masterEnabled: true }
+  });
+  assert.equal(response.ok, true);
+  assert.equal(storage.bridgeState.settings.masterEnabled, true);
+  assert.equal(alarms.has(`local-agent-chat:${aId}`), true);
+
   response = await sendRuntimeMessage({
     type: "bridge:upsert-conversation",
     conversation: {
@@ -122,6 +179,7 @@ async function assistantControl(url, fingerprint, marker, extra = {}) {
   assert.match(bootstrapMessage.prompt, /\[LA_REPO=tracker\]/);
   assert.match(bootstrapMessage.prompt, /Every Local Agent task JSON.*agent_binding/s);
   assert.match(bootstrapMessage.prompt, /Never infer, substitute, inspect, queue, cancel, or execute work for another repository/);
+  assert.match(bootstrapMessage.prompt, /must never change the global Master switch/i);
 
   response = await sendRuntimeMessage({ type: "bridge:run-now", conversationId: bId });
   assert.equal(response.ok, true);
@@ -245,7 +303,7 @@ async function assistantControl(url, fingerprint, marker, extra = {}) {
   assert.match(sentMessages.at(-1).message.prompt, /bridge\/operator-only/);
   assert.match(sentMessages.at(-1).message.prompt, /do not create Local Agent project task files/i);
 
-  console.log("Chat Bridge service worker binding/control tests passed.");
+  console.log("Chat Bridge service worker binding/control/master tests passed.");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

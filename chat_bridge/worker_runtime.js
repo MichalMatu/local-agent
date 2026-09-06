@@ -1,91 +1,3 @@
-importScripts("control_protocol.js", "bridge_state.js");
-
-const protocol = globalThis.LocalAgentBridgeProtocol;
-const stateModel = globalThis.LocalAgentBridgeState;
-const {
-  MIN_INTERVAL_MINUTES,
-  MAX_INTERVAL_MINUTES,
-  normalizeConversationUrl,
-  parseAssistantControl,
-  conversationId
-} = protocol;
-
-const LEGACY_ALARM_NAME = "local-agent-chat-bridge";
-const ALARM_PREFIX = "local-agent-chat:";
-const RUNTIME_CACHE_MS = 30_000;
-const CONTENT_PROTOCOL_VERSION = 3;
-const CONTENT_PREFLIGHT_TIMEOUT_MS = 1500;
-const DELIVERY_TIMEOUT_MS = 8000;
-const RETRY_REASONS = new Set([
-  "assistant_busy",
-  "composer_not_empty",
-  "composer_not_found",
-  "content_script_unavailable",
-  "content_script_protocol_mismatch",
-  "send_button_not_ready",
-  "page_not_ready",
-  "wrong_conversation"
-]);
-
-let stateQueue = Promise.resolve();
-let runtimeCache = null;
-const runtimeRequests = new Map();
-const inFlightDeliveries = new Set();
-const activeDeliveries = new Map();
-
-function alarmName(chatId) {
-  return `${ALARM_PREFIX}${chatId}`;
-}
-
-function clampNumber(value, fallback, minimum, maximum) {
-  return stateModel.clampNumber(value, fallback, minimum, maximum);
-}
-
-async function loadStoredState() {
-  const raw = await chrome.storage.local.get(null);
-  const migrated = stateModel.migrateLegacyStorage(raw);
-  if (migrated.migrated) {
-    await chrome.storage.local.set({ bridgeState: migrated.state });
-  }
-  return migrated.state;
-}
-
-async function getBridgeState() {
-  await stateQueue;
-  return loadStoredState();
-}
-
-async function getScheduleSnapshot(state) {
-  const alarms = await chrome.alarms.getAll();
-  const alarmByName = new Map(alarms.map((alarm) => [alarm.name, alarm]));
-  return Object.fromEntries(
-    Object.values(state.conversations).map((conversation) => {
-      const alarm = alarmByName.get(alarmName(conversation.id));
-      const when = Number(alarm?.scheduledTime ?? alarm?.when);
-      return [conversation.id, {
-        scheduled: Number.isFinite(when),
-        nextRunAt: Number.isFinite(when) ? new Date(when).toISOString() : null
-      }];
-    })
-  );
-}
-
-function mutateState(mutator) {
-  const operation = stateQueue.then(async () => {
-    const current = await loadStoredState();
-    const result = await mutator(stateModel.normalizeState(current));
-    const nextState = stateModel.normalizeState(result?.state || result || current);
-    await chrome.storage.local.set({ bridgeState: nextState });
-    return {
-      state: nextState,
-      value: result?.value,
-      conversation: result?.conversation
-    };
-  });
-  stateQueue = operation.catch(() => undefined);
-  return operation;
-}
-
 function validatePrompt(value, fallback, maximum, label) {
   const prompt = String(value || fallback || "").trim();
   if (!prompt) throw new Error(`${label} must be a non-empty string`);
@@ -197,3 +109,44 @@ function applyConversationInterval(runtime, conversation) {
   };
 }
 
+async function fetchRuntime(settings) {
+  const key = JSON.stringify(settings);
+  if (runtimeCache?.key === key && runtimeCache.expiresAt > Date.now()) return runtimeCache.value;
+  if (runtimeRequests.has(key)) return runtimeRequests.get(key);
+  const request = fetchRuntimeUncached(settings, key);
+  runtimeRequests.set(key, request);
+  try {
+    return await request;
+  } finally {
+    runtimeRequests.delete(key);
+  }
+}
+
+async function fetchRuntimeUncached(settings, key) {
+  const fallback = fallbackRuntime(settings);
+  const runtimeUrl = String(settings.runtimeUrl || "").trim();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const separator = runtimeUrl.includes("?") ? "&" : "?";
+    const response = await fetch(`${runtimeUrl}${separator}ts=${Date.now()}`, {
+      cache: "no-store",
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`runtime fetch returned HTTP ${response.status}`);
+    const value = { ...validateRuntimeConfig(await response.json(), settings), source: "remote" };
+    runtimeCache = { key, expiresAt: Date.now() + RUNTIME_CACHE_MS, value };
+    return value;
+  } catch (error) {
+    console.warn("Local Agent Chat Bridge runtime unavailable:", error);
+    const value = { ...fallback, source: "unavailable", runtimeError: String(error) };
+    runtimeCache = { key, expiresAt: Date.now() + RUNTIME_CACHE_MS, value };
+    return value;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function loadRuntimeConfig(state, conversation = null) {
+  return applyConversationInterval(await fetchRuntime(state.settings), conversation);
+}
