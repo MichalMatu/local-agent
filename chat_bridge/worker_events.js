@@ -31,7 +31,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const contentHandlers = {
     "bridge:authorize-delivery": authorizeDelivery,
     "bridge:control-context": controlContext,
-    "bridge:assistant-control": applyAssistantControl
+    "bridge:assistant-control": applyAssistantControl,
+    "bridge:conversation-exhausted": reportConversationExhausted
   };
   if (Object.hasOwn(contentHandlers, message.type)) {
     contentHandlers[message.type](message, sender).then(sendResponse)
