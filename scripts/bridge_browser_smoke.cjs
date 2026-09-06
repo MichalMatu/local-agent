@@ -332,6 +332,8 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await page.evaluate(() => window.submits), 6);
     console.log("PASS: hidden stop controls allow delivery; a visible stop control still blocks submission");
 
+    await require("./bridge_control_browser_cases.cjs")({ page, request, readChat, add, worker });
+
     await bounded("browser shutdown", context.close());
     context = await launch();
     await context.setOffline(true);

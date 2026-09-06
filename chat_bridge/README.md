@@ -33,7 +33,7 @@ Adding a conversation captures the current latest assistant-message identity as 
 
 ## Conversation controls
 
-A control is accepted only at the end of the final non-empty line of the latest assistant message in that exact configured conversation. Prefer a separate line; a whitespace-separated trailing marker such as `Acknowledged. [LAB:PAUSE]` also works. Quoted or backtick-wrapped markers and markers followed by more text are not controls.
+A control is accepted from the end of the latest assistant message in that exact configured conversation. Text before the marker needs no separating whitespace: `Acknowledged.[LAB:PAUSE]` works. After the marker, including subsequent lines or paragraphs, only whitespace and these decorations are allowed: straight quotes/apostrophes, typographic quotes `“ ” „ ‘ ’ ‚ « » ‹ ›`, punctuation `. , ! ? ; : …`, dashes `- – —`, Markdown characters (asterisk, underscore, backtick, tilde), and closing brackets `) ] }`. Letters, numbers, emoji and other symbols after the marker cause rejection. Prefer a separate marker line:
 
 ```text
 [LAB:STOP]
@@ -47,6 +47,10 @@ A control is accepted only at the end of the final non-empty line of the latest 
 
 Compatibility `LOCAL_AGENT_BRIDGE:` forms remain accepted.
 
+Only the last candidate beginning with `[LAB:` or `[LOCAL_AGENT_BRIDGE:` is considered. A malformed or unsupported final candidate rejects the answer; the parser never falls back to an earlier command. Command spelling and duration limits remain strict.
+
+Quotes and rendered Markdown (`code`, `pre`, `strong`, `blockquote`) do not exempt a trailing marker from execution. An example or a negated sentence ending with a marker can therefore execute it. To explain a marker without executing it, put explanatory text after it. The Bridge recognizes syntax and position, not the intent of the preceding prose.
+
 - `STOP` disables only that conversation and clears its persistent interval override.
 - `PAUSE` disables only that conversation while preserving its interval override.
 - `RESUME` re-enables that conversation and schedules a near-term retry wake.
@@ -56,7 +60,7 @@ Compatibility `LOCAL_AGENT_BRIDGE:` forms remain accepted.
 
 Per-conversation operator values are ordinary chat state, not a higher-priority lock. A later assistant control may therefore overwrite the chat's enabled/paused state, next wake or interval. The global **Master** switch is different: it is operator-only, assistant controls cannot modify it, and content-script messages are not authorized to call global-settings mutations.
 
-The control fingerprint is deduplicated per conversation. Controls cannot change repository identity.
+The control fingerprint is deduplicated per conversation. Rescanning the same answer does not reapply its command. The same command in a new answer is a new control; repeated `RESUME` may reset the near-term wake time. Controls cannot change repository identity.
 
 ## Delivery model
 

@@ -199,7 +199,7 @@ Use it only to catch immediate deterministic failure or failure to claim. If exe
 
 ## Conversation-scoped bridge controls
 
-A bridge control is accepted only at the end of the final non-empty line of the latest assistant message in the same configured conversation. Prefer a separate line; a whitespace-separated trailing marker such as `Acknowledged. [LAB:PAUSE]` also works. Quoted or backtick-wrapped markers and markers followed by more text are not controls:
+A bridge control is accepted at the end of the latest assistant message in the same configured conversation. No space before the marker is required: `Acknowledged.[LAB:PAUSE]` works. The entire suffix, including later paragraphs, must contain only whitespace or the explicit punctuation/decorations listed in `chat_bridge/README.md`. Quotes, Markdown emphasis and code formatting are permitted. Prefer a separate marker line:
 
 ```text
 [LAB:STOP]
@@ -212,6 +212,10 @@ A bridge control is accepted only at the end of the final non-empty line of the 
 ```
 
 Compatibility forms using `LOCAL_AGENT_BRIDGE:` remain accepted.
+
+Only the last candidate marker is considered. If it is malformed or has an invalid command or duration, the answer is rejected without falling back to an earlier marker. Any normal text after the marker prevents execution. A quoted example or negated sentence ending with a marker can still execute: put explanatory text after examples that must not act as controls.
+
+Rescanning the same answer is deduplicated. Repeating `RESUME` in a new answer is a new control and may reset the next wake time; it is not a promise of unchanged scheduling.
 
 - `STOP`: disable this conversation and clear its interval override.
 - `PAUSE`: disable this conversation while preserving its interval override.

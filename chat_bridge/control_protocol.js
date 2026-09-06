@@ -29,12 +29,16 @@
     }
   }
 
-  function lastNonEmptyLine(text) {
-    const lines = String(text || "")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    return lines.length ? lines[lines.length - 1] : "";
+  function finalControlMarker(text) {
+    const source = String(text || "");
+    const start = Math.max(source.lastIndexOf("[LAB:"), source.lastIndexOf("[LOCAL_AGENT_BRIDGE:"));
+    if (start < 0) return null;
+    const end = source.indexOf("]", start);
+    if (end < 0) return null;
+    // Validate the entire suffix, including later paragraphs and Markdown closers.
+    const suffix = source.slice(end + 1);
+    if (!/^[\s"'“”„‘’‚«»‹›.,!?;:…\-–—*_`~)\]}]*$/u.test(suffix)) return null;
+    return source.slice(start, end + 1);
   }
 
   function parseDurationToken(token, { allowAuto = false } = {}) {
@@ -50,11 +54,11 @@
   }
 
   function parseAssistantControl(text) {
-    const line = lastNonEmptyLine(text);
-    const match = line.match(/(?:^|\s)(\[(?:LAB|LOCAL_AGENT_BRIDGE):([^\[\]\r\n]+)\])$/);
+    const marker = finalControlMarker(text);
+    if (!marker) return null;
+    const match = marker.match(/^\[(?:LAB|LOCAL_AGENT_BRIDGE):([^\[\]\r\n]+)\]$/);
     if (!match) return null;
-    const marker = match[1];
-    const body = match[2];
+    const body = match[1];
 
     if (body === "STOP") return { action: "stop", marker };
     if (body === "PAUSE") return { action: "pause", marker };

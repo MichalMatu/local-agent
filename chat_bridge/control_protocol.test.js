@@ -73,9 +73,6 @@ assert.deepEqual(parse("Waiting. [LOCAL_AGENT_BRIDGE:PAUSE]"), {
   action: "pause",
   marker: "[LOCAL_AGENT_BRIDGE:PAUSE]"
 });
-assert.equal(parse("Acknowledged.[LAB:PAUSE]"), null);
-assert.equal(parse("Example: `[LAB:PAUSE]`"), null);
-assert.equal(parse('Example: "[LAB:PAUSE]"'), null);
 assert.equal(parse("[LAB:PAUSE] Continue."), null);
 assert.equal(parse("[LAB:PAUSE]\nContinue."), null);
 assert.equal(parse("Acknowledged. [LAB:NEXT=29s]"), null);
