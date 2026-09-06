@@ -42,19 +42,62 @@ async function probeContentScript(tabId, expectedUrl) {
   }
 }
 
-async function ensureContentScript(tab, expectedUrl) {
-  const first = await probeContentScript(tab.id, expectedUrl);
-  if (first.ok || first.reason !== "content_script_unavailable") return first;
+async function probeExhaustionGuard(tabId, expectedUrl) {
+  let timeout;
+  const timeoutMarker = Symbol("exhaustion-guard-preflight-timeout");
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id, frameIds: [0] },
-      files: ["control_protocol.js", "content.js"]
-    });
-  } catch (error) {
-    return { ok: false, reason: "content_script_unavailable", error: String(error) };
+    const response = await Promise.race([
+      chrome.tabs.sendMessage(tabId, {
+        type: "bridge:exhaustion-capabilities",
+        expectedUrl,
+        guardVersion: EXHAUSTION_GUARD_VERSION
+      }, { frameId: 0 }),
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(timeoutMarker), CONTENT_PREFLIGHT_TIMEOUT_MS);
+      })
+    ]);
+    if (response === timeoutMarker || response?.guardVersion !== EXHAUSTION_GUARD_VERSION) {
+      return { ok: false, reason: "exhaustion_guard_unavailable" };
+    }
+    return response?.ok
+      ? { ok: true, reason: "ready", guardVersion: EXHAUSTION_GUARD_VERSION }
+      : { ok: false, reason: String(response?.reason || "exhaustion_guard_unavailable") };
+  } catch (_error) {
+    return { ok: false, reason: "exhaustion_guard_unavailable" };
+  } finally {
+    clearTimeout(timeout);
   }
-  const second = await probeContentScript(tab.id, expectedUrl);
-  return second.ok ? { ...second, injected: true } : second;
+}
+
+async function ensureContentScript(tab, expectedUrl) {
+  let content = await probeContentScript(tab.id, expectedUrl);
+  if (!content.ok && content.reason === "content_script_unavailable") {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id, frameIds: [0] },
+        files: ["control_protocol.js", "content.js"]
+      });
+    } catch (error) {
+      return { ok: false, reason: "content_script_unavailable", error: String(error) };
+    }
+    content = await probeContentScript(tab.id, expectedUrl);
+  }
+  if (!content.ok) return content;
+
+  let guard = await probeExhaustionGuard(tab.id, expectedUrl);
+  if (!guard.ok && guard.reason === "exhaustion_guard_unavailable") {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id, frameIds: [0] },
+        files: ["control_protocol.js", "dom_contract.js", "exhaustion_guard.js"]
+      });
+    } catch (error) {
+      return { ok: false, reason: "exhaustion_guard_unavailable", error: String(error) };
+    }
+    guard = await probeExhaustionGuard(tab.id, expectedUrl);
+  }
+  if (!guard.ok) return guard;
+  return { ...content, exhaustionGuardVersion: guard.guardVersion };
 }
 
 function definitelyNoContentReceiver(error) {
@@ -76,6 +119,26 @@ function conversationForSender(state, message, sender) {
   if (!senderUrl || senderUrl !== declaredUrl) return null;
   const conversation = state.conversations[conversationId(declaredUrl)];
   return conversation?.url === declaredUrl ? conversation : null;
+}
+
+async function reportConversationExhausted(message, sender) {
+  const state = await getBridgeState();
+  const conversation = conversationForSender(state, message, sender);
+  if (!conversation) return { ok: false, reason: "conversation_not_found" };
+  const generation = conversation.generation;
+  await mutateState((current) => {
+    const latest = current.conversations[conversation.id];
+    if (!latest || latest.generation !== generation || latest.url !== conversation.url) return current;
+    return stateModel.patchConversation(current, conversation.id, {
+      enabled: false,
+      generation: latest.generation + 1,
+      lastStatus: "conversation_exhausted",
+      lastRunAt: new Date().toISOString(),
+      nextRunAt: null
+    }).state;
+  });
+  await clearConversationAlarm(conversation.id);
+  return { ok: true, reason: "conversation_exhausted" };
 }
 
 async function authorizeDelivery(message, sender) {
