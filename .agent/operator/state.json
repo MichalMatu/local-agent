@@ -1,5 +1,5 @@
 {
   "version": 1,
-  "desired_state": "enabled",
-  "request_id": "v4182-e2e-20260905T204248Z-global-enabled"
+  "desired_state": "disabled",
+  "request_id": "v4183-rollout-20260906T0132Z-disabled"
 }
