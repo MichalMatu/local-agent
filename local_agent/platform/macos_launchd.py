@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 from typing import Literal
 
+from local_agent.supervisor.scheduling import MAX_MAX_WORKERS
+
 LABEL = "com.michal.local-agent"
 Mode = Literal["parallel", "multirepo", "single"]
 UNLOAD_TIMEOUT_SECONDS = 5.0
@@ -50,8 +52,8 @@ def build_program_arguments(
 ) -> list[str]:
     python = repo_root / ".venv" / "bin" / "python"
     if mode == "parallel":
-        if max_workers < 1 or max_workers > 3:
-            raise ValueError("max_workers must be in range 1..3")
+        if max_workers < 1 or max_workers > MAX_MAX_WORKERS:
+            raise ValueError(f"max_workers must be in range 1..{MAX_MAX_WORKERS}")
         registry = registry_path or default_registry_path(home)
         return [
             str(python),
