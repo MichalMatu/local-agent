@@ -6,14 +6,18 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import local_agent.platform.macos_launchd as macos_launchd
 from local_agent.platform.macos_launchd import (
     LABEL,
     build_launch_agent,
     build_program_arguments,
     default_launch_agent_path,
     render_launch_agent,
+    restart_launch_agent,
     validate_checkout,
+    wait_until_unloaded,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -136,6 +140,68 @@ class MacOSLaunchdTests(unittest.TestCase):
             default_launch_agent_path(self.home),
             self.home / "Library" / "LaunchAgents" / f"{LABEL}.plist",
         )
+
+    def test_wait_until_unloaded_polls_until_launchd_forgets_service(self) -> None:
+        loaded = subprocess.CompletedProcess(["launchctl"], 0, stdout="loaded", stderr="")
+        absent = subprocess.CompletedProcess(["launchctl"], 113, stdout="", stderr="not found")
+        with (
+            mock.patch.object(macos_launchd, "print_status", side_effect=[loaded, absent]) as status,
+            mock.patch.object(macos_launchd.time, "sleep") as sleep,
+        ):
+            wait_until_unloaded(timeout=1.0, poll_interval=0.01)
+        self.assertEqual(status.call_count, 2)
+        sleep.assert_called_once_with(0.01)
+
+    def test_wait_until_unloaded_times_out_fail_closed(self) -> None:
+        loaded = subprocess.CompletedProcess(["launchctl"], 0, stdout="loaded", stderr="")
+        with (
+            mock.patch.object(macos_launchd, "print_status", return_value=loaded),
+            mock.patch.object(macos_launchd.time, "monotonic", side_effect=[0.0, 0.5, 1.1]),
+            mock.patch.object(macos_launchd.time, "sleep"),
+        ):
+            with self.assertRaisesRegex(TimeoutError, "did not unload"):
+                wait_until_unloaded(timeout=1.0, poll_interval=0.01)
+
+    def test_restart_retries_transient_exit_five_after_confirming_absent(self) -> None:
+        plist = Path("/Users/tester/Library/LaunchAgents/com.michal.local-agent.plist")
+        transient = subprocess.CalledProcessError(
+            5,
+            ["launchctl", "bootstrap"],
+            output="",
+            stderr="Bootstrap failed: 5: Input/output error\nBad request.\n",
+        )
+        success = subprocess.CompletedProcess(["launchctl", "bootstrap"], 0, "", "")
+        absent = subprocess.CompletedProcess(["launchctl", "print"], 113, "", "not found")
+        with (
+            mock.patch.object(macos_launchd, "bootout") as bootout,
+            mock.patch.object(macos_launchd, "wait_until_unloaded") as wait,
+            mock.patch.object(macos_launchd, "bootstrap", side_effect=[transient, success]) as bootstrap,
+            mock.patch.object(macos_launchd, "print_status", return_value=absent),
+            mock.patch.object(macos_launchd.time, "sleep") as sleep,
+        ):
+            result = restart_launch_agent(plist, bootstrap_attempts=2, retry_delay=0.01)
+        self.assertEqual(result.returncode, 0)
+        bootout.assert_called_once_with(uid=None, check=False)
+        wait.assert_called_once()
+        self.assertEqual(bootstrap.call_count, 2)
+        sleep.assert_called_once_with(0.01)
+
+    def test_restart_does_not_retry_non_transient_bootstrap_failure(self) -> None:
+        plist = Path("/Users/tester/Library/LaunchAgents/com.michal.local-agent.plist")
+        failure = subprocess.CalledProcessError(
+            5,
+            ["launchctl", "bootstrap"],
+            output="",
+            stderr="Invalid property list",
+        )
+        with (
+            mock.patch.object(macos_launchd, "bootout"),
+            mock.patch.object(macos_launchd, "wait_until_unloaded"),
+            mock.patch.object(macos_launchd, "bootstrap", side_effect=failure) as bootstrap,
+        ):
+            with self.assertRaises(subprocess.CalledProcessError):
+                restart_launch_agent(plist, bootstrap_attempts=3, retry_delay=0.01)
+        bootstrap.assert_called_once()
 
 
 if __name__ == "__main__":
