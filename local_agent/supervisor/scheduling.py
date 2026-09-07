@@ -9,7 +9,7 @@ from local_agent.supervisor import policy as supervisor_policy
 
 MAX_WORKERS_ENV = "LOCAL_AGENT_MAX_PARALLEL_WORKERS"
 DEFAULT_MAX_WORKERS = 1
-MAX_MAX_WORKERS = 3
+MAX_MAX_WORKERS = 4
 RESOURCE_RETRY_BACKOFF_SECONDS = (2.0, 5.0, 10.0, 30.0, 60.0)
 WORKER_FAILURE_RETRY_BASE_SECONDS = 2.0
 WORKER_FAILURE_RETRY_MAX_SECONDS = 300.0
@@ -126,7 +126,7 @@ def next_repository_delay(
         return supervisor_policy.POLL_SECONDS
     delays: list[float] = []
     for repository_id in repository_ids:
-        schedule = schedules.setdefault(repository_id, RepositorySchedule())
+        schedule = schedules.setdefault(repository_id, scheduling.RepositorySchedule())
         if schedule.retry_not_before > 0.0:
             delays.append(max(0.0, schedule.retry_not_before - now))
             continue
