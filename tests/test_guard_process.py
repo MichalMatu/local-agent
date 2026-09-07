@@ -31,6 +31,7 @@ class GuardProcessTests(unittest.TestCase):
                     entrypoint.agent_operator.is_disabled = lambda: False
                     entrypoint.load_repository_registry = lambda **_k: [object()]
                     entrypoint.prepare_repositories = lambda _r: None
+                    entrypoint._recover_before_supervisor_start = lambda _r: None
                     entrypoint.supervisor_command = lambda _a: [sys.executable, '-c', {child_code!r}]
                     calls = 0
                     def revision():
