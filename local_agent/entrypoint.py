@@ -148,7 +148,11 @@ def _self_reexec_args(args: argparse.Namespace) -> list[str]:
 
 
 def _supervisor_reports_quiescent(supervisor_pid: int) -> bool:
-    """Return true only for a current parallel status with no active workers."""
+    """Return true only for the scheduler's current idle status.
+
+    Successful global-control work publishes `supervisor_control_repository`, so
+    that state must never be mistaken for an orphaned repository lease.
+    """
     try:
         payload = json.loads(agentd.LOCAL_STATUS_PATH.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
@@ -156,8 +160,10 @@ def _supervisor_reports_quiescent(supervisor_pid: int) -> bool:
     if not isinstance(payload, dict):
         return False
     return (
-        payload.get("supervisor_pid") == supervisor_pid
+        payload.get("state") == "idle"
+        and payload.get("supervisor_pid") == supervisor_pid
         and payload.get("active_repository_ids") == []
+        and "supervisor_control_repository" not in payload
     )
 
 
