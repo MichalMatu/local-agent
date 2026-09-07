@@ -101,7 +101,7 @@ class MacOSLaunchdTests(unittest.TestCase):
         self.assertEqual(payload["Label"], LABEL)
         self.assertEqual(payload["WorkingDirectory"], str(self.repo))
 
-    def test_render_cli_runs_from_outside_repository(self) -> None:
+    def test_render_cli_runs_from_outside_repository_with_max_workers_four(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             result = subprocess.run(
                 [
@@ -112,6 +112,8 @@ class MacOSLaunchdTests(unittest.TestCase):
                     str(self.home),
                     "--repo-root",
                     str(self.repo),
+                    "--max-workers",
+                    "4",
                 ],
                 cwd=tmp,
                 text=False,
@@ -122,6 +124,7 @@ class MacOSLaunchdTests(unittest.TestCase):
         payload = plistlib.loads(result.stdout)
         self.assertEqual(payload["Label"], LABEL)
         self.assertEqual(payload["WorkingDirectory"], str(self.repo))
+        self.assertEqual(payload["ProgramArguments"][-2:], ["--max-workers", "4"])
 
     def test_checkout_validation_requires_packaged_workers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
