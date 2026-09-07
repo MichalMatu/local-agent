@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import json
 import os
 import shutil
@@ -10,6 +12,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 import local_agent.daemon.service as agentd
@@ -167,12 +170,39 @@ def _supervisor_reports_quiescent(supervisor_pid: int) -> bool:
     )
 
 
+@contextlib.contextmanager
+def _orphan_recovery_guard() -> Iterator[None]:
+    """Exclude every other Local Agent daemon while orphan cleanup is destructive."""
+    agentd.DAEMON_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    handle = agentd.DAEMON_LOCK_PATH.open("a+", encoding="utf-8")
+    locked = False
+    try:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locked = True
+        except BlockingIOError as exc:
+            raise RuntimeError(
+                "another local-agent daemon holds the daemon lock; refusing orphan recovery"
+            ) from exc
+        yield
+    finally:
+        if locked:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
+def _recover_orphaned_leases_safely(paths: tuple[Path, ...]) -> tuple[int, ...]:
+    """Recover stale repository holders only while owning the global daemon lock."""
+    with _orphan_recovery_guard():
+        return recover_orphaned_repository_leases(paths, log=log)
+
+
 def _recover_before_supervisor_start(repositories: list[RepositoryContext]) -> None:
     """Clear only orphaned holders while no supervisor or worker is running."""
     paths = repository_lease_paths(repositories, state_dir=agentd.STATE_DIR)
     if not repository_leases_busy(paths):
         return
-    recovered = recover_orphaned_repository_leases(paths, log=log)
+    recovered = _recover_orphaned_leases_safely(paths)
     if recovered:
         log(f"recovered orphaned repository leases before supervisor start pids={list(recovered)}")
 
@@ -277,7 +307,7 @@ def main() -> int:
                                 stop_supervisor(child)
                                 child = None
                                 quiescent_lease_busy_since = None
-                                recover_orphaned_repository_leases(paths, log=log)
+                                _recover_orphaned_leases_safely(paths)
                                 continue
                         else:
                             quiescent_lease_busy_since = None
