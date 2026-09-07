@@ -14,7 +14,12 @@ from local_agent.supervisor.scheduling import MAX_MAX_WORKERS
 
 LABEL = "com.michal.local-agent"
 Mode = Literal["parallel", "multirepo", "single"]
-UNLOAD_TIMEOUT_SECONDS = 5.0
+# launchd must outlive the guarded entrypoint's bounded child cleanup. The
+# supervisor may itself spend up to five seconds draining worker process groups
+# before the entrypoint can finish reaping it, so the historical five-second
+# launchd exit timeout could kill the guard just before its SIGKILL fallback.
+LAUNCHD_EXIT_TIMEOUT_SECONDS = 15
+UNLOAD_TIMEOUT_SECONDS = 20.0
 UNLOAD_POLL_SECONDS = 0.1
 BOOTSTRAP_RETRY_ATTEMPTS = 3
 BOOTSTRAP_RETRY_DELAY_SECONDS = 0.5
@@ -94,6 +99,7 @@ def build_launch_agent(
         "RunAtLoad": True,
         "KeepAlive": True,
         "ThrottleInterval": 10,
+        "ExitTimeOut": LAUNCHD_EXIT_TIMEOUT_SECONDS,
         "ProcessType": "Interactive",
         "EnvironmentVariables": {
             "HOME": str(home),
