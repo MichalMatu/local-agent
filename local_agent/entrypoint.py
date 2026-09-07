@@ -183,6 +183,27 @@ def _supervisor_reports_quiescent(supervisor_pid: int) -> bool:
     )
 
 
+def _updated_quiescent_lease_watch(
+    started_at: float | None,
+    *,
+    supervisor_quiescent: bool,
+    leases_busy: bool,
+    now: float,
+) -> float | None:
+    """Advance the stale-lease watch only from verified quiescent observations.
+
+    Active workers and global-control polls are transient scheduler activity. They
+    must not erase an already observed stale lease because unrelated repository
+    turns can otherwise reset the 30-second watch forever. Destructive recovery
+    still requires a later verified quiescent+busy observation.
+    """
+    if not supervisor_quiescent:
+        return started_at
+    if not leases_busy:
+        return None
+    return now if started_at is None else started_at
+
+
 @contextlib.contextmanager
 def _orphan_recovery_guard() -> Iterator[None]:
     """Exclude every other Local Agent daemon while orphan cleanup is destructive."""
@@ -312,21 +333,30 @@ def main() -> int:
 
             if child is not None and managed_repositories:
                 try:
-                    if _supervisor_reports_quiescent(child.pid):
+                    supervisor_quiescent = _supervisor_reports_quiescent(child.pid)
+                    if supervisor_quiescent:
                         paths = repository_lease_paths(
                             managed_repositories,
                             state_dir=agentd.STATE_DIR,
                         )
-                        if repository_leases_busy(paths):
-                            now = time.monotonic()
-                            if quiescent_lease_busy_since is None:
-                                quiescent_lease_busy_since = now
+                        leases_busy = repository_leases_busy(paths)
+                        now = time.monotonic()
+                        previous_watch = quiescent_lease_busy_since
+                        quiescent_lease_busy_since = _updated_quiescent_lease_watch(
+                            previous_watch,
+                            supervisor_quiescent=True,
+                            leases_busy=leases_busy,
+                            now=now,
+                        )
+                        if leases_busy:
+                            if previous_watch is None:
                                 log(
                                     "quiescent supervisor has busy repository lease; "
                                     "starting bounded recovery watch"
                                 )
                             elif (
-                                now - quiescent_lease_busy_since
+                                quiescent_lease_busy_since is not None
+                                and now - quiescent_lease_busy_since
                                 >= QUIESCENT_LEASE_STALL_SECONDS
                             ):
                                 log(
@@ -338,10 +368,13 @@ def main() -> int:
                                 quiescent_lease_busy_since = None
                                 _recover_orphaned_leases_safely(paths)
                                 continue
-                        else:
-                            quiescent_lease_busy_since = None
                     else:
-                        quiescent_lease_busy_since = None
+                        quiescent_lease_busy_since = _updated_quiescent_lease_watch(
+                            quiescent_lease_busy_since,
+                            supervisor_quiescent=False,
+                            leases_busy=False,
+                            now=0.0,
+                        )
                 except Exception as exc:
                     log(f"lease recovery watchdog degraded: {type(exc).__name__}: {exc}")
                     if child is None:
