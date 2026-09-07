@@ -16,10 +16,10 @@ if str(REPO_ROOT) not in sys.path:
 from local_agent.platform.macos_launchd import (  # noqa: E402
     LABEL,
     bootout,
-    bootstrap,
     default_launch_agent_path,
     print_status,
     render_launch_agent,
+    restart_launch_agent,
     validate_checkout,
     write_launch_agent,
 )
@@ -104,15 +104,17 @@ def main() -> int:
 
     if args.command == "restart":
         write_launch_agent(plist_path, _render(args))
-        bootout(check=False)
         try:
-            bootstrap(plist_path)
+            restart_launch_agent(plist_path)
         except subprocess.CalledProcessError as exc:
             if exc.stdout:
                 print(exc.stdout, end="")
             if exc.stderr:
                 print(exc.stderr, end="", file=sys.stderr)
             return int(exc.returncode)
+        except TimeoutError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         print(f"restarted {LABEL} from {plist_path}")
         return 0
 
