@@ -78,7 +78,7 @@ class ParallelSupervisorTests(unittest.TestCase):
             {parallel.scheduling.MAX_WORKERS_ENV: "2"},
             clear=False,
         ):
-            self.assertEqual(parallel.scheduling.resolve_max_workers(3), 3)
+            self.assertEqual(parallel.scheduling.resolve_max_workers(4), 4)
 
     def test_invalid_concurrency_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -93,8 +93,8 @@ class ParallelSupervisorTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 parallel.scheduling.resolve_max_workers(None)
 
-    def test_parallel_concurrency_is_capped_at_three(self) -> None:
-        self.assertEqual(parallel.scheduling.MAX_MAX_WORKERS, 3)
+    def test_parallel_concurrency_is_capped_at_four(self) -> None:
+        self.assertEqual(parallel.scheduling.MAX_MAX_WORKERS, 4)
 
     def test_operator_idle_summary_is_human_readable(self) -> None:
         self.assertEqual(
