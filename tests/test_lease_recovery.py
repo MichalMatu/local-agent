@@ -173,6 +173,45 @@ class EntrypointLeaseWatchdogTests(unittest.TestCase):
             with mock.patch.object(entrypoint.agentd, "LOCAL_STATUS_PATH", status):
                 self.assertFalse(entrypoint._supervisor_reports_quiescent(1234))
 
+    def test_busy_watch_survives_transient_scheduler_activity(self) -> None:
+        started = entrypoint._updated_quiescent_lease_watch(
+            None,
+            supervisor_quiescent=True,
+            leases_busy=True,
+            now=10.0,
+        )
+        self.assertEqual(started, 10.0)
+
+        preserved = entrypoint._updated_quiescent_lease_watch(
+            started,
+            supervisor_quiescent=False,
+            leases_busy=False,
+            now=20.0,
+        )
+        self.assertEqual(preserved, 10.0)
+
+        continued = entrypoint._updated_quiescent_lease_watch(
+            preserved,
+            supervisor_quiescent=True,
+            leases_busy=True,
+            now=41.0,
+        )
+        self.assertEqual(continued, 10.0)
+        assert continued is not None
+        self.assertGreaterEqual(
+            41.0 - continued,
+            entrypoint.QUIESCENT_LEASE_STALL_SECONDS,
+        )
+
+    def test_verified_quiescent_free_observation_clears_busy_watch(self) -> None:
+        cleared = entrypoint._updated_quiescent_lease_watch(
+            10.0,
+            supervisor_quiescent=True,
+            leases_busy=False,
+            now=20.0,
+        )
+        self.assertIsNone(cleared)
+
     def test_orphan_recovery_guard_refuses_live_daemon(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             lock_path = Path(tmp) / "agentd.lock"
