@@ -10,11 +10,12 @@ Recovery remains fail-closed:
 
 - repository execution-lease inheritance is preserved, so worker/supervisor failure still cannot release isolation prematurely;
 - Linux identifies inherited lock holders through matching `/proc/<pid>/fdinfo/<fd>` `FLOCK` records rather than relying on the stale original PID in `/proc/locks`;
-- macOS uses bounded `lsof` machine-readable lock status;
-- a process that merely opens a repository lock file without holding its `flock` is not terminated;
+- macOS uses bounded `lsof` inspection and requires both current lock status and Darwin's per-fileglob `FHASLOCK`/`FWASLOCKED` flag, preventing a process that merely opens the same lock file from becoming a recovery victim;
 - destructive orphan cleanup refuses to run while another Local Agent instance owns `agentd.lock`;
 - legitimate global-control status is excluded from scheduler-idle recovery detection;
 - the same orphan cleanup runs before supervisor startup, allowing restart to repair an already-stuck installation.
+
+The macOS LaunchAgent helper also surfaces `launchctl bootstrap` stdout/stderr when restart fails, instead of hiding the useful launchd error behind a generic `CalledProcessError` traceback.
 
 ## Regression coverage
 
