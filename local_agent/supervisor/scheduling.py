@@ -126,7 +126,7 @@ def next_repository_delay(
         return supervisor_policy.POLL_SECONDS
     delays: list[float] = []
     for repository_id in repository_ids:
-        schedule = schedules.setdefault(repository_id, scheduling.RepositorySchedule())
+        schedule = schedules.setdefault(repository_id, RepositorySchedule())
         if schedule.retry_not_before > 0.0:
             delays.append(max(0.0, schedule.retry_not_before - now))
             continue
