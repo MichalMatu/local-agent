@@ -493,6 +493,14 @@ def service_control(
     control_repository = repositories[0]
     status_fields = supervisor_status_fields(control_repository, max_workers)
     try:
+        # Announce control activity before acquiring leases or starting Git sync.
+        # The guard must never interpret those live holders as idle orphans.
+        publish_local_supervisor_status(
+            {},
+            max_workers=max_workers,
+            state="running",
+            control_repository=control_repository,
+        )
         with supervisor_control_leases(repositories):
             supervisor_control.bind_supervisor_control(
                 control_repository,
@@ -535,6 +543,14 @@ def service_control(
             f"{type(exc).__name__}: {exc}"
         )
         return False
+    finally:
+        # Restore quiescence only after lease release, including failed syncs and
+        # contention. Otherwise a stale control marker can hide a real orphan.
+        publish_local_supervisor_status(
+            {},
+            max_workers=max_workers,
+            state="disabled" if agent_operator.is_disabled() else "idle",
+        )
 
 
 def publish_local_supervisor_status(
@@ -542,14 +558,21 @@ def publish_local_supervisor_status(
     *,
     max_workers: int,
     state: str | None = None,
+    control_repository: RepositoryContext | None = None,
 ) -> None:
     resolved_state = state or ("running" if running else "idle")
+    control_fields = (
+        {"supervisor_control_repository": control_repository.repository_id}
+        if control_repository is not None
+        else {}
+    )
     payload = agentd.daemon_status_payload(
         resolved_state,
         execution_model=PARALLEL_EXECUTION_MODEL,
         supervisor_pid=os.getpid(),
         max_parallel_workers=max_workers,
         active_repository_ids=sorted(running),
+        **control_fields,
     )
     agentd.atomic_write_json(agentd.LOCAL_STATUS_PATH, payload)
 

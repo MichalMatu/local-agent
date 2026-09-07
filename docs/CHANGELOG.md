@@ -2,6 +2,12 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.9 candidate
+
+- Publish control activity before acquiring repository leases and synchronizing Git, preventing false orphan-watchdog observations during ordinary control work.
+- Restore local quiescent or disabled status after lease release, including failed synchronization and contention.
+- Add real Git/lease regression coverage and audit downstream instructions; no planner contract migration is required. See `RELEASE_NOTES_V4.18.9.md`.
+
 ## v4.18.4
 
 - Accept a whitespace-separated Bridge control at the end of the final assistant line, including `Acknowledged. [LAB:PAUSE]`.

@@ -27,6 +27,9 @@ class ParallelControlProbeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
+        self.status_path = self.root / "status.json"
+        self.status_patch = mock.patch.object(agentd, "LOCAL_STATUS_PATH", self.status_path)
+        self.status_patch.start()
         self.original_control = agentd.core.CONTROL
         agentd.core.CONTROL = self.root / "control"
         (agentd.core.CONTROL / ".agent" / "daemon" / "acks").mkdir(
@@ -35,6 +38,7 @@ class ParallelControlProbeTests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
+        self.status_patch.stop()
         agentd.core.CONTROL = self.original_control
         self.tmp.cleanup()
 
@@ -173,6 +177,41 @@ class ParallelControlProbeTests(unittest.TestCase):
                 parallel.probe_control_request(repo),
                 parallel.ControlProbeResult.LEASE_BUSY,
             )
+
+    def test_control_activity_precedes_leases_and_clears_after_failure(self) -> None:
+        repo = repository(self.root)
+        for error in (ExecutionLeaseBusy("control-busy"), RuntimeError("sync failed")):
+            with self.subTest(error=type(error).__name__):
+                @contextlib.contextmanager
+                def lease(_repositories):
+                    status = json.loads(self.status_path.read_text(encoding="utf-8"))
+                    self.assertEqual(status["state"], "running")
+                    self.assertEqual(status["supervisor_control_repository"], repo.repository_id)
+                    raise error
+                    yield
+
+                with mock.patch.object(
+                    parallel, "supervisor_control_leases", side_effect=lease
+                ), mock.patch.object(parallel, "log"), mock.patch.object(
+                    parallel.agent_operator, "is_disabled", return_value=False
+                ):
+                    self.assertFalse(parallel.service_control(
+                        [repo], registry_path=None, max_workers=2, once=False
+                    ))
+                status = json.loads(self.status_path.read_text(encoding="utf-8"))
+                self.assertEqual(status["state"], "idle")
+                self.assertNotIn("supervisor_control_repository", status)
+
+    def test_control_service_preserves_disabled_status(self) -> None:
+        with mock.patch.object(
+            parallel, "supervisor_control_leases", side_effect=ExecutionLeaseBusy("busy")
+        ), mock.patch.object(parallel.agent_operator, "is_disabled", return_value=True):
+            self.assertFalse(parallel.service_control(
+                [repository(self.root)], registry_path=None, max_workers=2, once=False
+            ))
+        status = json.loads(self.status_path.read_text(encoding="utf-8"))
+        self.assertEqual(status["state"], "disabled")
+        self.assertNotIn("supervisor_control_repository", status)
 
 
 if __name__ == "__main__":

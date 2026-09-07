@@ -55,6 +55,73 @@ def result_for(item: dict[str, Path | str]) -> dict:
 
 
 class ParallelIntegrationTests(unittest.TestCase):
+    def test_control_sync_holds_real_leases_without_reporting_quiescence(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = create_repository_fixture(root, "control-watchdog")
+            registry = write_registry(root, (item,))
+            _home, env = test_environment(root)
+            script = """
+import os
+import sys
+from pathlib import Path
+from unittest import mock
+from local_agent import entrypoint
+from local_agent.daemon import service as agentd
+from local_agent.foundation.lease_recovery import repository_lease_paths, repository_leases_busy
+from local_agent.repository.context import load_repository_registry
+from local_agent.supervisor import orchestrator as parallel
+
+repositories = load_repository_registry(path=Path(sys.argv[1]))
+paths = repository_lease_paths(repositories, state_dir=agentd.STATE_DIR)
+sync = parallel.supervisor_control.sync_control_quietly
+leases = parallel.supervisor_control_leases
+observations = []
+
+def checked_leases(repositories):
+    assert not entrypoint._supervisor_reports_quiescent(os.getpid())
+    return leases(repositories)
+
+def checked_sync():
+    assert repository_leases_busy(paths)
+    assert not entrypoint._supervisor_reports_quiescent(os.getpid())
+    sync()
+    assert repository_leases_busy(paths)
+    assert not entrypoint._supervisor_reports_quiescent(os.getpid())
+    observations.append('synced')
+
+def failed_sync():
+    checked_sync()
+    raise RuntimeError('injected failure after real Git sync')
+
+parallel.publish_local_supervisor_status({}, max_workers=2)
+for sync_function, expected in ((checked_sync, True), (failed_sync, False)):
+    assert entrypoint._supervisor_reports_quiescent(os.getpid())
+    with mock.patch.object(parallel, 'supervisor_control_leases', checked_leases), \
+         mock.patch.object(parallel.supervisor_control, 'sync_control_quietly', sync_function), \
+         mock.patch.object(agentd, 'maybe_self_update'):
+        result = parallel.service_control(
+            repositories, registry_path=Path(sys.argv[1]), max_workers=2, once=True
+        )
+    assert result is expected
+    assert not repository_leases_busy(paths)
+    assert entrypoint._supervisor_reports_quiescent(os.getpid())
+assert observations == ['synced', 'synced']
+print('control sync status and lease lifecycle verified')
+"""
+            result = subprocess.run(
+                [sys.executable, "-c", script, str(registry)],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=60,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("control sync status and lease lifecycle verified", result.stdout)
+
     def test_two_parallel_safe_repositories_reach_shared_barrier(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
