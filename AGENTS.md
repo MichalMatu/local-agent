@@ -73,7 +73,7 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 The bounded-parallel production owner is `local_agent/supervisor/orchestrator.py`:
 
 - recommended production `max_workers` is `2`;
-- default remains `1` and the hard cap remains `3`;
+- default remains `1` and the hard cap remains `4`;
 - `agent_multirepo.py` remains the known-safe serial fallback and preserves the same hard binding admission contract;
 - serial and parallel supervisors share the same daemon lock and must never run simultaneously;
 - every task must declare `resources` explicitly; missing, malformed, duplicated or non-canonical declarations are terminal task-contract errors, never silent fallbacks;
