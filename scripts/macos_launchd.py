@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import platform
+import subprocess
 import sys
 from pathlib import Path
 
@@ -104,7 +105,14 @@ def main() -> int:
     if args.command == "restart":
         write_launch_agent(plist_path, _render(args))
         bootout(check=False)
-        bootstrap(plist_path)
+        try:
+            bootstrap(plist_path)
+        except subprocess.CalledProcessError as exc:
+            if exc.stdout:
+                print(exc.stdout, end="")
+            if exc.stderr:
+                print(exc.stderr, end="", file=sys.stderr)
+            return int(exc.returncode)
         print(f"restarted {LABEL} from {plist_path}")
         return 0
 
