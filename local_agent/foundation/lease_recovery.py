@@ -57,41 +57,54 @@ def repository_leases_busy(paths: Iterable[Path]) -> bool:
 
 
 def _proc_holder_pids(paths: tuple[Path, ...]) -> set[int]:
-    """Resolve actual FLOCK owners from Linux /proc/locks, not mere openers."""
-    targets: set[tuple[int, int, int]] = set()
+    """Resolve processes whose matching Linux fdinfo still carries a FLOCK.
+
+    `/proc/locks` records the PID that originally acquired a BSD flock. After
+    that descriptor is inherited and the original process closes its copy, the
+    recorded PID may be stale while a descendant still keeps the open-file
+    description locked. Per-process fdinfo follows the inherited descriptor and
+    therefore identifies the process that can actually keep the lease alive.
+    """
+    targets: set[tuple[int, int]] = set()
     for path in paths:
         try:
             stat = path.stat()
         except FileNotFoundError:
             continue
-        targets.add((os.major(stat.st_dev), os.minor(stat.st_dev), stat.st_ino))
+        targets.add((stat.st_dev, stat.st_ino))
     if not targets:
         return set()
 
-    try:
-        lines = Path("/proc/locks").read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
-        raise RuntimeError(f"cannot inspect Linux lock owners: {exc}") from exc
-
     holders: set[int] = set()
-    for line in lines:
-        fields = line.split()
-        # Held locks have: id FLOCK ADVISORY WRITE pid major:minor:inode ...
-        # Waiting locks contain an extra '->' token and are intentionally ignored.
-        if len(fields) < 6 or fields[1] != "FLOCK":
+    proc_root = Path("/proc")
+    for process_dir in proc_root.iterdir():
+        if not process_dir.name.isdigit():
             continue
+        pid = int(process_dir.name)
+        fd_dir = process_dir / "fd"
         try:
-            pid = int(fields[4])
-            major_text, minor_text, inode_text = fields[5].split(":", 2)
-            identity = (
-                int(major_text, 16),
-                int(minor_text, 16),
-                int(inode_text, 10),
-            )
-        except (ValueError, TypeError):
+            descriptors = tuple(fd_dir.iterdir())
+        except (FileNotFoundError, NotADirectoryError, PermissionError, OSError):
             continue
-        if identity in targets:
-            holders.add(pid)
+        for descriptor in descriptors:
+            try:
+                stat = descriptor.stat()
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+            if (stat.st_dev, stat.st_ino) not in targets:
+                continue
+            try:
+                info = (process_dir / "fdinfo" / descriptor.name).read_text(
+                    encoding="utf-8"
+                )
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+            if any(
+                line.startswith("lock:") and " FLOCK " in line
+                for line in info.splitlines()
+            ):
+                holders.add(pid)
+                break
     return holders
 
 
@@ -147,7 +160,7 @@ def lease_holder_pids(
 ) -> set[int]:
     """Find processes that actually hold a lock on a configured repository lease."""
     resolved = tuple(dict.fromkeys(Path(path) for path in paths))
-    if Path("/proc/locks").is_file():
+    if Path("/proc").is_dir():
         return _proc_holder_pids(resolved)
     return _lsof_holder_pids(resolved, log=log)
 
