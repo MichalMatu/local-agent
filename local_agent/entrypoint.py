@@ -34,6 +34,7 @@ REPO_ROOT = repository_root()
 LOOP_SECONDS = 0.5
 DISABLED_STATUS_SECONDS = 5.0
 QUIESCENT_LEASE_STALL_SECONDS = 30.0
+INHERITED_STOP_ENV = "LOCAL_AGENT_INHERITED_STOP_REQUEST"
 _stop_requested = False
 
 
@@ -52,11 +53,23 @@ def _signal_handler(signum: int, _frame: object) -> None:
     global _stop_requested
     log(f"received signal {signum}; stopping guarded supervisor")
     _stop_requested = True
+    # A caught signal is reset to its default disposition by exec(). Preserve the
+    # shutdown request explicitly so a revision re-exec already in flight cannot
+    # turn a launchd bootout into a fresh daemon instance.
+    os.environ[INHERITED_STOP_ENV] = "1"
 
 
 def install_signal_handlers() -> None:
     signal.signal(signal.SIGTERM, _signal_handler)
     signal.signal(signal.SIGINT, _signal_handler)
+
+
+def _consume_inherited_stop_request() -> bool:
+    global _stop_requested
+    inherited = os.environ.pop(INHERITED_STOP_ENV, None) == "1"
+    if inherited:
+        _stop_requested = True
+    return inherited
 
 
 def _cleanup_generated_python_noise(repository: RepositoryContext) -> int:
@@ -208,8 +221,14 @@ def _recover_before_supervisor_start(repositories: list[RepositoryContext]) -> N
 
 
 def main() -> int:
+    global _stop_requested
+
     args = parse_args()
     install_signal_handlers()
+    if _consume_inherited_stop_request():
+        log("inherited shutdown request after self re-exec; exiting without supervisor start")
+        return 0
+
     initial_revision = agentd.self_revision()
     remote = agent_remote_operator.RemoteOperatorState()
     child: subprocess.Popen[str] | None = None
@@ -255,13 +274,23 @@ def main() -> int:
                             and current_revision is not None
                             and current_revision != initial_revision
                         ):
+                            if _stop_requested:
+                                log("shutdown requested; suppressing guarded self re-exec")
+                                break
                             log(
                                 f"self revision changed {initial_revision} -> {current_revision}; "
                                 "re-executing guarded entrypoint"
                             )
                             stop_supervisor(child)
                             child = None
+                            # If SIGTERM/SIGINT lands after the check above but before
+                            # exec(), the signal handler records INHERITED_STOP_ENV.
+                            # exec preserves that environment marker and the new image
+                            # exits before starting another supervisor.
                             os.execv(sys.executable, _self_reexec_args(args))
+
+            if _stop_requested:
+                break
 
             if agent_operator.is_disabled():
                 if child is not None:
