@@ -22,6 +22,10 @@ from local_agent.repository.context import RepositoryContext, repository_lease_k
 DEFAULT_TERMINATION_GRACE_SECONDS = 1.0
 HOLDER_SCAN_TIMEOUT_SECONDS = 3.0
 HOLDER_SCAN_OUTPUT_LIMIT = 16384
+# Darwin's fileglob flag historically named FHASLOCK and now FWASLOCKED.
+# It marks the fileglob that acquired an advisory lock; descriptors inherited
+# through fork/exec share that fileglob while an unrelated open() does not.
+DARWIN_FHASLOCK = 0x00004000
 
 
 def repository_lease_paths(
@@ -113,7 +117,13 @@ def _lsof_holder_pids(
     *,
     log: Callable[[str], None],
 ) -> set[int]:
-    """Resolve actual lock owners using lsof's machine-readable lock field."""
+    """Resolve Darwin holders using both fileglob and current-lock evidence.
+
+    macOS `lsof` may report the vnode's lock status for another process that has
+    merely opened the same path. Requiring the per-fileglob FHASLOCK/FWASLOCKED
+    bit as well prevents such observers from becoming recovery victims. An
+    inherited daemon shares the original locked fileglob, so it keeps the bit.
+    """
     executable = shutil.which("lsof")
     if executable is None:
         raise RuntimeError("cannot inspect orphaned lease holders: lsof is unavailable")
@@ -127,7 +137,7 @@ def _lsof_holder_pids(
         if not path.exists():
             continue
         result = run_argv_bounded(
-            [executable, "-n", "-Fpl", "--", str(path)],
+            [executable, "-n", "+fG", "-FpfGl", "--", str(path)],
             cwd=path.parent,
             env=env,
             timeout=HOLDER_SCAN_TIMEOUT_SECONDS,
@@ -141,14 +151,35 @@ def _lsof_holder_pids(
             )
 
         current_pid: int | None = None
+        in_file = False
+        fileglob_has_lock = False
+        current_lock = False
         for line in str(result.get("output", "")).splitlines():
             if line.startswith("p") and line[1:].isdigit():
                 current_pid = int(line[1:])
+                in_file = False
+                fileglob_has_lock = False
+                current_lock = False
                 continue
-            # lsof field output uses `l<status>` for an applied file lock.
-            # Any non-empty lock status is sufficient because repository leases
-            # are the only locks intentionally placed on these identity files.
-            if line.startswith("l") and line[1:] and current_pid is not None:
+            if line.startswith("f"):
+                in_file = True
+                fileglob_has_lock = False
+                current_lock = False
+                continue
+            if not in_file or current_pid is None:
+                continue
+            if line.startswith("G"):
+                try:
+                    flags = int(line[1:], 0)
+                except ValueError as exc:
+                    raise RuntimeError(
+                        f"invalid lsof file flags for lease-holder inspection: {line!r}"
+                    ) from exc
+                fileglob_has_lock = bool(flags & DARWIN_FHASLOCK)
+            elif line.startswith("l"):
+                current_lock = bool(line[1:])
+
+            if fileglob_has_lock and current_lock:
                 holders.add(current_pid)
     return holders
 
