@@ -75,7 +75,14 @@ class MacOSLaunchdTests(unittest.TestCase):
                 self.assertTrue(arguments[1].endswith(entrypoint))
 
     def test_parallel_worker_bound_matches_scheduler_contract(self) -> None:
-        for value in (0, 4):
+        arguments = build_program_arguments(
+            "parallel",
+            repo_root=self.repo,
+            home=self.home,
+            max_workers=macos_launchd.MAX_MAX_WORKERS,
+        )
+        self.assertEqual(arguments[-1], str(macos_launchd.MAX_MAX_WORKERS))
+        for value in (0, macos_launchd.MAX_MAX_WORKERS + 1):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 build_program_arguments(
                     "parallel",
