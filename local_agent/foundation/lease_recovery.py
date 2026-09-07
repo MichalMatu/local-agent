@@ -57,35 +57,41 @@ def repository_leases_busy(paths: Iterable[Path]) -> bool:
 
 
 def _proc_holder_pids(paths: tuple[Path, ...]) -> set[int]:
-    targets: set[tuple[int, int]] = set()
+    """Resolve actual FLOCK owners from Linux /proc/locks, not mere openers."""
+    targets: set[tuple[int, int, int]] = set()
     for path in paths:
         try:
             stat = path.stat()
         except FileNotFoundError:
             continue
-        targets.add((stat.st_dev, stat.st_ino))
+        targets.add((os.major(stat.st_dev), os.minor(stat.st_dev), stat.st_ino))
     if not targets:
         return set()
 
+    try:
+        lines = Path("/proc/locks").read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        raise RuntimeError(f"cannot inspect Linux lock owners: {exc}") from exc
+
     holders: set[int] = set()
-    proc_root = Path("/proc")
-    for process_dir in proc_root.iterdir():
-        if not process_dir.name.isdigit():
+    for line in lines:
+        fields = line.split()
+        # Held locks have: id FLOCK ADVISORY WRITE pid major:minor:inode ...
+        # Waiting locks contain an extra '->' token and are intentionally ignored.
+        if len(fields) < 6 or fields[1] != "FLOCK":
             continue
-        pid = int(process_dir.name)
-        fd_dir = process_dir / "fd"
         try:
-            descriptors = tuple(fd_dir.iterdir())
-        except (FileNotFoundError, NotADirectoryError, PermissionError, OSError):
+            pid = int(fields[4])
+            major_text, minor_text, inode_text = fields[5].split(":", 2)
+            identity = (
+                int(major_text, 16),
+                int(minor_text, 16),
+                int(inode_text, 10),
+            )
+        except (ValueError, TypeError):
             continue
-        for descriptor in descriptors:
-            try:
-                stat = descriptor.stat()
-            except (FileNotFoundError, PermissionError, OSError):
-                continue
-            if (stat.st_dev, stat.st_ino) in targets:
-                holders.add(pid)
-                break
+        if identity in targets:
+            holders.add(pid)
     return holders
 
 
@@ -94,6 +100,7 @@ def _lsof_holder_pids(
     *,
     log: Callable[[str], None],
 ) -> set[int]:
+    """Resolve actual lock owners using lsof's machine-readable lock field."""
     executable = shutil.which("lsof")
     if executable is None:
         raise RuntimeError("cannot inspect orphaned lease holders: lsof is unavailable")
@@ -107,7 +114,7 @@ def _lsof_holder_pids(
         if not path.exists():
             continue
         result = run_argv_bounded(
-            [executable, "-t", str(path)],
+            [executable, "-n", "-Fpl", "--", str(path)],
             cwd=path.parent,
             env=env,
             timeout=HOLDER_SCAN_TIMEOUT_SECONDS,
@@ -119,10 +126,17 @@ def _lsof_holder_pids(
             raise RuntimeError(
                 f"lease-holder inspection failed path={path} exit={exit_code}"
             )
+
+        current_pid: int | None = None
         for line in str(result.get("output", "")).splitlines():
-            candidate = line.strip()
-            if candidate.isdigit():
-                holders.add(int(candidate))
+            if line.startswith("p") and line[1:].isdigit():
+                current_pid = int(line[1:])
+                continue
+            # lsof field output uses `l<status>` for an applied file lock.
+            # Any non-empty lock status is sufficient because repository leases
+            # are the only locks intentionally placed on these identity files.
+            if line.startswith("l") and line[1:] and current_pid is not None:
+                holders.add(current_pid)
     return holders
 
 
@@ -131,9 +145,9 @@ def lease_holder_pids(
     *,
     log: Callable[[str], None],
 ) -> set[int]:
-    """Find processes with any configured repository lock file still open."""
+    """Find processes that actually hold a lock on a configured repository lease."""
     resolved = tuple(dict.fromkeys(Path(path) for path in paths))
-    if Path("/proc").is_dir():
+    if Path("/proc/locks").is_file():
         return _proc_holder_pids(resolved)
     return _lsof_holder_pids(resolved, log=log)
 
