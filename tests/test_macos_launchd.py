@@ -54,6 +54,14 @@ class MacOSLaunchdTests(unittest.TestCase):
                 "2",
             ],
         )
+        self.assertEqual(
+            payload["ExitTimeOut"],
+            macos_launchd.LAUNCHD_EXIT_TIMEOUT_SECONDS,
+        )
+        self.assertGreater(
+            macos_launchd.UNLOAD_TIMEOUT_SECONDS,
+            macos_launchd.LAUNCHD_EXIT_TIMEOUT_SECONDS,
+        )
         environment = payload["EnvironmentVariables"]
         self.assertEqual(environment["HOME"], str(self.home))
         self.assertEqual(environment["PYTHONDONTWRITEBYTECODE"], "1")
@@ -100,6 +108,10 @@ class MacOSLaunchdTests(unittest.TestCase):
         payload = plistlib.loads(rendered)
         self.assertEqual(payload["Label"], LABEL)
         self.assertEqual(payload["WorkingDirectory"], str(self.repo))
+        self.assertEqual(
+            payload["ExitTimeOut"],
+            macos_launchd.LAUNCHD_EXIT_TIMEOUT_SECONDS,
+        )
 
     def test_render_cli_runs_from_outside_repository_with_max_workers_four(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -125,6 +137,10 @@ class MacOSLaunchdTests(unittest.TestCase):
         self.assertEqual(payload["Label"], LABEL)
         self.assertEqual(payload["WorkingDirectory"], str(self.repo))
         self.assertEqual(payload["ProgramArguments"][-2:], ["--max-workers", "4"])
+        self.assertEqual(
+            payload["ExitTimeOut"],
+            macos_launchd.LAUNCHD_EXIT_TIMEOUT_SECONDS,
+        )
 
     def test_checkout_validation_requires_packaged_workers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
