@@ -20,6 +20,7 @@ MACOS_SMOKE_TESTS = (
     "tests.test_package_layout",
     "tests.test_release_hardening",
     "tests.test_guard_process",
+    "tests.test_lease_recovery",
     "tests.test_agent_multirepo_restart",
     "tests.test_agentd_dispatch",
     "tests.test_self_update_environment",
@@ -160,7 +161,6 @@ def main() -> int:
     if args.profile == "macos-smoke":
         run_macos_smoke()
         return 0
-
     if args.profile == "bridge-browser":
         run_bridge_browser()
         return 0
