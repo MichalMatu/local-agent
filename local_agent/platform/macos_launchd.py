@@ -6,11 +6,16 @@ import os
 import plistlib
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Literal
 
 LABEL = "com.michal.local-agent"
 Mode = Literal["parallel", "multirepo", "single"]
+UNLOAD_TIMEOUT_SECONDS = 5.0
+UNLOAD_POLL_SECONDS = 0.1
+BOOTSTRAP_RETRY_ATTEMPTS = 3
+BOOTSTRAP_RETRY_DELAY_SECONDS = 0.5
 
 
 def default_registry_path(home: Path) -> Path:
@@ -185,3 +190,57 @@ def print_status(*, uid: int | None = None) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=False,
     )
+
+
+def wait_until_unloaded(
+    *,
+    uid: int | None = None,
+    timeout: float = UNLOAD_TIMEOUT_SECONDS,
+    poll_interval: float = UNLOAD_POLL_SECONDS,
+) -> None:
+    """Wait until launchd no longer reports the service after bootout."""
+    deadline = time.monotonic() + max(0.0, timeout)
+    while True:
+        if print_status(uid=uid).returncode != 0:
+            return
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"launchd service {LABEL} did not unload within {timeout:.1f}s")
+        time.sleep(max(0.01, poll_interval))
+
+
+def _is_transient_bootstrap_error(exc: subprocess.CalledProcessError) -> bool:
+    if int(exc.returncode) != 5:
+        return False
+    message = f"{exc.stdout or ''}\n{exc.stderr or ''}".lower()
+    return "bad request" in message or "input/output error" in message
+
+
+def restart_launch_agent(
+    plist_path: Path,
+    *,
+    uid: int | None = None,
+    unload_timeout: float = UNLOAD_TIMEOUT_SECONDS,
+    poll_interval: float = UNLOAD_POLL_SECONDS,
+    bootstrap_attempts: int = BOOTSTRAP_RETRY_ATTEMPTS,
+    retry_delay: float = BOOTSTRAP_RETRY_DELAY_SECONDS,
+) -> subprocess.CompletedProcess[str]:
+    """Restart the LaunchAgent with bounded protection against launchd unload races."""
+    if bootstrap_attempts < 1:
+        raise ValueError("bootstrap_attempts must be positive")
+
+    bootout(uid=uid, check=False)
+    wait_until_unloaded(uid=uid, timeout=unload_timeout, poll_interval=poll_interval)
+
+    for attempt in range(1, bootstrap_attempts + 1):
+        try:
+            return bootstrap(plist_path, uid=uid)
+        except subprocess.CalledProcessError as exc:
+            if not _is_transient_bootstrap_error(exc) or attempt == bootstrap_attempts:
+                raise
+            # A failed bootstrap should not be retried if launchd actually loaded
+            # the service despite returning an error.
+            if print_status(uid=uid).returncode == 0:
+                raise
+            time.sleep(max(0.01, retry_delay))
+
+    raise AssertionError("unreachable bootstrap retry loop")
