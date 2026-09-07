@@ -170,7 +170,10 @@ def _lsof_holder_pids(
                 continue
             if line.startswith("G"):
                 try:
-                    flags = int(line[1:], 0)
+                    # Darwin lsof emits fileglob and descriptor flag masks as
+                    # `G0x<fileglob>;0x<descriptor>`. Only the first mask carries
+                    # FHASLOCK/FWASLOCKED and follows the inherited fileglob.
+                    flags = int(line[1:].split(";", 1)[0], 0)
                 except ValueError as exc:
                     raise RuntimeError(
                         f"invalid lsof file flags for lease-holder inspection: {line!r}"
