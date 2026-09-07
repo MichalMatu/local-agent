@@ -163,8 +163,8 @@ def _self_reexec_args(args: argparse.Namespace) -> list[str]:
     return command
 
 
-def _supervisor_reports_quiescent(supervisor_pid: int) -> bool:
-    """Return true only for the scheduler's current idle status.
+def _quiescent_supervisor_status(supervisor_pid: int) -> dict[str, object] | None:
+    """Return a snapshot only for the scheduler's current idle status.
 
     Successful global-control work publishes `supervisor_control_repository`, so
     that state must never be mistaken for an orphaned repository lease.
@@ -172,15 +172,28 @@ def _supervisor_reports_quiescent(supervisor_pid: int) -> bool:
     try:
         payload = json.loads(agentd.LOCAL_STATUS_PATH.read_text(encoding="utf-8"))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return False
+        return None
     if not isinstance(payload, dict):
-        return False
-    return (
+        return None
+    if (
         payload.get("state") == "idle"
         and payload.get("supervisor_pid") == supervisor_pid
         and payload.get("active_repository_ids") == []
         and "supervisor_control_repository" not in payload
-    )
+    ):
+        return payload
+    return None
+
+
+def _quiescent_lease_observation(supervisor_pid: int, paths: tuple[Path, ...]) -> bool | None:
+    """Accept a lock probe only while the same idle snapshot remains current."""
+    before = _quiescent_supervisor_status(supervisor_pid)
+    if before is None:
+        return None
+    busy = repository_leases_busy(paths)
+    if _quiescent_supervisor_status(supervisor_pid) != before:
+        return None
+    return busy
 
 
 def _updated_quiescent_lease_watch(
@@ -333,13 +346,12 @@ def main() -> int:
 
             if child is not None and managed_repositories:
                 try:
-                    supervisor_quiescent = _supervisor_reports_quiescent(child.pid)
-                    if supervisor_quiescent:
-                        paths = repository_lease_paths(
-                            managed_repositories,
-                            state_dir=agentd.STATE_DIR,
-                        )
-                        leases_busy = repository_leases_busy(paths)
+                    paths = repository_lease_paths(
+                        managed_repositories,
+                        state_dir=agentd.STATE_DIR,
+                    )
+                    leases_busy = _quiescent_lease_observation(child.pid, paths)
+                    if leases_busy is not None:
                         now = time.monotonic()
                         previous_watch = quiescent_lease_busy_since
                         quiescent_lease_busy_since = _updated_quiescent_lease_watch(

@@ -179,10 +179,13 @@ def start_worker(
     repository: RepositoryContext,
     *,
     registry_path: Path | None,
-) -> subprocess.Popen[str] | None:
+    running: dict[str, RunningWorker],
+    max_workers: int,
+) -> bool:
     if agent_operator.is_disabled():
-        return None
+        return False
     try:
+        publish_local_supervisor_status(running, max_workers=max_workers, state="running")
         with serial_worker.repository_execution_lease(repository):
             env = os.environ.copy()
             env["LOCAL_AGENT_SUPERVISOR_PID"] = str(os.getpid())
@@ -194,15 +197,24 @@ def start_worker(
                 start_new_session=True,
             )
             setattr(proc, "_local_agent_process_group", proc.pid)
-            return proc
+            running[repository.repository_id] = RunningWorker(
+                repository_id=repository.repository_id,
+                proc=proc,
+                started_at=time.monotonic(),
+            )
+            return True
     except ExecutionLeaseBusy:
-        return None
+        return False
     except OSError as exc:
         log(
             f"repository worker spawn failed repository={repository.repository_id}: "
             f"{type(exc).__name__}: {exc}"
         )
-        return None
+        return False
+    finally:
+        # Register successful dispatch before exposing its state. Failed admission
+        # restores the current worker set after releasing any acquired leases.
+        publish_local_supervisor_status(running, max_workers=max_workers)
 
 
 def reap_workers(
@@ -866,7 +878,6 @@ def main() -> int:
                         f"files={','.join(compacted_logs)} keep=1MiB max=2MiB"
                     )
 
-            started_worker = False
             now = time.monotonic()
 
             if priority_repository is not None:
@@ -878,16 +889,13 @@ def main() -> int:
                     )
                     schedule = schedules[priority_repository]
                     if now >= schedule.retry_not_before:
-                        proc = start_worker(repository, registry_path=args.registry)
+                        started = start_worker(
+                            repository, registry_path=args.registry,
+                            running=running, max_workers=max_workers,
+                        )
                         schedule.last_poll_at = time.monotonic()
-                        if proc is not None:
-                            running[priority_repository] = RunningWorker(
-                                repository_id=priority_repository,
-                                proc=proc,
-                                started_at=time.monotonic(),
-                            )
+                        if started:
                             last_repository = priority_repository
-                            started_worker = True
                         else:
                             schedule.retry_not_before = (
                                 time.monotonic() + REPOSITORY_RETRY_SECONDS
@@ -917,26 +925,20 @@ def main() -> int:
                         if args.once and now < schedule.retry_not_before:
                             continue
 
-                        proc = start_worker(repository, registry_path=args.registry)
+                        started = start_worker(
+                            repository, registry_path=args.registry,
+                            running=running, max_workers=max_workers,
+                        )
                         schedule.last_poll_at = time.monotonic()
-                        if proc is None:
+                        if not started:
                             schedule.retry_not_before = (
                                 time.monotonic() + REPOSITORY_RETRY_SECONDS
                             )
                             note_once_deferral(repository.repository_id)
                             continue
 
-                        running[repository.repository_id] = RunningWorker(
-                            repository_id=repository.repository_id,
-                            proc=proc,
-                            started_at=time.monotonic(),
-                        )
                         last_repository = repository.repository_id
                         capacity -= 1
-                        started_worker = True
-
-            if started_worker:
-                publish_local_supervisor_status(running, max_workers=max_workers)
 
             if args.once:
                 terminal = once_completed | once_failed

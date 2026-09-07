@@ -79,15 +79,15 @@ leases = parallel.supervisor_control_leases
 observations = []
 
 def checked_leases(repositories):
-    assert not entrypoint._supervisor_reports_quiescent(os.getpid())
+    assert not entrypoint._quiescent_supervisor_status(os.getpid())
     return leases(repositories)
 
 def checked_sync():
     assert repository_leases_busy(paths)
-    assert not entrypoint._supervisor_reports_quiescent(os.getpid())
+    assert not entrypoint._quiescent_supervisor_status(os.getpid())
     sync()
     assert repository_leases_busy(paths)
-    assert not entrypoint._supervisor_reports_quiescent(os.getpid())
+    assert not entrypoint._quiescent_supervisor_status(os.getpid())
     observations.append('synced')
 
 def failed_sync():
@@ -96,7 +96,7 @@ def failed_sync():
 
 parallel.publish_local_supervisor_status({}, max_workers=2)
 for sync_function, expected in ((checked_sync, True), (failed_sync, False)):
-    assert entrypoint._supervisor_reports_quiescent(os.getpid())
+    assert entrypoint._quiescent_supervisor_status(os.getpid())
     with mock.patch.object(parallel, 'supervisor_control_leases', checked_leases), \
          mock.patch.object(parallel.supervisor_control, 'sync_control_quietly', sync_function), \
          mock.patch.object(agentd, 'maybe_self_update'):
@@ -105,8 +105,39 @@ for sync_function, expected in ((checked_sync, True), (failed_sync, False)):
         )
     assert result is expected
     assert not repository_leases_busy(paths)
-    assert entrypoint._supervisor_reports_quiescent(os.getpid())
+    assert entrypoint._quiescent_supervisor_status(os.getpid())
 assert observations == ['synced', 'synced']
+worker_lease = parallel.serial_worker.repository_execution_lease
+spawn = parallel.popen_registered
+running = {}
+
+def checked_worker_lease(repository):
+    assert not entrypoint._quiescent_supervisor_status(os.getpid())
+    return worker_lease(repository)
+
+def checked_spawn(*args, **kwargs):
+    assert repository_leases_busy(paths)
+    assert not entrypoint._quiescent_supervisor_status(os.getpid())
+    return spawn(*args, **kwargs)
+
+with mock.patch.object(parallel.serial_worker, 'repository_execution_lease', checked_worker_lease), \
+     mock.patch.object(parallel, 'popen_registered', checked_spawn):
+    assert parallel.start_worker(
+        repositories[0], registry_path=Path(sys.argv[1]), running=running, max_workers=2
+    )
+assert not entrypoint._quiescent_supervisor_status(os.getpid())
+slot = running[repositories[0].repository_id]
+try:
+    slot.proc.wait(timeout=30)
+    assert slot.proc.returncode == parallel.serial_worker.WORKER_PROCESSED
+finally:
+    if slot.proc.poll() is None:
+        parallel.terminate_process_group(slot.proc, parallel.log)
+    parallel.reap_workers(running, {})
+parallel.publish_local_supervisor_status(running, max_workers=2)
+assert not running
+assert not repository_leases_busy(paths)
+assert entrypoint._quiescent_supervisor_status(os.getpid())
 print('control sync status and lease lifecycle verified')
 """
             result = subprocess.run(

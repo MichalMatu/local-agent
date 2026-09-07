@@ -123,6 +123,43 @@ class LeaseRecoveryTests(unittest.TestCase):
 
 
 class EntrypointLeaseWatchdogTests(unittest.TestCase):
+    def test_lease_observation_rejects_status_changes_during_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            status = Path(tmp) / "status.json"
+            initial = {
+                "state": "idle", "supervisor_pid": 1234,
+                "active_repository_ids": [], "updated_at": "first",
+            }
+            for state in ("running", "idle"):
+                for busy in (True, False):
+                    with self.subTest(state=state, busy=busy):
+                        status.write_text(json.dumps(initial), encoding="utf-8")
+
+                        def changed_probe(_paths):
+                            status.write_text(json.dumps({
+                                **initial, "state": state, "updated_at": "next",
+                            }), encoding="utf-8")
+                            return busy
+
+                        with mock.patch.object(entrypoint.agentd, "LOCAL_STATUS_PATH", status), \
+                             mock.patch.object(entrypoint, "repository_leases_busy", changed_probe):
+                            self.assertIsNone(entrypoint._quiescent_lease_observation(1234, ()))
+
+    def test_stable_idle_snapshot_accepts_busy_and_free_observations(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            status = Path(tmp) / "status.json"
+            status.write_text(json.dumps({
+                "state": "idle", "supervisor_pid": 1234, "active_repository_ids": [],
+            }), encoding="utf-8")
+            for busy in (True, False):
+                with mock.patch.object(entrypoint.agentd, "LOCAL_STATUS_PATH", status), \
+                     mock.patch.object(entrypoint, "repository_leases_busy", return_value=busy):
+                    self.assertIs(entrypoint._quiescent_lease_observation(1234, ()), busy)
+            with mock.patch.object(entrypoint.agentd, "LOCAL_STATUS_PATH", status), \
+                 mock.patch.object(entrypoint, "repository_leases_busy") as probe:
+                self.assertIsNone(entrypoint._quiescent_lease_observation(5678, ()))
+                probe.assert_not_called()
+
     def test_quiescent_status_must_belong_to_current_supervisor(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             status = Path(tmp) / "status.json"
@@ -137,8 +174,8 @@ class EntrypointLeaseWatchdogTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with mock.patch.object(entrypoint.agentd, "LOCAL_STATUS_PATH", status):
-                self.assertTrue(entrypoint._supervisor_reports_quiescent(1234))
-                self.assertFalse(entrypoint._supervisor_reports_quiescent(5678))
+                self.assertTrue(entrypoint._quiescent_supervisor_status(1234))
+                self.assertFalse(entrypoint._quiescent_supervisor_status(5678))
 
     def test_running_repository_is_not_quiescent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -154,7 +191,7 @@ class EntrypointLeaseWatchdogTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with mock.patch.object(entrypoint.agentd, "LOCAL_STATUS_PATH", status):
-                self.assertFalse(entrypoint._supervisor_reports_quiescent(1234))
+                self.assertFalse(entrypoint._quiescent_supervisor_status(1234))
 
     def test_global_control_status_is_not_quiescent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -171,7 +208,7 @@ class EntrypointLeaseWatchdogTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with mock.patch.object(entrypoint.agentd, "LOCAL_STATUS_PATH", status):
-                self.assertFalse(entrypoint._supervisor_reports_quiescent(1234))
+                self.assertFalse(entrypoint._quiescent_supervisor_status(1234))
 
     def test_busy_watch_survives_transient_scheduler_activity(self) -> None:
         started = entrypoint._updated_quiescent_lease_watch(

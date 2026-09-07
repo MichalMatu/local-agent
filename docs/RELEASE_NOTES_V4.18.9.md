@@ -1,4 +1,4 @@
-# Local Agent 4.18.9 candidate
+# Local Agent 4.18.9
 
 ## Control synchronization watchdog fix
 

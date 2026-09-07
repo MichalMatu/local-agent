@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import json
 import os
 import tempfile
 import unittest
@@ -24,6 +26,48 @@ def repository(repository_id: str) -> RepositoryContext:
 
 
 class ParallelSupervisorTests(unittest.TestCase):
+    def test_failed_worker_admission_announces_activity_and_restores_idle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            status = Path(tmp) / "status.json"
+            for error in (ExecutionLeaseBusy("busy"), OSError("spawn failed")):
+                with self.subTest(error=type(error).__name__):
+                    running = {}
+
+                    def checked_failure(*_args, **_kwargs):
+                        payload = json.loads(status.read_text(encoding="utf-8"))
+                        self.assertEqual(payload["state"], "running")
+                        raise error
+
+                    with mock.patch.object(parallel.agentd, "LOCAL_STATUS_PATH", status), \
+                         mock.patch.object(parallel.agent_operator, "is_disabled", return_value=False), \
+                         mock.patch.object(parallel, "log"), \
+                         mock.patch.object(parallel.serial_worker, "repository_execution_lease",
+                                           side_effect=checked_failure):
+                        self.assertFalse(parallel.start_worker(
+                            repository("a"), registry_path=None, running=running, max_workers=2,
+                        ))
+                    self.assertEqual(running, {})
+                    self.assertEqual(json.loads(status.read_text())["state"], "idle")
+
+    def test_spawn_failure_preserves_existing_worker_status(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            status = Path(tmp) / "status.json"
+            slot = parallel.RunningWorker("existing", mock.Mock(), 1.0)
+            running = {"existing": slot}
+            with mock.patch.object(parallel.agentd, "LOCAL_STATUS_PATH", status), \
+                 mock.patch.object(parallel.agent_operator, "is_disabled", return_value=False), \
+                 mock.patch.object(parallel.serial_worker, "repository_execution_lease",
+                                   return_value=contextlib.nullcontext()), \
+                 mock.patch.object(parallel, "popen_registered", side_effect=OSError("spawn failed")), \
+                 mock.patch.object(parallel, "log"):
+                self.assertFalse(parallel.start_worker(
+                    repository("a"), registry_path=None, running=running, max_workers=2,
+                ))
+            self.assertEqual(running, {"existing": slot})
+            payload = json.loads(status.read_text())
+            self.assertEqual(payload["state"], "running")
+            self.assertEqual(payload["active_repository_ids"], ["existing"])
+
     def test_default_concurrency_is_one(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertEqual(parallel.scheduling.resolve_max_workers(None), 1)
