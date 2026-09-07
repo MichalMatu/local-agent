@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import subprocess
@@ -171,6 +172,20 @@ class EntrypointLeaseWatchdogTests(unittest.TestCase):
             )
             with mock.patch.object(entrypoint.agentd, "LOCAL_STATUS_PATH", status):
                 self.assertFalse(entrypoint._supervisor_reports_quiescent(1234))
+
+    def test_orphan_recovery_guard_refuses_live_daemon(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lock_path = Path(tmp) / "agentd.lock"
+            handle = lock_path.open("a+", encoding="utf-8")
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with mock.patch.object(entrypoint.agentd, "DAEMON_LOCK_PATH", lock_path):
+                    with self.assertRaisesRegex(RuntimeError, "refusing orphan recovery"):
+                        with entrypoint._orphan_recovery_guard():
+                            self.fail("guard must not enter while another daemon owns the lock")
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                handle.close()
 
 
 if __name__ == "__main__":
