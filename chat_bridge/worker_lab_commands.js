@@ -210,9 +210,9 @@ async function labForceReloadContent(tabId, expectedUrl) {
       target: { tabId, frameIds: [0] },
       func: () => {
         try { globalThis.__localAgentChatBridgeState?.dispose?.(); } catch (_error) {}
-        try { globalThis.__localAgentChatExhaustionGuardState?.dispose?.(); } catch (_error) {}
+        try { globalThis.__localAgentChatExhaustionGuard?.dispose?.(); } catch (_error) {}
         globalThis.__localAgentChatBridgeState = null;
-        globalThis.__localAgentChatExhaustionGuardState = null;
+        globalThis.__localAgentChatExhaustionGuard = null;
       }
     });
     await chrome.scripting.executeScript({
