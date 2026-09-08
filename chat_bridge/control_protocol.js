@@ -7,7 +7,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function createProtocol() {
   "use strict";
 
-  const CONTENT_PROTOCOL_VERSION = 5;
+  const CONTENT_PROTOCOL_VERSION = 6;
   const MIN_INTERVAL_MINUTES = 1;
   const MAX_INTERVAL_MINUTES = 1440;
   const MIN_NEXT_SECONDS = 30;
