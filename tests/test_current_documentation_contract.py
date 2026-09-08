@@ -12,11 +12,20 @@ CURRENT_OPERATIONAL_DOCS = (
     "AGENTS.md",
     "CONTRIBUTING.md",
     "docs/ARCHITECTURE.md",
+    "docs/AUTONOMOUS_CHAT_LOOP.md",
+    "docs/EMERGENCY_CONTROLS.md",
     "docs/GOLDEN_STANDARD.md",
     "docs/MULTI_REPOSITORY.md",
     "docs/OPERATIONS.md",
+    "docs/SECURITY_MODEL.md",
     "docs/SESSION_BOOTSTRAP.md",
     "deploy/macos/README.md",
+)
+CURRENT_SCHEDULER_DOCS = (
+    "AGENTS.md",
+    "docs/GOLDEN_STANDARD.md",
+    "docs/MULTI_REPOSITORY.md",
+    "docs/OPERATIONS.md",
 )
 
 
@@ -34,6 +43,17 @@ class CurrentDocumentationContractTests(unittest.TestCase):
             "hard-caps the value at three",
         )
         for relative in CURRENT_OPERATIONAL_DOCS:
+            text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+            for phrase in forbidden:
+                with self.subTest(path=relative, phrase=phrase):
+                    self.assertNotIn(phrase, text)
+
+    def test_current_scheduler_docs_describe_final_behavior_not_unresolved_candidate_work(self) -> None:
+        forbidden = (
+            "candidate fix must",
+            "The candidate fix must",
+        )
+        for relative in CURRENT_SCHEDULER_DOCS:
             text = (REPO_ROOT / relative).read_text(encoding="utf-8")
             for phrase in forbidden:
                 with self.subTest(path=relative, phrase=phrase):
