@@ -60,9 +60,10 @@ class CurrentDocumentationContractTests(unittest.TestCase):
                 with self.subTest(path=relative, phrase=phrase):
                     self.assertNotIn(phrase, text)
 
-    def test_golden_standard_names_current_production_release(self) -> None:
+    def test_golden_standard_names_source_release_without_claiming_it_is_already_production(self) -> None:
         golden = (REPO_ROOT / "docs" / "GOLDEN_STANDARD.md").read_text(encoding="utf-8")
-        self.assertIn(f"current production release is `v{RELEASE_VERSION}`", golden)
+        self.assertIn(f"source release is `v{RELEASE_VERSION}`", golden)
+        self.assertRegex(golden, r"current production release is `v\d+\.\d+\.\d+`")
 
     def test_release_version_has_matching_release_notes_and_changelog_entry(self) -> None:
         notes = REPO_ROOT / "docs" / f"RELEASE_NOTES_V{RELEASE_VERSION}.md"
