@@ -1,5 +1,17 @@
 (() => {
-  const CONTENT_PROTOCOL_VERSION = 4;
+  const protocol = globalThis.LocalAgentBridgeProtocol;
+  if (!protocol) throw new Error("Local Agent Chat Bridge control protocol is unavailable");
+  const retryPolicy = globalThis.LocalAgentBridgeContentRetry;
+  if (!retryPolicy) throw new Error("Local Agent Chat Bridge content retry policy is unavailable");
+  const {
+    CONTENT_PROTOCOL_VERSION,
+    normalizeConversationUrl,
+    parseAssistantControl,
+    parseOperatorControl,
+    controlFingerprint,
+    fnv1a32
+  } = protocol;
+
   const existingBridge = globalThis.__localAgentChatBridgeState;
   if (existingBridge?.protocolVersion === CONTENT_PROTOCOL_VERSION) return;
   try {
@@ -11,12 +23,8 @@
   globalThis.__localAgentChatBridgeLoaded = true;
   globalThis.__localAgentChatBridgeProtocolVersion = CONTENT_PROTOCOL_VERSION;
 
-  const protocol = globalThis.LocalAgentBridgeProtocol;
-  if (!protocol) throw new Error("Local Agent Chat Bridge control protocol is unavailable");
-  const retryPolicy = globalThis.LocalAgentBridgeContentRetry;
-  if (!retryPolicy) throw new Error("Local Agent Chat Bridge content retry policy is unavailable");
-  const { normalizeConversationUrl, parseAssistantControl, controlFingerprint, fnv1a32 } = protocol;
   const controlRetryGate = retryPolicy.createRetryGate();
+  const operatorRetryGate = retryPolicy.createRetryGate();
 
   function findComposer() {
     return (
@@ -131,28 +139,54 @@
     return null;
   }
 
-  function latestAssistantMessage() {
-    const messages = document.querySelectorAll('[data-message-author-role="assistant"]');
+  function latestMessage(role) {
+    const messages = document.querySelectorAll(`[data-message-author-role="${role}"]`);
     if (!messages.length) return null;
     const latest = messages[messages.length - 1];
     const text = latest.innerText || latest.textContent || "";
     const stableId = latest.getAttribute("data-message-id") || latest.getAttribute("data-testid") || latest.id || "";
-    return { text, identity: stableId || `${messages.length}:${fnv1a32(text)}` };
+    return { text, identity: stableId || `${role}:${messages.length}:${fnv1a32(text)}` };
+  }
+
+  function latestAssistantMessage() {
+    return latestMessage("assistant");
+  }
+
+  function latestUserMessage() {
+    return latestMessage("user");
   }
 
   let deliveryInFlight = false;
 
-  async function sendFeedback(prompt, expectedUrl, deliveryId, recoverBridgePrompt = false) {
+  async function sendFeedback(
+    prompt,
+    expectedUrl,
+    deliveryId,
+    recoverBridgePrompt = false,
+    requireAuthorization = true
+  ) {
     if (deliveryInFlight) return { ok: false, reason: "delivery_in_progress" };
     deliveryInFlight = true;
     try {
-      return await deliverFeedback(prompt, expectedUrl, deliveryId, recoverBridgePrompt);
+      return await deliverFeedback(
+        prompt,
+        expectedUrl,
+        deliveryId,
+        recoverBridgePrompt,
+        requireAuthorization
+      );
     } finally {
       deliveryInFlight = false;
     }
   }
 
-  async function deliverFeedback(prompt, expectedUrl, deliveryId, recoverBridgePrompt) {
+  async function deliverFeedback(
+    prompt,
+    expectedUrl,
+    deliveryId,
+    recoverBridgePrompt,
+    requireAuthorization
+  ) {
     const normalizedUrl = normalizeConversationUrl(expectedUrl);
     if (!normalizedUrl || normalizeConversationUrl(location.href) !== normalizedUrl) {
       return { ok: false, reason: "wrong_conversation" };
@@ -184,21 +218,21 @@
 
     const sendButton = await waitForSendButton(composer);
     if (!sendButton) {
-      // Keep the exact Bridge-owned prompt visible for a later bounded retry. An
-      // operator edit changes the text and therefore makes future reuse fail closed.
       return { ok: false, reason: "send_button_not_ready" };
     }
 
-    const baseline = latestAssistantMessage()?.identity || "";
-    const authorized = await chrome.runtime.sendMessage({
-      type: "bridge:authorize-delivery",
-      conversationUrl: normalizedUrl,
-      deliveryId,
-      assistantBaseline: baseline
-    });
-    if (!authorized?.ok) {
-      clearComposer(composer, insertedComposerText);
-      return { ok: false, reason: "delivery_cancelled" };
+    if (requireAuthorization) {
+      const baseline = latestAssistantMessage()?.identity || "";
+      const authorized = await chrome.runtime.sendMessage({
+        type: "bridge:authorize-delivery",
+        conversationUrl: normalizedUrl,
+        deliveryId,
+        assistantBaseline: baseline
+      });
+      if (!authorized?.ok) {
+        clearComposer(composer, insertedComposerText);
+        return { ok: false, reason: "delivery_cancelled" };
+      }
     }
     if (normalizeConversationUrl(location.href) !== normalizedUrl) {
       clearComposer(composer, insertedComposerText);
@@ -227,8 +261,6 @@
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    // Submission was attempted. Do not erase an exact retained prompt merely because
-    // ChatGPT's DOM did not confirm it quickly enough; a later run may safely reuse it.
     return { ok: false, reason: "delivery_unconfirmed" };
   }
 
@@ -236,6 +268,9 @@
   let lastSubmittedControlFingerprint = "";
   let lastScannedAssistantSignature = "";
   let controlScanInFlight = false;
+  let lastSubmittedOperatorFingerprint = "";
+  let lastScannedUserSignature = "";
+  let operatorScanInFlight = false;
 
   async function scanLatestAssistantControl() {
     if (assistantIsGenerating() || controlScanInFlight) return;
@@ -257,28 +292,46 @@
 
     controlScanInFlight = true;
     try {
-      const context = await chrome.runtime.sendMessage({
-        type: "bridge:control-context",
-        conversationUrl: url
-      });
-      if (!context?.ok) {
-        controlRetryGate.defer(signature);
-        return;
+      let context = null;
+      if (control.action !== "inspect") {
+        context = await chrome.runtime.sendMessage({
+          type: "bridge:control-context",
+          conversationUrl: url
+        });
+        if (!context?.ok) {
+          controlRetryGate.defer(signature);
+          return;
+        }
+        if (context.assistantBaseline === latest.identity) {
+          lastScannedAssistantSignature = signature;
+          controlRetryGate.reset(signature);
+          return;
+        }
       }
-      if (context.assistantBaseline === latest.identity) {
-        lastScannedAssistantSignature = signature;
-        controlRetryGate.reset(signature);
-        return;
-      }
+
       const response = await chrome.runtime.sendMessage({
         type: "bridge:assistant-control",
         conversationUrl: url,
         fingerprint,
-        bindingRevision: context.bindingRevision,
+        bindingRevision: context?.bindingRevision,
         assistantIdentity: latest.identity,
+        contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
         control
       });
       if (response?.ok) {
+        if (response.feedbackPrompt) {
+          const feedback = await sendFeedback(
+            String(response.feedbackPrompt),
+            url,
+            null,
+            true,
+            false
+          );
+          if (!feedback.ok) {
+            controlRetryGate.defer(signature);
+            return;
+          }
+        }
         lastSubmittedControlFingerprint = fingerprint;
         lastScannedAssistantSignature = signature;
         controlRetryGate.reset(signature);
@@ -296,11 +349,65 @@
     }
   }
 
+  const terminalOperatorReasons = new Set([
+    "operator_chat_already_bound",
+    "operator_chat_not_configured",
+    "operator_invalid_marker",
+    "operator_invalid_fingerprint",
+    "operator_wrong_conversation"
+  ]);
+
+  async function scanLatestOperatorControl() {
+    if (operatorScanInFlight) return;
+    const latest = latestUserMessage();
+    if (!latest) return;
+    const url = normalizeConversationUrl(location.href);
+    if (!url) return;
+    const signature = fnv1a32(`${url}\n${latest.identity}\n${latest.text}`);
+    if (signature === lastScannedUserSignature) return;
+
+    const control = parseOperatorControl(latest.text);
+    if (!control) {
+      lastScannedUserSignature = signature;
+      return;
+    }
+    const fingerprint = controlFingerprint(location.href, latest.text, control, latest.identity);
+    if (fingerprint === lastSubmittedOperatorFingerprint) return;
+    if (!operatorRetryGate.canAttempt(signature)) return;
+
+    operatorScanInFlight = true;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "bridge:operator-control",
+        conversationUrl: url,
+        fingerprint,
+        userIdentity: latest.identity,
+        chatLabel: document.title,
+        assistantBaseline: latestAssistantMessage()?.identity || "",
+        contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
+        control
+      });
+      if (response?.ok || terminalOperatorReasons.has(response?.reason)) {
+        lastSubmittedOperatorFingerprint = fingerprint;
+        lastScannedUserSignature = signature;
+        operatorRetryGate.reset(signature);
+      } else {
+        operatorRetryGate.defer(signature);
+      }
+    } catch (error) {
+      operatorRetryGate.defer(signature);
+      console.warn("Local Agent Chat Bridge operator control failed:", error);
+    } finally {
+      operatorScanInFlight = false;
+    }
+  }
+
   function scheduleControlScan() {
     if (controlScanTimer !== null) clearTimeout(controlScanTimer);
     controlScanTimer = setTimeout(() => {
       controlScanTimer = null;
       scanLatestAssistantControl().catch((error) => console.warn(error));
+      scanLatestOperatorControl().catch((error) => console.warn(error));
     }, 600);
   }
 
@@ -318,6 +425,7 @@
   scheduleControlScan();
   const controlRetryInterval = setInterval(() => {
     scanLatestAssistantControl().catch((error) => console.warn(error));
+    scanLatestOperatorControl().catch((error) => console.warn(error));
   }, 5000);
 
   const messageListener = (message, _sender, sendResponse) => {
@@ -329,7 +437,8 @@
         ok,
         reason: ok ? "ready" : "wrong_conversation",
         protocolVersion: CONTENT_PROTOCOL_VERSION,
-        assistantIdentity: latestAssistantMessage()?.identity || ""
+        assistantIdentity: latestAssistantMessage()?.identity || "",
+        userIdentity: latestUserMessage()?.identity || ""
       });
       return false;
     }
@@ -338,7 +447,8 @@
       String(message.prompt || ""),
       String(message.expectedUrl || ""),
       message.deliveryId,
-      message.recoverBridgePrompt === true
+      message.recoverBridgePrompt === true,
+      true
     )
       .then((response) => sendResponse({ ...response, protocolVersion: CONTENT_PROTOCOL_VERSION }))
       .catch((error) => sendResponse({
