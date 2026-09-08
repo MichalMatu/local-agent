@@ -102,6 +102,9 @@ async function deliverConversation(chatId, manual) {
     assistantBaseline: ""
   };
   activeDeliveries.set(chatId, active);
+  const recoverBridgePrompt = ["delivery_unconfirmed", "send_button_not_ready"].includes(
+    conversation.lastStatus
+  );
 
   let response;
   let deliveryTimeout;
@@ -112,7 +115,7 @@ async function deliverConversation(chatId, manual) {
         prompt,
         expectedUrl: conversation.url,
         deliveryId,
-        recoverUnconfirmed: conversation.lastStatus === "delivery_unconfirmed",
+        recoverBridgePrompt,
         bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake",
         agentBinding: conversation.agentBinding,
         repositoryId: conversation.repositoryId,
