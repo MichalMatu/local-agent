@@ -108,6 +108,72 @@ This item can be marked `Fixed` only when the exact failure can be reproduced in
 
 ---
 
+## BUG-002 — active control-repository lease contention drains unrelated parallel admission
+
+**Status:** Open  
+**Priority:** P1  
+**First confirmed:** 2026-09-08  
+**Area:** parallel supervisor, global control probe, repository admission
+
+### Symptom
+
+A long task in the supervisor control repository runs with `resources: []`, while another repository has a valid pending task with `resources: []` and unused worker capacity. The second repository may remain unstarted for minutes and then begin shortly after the control-repository task finishes.
+
+This makes production appear as if another repository is "holding the whole agent" even though neither task requested `machine` or a conflicting named resource.
+
+### Evidence / reproduction
+
+The v4.18.13 supervisor probes the designated control repository periodically while workers are active. The probe tries to acquire that repository's execution lease. When the control repository itself has an active worker, that worker correctly owns the same lease, so the probe returns `LEASE_BUSY`.
+
+After six consecutive `LEASE_BUSY` probe outcomes, the scheduler intentionally sets global control pending/drain state. While that state is active and any worker is still running, the main loop continues before reaching normal repository admission. Unrelated repository tasks are therefore not started until the active worker set becomes empty.
+
+Production evidence confirmed the pattern with LiteGraph as the control repository and Growbox as the waiting repository. Both tasks used `resources: []`; worker capacity was available; the Growbox task started only after the long LiteGraph task ended.
+
+The existing short two-repository parallel barrier test does not expose this defect because it finishes before the 15-second global-control probe cycle can accumulate repeated lease-busy outcomes.
+
+### Impact
+
+- cross-repository parallelism can collapse during sufficiently long control-repository tasks;
+- pending tasks can wait well beyond the nominal repository poll interval despite free worker capacity;
+- operators can misdiagnose the delay as RAM pressure, `machine` contention or a dead poll loop;
+- production `max_workers=4` is not reliably usable for ordinary independent work;
+- development throughput is materially degraded.
+
+### Non-cause: RAM admission
+
+`memory_limit_mb` is not a scheduler-wide reservation. It is enforced inside an already-running task by process-group RSS sampling. The parallel supervisor does not sum task memory limits and does not block another repository because aggregate host RAM or requested per-task memory exceeds a scheduler threshold.
+
+### Planned repair
+
+1. Treat control-repository `LEASE_BUSY` as expected when the same repository id is present in the supervisor's known `running` worker set.
+2. In that expected case, continue normal unrelated repository admission and do not escalate to global drain merely because the active worker owns its own repository lease.
+3. Preserve bounded defensive retry/drain for lease contention that cannot be explained by a known active control-repository worker, so stale/external holders remain fail-closed.
+4. Preserve immediate drain for a confirmed pending global control request.
+5. Preserve existing `resources: ["machine"]` priority/drain semantics and all resource-lock behavior.
+6. Improve supervisor observability so admission blockers such as control pending, priority repository and available capacity can be diagnosed directly.
+
+### Required regression coverage
+
+- unit coverage for known active control worker + `LEASE_BUSY` => no global drain;
+- unit coverage for unexplained/orphan-style control lease contention => existing bounded defensive behavior remains;
+- real integration test with a control-repository task that stays alive beyond at least one global-control probe interval and a second repository task that must start before the first finishes;
+- confirmed pending global control still drains and executes safely;
+- machine-exclusion regression remains unchanged;
+- full existing parallel/resource/repository lease tests remain green;
+- exact-candidate macOS smoke validates the long-running overlap path.
+
+### Temporary operator workaround
+
+Until fixed, avoid assuming `max_workers=4` guarantees admission while a long task is running in the designated control repository. No restart is required merely because a waiting task is delayed; allowing the control-repository task to finish normally releases the current global drain condition.
+
+For a stable rollback target, use release tag `v4.18.13` or branch `rollback/v4.18.13-known-working`, both pointing to commit `a32e54858c3bcb9687334b3232b71ae6ff130208`.
+
+### Closure criteria
+
+This item can be marked `Fixed` only when a long active control-repository task and an unrelated `resources: []` task demonstrably overlap under the production supervisor, unexplained control-lease contention remains safely bounded, and the complete scheduler/resource regression suite passes.
+
+---
+
 ## New bug template
 
 ```text
