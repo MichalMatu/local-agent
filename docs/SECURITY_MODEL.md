@@ -103,12 +103,12 @@ Before enabling autonomous execution:
 - keep `operator-control` available as an independent stop path;
 - do not share control-plane write access with untrusted principals;
 - treat credentials available to the Local Agent OS user as potentially available to executed tasks;
-- use named resources for exclusive hardware and `machine` only for true whole-host exclusivity;
+- for the currently registered project repositories, use `resources: []` for project-dedicated hardware and verify the intended device/port inside the task; reserve named resources for genuinely shared external hardware/state and `machine` for true whole-host exclusivity;
 - preserve the release verification gates in [`../AGENTS.md`](../AGENTS.md).
 
 ## Security changes
 
-A change to binding, task validation, process lifecycle, emergency controls, Git publication, resource locking, self-update or command execution is security-relevant even when it is not branded as a security feature. Such changes require targeted regression coverage plus the broader release checks described in [`../AGENTS.md`](../AGENTS.md).
+A change to binding, task validation, process lifecycle, emergency controls, Git publication, resource locking, self-update, global control admission/drain policy or command execution is security-relevant even when it is not branded as a security feature. Such changes require targeted positive and negative regression coverage plus the broader release checks described in [`../AGENTS.md`](../AGENTS.md).
 
 > [!IMPORTANT]
 > When a safety property matters, encode it in the executor and test it. Planner instructions and documentation are supporting controls, not enforcement boundaries.
