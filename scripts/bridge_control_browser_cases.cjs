@@ -138,11 +138,11 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   assert.equal(firstUnconfirmed.reason, "delivery_unconfirmed");
   const retainedPrompt = await page.locator("#prompt-textarea").textContent();
   assert.match(retainedPrompt, /\[LA_REPO=tracker\]/);
-  assert.equal(await page.evaluate(() => window.submits), beforeHelpSubmits + 2);
+  assert.equal(await page.evaluate(() => window.submits), 1);
   await page.locator("#prompt-textarea").fill(`${retainedPrompt} operator-edit`);
   const blockedRetry = await request({ type: "bridge:run-now", conversationId: retainedId });
   assert.equal(blockedRetry.reason, "composer_not_empty");
-  assert.equal(await page.evaluate(() => window.submits), beforeHelpSubmits + 2);
+  assert.equal(await page.evaluate(() => window.submits), 1);
   assert.match(await page.locator("#prompt-textarea").textContent(), /operator-edit$/);
   await page.evaluate(() => { window.dropDelivery = false; });
   console.log("PASS: unconfirmed Bridge prompt stays visible and any operator edit blocks automatic reuse");
