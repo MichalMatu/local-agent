@@ -50,4 +50,16 @@ assert.match(events, /"bridge:operator-control"/, "worker must expose user-autho
 const serviceWorker = read("service_worker.js");
 assert.match(serviceWorker, /"worker_lab_commands\.js"/, "service worker must load LAB command control plane");
 
+const labCommands = read("worker_lab_commands.js");
+assert.match(
+  labCommands,
+  /globalThis\.__localAgentChatExhaustionGuard\?\.dispose\?\.\(\)/,
+  "force content reload must dispose the actual exhaustion guard instance"
+);
+assert.doesNotMatch(
+  labCommands,
+  /__localAgentChatExhaustionGuardState/,
+  "force content reload must not use a stale/nonexistent exhaustion guard global"
+);
+
 console.log(`Chat Bridge protocol contract tests passed (shared content protocol v${protocol.CONTENT_PROTOCOL_VERSION}, extension ${manifest.version}).`);
