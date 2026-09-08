@@ -2,6 +2,13 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.15
+
+- Fixed parallel self-update starvation when `.agent/daemon/control.json` retains a repository-owned `cancel_task` after that request has already been acknowledged or otherwise completed.
+- Preserved repository-worker ownership of `cancel_task`; the supervisor still does not route it through global control handling or use it to drain unrelated workers.
+- Decoupled `maybe_self_update()` from the cancel dispatch guard so a stale cancel control slot cannot pin an otherwise clean installed `main` checkout to an older release.
+- Added focused regression coverage and explicit macOS smoke coverage; retained the 4.18.14 BUG-002 admission semantics unchanged. See `RELEASE_NOTES_V4.18.15.md`.
+
 ## v4.18.14
 
 - Fixed BUG-002 so repeated control-probe lease contention caused by the supervisor's own active control-repository worker no longer collapses unrelated cross-repository admission.
