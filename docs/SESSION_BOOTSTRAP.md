@@ -27,20 +27,34 @@ Growbox checkpoints:       ~/agent-workspace/repos/growbox-ml-controller/checkpo
 MatrixHub control:         ~/agent-workspace/repos/matrixhub/control
 MatrixHub work:            ~/agent-workspace/repos/matrixhub/work
 MatrixHub checkpoints:     ~/agent-workspace/repos/matrixhub/checkpoints
-Tracker control:          ~/agent-workspace/repos/tracker/control
-Tracker work:             ~/agent-workspace/repos/tracker/work
-Tracker checkpoints:      ~/agent-workspace/repos/tracker/checkpoints
+Tracker control:           ~/agent-workspace/repos/tracker/control
+Tracker work:              ~/agent-workspace/repos/tracker/work
+Tracker checkpoints:       ~/agent-workspace/repos/tracker/checkpoints
 daemon checkout:           ~/local-agent
 installed LaunchAgent:     ~/Library/LaunchAgents/com.michal.local-agent.plist
 daemon stdout:             ~/Library/Logs/local-agent.log
 daemon stderr:             ~/Library/Logs/local-agent-error.log
 ```
 
-All four current registry entries use the default non-legacy workspace layout derived from their repository ids. The loaded LaunchAgent runs `~/local-agent/agent_entrypoint.py --registry "$HOME/Library/Application Support/local-agent/repositories.json" --max-workers 2` from `~/local-agent`.
+All four current registry entries use the default non-legacy workspace layout derived from their repository ids. The loaded production LaunchAgent uses the guarded entrypoint with the registry above and `--max-workers 4` from `~/local-agent`. Four is also the scheduler hard cap.
 
 The user's normal ESP32 checkout is not the disposable agent worktree. Never reset, clean or overwrite it during normal daemon execution.
 
-Generate the guarded parallel LaunchAgent with `python scripts/macos_launchd.py install --mode parallel --max-workers 2`. The installed service is `~/Library/LaunchAgents/com.michal.local-agent.plist` with label `com.michal.local-agent`. The generator also supports serial rollback configuration; serial and parallel services must never run simultaneously.
+Generate the guarded parallel LaunchAgent with:
+
+```bash
+python scripts/macos_launchd.py install --mode parallel --max-workers 4
+```
+
+The installed service is `~/Library/LaunchAgents/com.michal.local-agent.plist` with label `com.michal.local-agent`. `install` writes configuration without restarting the loaded service. The generator also supports serial rollback configuration; serial and parallel services must never run simultaneously.
+
+## Current project resource policy
+
+The four registered project repositories use `resources: []` for executable project work, including project-dedicated hardware work. Repository execution leases already serialize work within one repository.
+
+Hardware identity is discovered and verified inside each task immediately before use. A USB/serial path is not a stable scheduler identity. Do not reintroduce project-specific `board:*`, raw serial-path resources or `machine` merely because a project task flashes, monitors, uses ADB/BLE, or talks to dedicated hardware.
+
+Named resources remain available for a genuinely shared external resource used by more than one repository. `resources: ["machine"]` remains reserved for true whole-host exclusivity.
 
 ## Current ESP32 bench
 
@@ -84,7 +98,7 @@ A full clean build is evidence for reproducibility, not a prerequisite for every
 
 For a firmware change that requires bench validation:
 
-1. rediscover the serial device;
+1. rediscover the intended device/port and positively distinguish it from other connected devices;
 2. build the intended firmware target;
 3. upload to the detected device;
 4. capture a bounded post-upload serial window;
@@ -107,7 +121,7 @@ For future work using this deployment:
 4. inspect daemon status and any relevant existing run/result on the target repository's `agent-control`;
 5. when Chrome Chat Bridge autonomy is active, also read `docs/AUTONOMOUS_CHAT_LOOP.md` and follow one active task for the current conversation goal while allowing unrelated repository work to use normal resource-aware executor concurrency;
 6. follow an existing active attempt instead of queuing a duplicate;
-7. classify task resources conservatively before queueing work;
+7. use `resources: []` for current registered project execution, detect/verify the intended device inside hardware commands, and reserve named/`machine` resources only for genuine shared/global conflicts;
 8. derive verification from the actual diff and affected integration boundaries;
 9. prefer `efficient-verification-v1` with focused incremental verification before any broad final gate;
 10. publish only the exact validated target changes.
