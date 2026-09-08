@@ -2,6 +2,13 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.19
+
+- Onboarded `MichalMatu/local-climate-link-starter` as the sixth canonical hard-bound repository with immutable binding `e75c77cb-7589-4452-94b2-decc97ff85a1` and execution enabled.
+- Added the same identity to the canonical binding catalog and Chat Bridge runtime example without changing scheduler, executor, parallel admission, task schema, resource semantics, Bridge extension version, or content protocol.
+- Provisioned and validated the new `agent-control` branch, appended/migrated the local registry entry while admission was disabled, and published the sixth identity to live `chat-bridge-state` runtime.
+- Completed read-only onboarding smoke against exact target `main` SHA `99f565711fdffb4e9b4e2be0289620da359d65a4` with the correct remote and a clean worktree. See `RELEASE_NOTES_V4.18.19.md`.
+
 ## v4.18.18
 
 - Fixed the live Chat Bridge 0.5.6 diagnostic-feedback submit regression where `[LAB:HELP]` was detected and `[LA_BRIDGE_FEEDBACK]` was inserted into the composer but the operator still had to press Send manually.
