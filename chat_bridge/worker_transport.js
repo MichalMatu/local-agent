@@ -103,6 +103,56 @@ async function ensureContentScript(tab, expectedUrl) {
   return { ...content, exhaustionGuardVersion: guard.guardVersion };
 }
 
+function contentProbeReason(result) {
+  return result?.ok ? "ready" : String(result?.reason || "content_script_unavailable");
+}
+
+async function refreshConfiguredContentScripts() {
+  const state = await getBridgeState();
+  const configured = Object.values(state.conversations || {}).filter((conversation) =>
+    stateModel.isBoundConversation(conversation)
+  );
+  if (!configured.length) return { checked: 0, ready: 0, refreshed: 0, failed: 0 };
+
+  const tabs = await chrome.tabs.query({ url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] });
+  const tabsByUrl = new Map();
+  for (const tab of tabs) {
+    const url = normalizeConversationUrl(tab.url || "");
+    if (!tab.id || !url) continue;
+    const matches = tabsByUrl.get(url) || [];
+    matches.push(tab);
+    tabsByUrl.set(url, matches);
+  }
+
+  let checked = 0;
+  let ready = 0;
+  let refreshed = 0;
+  let failed = 0;
+  for (const conversation of configured) {
+    const matches = tabsByUrl.get(conversation.url) || [];
+    const preferred = conversation.preferredTabId !== null
+      ? matches.find((tab) => tab.id === conversation.preferredTabId)
+      : null;
+    const tab = preferred || matches[0] || null;
+    if (!tab?.id) continue;
+
+    checked += 1;
+    const before = contentProbeReason(await probeContentScript(tab.id, conversation.url));
+    if (before === "ready") {
+      ready += 1;
+      continue;
+    }
+    if (!["content_script_unavailable", "content_script_protocol_mismatch"].includes(before)) {
+      failed += 1;
+      continue;
+    }
+    const result = await ensureContentScript(tab, conversation.url);
+    if (result.ok) refreshed += 1;
+    else failed += 1;
+  }
+  return { checked, ready, refreshed, failed };
+}
+
 function definitelyNoContentReceiver(error) {
   const text = String(error?.message || error || "");
   return /receiving end does not exist|could not establish connection/i.test(text);
