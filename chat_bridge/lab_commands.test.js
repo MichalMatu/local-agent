@@ -23,7 +23,7 @@ function fingerprint(value) {
     assert.equal(parsed?.action, "inspect", marker);
     assert.equal(parsed?.command, command, marker);
   }
-  assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 5);
+  assert.ok(Number.isInteger(protocol.CONTENT_PROTOCOL_VERSION) && protocol.CONTENT_PROTOCOL_VERSION > 0);
   assert.equal(protocol.parseAssistantControl("[LAB:RELOAD=CONTENT]")?.command, "reload_content");
   assert.equal(protocol.parseAssistantControl("[LAB:RESTART=WORKER]")?.command, "reload_bridge");
   assert.equal(protocol.parseAssistantControl("[LAB:OP:ADD=tracker]"), null, "assistant parser must not accept operator mutation");
@@ -51,8 +51,14 @@ function fingerprint(value) {
     assert.equal(response.reason, "inspection_ready");
     assert.match(response.feedbackPrompt, /\[LA_BRIDGE_FEEDBACK\]/);
     assert.match(response.feedbackPrompt, /"configured": false/);
-    assert.match(response.feedbackPrompt, /"expectedContentProtocol": 5/);
-    assert.match(response.feedbackPrompt, /"reportedContentProtocol": 5/);
+    assert.match(
+      response.feedbackPrompt,
+      new RegExp(`"expectedContentProtocol": ${protocol.CONTENT_PROTOCOL_VERSION}`)
+    );
+    assert.match(
+      response.feedbackPrompt,
+      new RegExp(`"reportedContentProtocol": ${protocol.CONTENT_PROTOCOL_VERSION}`)
+    );
   }
 
   // User-authored OP controls can add/configure/remove exactly the current chat and dedupe persistently.
@@ -168,15 +174,16 @@ function fingerprint(value) {
     assert.match(project.feedbackPrompt, /"count": 1/);
   }
 
-  // Upgrade regression: popup activates a reachable 0.5.5/protocol-v4 tab through the 0.5.6 worker.
+  // Upgrade regression: popup activates a reachable previous-protocol tab through the current worker.
   {
+    const previousProtocol = protocol.CONTENT_PROTOCOL_VERSION - 1;
     const h = createHarness({
       contentScriptProbe: async ({ injectedScripts }) => {
         const refreshed = injectedScripts.some((entry) => Array.isArray(entry.files) && entry.files.includes("content.js"));
         return {
           ok: true,
           reason: "ready",
-          protocolVersion: refreshed ? protocol.CONTENT_PROTOCOL_VERSION : 4,
+          protocolVersion: refreshed ? protocol.CONTENT_PROTOCOL_VERSION : previousProtocol,
           assistantIdentity: "assistant-before-refresh"
         };
       }

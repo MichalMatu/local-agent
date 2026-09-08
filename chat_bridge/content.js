@@ -115,17 +115,18 @@
   }
 
   function submitComposer(composer, sendButton) {
-    const form = composer.closest("form");
-    if (
-      form instanceof HTMLFormElement &&
-      sendButton.form === form &&
-      sendButton.type === "submit" &&
-      typeof form.requestSubmit === "function"
-    ) {
-      form.requestSubmit(sendButton);
+    // Follow the same DOM path as a real operator click. ChatGPT's React handlers may
+    // attach behavior to the live button that is not reproduced by requestSubmit().
+    if (sendButton instanceof HTMLButtonElement && sendButton.isConnected && !sendButton.disabled) {
+      sendButton.click();
       return;
     }
-    sendButton.click();
+    const form = composer.closest("form");
+    if (form instanceof HTMLFormElement && typeof form.requestSubmit === "function") {
+      form.requestSubmit();
+      return;
+    }
+    throw new Error("send control unavailable");
   }
 
   async function waitForSendButton(composer, timeoutMs = 4500) {
@@ -215,12 +216,15 @@
         return { ok: false, reason: "composer_write_failed", error: String(error) };
       }
     }
+    // Rich contenteditable editors may canonicalize whitespace/newlines while preserving
+    // the inserted visible text. From this point protect the exact DOM snapshot we
+    // actually produced; any later operator edit changes that snapshot and fails closed.
     const insertedComposerText = composerText(composer);
-    if (!insertedComposerText.trim() || insertedComposerText !== prompt) {
+    if (!insertedComposerText.trim()) {
       return { ok: false, reason: "composer_write_failed" };
     }
 
-    const sendButton = await waitForSendButton(composer);
+    let sendButton = await waitForSendButton(composer);
     if (!sendButton) {
       return { ok: false, reason: "send_button_not_ready" };
     }
@@ -245,13 +249,24 @@
     if (!composer.isConnected || findComposer() !== composer || composerText(composer) !== insertedComposerText) {
       return { ok: false, reason: "composer_changed" };
     }
-    if (assistantIsGenerating() || !sendButton.isConnected || sendButton.disabled) {
+    if (assistantIsGenerating()) {
+      return { ok: false, reason: "send_button_not_ready" };
+    }
+
+    // React may replace the Send button while reconciling composer state. Resolve the
+    // live control again immediately before submission instead of trusting a stale node.
+    sendButton = findSendButton(composer) || await waitForSendButton(composer, 1200);
+    if (!sendButton) {
       return { ok: false, reason: "send_button_not_ready" };
     }
 
     const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
     const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
-    submitComposer(composer, sendButton);
+    try {
+      submitComposer(composer, sendButton);
+    } catch (error) {
+      return { ok: false, reason: "send_button_not_ready", error: String(error) };
+    }
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;

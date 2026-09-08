@@ -8,7 +8,10 @@ const protocol = require("./control_protocol.js");
 const ROOT = __dirname;
 const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
 
-assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 5);
+assert.ok(
+  Number.isInteger(protocol.CONTENT_PROTOCOL_VERSION) && protocol.CONTENT_PROTOCOL_VERSION > 0,
+  "shared CONTENT_PROTOCOL_VERSION must be a positive integer"
+);
 for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_harness.js"]) {
   assert.doesNotMatch(
     read(name),

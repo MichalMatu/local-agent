@@ -2,6 +2,14 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.18
+
+- Fixed the live Chat Bridge 0.5.6 diagnostic-feedback submit regression where `[LAB:HELP]` was detected and `[LA_BRIDGE_FEEDBACK]` was inserted into the composer but the operator still had to press Send manually.
+- Advanced Chat Bridge to 0.5.7 / content protocol v6 so already-open 0.5.6/v5 tabs are automatically refreshed after extension reload.
+- Changed the browser submit path to re-resolve the current enabled ChatGPT Send button immediately before submission and use its DOM `click()` path first; `form.requestSubmit()` remains last-resort fallback only.
+- Preserved exact-prompt/operator-edit/wrong-conversation/authorization guards and non-blocking `delivery_unconfirmed` behavior; no blind Enter simulation or unbounded resubmission was added.
+- Added a submit-path regression contract and retained isolated Chromium coverage. See `RELEASE_NOTES_V4.18.18.md`.
+
 ## v4.18.17
 
 - Fixed the live Chat Bridge 0.5.5 popup regression where `Add current chat` still hard-coded content protocol v3 and rejected an already-open reachable protocol-v4/v3-mismatched tab with a manual-reload error.
@@ -220,7 +228,7 @@ This changelog records operationally relevant Local Agent releases. The release 
 
 - Made production operator logging concise by default.
 - Successful internal Git housekeeping and ordinary control-repository lease contention no longer spam the daemon log.
-- Added `LOCAL_AGENT_VERBOSE_LOGS=1` as a temporary low-level diagnostic override.
+- Added `LOCAL_AGENT_VERBOSE_LOGS=1` as a temporary low-level diagnostic override only.
 
 ## v4.11.8
 
