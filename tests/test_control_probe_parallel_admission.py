@@ -164,8 +164,8 @@ raise SystemExit(parallel.main())
                     output, _ = proc.communicate(timeout=10)
                     self.fail(f"control repository task did not start:\n{output}")
 
-                # Six old-policy lease-busy deferrals fit comfortably in this window
-                # after shortening only the test polling/backoff constants.
+                # Six true lease-busy outcomes fit comfortably in this window after
+                # shortening only test polling/backoff constants.
                 time.sleep(0.6)
                 queue_late_task(root, late_repo, marker=late_started)
 
@@ -207,8 +207,14 @@ raise SystemExit(parallel.main())
                     proc.kill()
                     output, _ = proc.communicate(timeout=10)
 
+            self.assertIn(
+                "pausing new control-repository admission",
+                output,
+                "regression must cross the repeated known-worker lease-busy threshold",
+            )
+            self.assertIn("consecutive_lease_busy=6", output)
             self.assertNotIn(
-                "global control probe lease busy repeatedly; draining active workers",
+                "draining active workers consecutive_lease_busy=",
                 output,
             )
 
