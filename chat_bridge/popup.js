@@ -1,5 +1,4 @@
 const protocol = globalThis.LocalAgentBridgeProtocol;
-const CONTENT_PROTOCOL_VERSION = 3;
 
 const elements = {
   masterEnabled: document.querySelector("#masterEnabled"),
@@ -88,40 +87,16 @@ async function getCurrentChatTab() {
   return tab?.id && normalizedUrl ? { ...tab, normalizedUrl } : null;
 }
 
-async function probeContentScript(tabId, expectedUrl) {
-  try {
-    const response = await chrome.tabs.sendMessage(
-      tabId,
-      { type: "bridge:capabilities", expectedUrl, protocolVersion: CONTENT_PROTOCOL_VERSION },
-      { frameId: 0 }
-    );
-    return { reachable: true, response };
-  } catch (error) {
-    return { reachable: false, error };
-  }
-}
-
 async function injectContentScript(tabId, expectedUrl) {
-  const before = await probeContentScript(tabId, expectedUrl);
-  if (before.response?.ok && before.response.protocolVersion === CONTENT_PROTOCOL_VERSION) {
-    return before.response;
+  const response = await request({
+    type: "bridge:ensure-tab-content",
+    tabId,
+    expectedUrl
+  });
+  if (!response?.ok) {
+    throw new Error(response?.reason || response?.error || "Bridge content script did not become ready.");
   }
-  if (before.reachable) {
-    throw new Error("This ChatGPT tab has an older Bridge content script. Reload the tab, then try again.");
-  }
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["control_protocol.js", "content.js"]
-    });
-  } catch (error) {
-    throw new Error(`Cannot activate bridge in this tab: ${error.message}`);
-  }
-  const after = await probeContentScript(tabId, expectedUrl);
-  if (!after.response?.ok || after.response.protocolVersion !== CONTENT_PROTOCOL_VERSION) {
-    throw new Error("Bridge content script did not become ready. Reload the ChatGPT tab, then try again.");
-  }
-  return after.response;
+  return response;
 }
 
 function agentLabel(agent) {
