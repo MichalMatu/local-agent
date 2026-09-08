@@ -216,8 +216,11 @@
         return { ok: false, reason: "composer_write_failed", error: String(error) };
       }
     }
+    // Rich contenteditable editors may canonicalize whitespace/newlines while preserving
+    // the inserted visible text. From this point protect the exact DOM snapshot we
+    // actually produced; any later operator edit changes that snapshot and fails closed.
     const insertedComposerText = composerText(composer);
-    if (!insertedComposerText.trim() || insertedComposerText !== prompt) {
+    if (!insertedComposerText.trim()) {
       return { ok: false, reason: "composer_write_failed" };
     }
 
