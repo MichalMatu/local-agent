@@ -2,6 +2,14 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.16
+
+- Hardened Chat Bridge delivery with content protocol v4 / extension 0.5.5: stale reachable content scripts are reinjected automatically, unconfirmed Bridge-owned prompts remain visible, and exact retained prompts can be reused only when untouched by the operator.
+- Replaced the assistant-control scanner's fixed three-failure give-up with a pure bounded 5-30 second retry policy that never terminally exhausts for unchanged assistant content.
+- Preserved explicit `NEXT=30s` protocol compatibility while changing autonomous healthy-task pacing to no sooner than about two minutes for early liveness checks and normally 5-10 minutes for multi-minute builds/tests.
+- Directed the planner to use existing repository-scoped `cancel_task` when exact run/status evidence already proves an active task cannot succeed; executor ownership and Browser Bridge authority remain unchanged.
+- Added protocol/injection, retry, pacing and isolated Chromium regressions, including direct proof that an unconfirmed Bridge prompt stays visible and operator edits block automatic reuse. See `RELEASE_NOTES_V4.18.16.md`.
+
 ## v4.18.15
 
 - Fixed parallel self-update starvation when `.agent/daemon/control.json` retains a repository-owned `cancel_task` after that request has already been acknowledged or otherwise completed.
@@ -47,7 +55,7 @@ This changelog records operationally relevant Local Agent releases. The release 
 
 - Publish control activity before acquiring repository leases and synchronizing Git, preventing false orphan-watchdog observations during ordinary control work.
 - Restore local quiescent or disabled status after lease release, including failed synchronization and contention.
-- Add real Git/lease regression coverage and audit downstream instructions; no planner contract migration is required. See `RELEASE_NOTES_V4.18.9.md`.
+- Add real Git/lease regression coverage and audit downstream instructions; no change needed to task schema, resources, bindings or downstream flow. See `RELEASE_NOTES_V4.18.9.md`.
 
 ## v4.18.4
 
