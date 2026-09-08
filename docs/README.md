@@ -6,6 +6,7 @@
 
 | Goal | Read this |
 | --- | --- |
+| Restore or inspect the frozen v4.18.13 production checkpoint | [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) |
 | Operate or recover Local Agent | [`OPERATIONS.md`](OPERATIONS.md) |
 | Understand current module boundaries | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | Understand security boundaries and assumptions | [`SECURITY_MODEL.md`](SECURITY_MODEL.md) |
@@ -48,6 +49,7 @@ The planner decides **what** should change. Local Agent owns deterministic, boun
 
 ### Runtime and operations
 
+- [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) — exact known-working rollback identity, freeze rule, confirmed parallel-admission defect and candidate regression requirements.
 - [`OPERATIONS.md`](OPERATIONS.md) — queues, task resources, deployment, rollback and recovery.
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — package ownership, dependency direction and refactor target.
 - [`SECURITY_MODEL.md`](SECURITY_MODEL.md) — trust boundaries, enforced safety properties and explicit non-goals.
@@ -73,7 +75,7 @@ The planner decides **what** should change. Local Agent owns deterministic, boun
 
 - [`CHANGELOG.md`](CHANGELOG.md) — concise operational release history.
 - `RELEASE_NOTES_V*.md` — detailed notes retained for releases that have dedicated records.
-- Git tag `vX.Y.Z` plus `agent_version.RELEASE_VERSION` are the release-version source of truth.
+- Git tag `vX.Y.Z` plus `local_agent.version.RELEASE_VERSION` are the release-version source of truth.
 
 ## Historical material
 
