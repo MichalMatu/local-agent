@@ -12,7 +12,7 @@ Chat Bridge state schema v3 makes repository routing explicit:
 one ChatGPT conversation == one agent_binding UUID == one repository id == one GitHub repository
 ```
 
-Each configured conversation stores its repository id, repository name, agent binding, binding revision, pacing state and independent alarm. Normal conversation controls never change those binding fields. Unbound migrated conversations stay disabled with `binding_required`, and a runtime/catalog mismatch fails closed as `binding_catalog_mismatch` instead of guessing another repository.
+Each configured conversation stores its repository id, repository name, agent binding, binding revision, pacing state and independent alarm. Normal assistant conversation controls never change those binding fields. Unbound migrated conversations stay disabled with `binding_required`, and a runtime/catalog mismatch fails closed as `binding_catalog_mismatch` instead of guessing another repository.
 
 The `local-agent` catalog entry is intentionally `execution_enabled: false`. It is valid for Bridge/operator infrastructure conversations but must not create Local Agent project task files.
 
@@ -33,9 +33,33 @@ Adding a conversation captures the current latest assistant-message identity as 
 
 Autonomous planner pacing is intentionally slower than the protocol's absolute compatibility minimum. Healthy active Local Agent work should not be polled every 30 seconds: use `NEXT` no sooner than about two minutes for an early liveness check and normally 5-10 minutes for multi-minute builds/tests unless exact evidence supports a nearer completion.
 
-## Conversation controls
+## LAB command model
 
-A control is accepted from the end of the latest assistant message in that exact configured conversation. Text before the marker needs no separating whitespace: `Acknowledged.[LAB:PAUSE]` works. After the marker, including subsequent lines or paragraphs, only whitespace and these decorations are allowed: straight quotes/apostrophes, typographic quotes `“ ” „ ‘ ’ ‚ « » ‹ ›`, punctuation `. , ! ? ; : …`, dashes `- – —`, Markdown characters (asterisk, underscore, backtick, tilde), and closing brackets `) ] }`. Letters, numbers, emoji and other symbols after the marker cause rejection. Prefer a separate marker line:
+`control_protocol.js` owns one formal command catalog. Commands are divided by privilege instead of growing as undocumented ad-hoc markers.
+
+Assistant-safe discovery/diagnostic commands:
+
+```text
+[LAB:HELP]
+[LAB:CAPABILITIES]
+[LAB:STATUS]
+[LAB:DEBUG]
+[LAB:SETTINGS]
+[LAB:CHATS]
+[LAB:CHAT=<chat-id>]
+```
+
+Bridge-local maintenance commands:
+
+```text
+[LAB:RELOAD=CONTENT]
+[LAB:RELOAD=BRIDGE]
+[LAB:RESTART=WORKER]
+```
+
+`RESTART=WORKER` is an alias for Bridge runtime reload because Chrome exposes extension reload rather than a standalone public API for restarting only one MV3 service worker.
+
+Existing assistant pacing controls remain:
 
 ```text
 [LAB:STOP]
@@ -47,103 +71,116 @@ A control is accepted from the end of the latest assistant message in that exact
 [LAB:INTERVAL=AUTO]
 ```
 
-Compatibility `LOCAL_AGENT_BRIDGE:` forms remain accepted.
+Operator chat mutations use a separate namespace and are processed **only from a user-authored ChatGPT message**:
 
-Only the last candidate beginning with `[LAB:` or `[LOCAL_AGENT_BRIDGE:` is considered. A malformed or unsupported final candidate rejects the answer; the parser never falls back to an earlier command. Command spelling and duration limits remain strict.
+```text
+[LAB:OP:ADD=<repository-id>]
+[LAB:OP:REMOVE]
+[LAB:OP:ENABLE]
+[LAB:OP:DISABLE]
+[LAB:OP:INTERVAL=<minutes|AUTO>]
+[LAB:OP:RELOAD=CONTENT]
+[LAB:OP:RELOAD=BRIDGE]
+```
 
-Quotes and rendered Markdown (`code`, `pre`, `strong`, `blockquote`) do not exempt a trailing marker from execution. An example or a negated sentence ending with a marker can therefore execute it. To explain a marker without executing it, put explanatory text after it. The Bridge recognizes syntax and position, not the intent of the preceding prose.
+The assistant parser rejects `LAB:OP:*`. The content script's operator scanner reads only the latest DOM message with `data-message-author-role="user"`; the worker additionally requires the same extension id, top frame and exact normalized conversation URL. Operator commands are persistently deduplicated in a bounded cache so ADD/REMOVE/reload operations do not replay after content/extension reload.
+
+`OP:ADD` resolves only an exact repository id from the current runtime catalog and creates the chat disabled, matching conservative popup onboarding. It never guesses a repository. A different repository for an already-bound chat is rejected; change binding by explicit remove/add rather than implicit rebind.
+
+## Diagnostic feedback loop
+
+Assistant-safe inspect commands return a Bridge-generated user message beginning with:
+
+```text
+[LA_BRIDGE_FEEDBACK]
+```
+
+This feedback is local read-only evidence, not operator approval. It allows the same ChatGPT conversation to diagnose Bridge without DevTools/manual log copy.
+
+- `HELP` returns the live command catalog and privilege classes.
+- `CAPABILITIES` reports installed Bridge capabilities and explicitly unavailable authority.
+- `STATUS` returns this conversation's configured/bound/schedule state.
+- `DEBUG` returns extension version, expected and reported content protocol, exact tab/url, last delivery state, Master state and runtime source/pacing.
+- `SETTINGS` returns effective current-chat settings. The `local-agent` infrastructure binding may also see Bridge-global settings.
+- `CHATS` lists all configured chat routing metadata only from the `local-agent` infrastructure binding. Ordinary project-bound chats receive current-chat-only output.
+- `CHAT=<chat-id>` may inspect another chat only from the `local-agent` infrastructure binding.
+
+Bridge diagnostics deliberately do **not** provide direct repository task cancellation or Local Agent supervisor restart authority. `CAPABILITIES` reports those as unavailable. Existing repository-scoped `cancel_task` still belongs to the Git-backed Local Agent control plane.
+
+## Conversation control syntax
+
+A control is accepted from the end of the latest assistant message in that exact conversation. Text before the marker needs no separating whitespace: `Acknowledged.[LAB:PAUSE]` works. After the marker, including subsequent lines or paragraphs, only whitespace and these decorations are allowed: straight quotes/apostrophes, typographic quotes `“ ” „ ‘ ’ ‚ « » ‹ ›`, punctuation `. , ! ? ; : …`, dashes `- – —`, Markdown characters (asterisk, underscore, backtick, tilde), and closing brackets `) ] }`. Letters, numbers, emoji and other symbols after the marker cause rejection. Compatibility `LOCAL_AGENT_BRIDGE:` forms remain accepted for the assistant control namespace.
+
+Only the last candidate beginning with `[LAB:` or `[LOCAL_AGENT_BRIDGE:` is considered. A malformed or unsupported final candidate rejects the answer; the parser never falls back to an earlier command. Quotes and rendered Markdown (`code`, `pre`, `strong`, `blockquote`) do not exempt a trailing marker from execution. Put explanatory text after examples that must not execute.
 
 - `STOP` disables only that conversation and clears its persistent interval override.
 - `PAUSE` disables only that conversation while preserving its interval override.
 - `RESUME` re-enables that conversation and schedules a near-term retry wake.
-- `NEXT=<duration>` **arms or re-arms** that conversation, sets `enabled=true`, and changes only its next wake. The normal interval and global master switch are unchanged. The compatibility protocol accepts 30 seconds through 24 hours; autonomous healthy-task polling uses the stricter two-minute-or-longer planner policy above.
+- `NEXT=<duration>` arms or re-arms that conversation, sets `enabled=true`, and changes only its next wake. The compatibility protocol accepts 30 seconds through 24 hours; autonomous healthy-task polling uses the stricter two-minute-or-longer planner policy.
 - `INTERVAL=<minutes>` sets the persistent per-conversation interval override.
 - `INTERVAL=AUTO` returns that conversation to runtime/default pacing.
 
-Per-conversation operator values are ordinary chat state, not a higher-priority lock. A later assistant control may therefore overwrite the chat's enabled/paused state, next wake or interval. The global **Master** switch is different: it is operator-only, assistant controls cannot modify it, and content-script messages are not authorized to call global-settings mutations.
+Per-conversation assistant pacing controls may overwrite ordinary chat enabled/paused state, next wake or interval. The global **Master** switch remains operator-only. No assistant-safe command can change repository binding.
 
-The control fingerprint is deduplicated per conversation. Rescanning the same answer does not reapply its command. The same command in a new answer is a new control; repeated `RESUME` may reset the near-term wake time. Controls cannot change repository identity.
-
-Transient control-delivery failures are retried for the unchanged latest assistant answer with bounded 5-30 second backoff. Bridge no longer permanently gives up after three failed scans; a page reload is not the recovery mechanism for ordinary transient worker/message failures.
+Transient assistant-control failures are retried for unchanged assistant content with bounded 5-30 second backoff and no fixed terminal-attempt exhaustion.
 
 ## Delivery model
 
 Bridge intentionally does **not** keep a durable ambiguous-delivery journal.
 
-Content protocol v4 protects the important local send boundaries: exact conversation URL, operator-draft preservation, one active delivery per conversation, preflight protocol match, authorization immediately before submission, and exact DOM confirmation when available. If a reachable open tab still runs an older content protocol, the worker injects the current protocol/content scripts and probes it again instead of requiring a manual ChatGPT-tab reload.
+Content protocol v4 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, and exact DOM confirmation when available. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
+
+Popup and scheduled-wake paths share worker-owned content activation. Popup does not maintain a second protocol version or `chrome.scripting.executeScript` implementation. When a tab must be refreshed, the worker disposes current Bridge/guard listeners, injects `control_protocol.js`, `content_retry.js`, `content.js`, `dom_contract.js` and `exhaustion_guard.js`, then probes readiness again. A reachable older content script therefore must not require a normal manual ChatGPT page reload.
 
 After insertion/submission:
 
 - confirmed DOM insertion is `sent`;
 - a missing receiver before submission is treated as safely unsent/retryable;
-- if Bridge inserted its wake but ChatGPT does not expose a usable Send button in the bounded window, status is `send_button_not_ready` and the exact Bridge prompt is left visible;
-- if the browser cannot confirm the submitted user message in its bounded observation window, status is `delivery_unconfirmed` and any exact retained Bridge prompt is left visible instead of being erased.
+- if Bridge inserted its wake but ChatGPT does not expose a usable Send button in the bounded window, status is `send_button_not_ready` and the exact Bridge prompt remains visible;
+- if the browser cannot confirm the submitted user message in its bounded observation window, status is `delivery_unconfirmed` and any exact retained Bridge prompt remains visible instead of being erased.
 
-A later run may reuse a non-empty composer only when the previous Bridge state is a recoverable transport state and the composer text is byte-for-byte identical to the current Bridge prompt. Any operator edit, extra whitespace or unrelated draft blocks automatic reuse. Authorization, binding, generation and exact-conversation checks are still repeated before submission.
+A later run may reuse a non-empty composer only when the previous Bridge state is recoverable and the composer text is byte-for-byte identical to the current Bridge prompt. Any operator edit, extra whitespace or unrelated draft blocks automatic reuse.
 
-`delivery_unconfirmed` is diagnostic only. It does **not** disable the conversation, create `pendingDelivery`, clear the schedule, block `NEXT`/`RESUME`/other controls, require a ✓/× decision, or prevent removal. The bridge may therefore send again later if confirmation was lost after a real submission; this tradeoff is deliberate so transport uncertainty cannot deadlock normal chat operation.
-
-Only a delivery that is actively in progress is protected by an in-memory overlap guard. That guard disappears when the send finishes or the service worker restarts.
-
-Old schema-v3 `pendingDelivery` data is discarded during normalization. Legacy `delivery_uncertain` status is migrated to the non-blocking `delivery_unconfirmed` status.
+`delivery_unconfirmed` is diagnostic only. It does not disable the conversation, create `pendingDelivery`, clear the schedule, block controls, require a manual resolution decision or prevent removal.
 
 ## Active Local Agent task cancellation
 
 The executor already supports repository-scoped `cancel_task` for an exact task id. The ChatGPT planner should use it when current run/status evidence already proves that a long-running task cannot achieve the intended outcome, rather than waiting for the task timeout. See `docs/AUTONOMOUS_CHAT_LOOP.md` and `docs/EMERGENCY_CONTROLS.md`.
 
-This is deliberately not a direct popup button yet. The extension has no repository write credential/native executor channel, and Bridge remains transport-only. A future direct operator cancel button needs a separate trusted transport rather than silently granting the browser extension repository write authority.
+This is deliberately not a direct Bridge command in 0.5.6. The extension has no repository-write credential/native executor channel. A future direct cancel command needs a separate trusted operator transport.
 
 ## Popup
 
-The popup deliberately keeps each conversation card small. Per chat it exposes only:
+The popup exposes per chat:
 
 - enable/pause switch;
 - wake interval override;
 - `Run now`;
 - `Remove`.
 
-Binding is selected only when adding the current chat. To choose another binding in normal UI, remove the conversation and add it again. Wake interval changes auto-save. Remove is one click and uses no native confirmation dialog. Global runtime/prompt settings stay under **Advanced settings**.
+Binding can be selected when adding the current chat. The same operator actions are also available from user-authored `LAB:OP:*` commands. To choose another repository for an existing chat, remove it and add it again; no implicit assistant rebind exists.
 
-The global Master switch suspends scheduled alarms without deleting per-conversation state or changing bindings. A chat may continue to update its own paused/enabled state and desired timing while Master is off; no wake alarm fires until the operator turns Master back on.
+The global Master switch suspends scheduled alarms without deleting per-conversation state or changing bindings.
 
 ## Worker module boundaries
 
-`service_worker.js` is composition only. Runtime responsibilities are deliberately split so no replacement god object accumulates:
+`service_worker.js` is composition only:
 
 - `worker_base.js` — shared protocol constants and small process-local registries;
 - `worker_state.js` — serialized Chrome storage reads/writes;
 - `worker_runtime.js` — runtime fetch/cache/validation;
 - `worker_binding.js` — catalog binding lookup and prompt policy;
 - `worker_schedule.js` — Chrome alarms and schedule reconciliation;
-- `worker_transport.js` — tab discovery, content-script preflight and delivery authorization;
-- `worker_controls.js` — assistant control validation and per-chat state transitions;
-- `worker_delivery.js` — one feedback delivery lifecycle;
-- `worker_conversations.js` — operator conversation/global-setting mutations;
+- `worker_transport.js` — tab discovery, content preflight and delivery authorization;
+- `worker_controls.js` — assistant scheduling/maintenance control validation;
+- `worker_delivery.js` — one normal feedback delivery lifecycle;
+- `worker_conversations.js` — popup/operator conversation/global-setting mutations;
+- `worker_lab_commands.js` — LAB diagnostics, command feedback, operator command dedupe/mutations and force content refresh;
 - `worker_events.js` — Chrome event/message routing only.
 
 ## Runtime catalog
 
-Remote runtime schema v3 publishes pacing and the canonical agent catalog:
-
-```json
-{
-  "schema_version": 3,
-  "interval_minutes": 10,
-  "busy_retry_minutes": 1,
-  "bootstrap_prompt": "...",
-  "wake_prompt": "...",
-  "agents": [
-    {
-      "repository_id": "matrixhub",
-      "repository": "MichalMatu/MatrixHub",
-      "agent_binding": "033327ab-700d-43b4-9b3b-caff1acaa2c7",
-      "execution_enabled": true
-    }
-  ]
-}
-```
-
-Repository ids, repository names and binding UUIDs must each be unique. Binding UUIDs use canonical lowercase UUID text. Only runtime schema v3 is accepted and `execution_enabled` must be a JSON boolean. Invalid/unavailable runtime configuration blocks sending as `runtime_unavailable`; there is no guessed fallback identity catalog.
+Remote runtime schema v3 publishes pacing and the canonical agent catalog. Repository ids, repository names and binding UUIDs must each be unique. Binding UUIDs use canonical lowercase UUID text. Only runtime schema v3 is accepted and `execution_enabled` must be a JSON boolean. Invalid/unavailable runtime configuration blocks sending as `runtime_unavailable`; there is no guessed fallback identity catalog.
 
 ## Executor-side protection
 
@@ -163,11 +200,10 @@ The parallel worker and serial fallback enforce the same contract before task ex
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select this repository's `chat_bridge` directory.
 4. Open a concrete ChatGPT conversation.
-5. Open the extension, select the exact repository binding and click **Add current chat**.
-6. Repeat for other conversations.
-7. Use a chat control or `Run now` for an end-to-end test.
+5. Open the extension, select the exact repository binding and click **Add current chat**, or type an explicit user operator command such as `[LAB:OP:ADD=local-agent]`.
+6. Use a chat control or `Run now` for an end-to-end test.
 
-After pulling an extension update, click **Reload** on the extension card. Content protocol v4 can replace an older reachable content script in already-open ChatGPT tabs on the next preflight, so a manual reload of every chat tab is no longer the normal protocol-upgrade path. If Chrome has discarded or otherwise broken a tab, reloading that tab remains a valid recovery action. Bridge 0.5 requires Chrome 120 or newer.
+After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to replace a reachable older protocol automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Bridge 0.5.6 requires Chrome 120 or newer.
 
 ## Development validation
 
@@ -178,4 +214,4 @@ npx playwright install chromium
 python scripts/verify.py --profile bridge-browser
 ```
 
-Browser smoke uses a disposable offline Chromium profile and the actual unpacked extension. It covers confirmed submission, composer replacement, draft preservation, SPA navigation, overlapping sends, retained/non-blocking `delivery_unconfirmed` recovery, popup behavior and service-worker restart without contacting the operator's real ChatGPT session.
+Browser smoke uses a disposable offline Chromium profile and the actual unpacked extension. It covers confirmed submission, composer replacement, draft preservation, SPA navigation, overlapping sends, retained/non-blocking `delivery_unconfirmed` recovery, popup behavior, service-worker restart and protocol-refresh regressions without contacting the operator's real ChatGPT session.
