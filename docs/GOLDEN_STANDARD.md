@@ -7,7 +7,7 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - `main` is the production source of truth and normal installed runtime checkout.
 - `local_agent.version.RELEASE_VERSION` matches the release tag `vX.Y.Z`.
 - `v*-staging` branches/worktrees are temporary candidate-validation infrastructure and are removed after a release is established.
-- The production multi-repository scheduler is `agent_parallel.py --max-workers 2`.
+- The frozen v4.18.13 production multi-repository scheduler is `agent_parallel.py --max-workers 4`; the scheduler hard cap is also four.
 - `agent_multirepo.py` remains the unchanged serial fallback with concurrency one.
 - Only one daemon/supervisor may hold the daemon lock.
 - Shared supervisor polling/order/control primitives live under `local_agent/supervisor/`; the production parallel scheduler must not depend on the serial fallback entrypoint.
@@ -39,7 +39,7 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - The parallel supervisor emits a human-readable `IDLE` line after startup and after real task completion.
 - A long-idle supervisor emits a bounded periodic `IDLE` heartbeat so `tail -f ~/Library/Logs/local-agent.log` remains immediately readable.
 - Real parallel task boundaries are visible as `TASK START` / `TASK DONE`; low-level successful Git plumbing must not drown those operator events.
-- Expected single control-repository lease contention is silent; repeated contention is logged only when the six-attempt bounded drain activates.
+- Expected single control-repository lease contention is silent; repeated contention is logged only when the six-attempt bounded drain activates in v4.18.13.
 - Production launchd stdout/stderr logs are bounded: files above 2 MiB are compacted during an idle maintenance window to approximately the most recent 1 MiB while preserving append semantics.
 - Multiline task commands are represented by concise stage/line/character descriptors in both legacy and `RuntimeExecutor` paths. Full command/output evidence remains in run/result JSON; `LOCAL_AGENT_VERBOSE_LOGS=1` is temporary diagnostic override only.
 
@@ -58,16 +58,17 @@ This file records the current production invariants for `MichalMatu/local-agent`
 
 - `resources` is mandatory for every task; invalid declarations are terminal contract errors rather than compatibility fallbacks.
 - `resources: []` means no exclusive external resource beyond the repository lease and may be used for repository-local builds, tests, lint and analysis.
-- Named resources are exclusive only among tasks sharing the same canonical name.
+- The currently registered project repositories intentionally use `resources: []` for executable project work, including their project-dedicated hardware operations; device and port identity is verified inside task commands.
+- Named resources remain available for genuinely shared external resources and are exclusive only among tasks sharing the same canonical name.
 - `resources: ["machine"]` is reserved for genuine whole-host exclusivity.
-- `memory_limit_mb` is an independent process-group RSS watchdog and never changes resource classification.
+- `memory_limit_mb` is an independent process-group RSS watchdog and never changes resource classification or performs aggregate host-memory admission.
 - Resource declarations are bounded to eight names and may not combine `machine` with another resource.
 - Parallel tasks hold a shared machine lock; machine-exclusive tasks hold it exclusively.
 - Machine/named resource descriptors are inherited into descendants and survive worker death until the last holder exits.
 - Resource acquisition is nonblocking and occurs before claim/execution. Contention leaves the task pending and is retried with bounded backoff.
 - Repository status exposes `waiting_resource` for blocked admission so remote planners do not mistake waiting for idle completion.
 - Machine contention gets priority/drain fairness.
-- Production recommendation is two workers; hard cap remains three.
+- Production concurrency is four workers; the hard cap remains four.
 
 ## Global control invariants
 
@@ -76,7 +77,8 @@ This file records the current production invariants for `MichalMatu/local-agent`
 - Daemon control ids are restricted to ASCII letters, digits, `.`, `_` and `-`, with a 120-character maximum; ACK paths must remain under `.agent/daemon/acks/` after normalization.
 - Control probes have explicit `CLEAR`, `PENDING`, `LEASE_BUSY` and `DEFERRED` outcomes; only a successful `CLEAR` probe advances the normal control-poll clock.
 - A busy control-repository execution lease is `LEASE_BUSY`; transient sync/network/ACK-read failures are `DEFERRED`. Both retry promptly instead of being mistaken for "no request".
-- After initial supervisor control service succeeds, ordinary `LEASE_BUSY` contention and `DEFERRED` failures do not immediately block unrelated repository admission. A confirmed `PENDING` request drains immediately, while six consecutive `LEASE_BUSY` probes force a bounded admission drain so global control cannot starve.
+- A confirmed `PENDING` request drains immediately and remains authoritative.
+- v4.18.13 has confirmed BUG-002: six consecutive `LEASE_BUSY` probes can force global admission drain even when the lease is held by the supervisor's own known active control-repository worker. The candidate fix must treat that known-worker case as expected while retaining bounded defensive handling for unexplained lease holders.
 - A control ACK is durable only when it is visible on the fetched remote `agent-control` branch; a local-only ACK commit never suppresses replay of the remote request.
 - A real global request stops new admission and waits for active workers to drain.
 - Global control acquires all configured repository execution identities before running.
@@ -102,13 +104,14 @@ A non-trivial runtime release requires:
 3. full unittest/integration coverage;
 4. real SIGTERM/SIGKILL process coverage when lifecycle/lease behavior changes;
 5. real overlap, machine-exclusion and inherited-resource-lock coverage for parallel changes;
-6. exact diff review;
-7. green GitHub CI on the exact candidate SHA, including macOS smoke;
-8. downstream planner-documentation audit for every registered repository when Local Agent contract/flow changed;
-9. validated fast-forward of `main`;
-10. matching `vX.Y.Z` tag;
-11. production restart from `~/local-agent` on `main` and live version/revision/task verification;
-12. staging worktree/branch cleanup after the release is established.
+6. for BUG-002, a long-lived control-repository overlap regression that crosses the global-control probe interval and proves another `resources: []` repository starts before the control task ends;
+7. exact diff review;
+8. green GitHub CI on the exact candidate SHA, including macOS smoke;
+9. downstream planner-documentation audit for every registered repository when Local Agent contract/flow changed;
+10. validated fast-forward of `main`;
+11. matching `vX.Y.Z` tag;
+12. production restart from `~/local-agent` on `main` and live version/revision/task verification;
+13. staging worktree/branch cleanup after the release is established.
 
 ## Downstream contract
 
@@ -123,6 +126,8 @@ Historical design notes remain references only and are not runtime contracts.
 - Explicit progress markers remain visible and heartbeat/watchdog enforcement stays active under summarized live output.
 
 ## Retry and logging invariants
+
 - Unexpected worker exits use bounded 2-300 s exponential retry and reset after normal outcomes.
-- Deferred global-control work uses bounded 2-15 s retry; six consecutive control-repository `LEASE_BUSY` probes force a bounded worker drain to prevent global-control starvation.
+- Deferred global-control work uses bounded 2-15 s retry.
+- In the frozen v4.18.13 baseline, six consecutive control-repository `LEASE_BUSY` probes force a bounded worker drain; BUG-002 tracks the required distinction between expected ownership by a known active control worker and unexplained lease contention.
 - Repeated outer supervisor failure/deferral notices are limited to one per 60 s for a continuing condition.
