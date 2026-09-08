@@ -1,5 +1,7 @@
 (() => {
-  const CONTENT_PROTOCOL_VERSION = 3;
+  const CONTENT_PROTOCOL_VERSION = 4;
+  const CONTROL_RETRY_BASE_MS = 5000;
+  const CONTROL_RETRY_MAX_MS = 30000;
   const existingBridge = globalThis.__localAgentChatBridgeState;
   if (existingBridge?.protocolVersion === CONTENT_PROTOCOL_VERSION) return;
   try {
@@ -117,7 +119,7 @@
     sendButton.click();
   }
 
-  async function waitForSendButton(composer, timeoutMs = 2000) {
+  async function waitForSendButton(composer, timeoutMs = 4500) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (assistantIsGenerating()) return null;
@@ -201,7 +203,7 @@
     const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
     const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
     submitComposer(composer, sendButton);
-    const deadline = Date.now() + 3000;
+    const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
       const userMessages = document.querySelectorAll('[data-message-author-role="user"]');
@@ -214,7 +216,8 @@
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    clearComposer(composer, insertedComposerText);
+    // A submit attempt has already happened. If ChatGPT keeps the exact prompt in the
+    // composer, preserve it for manual recovery instead of making the wake visibly vanish.
     return { ok: false, reason: "delivery_unconfirmed" };
   }
 
@@ -222,10 +225,28 @@
   let lastSubmittedControlFingerprint = "";
   let lastScannedAssistantSignature = "";
   let controlRetrySignature = "";
-  let controlRetryCount = 0;
+  let controlRetryFailures = 0;
+  let controlRetryNotBefore = 0;
+  let controlScanInFlight = false;
+
+  function resetControlRetry(signature) {
+    controlRetrySignature = signature;
+    controlRetryFailures = 0;
+    controlRetryNotBefore = 0;
+  }
+
+  function deferControlRetry(signature) {
+    if (controlRetrySignature !== signature) resetControlRetry(signature);
+    controlRetryFailures += 1;
+    const delay = Math.min(
+      CONTROL_RETRY_BASE_MS * (2 ** Math.min(controlRetryFailures - 1, 3)),
+      CONTROL_RETRY_MAX_MS
+    );
+    controlRetryNotBefore = Date.now() + delay;
+  }
 
   async function scanLatestAssistantControl() {
-    if (assistantIsGenerating()) return;
+    if (assistantIsGenerating() || controlScanInFlight) return;
     const latest = latestAssistantMessage();
     if (!latest) return;
     const url = normalizeConversationUrl(location.href);
@@ -240,19 +261,24 @@
     }
     const fingerprint = controlFingerprint(location.href, latest.text, control, latest.identity);
     if (fingerprint === lastSubmittedControlFingerprint) return;
-    if (controlRetrySignature !== signature) {
-      controlRetrySignature = signature;
-      controlRetryCount = 0;
-    }
-    if (controlRetryCount >= 3) return;
-    controlRetryCount += 1;
+    if (controlRetrySignature !== signature) resetControlRetry(signature);
+    if (Date.now() < controlRetryNotBefore) return;
 
+    controlScanInFlight = true;
     try {
       const context = await chrome.runtime.sendMessage({
         type: "bridge:control-context",
         conversationUrl: url
       });
-      if (!context?.ok || context.assistantBaseline === latest.identity) return;
+      if (!context?.ok) {
+        deferControlRetry(signature);
+        return;
+      }
+      if (context.assistantBaseline === latest.identity) {
+        lastScannedAssistantSignature = signature;
+        resetControlRetry(signature);
+        return;
+      }
       const response = await chrome.runtime.sendMessage({
         type: "bridge:assistant-control",
         conversationUrl: url,
@@ -264,11 +290,18 @@
       if (response?.ok) {
         lastSubmittedControlFingerprint = fingerprint;
         lastScannedAssistantSignature = signature;
+        resetControlRetry(signature);
       } else if (response?.reason === "control_stale_binding") {
         lastScannedAssistantSignature = signature;
+        resetControlRetry(signature);
+      } else {
+        deferControlRetry(signature);
       }
     } catch (error) {
+      deferControlRetry(signature);
       console.warn("Local Agent Chat Bridge control delivery failed:", error);
+    } finally {
+      controlScanInFlight = false;
     }
   }
 
