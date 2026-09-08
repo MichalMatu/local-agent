@@ -540,7 +540,7 @@ def service_control(
                 request = bound_control_request_from_checkout()
                 if request is None or str(request.get("action", "")) != "cancel_task":
                     agentd.handle_control_request(status_extra=status_fields)
-                    agentd.maybe_self_update()
+                agentd.maybe_self_update()
             agentd.publish_daemon_status(
                 "idle",
                 force_remote=False,
