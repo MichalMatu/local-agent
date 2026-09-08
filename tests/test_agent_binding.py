@@ -18,6 +18,7 @@ from local_agent.runtime.task_contract import (
 )
 
 MATRIX_BINDING = "033327ab-700d-43b4-9b3b-caff1acaa2c7"
+LOCAL_CLIMATE_LINK_BINDING = "e75c77cb-7589-4452-94b2-decc97ff85a1"
 C6_BINDING = "64877d7d-af3f-4312-a511-699c44aa42dd"
 
 
@@ -45,13 +46,18 @@ class AgentBindingHelpersTests(unittest.TestCase):
 
     def test_catalog_is_unique_and_resolves_repository(self) -> None:
         records = agent_binding.load_binding_catalog()
-        self.assertGreaterEqual(len(records), 5)
+        self.assertGreaterEqual(len(records), 6)
         self.assertEqual(len({record.agent_binding for record in records}), len(records))
         record = agent_binding.catalog_record_for_repository(
             "matrixhub", "MichalMatu/MatrixHub"
         )
         self.assertEqual(record.agent_binding, MATRIX_BINDING)
         self.assertTrue(record.execution_enabled)
+        climate = agent_binding.catalog_record_for_repository(
+            "local-climate-link-starter", "MichalMatu/local-climate-link-starter"
+        )
+        self.assertEqual(climate.agent_binding, LOCAL_CLIMATE_LINK_BINDING)
+        self.assertTrue(climate.execution_enabled)
         infra = agent_binding.catalog_record_for_repository(
             "local-agent", "MichalMatu/local-agent"
         )
