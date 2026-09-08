@@ -1,4 +1,4 @@
-# Local Agent 4.18.13 candidate
+# Local Agent 4.18.13
 
 ## Prevent launchd from orphaning a draining supervisor
 
