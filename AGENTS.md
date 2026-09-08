@@ -72,13 +72,14 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 
 The bounded-parallel production owner is `local_agent/supervisor/orchestrator.py`:
 
-- recommended production `max_workers` is `2`;
-- default remains `1` and the hard cap remains `4`;
+- production `max_workers` is `4` and the hard cap remains `4`;
+- default remains `1`;
 - `agent_multirepo.py` remains the known-safe serial fallback and preserves the same hard binding admission contract;
 - serial and parallel supervisors share the same daemon lock and must never run simultaneously;
 - every task must declare `resources` explicitly; missing, malformed, duplicated or non-canonical declarations are terminal task-contract errors, never silent fallbacks;
 - `resources: []` means the task needs no exclusive external resource beyond its repository lease; builds, tests, lint and other repository-local software work may use it regardless of `memory_limit_mb`;
-- named resources serialize only tasks sharing the same concrete external resource, for example `board:growbox-s3` or `board:zigbee-c6`;
+- the currently registered project repositories intentionally use `resources: []` for executable project work, including their project-dedicated hardware operations; device/port identity is discovered and verified inside task commands rather than encoded as a scheduler resource;
+- named resources remain available for genuinely shared external resources, and serialize only tasks sharing the same concrete resource name;
 - `resources: ["machine"]` is reserved for operations that truly require the whole host and must not be used merely because a task is a build, hardware test or has a large RSS limit;
 - `memory_limit_mb` is a per-task watchdog bound and is independent from resource classification;
 - every normal task holds the shared machine lock so a true `machine` task can drain and acquire global exclusivity;
@@ -87,7 +88,8 @@ The bounded-parallel production owner is `local_agent/supervisor/orchestrator.py
 - repository workers publish `waiting_resource` with the pending task/resource when admission is blocked;
 - machine contention retains priority/drain fairness so full-host maintenance cannot starve;
 - while workers are active, maintenance may only probe control state; global restart/status/self-update handling waits for a quiescent worker set and acquires all configured repository identities;
-- after initial supervisor control service succeeds, degraded control probes retry promptly without blocking unrelated task admission; confirmed `PENDING` control drains immediately, while repeated control-repository lease contention enters a bounded drain after six consecutive deferrals so global control cannot starve;
+- after initial supervisor control service succeeds, degraded control probes retry promptly without blocking unrelated task admission; confirmed `PENDING` control drains immediately;
+- v4.18.13 has confirmed BUG-002: repeated `LEASE_BUSY` from the control repository can trigger an unnecessary global admission drain even when the lease is owned by the supervisor's own known active control-repository worker. The candidate fix must treat that known-worker case as expected while preserving bounded defensive handling for unexplained lease contention;
 - registry entries must not be removed or identity-mutated while workers may still be alive.
 
 Repository isolation, hard agent binding and external-resource isolation are separate contracts. One repository still runs one task at a time, while independent hard-bound repositories may compile/test concurrently whenever their declared external resources do not conflict.
@@ -113,7 +115,6 @@ The currently registered downstream repositories are:
 - `MichalMatu/esp32s3_LiteGraph` — update `LOCAL_AGENT_FLOW.md`, `LOCAL_AGENT_AUTOPILOT.md` when task construction/autonomy changes, and `AGENTS.md` when the contract is repeated there.
 - `MichalMatu/growbox-ml-controller` — update root `AGENTS.md` on `main` and any active long-lived work branch that carries its own Local Agent bootstrap; currently `mvp/environment-controller` must stay synchronized.
 - `MichalMatu/MatrixHub` — update root `AGENTS.md` on `main` and the active long-lived development branch when it differs; currently `develop` must stay synchronized.
-
 - `MichalMatu/tracker` (repository id: `tracker`) — update root `AGENTS.md` on `main` when the Local Agent or planner contract changes.
 
 Do not hard-code downstream release numbers unless a repository intentionally documents a historical baseline. Runtime compatibility instructions should prefer `.agent/status/daemon.json` plus canonical `MichalMatu/local-agent/main`.
@@ -143,7 +144,7 @@ python scripts/verify.py
 
 CI additionally runs branch-aware coverage, Python 3.14 compatibility and the macOS smoke suite. Do not recreate static compile/Ruff file lists in documentation or workflows; extend `scripts/verify.py` when verification scope changes.
 
-Parallel scheduler releases additionally require real two-repository overlap, machine-exclusion, inherited-resource-lock, one-shot contention and macOS smoke coverage.
+Parallel scheduler releases additionally require real two-repository overlap, a long-lived active control-repository overlap regression that crosses the global-control probe interval, machine-exclusion, inherited-resource-lock, one-shot contention and macOS smoke coverage.
 
 ## Documentation
 
@@ -155,6 +156,7 @@ Parallel scheduler releases additionally require real two-repository overlap, ma
 - v4.11 parallel design/audit/live evidence: `docs/PARALLEL_EXECUTION_PLAN.md`.
 - Established Mac/ESP32 setup: `docs/SESSION_BOOTSTRAP.md`.
 - Current production invariants: `docs/GOLDEN_STANDARD.md`.
+- Frozen v4.18.13 rollback baseline and BUG-002 evidence: `docs/PRODUCTION_BASELINE_V4.18.13.md`.
 - Historical notes under `docs/history/` are non-canonical.
 
 ## Verification output policy
