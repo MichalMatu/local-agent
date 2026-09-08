@@ -8,7 +8,7 @@ const protocol = require("./control_protocol.js");
 const ROOT = __dirname;
 const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
 
-assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 4);
+assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 5);
 for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_harness.js"]) {
   assert.doesNotMatch(
     read(name),
