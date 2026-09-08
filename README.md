@@ -61,10 +61,10 @@ A ChatGPT conversation can be hard-bound to one canonical repository identity. T
 
 `main` is the runtime/release source. Candidate branches and detached worktrees are temporary validation infrastructure; production returns to `~/local-agent` on `main` after a validated release.
 
-The recommended registered multi-repository supervisor is:
+The registered bounded-parallel supervisor is:
 
 ```bash
-python agent_parallel.py --max-workers 2
+python agent_parallel.py --max-workers 4
 ```
 
 `agent_multirepo.py` is the direct serial fallback with global concurrency exactly one. Serial and parallel supervisors share the same daemon lock and must never run simultaneously.
@@ -85,7 +85,7 @@ Every task declares `resources` explicitly:
 - `memory_limit_mb` is an independent per-task watchdog and does not change resource classification;
 - resource contention is durable waiting: pending work is retried after the conflicting resource is released.
 
-The validated production setting is two workers. The scheduler hard-caps the value at three; increasing beyond two requires separate evidence.
+Production currently runs four workers, which is also the scheduler hard cap. The registered downstream project repositories currently use `resources: []` for their executable tasks and perform device/port verification inside task commands; named and `machine` resources remain available for genuinely shared/global resources.
 
 ## Runtime safety limits
 
@@ -157,7 +157,7 @@ python -m local_agent.repository.admin list
 python -m local_agent.repository.admin validate
 python -m local_agent.repository.admin provision --repository-id <id>
 python -m local_agent.cli.diagnostics doctor
-python agent_parallel.py --max-workers 2 --once
+python agent_parallel.py --max-workers 4 --once
 ```
 
 Each project repository keeps its own `agent-control` branch and repository-scoped `.agent/` task, result and status state. Task IDs may repeat across repositories without collision. One repository still executes only one claimed task at a time; independent repositories may overlap only when resource admission permits it.
@@ -214,13 +214,13 @@ Inspect the definition without changing the machine:
 Install/update the plist **without restarting the running service**:
 
 ```bash
-.venv/bin/python scripts/macos_launchd.py install --mode parallel --max-workers 2
+.venv/bin/python scripts/macos_launchd.py install --mode parallel --max-workers 4
 ```
 
 When it is safe to interrupt active work, explicitly activate the generated definition:
 
 ```bash
-.venv/bin/python scripts/macos_launchd.py restart --mode parallel --max-workers 2
+.venv/bin/python scripts/macos_launchd.py restart --mode parallel --max-workers 4
 ```
 
 > [!WARNING]
