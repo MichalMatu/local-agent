@@ -60,19 +60,19 @@ class CurrentDocumentationContractTests(unittest.TestCase):
                 with self.subTest(path=relative, phrase=phrase):
                     self.assertNotIn(phrase, text)
 
-    def test_golden_standard_names_source_release_without_claiming_it_is_already_production(self) -> None:
+    def test_golden_standard_names_released_source_as_current_production(self) -> None:
         golden = (REPO_ROOT / "docs" / "GOLDEN_STANDARD.md").read_text(encoding="utf-8")
         self.assertIn(f"source release is `v{RELEASE_VERSION}`", golden)
-        self.assertRegex(golden, r"current production release is `v\d+\.\d+\.\d+`")
+        self.assertIn(f"current production release is `v{RELEASE_VERSION}`", golden)
+        self.assertNotIn("is still a candidate on this branch", golden)
 
     def test_release_version_has_matching_release_notes_and_changelog_entry(self) -> None:
         notes = REPO_ROOT / "docs" / f"RELEASE_NOTES_V{RELEASE_VERSION}.md"
         self.assertTrue(notes.is_file(), f"missing release notes for {RELEASE_VERSION}")
-        self.assertTrue(
-            notes.read_text(encoding="utf-8").startswith(
-                f"# Local Agent {RELEASE_VERSION}\n"
-            )
-        )
+        notes_text = notes.read_text(encoding="utf-8")
+        self.assertTrue(notes_text.startswith(f"# Local Agent {RELEASE_VERSION}\n"))
+        self.assertNotIn("must not be tagged/frozen until", notes_text)
+        self.assertNotIn("A follow-up candidate adds", notes_text)
         changelog = (REPO_ROOT / "docs" / "CHANGELOG.md").read_text(encoding="utf-8")
         self.assertIn(f"## v{RELEASE_VERSION}\n", changelog)
 
