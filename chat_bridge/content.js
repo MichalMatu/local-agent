@@ -1,5 +1,5 @@
 (() => {
-  const CONTENT_PROTOCOL_VERSION = 3;
+  const CONTENT_PROTOCOL_VERSION = 4;
   const existingBridge = globalThis.__localAgentChatBridgeState;
   if (existingBridge?.protocolVersion === CONTENT_PROTOCOL_VERSION) return;
   try {
@@ -13,7 +13,10 @@
 
   const protocol = globalThis.LocalAgentBridgeProtocol;
   if (!protocol) throw new Error("Local Agent Chat Bridge control protocol is unavailable");
+  const retryPolicy = globalThis.LocalAgentBridgeContentRetry;
+  if (!retryPolicy) throw new Error("Local Agent Chat Bridge content retry policy is unavailable");
   const { normalizeConversationUrl, parseAssistantControl, controlFingerprint, fnv1a32 } = protocol;
+  const controlRetryGate = retryPolicy.createRetryGate();
 
   function findComposer() {
     return (
@@ -117,7 +120,7 @@
     sendButton.click();
   }
 
-  async function waitForSendButton(composer, timeoutMs = 2000) {
+  async function waitForSendButton(composer, timeoutMs = 4500) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (assistantIsGenerating()) return null;
@@ -139,17 +142,17 @@
 
   let deliveryInFlight = false;
 
-  async function sendFeedback(prompt, expectedUrl, deliveryId) {
+  async function sendFeedback(prompt, expectedUrl, deliveryId, recoverBridgePrompt = false) {
     if (deliveryInFlight) return { ok: false, reason: "delivery_in_progress" };
     deliveryInFlight = true;
     try {
-      return await deliverFeedback(prompt, expectedUrl, deliveryId);
+      return await deliverFeedback(prompt, expectedUrl, deliveryId, recoverBridgePrompt);
     } finally {
       deliveryInFlight = false;
     }
   }
 
-  async function deliverFeedback(prompt, expectedUrl, deliveryId) {
+  async function deliverFeedback(prompt, expectedUrl, deliveryId, recoverBridgePrompt) {
     const normalizedUrl = normalizeConversationUrl(expectedUrl);
     if (!normalizedUrl || normalizeConversationUrl(location.href) !== normalizedUrl) {
       return { ok: false, reason: "wrong_conversation" };
@@ -159,19 +162,30 @@
 
     const composer = findComposer();
     if (!composer) return { ok: false, reason: "composer_not_found" };
-    if (composerText(composer).trim()) return { ok: false, reason: "composer_not_empty" };
+    const existingComposerText = composerText(composer);
+    const reuseExactBridgePrompt = Boolean(
+      recoverBridgePrompt && existingComposerText && existingComposerText === prompt
+    );
+    if (existingComposerText.trim() && !reuseExactBridgePrompt) {
+      return { ok: false, reason: "composer_not_empty" };
+    }
 
-    try {
-      setComposerText(composer, prompt);
-    } catch (error) {
-      return { ok: false, reason: "composer_write_failed", error: String(error) };
+    if (!reuseExactBridgePrompt) {
+      try {
+        setComposerText(composer, prompt);
+      } catch (error) {
+        return { ok: false, reason: "composer_write_failed", error: String(error) };
+      }
     }
     const insertedComposerText = composerText(composer);
-    if (!insertedComposerText.trim()) return { ok: false, reason: "composer_write_failed" };
+    if (!insertedComposerText.trim() || insertedComposerText !== prompt) {
+      return { ok: false, reason: "composer_write_failed" };
+    }
 
     const sendButton = await waitForSendButton(composer);
     if (!sendButton) {
-      clearComposer(composer, insertedComposerText);
+      // Keep the exact Bridge-owned prompt visible for a later bounded retry. An
+      // operator edit changes the text and therefore makes future reuse fail closed.
       return { ok: false, reason: "send_button_not_ready" };
     }
 
@@ -194,14 +208,13 @@
       return { ok: false, reason: "composer_changed" };
     }
     if (assistantIsGenerating() || !sendButton.isConnected || sendButton.disabled) {
-      clearComposer(composer, insertedComposerText);
       return { ok: false, reason: "send_button_not_ready" };
     }
 
     const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
     const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
     submitComposer(composer, sendButton);
-    const deadline = Date.now() + 3000;
+    const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
       const userMessages = document.querySelectorAll('[data-message-author-role="user"]');
@@ -214,18 +227,18 @@
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    clearComposer(composer, insertedComposerText);
+    // Submission was attempted. Do not erase an exact retained prompt merely because
+    // ChatGPT's DOM did not confirm it quickly enough; a later run may safely reuse it.
     return { ok: false, reason: "delivery_unconfirmed" };
   }
 
   let controlScanTimer = null;
   let lastSubmittedControlFingerprint = "";
   let lastScannedAssistantSignature = "";
-  let controlRetrySignature = "";
-  let controlRetryCount = 0;
+  let controlScanInFlight = false;
 
   async function scanLatestAssistantControl() {
-    if (assistantIsGenerating()) return;
+    if (assistantIsGenerating() || controlScanInFlight) return;
     const latest = latestAssistantMessage();
     if (!latest) return;
     const url = normalizeConversationUrl(location.href);
@@ -240,19 +253,23 @@
     }
     const fingerprint = controlFingerprint(location.href, latest.text, control, latest.identity);
     if (fingerprint === lastSubmittedControlFingerprint) return;
-    if (controlRetrySignature !== signature) {
-      controlRetrySignature = signature;
-      controlRetryCount = 0;
-    }
-    if (controlRetryCount >= 3) return;
-    controlRetryCount += 1;
+    if (!controlRetryGate.canAttempt(signature)) return;
 
+    controlScanInFlight = true;
     try {
       const context = await chrome.runtime.sendMessage({
         type: "bridge:control-context",
         conversationUrl: url
       });
-      if (!context?.ok || context.assistantBaseline === latest.identity) return;
+      if (!context?.ok) {
+        controlRetryGate.defer(signature);
+        return;
+      }
+      if (context.assistantBaseline === latest.identity) {
+        lastScannedAssistantSignature = signature;
+        controlRetryGate.reset(signature);
+        return;
+      }
       const response = await chrome.runtime.sendMessage({
         type: "bridge:assistant-control",
         conversationUrl: url,
@@ -264,11 +281,18 @@
       if (response?.ok) {
         lastSubmittedControlFingerprint = fingerprint;
         lastScannedAssistantSignature = signature;
+        controlRetryGate.reset(signature);
       } else if (response?.reason === "control_stale_binding") {
         lastScannedAssistantSignature = signature;
+        controlRetryGate.reset(signature);
+      } else {
+        controlRetryGate.defer(signature);
       }
     } catch (error) {
+      controlRetryGate.defer(signature);
       console.warn("Local Agent Chat Bridge control delivery failed:", error);
+    } finally {
+      controlScanInFlight = false;
     }
   }
 
@@ -310,7 +334,12 @@
       return false;
     }
     if (message?.type !== "bridge:feedback") return false;
-    sendFeedback(String(message.prompt || ""), String(message.expectedUrl || ""), message.deliveryId)
+    sendFeedback(
+      String(message.prompt || ""),
+      String(message.expectedUrl || ""),
+      message.deliveryId,
+      message.recoverBridgePrompt === true
+    )
       .then((response) => sendResponse({ ...response, protocolVersion: CONTENT_PROTOCOL_VERSION }))
       .catch((error) => sendResponse({
         ok: false,

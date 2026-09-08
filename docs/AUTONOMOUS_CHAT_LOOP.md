@@ -143,7 +143,7 @@ For every bridge wake:
 1. Parse and retain `LA_AGENT`, `LA_REPO`, `LA_REPOSITORY` and `LA_CHAT` from the bridge prompt.
 2. Do not derive a different target repository from conversation history.
 3. Read the bound repository's current `.agent/status/daemon.json` and exact run/result evidence for the active goal.
-4. If the relevant task is active, queue nothing else for that goal.
+4. If the relevant task is active and healthy, queue nothing else for that goal. If exact live evidence already proves that the active task cannot achieve its intended outcome, publish one repository-scoped `cancel_task` request for that exact task id instead of waiting for its timeout; then wait for the terminal cancellation/result evidence before replacing it.
 5. If a terminal result exists, inspect its exact digest/result/command evidence.
 6. Choose direct GitHub work or local execution using the rules above. If local execution is needed, create one new bounded task with a unique id and exactly the wake's `agent_binding`.
 7. If the task fails deterministically, diagnose the evidence and create a new task only when the failure supports a specific fix. Never replay or mutate the old payload.
@@ -152,6 +152,20 @@ For every bridge wake:
 10. Otherwise use a suitable one-shot `NEXT` or allow normal pacing to resume.
 
 The planner loop is sequential per active conversation goal, not globally serial. Independent bound conversations may proceed concurrently; `local_agent/supervisor/orchestrator.py` owns repository/resource concurrency.
+
+## Active-task cancellation
+
+`cancel_task` already exists as executor control; it is not a Chat Bridge UI shortcut. The planner may publish it only in the same bound repository and only for the exact task id supported by current run/status evidence:
+
+```json
+{
+  "id": "cancel-<unique-id>",
+  "action": "cancel_task",
+  "task_id": "<exact-active-task-id>"
+}
+```
+
+Use cancellation when current evidence makes failure unavoidable or proves that the task's premise is wrong, not merely because a task is taking longer than expected. An accepted active cancellation is owned by the worker executing that exact repository/task. Do not queue a replacement until the remote ACK and terminal task evidence establish what happened. A future popup-level direct cancel button would require a separate trusted operator transport; the browser bridge must not acquire repository write authority merely to add a button.
 
 ## Task contract
 
@@ -189,13 +203,13 @@ Binding failures are terminal safety evidence, not retry candidates with altered
 
 ## Post-queue liveness
 
-After queueing a task, prefer one early re-check around 30 seconds:
+Do not use 30-second polling for healthy executor work. After queueing, use one early autonomous re-check no sooner than about two minutes when immediate claim/failure evidence matters:
 
 ```text
-[LAB:NEXT=30s]
+[LAB:NEXT=2m]
 ```
 
-Use it only to catch immediate deterministic failure or failure to claim. If execution is healthy, return to a longer cadence appropriate for the remaining duration. Do not turn healthy multi-minute work into permanent 30-second polling.
+Once execution is visibly healthy, choose pacing from evidence. Multi-minute builds and test suites should normally use 5-10 minute `NEXT` intervals, or a longer evidence-based delay when their expected duration is known. Shorter protocol values such as an explicit `[LAB:NEXT=30s]` remain accepted for operator/emergency compatibility, but they are not the autonomous healthy-task polling policy.
 
 ## Conversation-scoped bridge controls
 
@@ -205,7 +219,7 @@ A bridge control is accepted at the end of the latest assistant message in the s
 [LAB:STOP]
 [LAB:PAUSE]
 [LAB:RESUME]
-[LAB:NEXT=30s]
+[LAB:NEXT=2m]
 [LAB:NEXT=10m]
 [LAB:INTERVAL=30m]
 [LAB:INTERVAL=AUTO]
@@ -220,7 +234,7 @@ Rescanning the same answer is deduplicated. Repeating `RESUME` in a new answer i
 - `STOP`: disable this conversation and clear its interval override.
 - `PAUSE`: disable this conversation while preserving its interval override.
 - `RESUME`: re-enable this conversation; it does not change its binding.
-- `NEXT=<duration>`: **set `enabled=true` and arm/re-arm** one conversation for a one-shot wake; 30 seconds through 24 hours. It changes neither the normal interval nor the global master switch.
+- `NEXT=<duration>`: **set `enabled=true` and arm/re-arm** one conversation for a one-shot wake; the compatibility protocol accepts 30 seconds through 24 hours. Autonomous healthy-task polling follows the stricter pacing policy above and should not use less than two minutes.
 - `INTERVAL=<minutes>`: set a persistent conversation pacing override.
 - `INTERVAL=AUTO`: return to configured runtime pacing.
 
@@ -233,6 +247,8 @@ All of these controls work for new assistant answers immediately after the first
 Stop only when the requested outcome is supported by execution evidence. Executor `idle` means capacity is free; it does not create new scope.
 
 Pause rather than guess when progress requires user action, external approval, unavailable credentials/hardware, a materially unresolved product choice, or work in another repository.
+
+Cancel an active task instead of passively waiting for its timeout only when exact current evidence already proves that the task cannot produce the intended result. Cancellation is a bounded executor action, not a substitute for impatience or ordinary progress polling.
 
 ## Required end-to-end validation for hard binding
 
@@ -256,9 +272,11 @@ Canonical executor and rollout rules remain in `AGENTS.md` and `docs/OPERATIONS.
 
 ## Delivery behavior in Bridge 0.5
 
-The worker preflights the bound tab's content protocol and exact conversation URL before sending. A tab with no receiving content script is safely re-injected and checked again. A reachable older/mismatched content script is not over-injected; reload that ChatGPT tab so it receives the matching protocol version.
+The worker preflights the bound tab's content protocol and exact conversation URL before sending. A tab with no receiving content script is safely re-injected and checked again. Content protocol v4 also treats a reachable older/mismatched script as refreshable: it injects the current `control_protocol.js` + `content.js`, lets the previous script dispose its listeners/timers, then repeats preflight. A normal extension update therefore does not require reloading every already-open ChatGPT tab merely to replace an old Bridge content protocol.
 
-The content script checks the exact conversation URL, requires an empty/unchanged composer, authorizes the active delivery immediately before submission, and attempts to confirm the exact new user message in the DOM. Concurrent sends for the same conversation are rejected by an in-memory `delivery_in_progress` guard.
+The content script checks the exact conversation URL, protects operator drafts, authorizes the active delivery immediately before submission, and attempts to confirm the exact new user message in the DOM. Concurrent sends for the same conversation are rejected by an in-memory `delivery_in_progress` guard. Background/slow tabs receive a bounded longer send-button and post-submit observation window than protocol v3.
+
+If Bridge inserted an exact wake but ChatGPT did not expose a usable Send button in time, the exact Bridge-owned prompt is left visible instead of being erased. If submission was attempted but the user-message DOM confirmation is missing, the exact retained prompt is also left alone. On a later run, Bridge may reuse a non-empty composer only when the previous conversation status is one of these recovery states **and** the composer text is byte-for-byte identical to the current Bridge prompt. Any operator edit, extra whitespace or unrelated draft fails closed as `composer_not_empty`/`composer_changed` and is never submitted automatically.
 
 There is deliberately **no durable ambiguous-delivery journal**. If submission occurred but the exact DOM insertion/reply cannot be confirmed within the bounded observation window, Bridge records `delivery_unconfirmed` as diagnostic status only. It does not:
 
@@ -271,6 +289,8 @@ There is deliberately **no durable ambiguous-delivery journal**. If submission o
 
 This intentionally accepts a small duplicate-send risk after lost confirmation in exchange for preventing transport uncertainty from deadlocking normal chat operation. Only a send that is currently in progress is protected; the guard is in memory and is gone after completion or service-worker restart.
 
+Assistant control scanning is also non-terminal on transient worker/message errors. The same unchanged assistant control is retried with bounded 5-30 second backoff until it is accepted or deterministically classified stale; there is no three-attempt permanent give-up that requires a page reload to reset.
+
 Old schema-v3 `pendingDelivery` state is removed during normalization, and legacy `delivery_uncertain` status becomes non-blocking `delivery_unconfirmed`.
 
-Browser fixture tests verify DOM submission, control/binding behavior, non-blocking unconfirmed delivery and worker restart in an isolated Chromium profile. They do not prove the current live ChatGPT DOM or the operator's currently loaded extension version.
+Browser fixture tests verify DOM submission, control/binding behavior, stale-content-script replacement, non-blocking retained-prompt recovery and worker restart in an isolated Chromium profile. They do not prove the current live ChatGPT DOM or the operator's currently loaded extension version.

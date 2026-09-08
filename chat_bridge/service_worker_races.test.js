@@ -23,7 +23,7 @@ async function add(harness, overrides = {}) {
   return result.conversation.id;
 }
 
-const sent = { ok: true, reason: "sent", protocolVersion: 3 };
+const sent = { ok: true, reason: "sent", protocolVersion: 4 };
 
 (async () => {
   // Alarm/manual overlap cannot authorize two sends or rebind/remove an in-flight wake.
@@ -64,7 +64,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 3 };
       ready.resolve();
       await finish.promise;
       assert.equal((await authorize()).ok, false);
-      return { ok: false, reason: "delivery_cancelled", protocolVersion: 3 };
+      return { ok: false, reason: "delivery_cancelled", protocolVersion: 4 };
     } });
     const id = await add(h);
     const first = h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
@@ -82,7 +82,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 3 };
     const h = createHarness({ sendMessage: async ({ authorize }) => {
       attempts += 1;
       assert.equal((await authorize()).ok, true);
-      return { ok: false, reason: "delivery_unconfirmed", protocolVersion: 3 };
+      return { ok: false, reason: "delivery_unconfirmed", protocolVersion: 4 };
     } });
     const id = await add(h);
     let response = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
@@ -93,6 +93,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 3 };
     response = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
     assert.equal(response.reason, "delivery_unconfirmed");
     assert.equal(attempts, 2);
+    assert.equal(h.sentMessages[1].message.recoverBridgePrompt, true);
     const removed = await h.sendRuntimeMessage({ type: "bridge:remove-conversation", conversationId: id });
     assert.equal(removed.ok, true);
   }
@@ -115,14 +116,22 @@ const sent = { ok: true, reason: "sent", protocolVersion: 3 };
     assert.equal(h.storage.bridgeState.conversations[id].enabled, true);
   }
 
-  // A stale reachable content script is never over-injected or allowed to send.
+  // A stale reachable content script is replaced once and the wake continues.
   {
-    const h = createHarness({ contentScriptProbe: async () => undefined });
+    let probes = 0;
+    const h = createHarness({ contentScriptProbe: async ({ injectedScripts }) => {
+      probes += 1;
+      if (!injectedScripts.length) {
+        return { ok: true, reason: "ready", protocolVersion: 3, assistantIdentity: "old-assistant" };
+      }
+      return { ok: true, reason: "ready", protocolVersion: 4, assistantIdentity: "old-assistant" };
+    } });
     const id = await add(h);
     const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
-    assert.equal(result.reason, "content_script_protocol_mismatch");
-    assert.equal(h.injectedScripts.length, 0);
-    assert.equal(h.sentMessages.length, 0);
+    assert.equal(result.reason, "sent");
+    assert.equal(probes, 2);
+    assert.equal(h.injectedScripts.length, 1);
+    assert.equal(h.sentMessages.length, 1);
     assert.equal(h.storage.bridgeState.conversations[id].enabled, true);
   }
 

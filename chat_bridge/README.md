@@ -31,6 +31,8 @@ The first actual wake for a newly added conversation is a bootstrap. Later wakes
 
 Adding a conversation captures the current latest assistant-message identity as `assistantBaseline`. That existing answer is ignored as a control source. New assistant answers written after the chat is added may use the complete conversation control protocol immediately, even while the first bootstrap is still pending. A later binding revision remains protected until its fresh bootstrap establishes the new baseline.
 
+Autonomous planner pacing is intentionally slower than the protocol's absolute compatibility minimum. Healthy active Local Agent work should not be polled every 30 seconds: use `NEXT` no sooner than about two minutes for an early liveness check and normally 5-10 minutes for multi-minute builds/tests unless exact evidence supports a nearer completion.
+
 ## Conversation controls
 
 A control is accepted from the end of the latest assistant message in that exact configured conversation. Text before the marker needs no separating whitespace: `Acknowledged.[LAB:PAUSE]` works. After the marker, including subsequent lines or paragraphs, only whitespace and these decorations are allowed: straight quotes/apostrophes, typographic quotes `“ ” „ ‘ ’ ‚ « » ‹ ›`, punctuation `. , ! ? ; : …`, dashes `- – —`, Markdown characters (asterisk, underscore, backtick, tilde), and closing brackets `) ] }`. Letters, numbers, emoji and other symbols after the marker cause rejection. Prefer a separate marker line:
@@ -39,7 +41,7 @@ A control is accepted from the end of the latest assistant message in that exact
 [LAB:STOP]
 [LAB:PAUSE]
 [LAB:RESUME]
-[LAB:NEXT=30s]
+[LAB:NEXT=2m]
 [LAB:NEXT=10m]
 [LAB:INTERVAL=30m]
 [LAB:INTERVAL=AUTO]
@@ -54,7 +56,7 @@ Quotes and rendered Markdown (`code`, `pre`, `strong`, `blockquote`) do not exem
 - `STOP` disables only that conversation and clears its persistent interval override.
 - `PAUSE` disables only that conversation while preserving its interval override.
 - `RESUME` re-enables that conversation and schedules a near-term retry wake.
-- `NEXT=<duration>` **arms or re-arms** that conversation, sets `enabled=true`, and changes only its next wake. The normal interval and global master switch are unchanged. Durations are bounded to 30 seconds through 24 hours.
+- `NEXT=<duration>` **arms or re-arms** that conversation, sets `enabled=true`, and changes only its next wake. The normal interval and global master switch are unchanged. The compatibility protocol accepts 30 seconds through 24 hours; autonomous healthy-task polling uses the stricter two-minute-or-longer planner policy above.
 - `INTERVAL=<minutes>` sets the persistent per-conversation interval override.
 - `INTERVAL=AUTO` returns that conversation to runtime/default pacing.
 
@@ -62,23 +64,34 @@ Per-conversation operator values are ordinary chat state, not a higher-priority 
 
 The control fingerprint is deduplicated per conversation. Rescanning the same answer does not reapply its command. The same command in a new answer is a new control; repeated `RESUME` may reset the near-term wake time. Controls cannot change repository identity.
 
+Transient control-delivery failures are retried for the unchanged latest assistant answer with bounded 5-30 second backoff. Bridge no longer permanently gives up after three failed scans; a page reload is not the recovery mechanism for ordinary transient worker/message failures.
+
 ## Delivery model
 
 Bridge intentionally does **not** keep a durable ambiguous-delivery journal.
 
-The content script still protects the important local send boundaries: exact conversation URL, empty/unchanged composer, one active delivery per conversation, preflight protocol match, authorization immediately before submission, and exact DOM confirmation when available.
+Content protocol v4 protects the important local send boundaries: exact conversation URL, operator-draft preservation, one active delivery per conversation, preflight protocol match, authorization immediately before submission, and exact DOM confirmation when available. If a reachable open tab still runs an older content protocol, the worker injects the current protocol/content scripts and probes it again instead of requiring a manual ChatGPT-tab reload.
 
-After submission:
+After insertion/submission:
 
 - confirmed DOM insertion is `sent`;
 - a missing receiver before submission is treated as safely unsent/retryable;
-- if the browser cannot confirm the submitted user message in its short observation window, the status is `delivery_unconfirmed`.
+- if Bridge inserted its wake but ChatGPT does not expose a usable Send button in the bounded window, status is `send_button_not_ready` and the exact Bridge prompt is left visible;
+- if the browser cannot confirm the submitted user message in its bounded observation window, status is `delivery_unconfirmed` and any exact retained Bridge prompt is left visible instead of being erased.
+
+A later run may reuse a non-empty composer only when the previous Bridge state is a recoverable transport state and the composer text is byte-for-byte identical to the current Bridge prompt. Any operator edit, extra whitespace or unrelated draft blocks automatic reuse. Authorization, binding, generation and exact-conversation checks are still repeated before submission.
 
 `delivery_unconfirmed` is diagnostic only. It does **not** disable the conversation, create `pendingDelivery`, clear the schedule, block `NEXT`/`RESUME`/other controls, require a ✓/× decision, or prevent removal. The bridge may therefore send again later if confirmation was lost after a real submission; this tradeoff is deliberate so transport uncertainty cannot deadlock normal chat operation.
 
 Only a delivery that is actively in progress is protected by an in-memory overlap guard. That guard disappears when the send finishes or the service worker restarts.
 
 Old schema-v3 `pendingDelivery` data is discarded during normalization. Legacy `delivery_uncertain` status is migrated to the non-blocking `delivery_unconfirmed` status.
+
+## Active Local Agent task cancellation
+
+The executor already supports repository-scoped `cancel_task` for an exact task id. The ChatGPT planner should use it when current run/status evidence already proves that a long-running task cannot achieve the intended outcome, rather than waiting for the task timeout. See `docs/AUTONOMOUS_CHAT_LOOP.md` and `docs/EMERGENCY_CONTROLS.md`.
+
+This is deliberately not a direct popup button yet. The extension has no repository write credential/native executor channel, and Bridge remains transport-only. A future direct operator cancel button needs a separate trusted transport rather than silently granting the browser extension repository write authority.
 
 ## Popup
 
@@ -154,7 +167,7 @@ The parallel worker and serial fallback enforce the same contract before task ex
 6. Repeat for other conversations.
 7. Use a chat control or `Run now` for an end-to-end test.
 
-After pulling an update, click **Reload** on the extension card and reload open ChatGPT tabs once so worker/content protocol versions match. Bridge 0.5 requires Chrome 120 or newer.
+After pulling an extension update, click **Reload** on the extension card. Content protocol v4 can replace an older reachable content script in already-open ChatGPT tabs on the next preflight, so a manual reload of every chat tab is no longer the normal protocol-upgrade path. If Chrome has discarded or otherwise broken a tab, reloading that tab remains a valid recovery action. Bridge 0.5 requires Chrome 120 or newer.
 
 ## Development validation
 
@@ -165,4 +178,4 @@ npx playwright install chromium
 python scripts/verify.py --profile bridge-browser
 ```
 
-Browser smoke uses a disposable offline Chromium profile and the actual unpacked extension. It covers confirmed submission, composer replacement, draft preservation, SPA navigation, overlapping sends, non-blocking `delivery_unconfirmed`, popup behavior and service-worker restart without contacting the operator's real ChatGPT session.
+Browser smoke uses a disposable offline Chromium profile and the actual unpacked extension. It covers confirmed submission, composer replacement, draft preservation, SPA navigation, overlapping sends, retained/non-blocking `delivery_unconfirmed` recovery, popup behavior and service-worker restart without contacting the operator's real ChatGPT session.

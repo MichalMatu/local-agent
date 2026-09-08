@@ -71,11 +71,14 @@ async function probeExhaustionGuard(tabId, expectedUrl) {
 
 async function ensureContentScript(tab, expectedUrl) {
   let content = await probeContentScript(tab.id, expectedUrl);
-  if (!content.ok && content.reason === "content_script_unavailable") {
+  if (
+    !content.ok &&
+    (content.reason === "content_script_unavailable" || content.reason === "content_script_protocol_mismatch")
+  ) {
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, frameIds: [0] },
-        files: ["control_protocol.js", "content.js"]
+        files: ["control_protocol.js", "content_retry.js", "content.js"]
       });
     } catch (error) {
       return { ok: false, reason: "content_script_unavailable", error: String(error) };
