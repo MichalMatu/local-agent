@@ -4,7 +4,7 @@ This document defines the production design for one `local-agent` service operat
 
 ## Production schedulers
 
-`agent_parallel.py` is the recommended multi-repository supervisor. Production uses `--max-workers 4`, which is also the scheduler hard cap.
+`agent_parallel.py` is the production multi-repository supervisor. Production uses `--max-workers 4`, which is also the scheduler hard cap.
 
 `agent_multirepo.py` remains the direct serial fallback with global execution concurrency one. Both supervisors:
 
@@ -26,7 +26,7 @@ Machine-local configuration:
 
 Each entry defines a repository id, remote identity and control/work/checkpoint workspaces. Repository ids/remotes are unique case-insensitively and normalized workspace paths must be disjoint, including aliases and ancestor/descendant relationships.
 
-The first enabled registry entry is the supervisor control repository in registry v1. Reordering enabled entries therefore changes the global restart/self-update/status control source; treat registry order as operational identity.
+The first enabled registry entry is the supervisor control repository in registry v1. Reordering enabled entries therefore changes the global restart/self-update/status control source; treat registry order as operational identity. The scheduler clears stale control-probe retry/pause evidence and invalidates the prior control-poll clock when that identity changes.
 
 Provisioning is explicit:
 
@@ -40,7 +40,7 @@ Polling never implicitly clones, repairs or overwrites a checkout.
 
 ## Worker isolation
 
-A supervisor never binds repository-specific `agent_core` paths in its long-lived process. Each short-lived worker:
+A supervisor never binds repository-specific execution paths in its long-lived process. Each short-lived worker:
 
 1. receives one repository id plus the expected immutable registry-entry digest;
 2. validates inherited repository execution leases;
@@ -109,7 +109,7 @@ Machine-exclusive contention retains priority/drain behavior: the supervisor sto
 
 `--once` remains a bounded diagnostic mode and may terminate after its bounded deferral budget; it is not the durability model used by the long-running production supervisor.
 
-## Scheduling
+## Scheduling ownership
 
 Production: `max_workers=4`; hard cap: `4`; default: `1`.
 
@@ -117,13 +117,33 @@ One repository still has only one active repository worker/task at a time. Diffe
 
 The scheduler retains adaptive/fair polling and bounded worker turns. One repository failure, lease contention or configuration change must not terminate polling of other repositories.
 
+Pure due/retry/backoff and control-admission policy state lives in `local_agent/supervisor/scheduling.py`. The parallel orchestrator owns side effects only: it performs real control probes, starts/reaps workers, invokes drains/control service and publishes status. This separation is intentional so starvation policy is deterministic and unit-testable rather than embedded as ad-hoc counters in the long supervisor loop.
+
 ## Global control
 
 Restart, self-update and global status are supervisor-wide operations.
 
-While workers run, the supervisor probes the designated control repository for a pending valid request. Probe outcomes distinguish `CLEAR`, `PENDING`, `LEASE_BUSY` and degraded `DEFERRED` failures. A detected `PENDING` request stops new admissions immediately. Before executing global control, the supervisor acquires execution identities for every currently configured repository, which also catches surviving workers/descendants from an earlier supervisor process.
+While workers run, the supervisor probes the designated control repository for a pending valid request. Probe outcomes distinguish `CLEAR`, `PENDING`, `LEASE_BUSY` and degraded `DEFERRED` failures. Before executing global control, the supervisor acquires execution identities for every currently configured repository, which also catches surviving workers/descendants from an earlier supervisor process.
 
-The frozen v4.18.13 baseline has confirmed BUG-002: if the control repository itself has a long-running active worker, the periodic control probe cannot acquire that worker's repository lease. After six consecutive `LEASE_BUSY` outcomes, v4.18.13 forces a global admission drain. This can delay unrelated `resources: []` repositories even though worker capacity remains available. The candidate fix must treat lease ownership by the supervisor's own known active control-repository worker as expected and continue unrelated admission, while retaining bounded defensive handling for unexplained lease holders and immediate drain for confirmed `PENDING` control.
+v4.18.14 uses two related but distinct counters:
+
+- **consecutive deferrals** drive bounded 2-15 second retry/backoff;
+- **consecutive `LEASE_BUSY` outcomes** drive lease-ownership starvation protection.
+
+A `DEFERRED` outcome (for example a transient sync/network/ACK-read failure) breaks the lease-busy streak but does not erase bounded retry behavior. This makes the phrase “six consecutive `LEASE_BUSY`” literal rather than approximate.
+
+Control admission behavior is:
+
+1. `CLEAR` — normal control polling resumes and stale deferral/pause evidence is cleared.
+2. `PENDING` — new admission stops immediately; active workers drain; global control runs only after all required repository identities can be acquired.
+3. fewer than six consecutive `LEASE_BUSY` — retry promptly with no admission policy change.
+4. six consecutive `LEASE_BUSY` while the control repository is itself a known active worker — pause only **new control-repository admission**. Existing workers continue and unrelated repositories remain eligible for free worker slots.
+5. six consecutive `LEASE_BUSY` with no corresponding known active control worker — retain the defensive global drain for unexplained/stale lease ownership.
+6. `DEFERRED` — continue unrelated task admission, retry control with bounded backoff, and reset the lease-busy streak.
+
+Pausing new control-repository admission is a fairness gate, not a task cancellation. It prevents a continuous queue in the control repository from reacquiring its own repository lease indefinitely. When the current control worker finishes, the supervisor can obtain that lease and check global control before allowing another control-repository task to start.
+
+This fixes the v4.18.13 BUG-002 failure mode where expected ownership by the supervisor's own control worker could escalate into a global drain and unnecessarily block independent repositories.
 
 Ordinary maintenance/self-update waits for a natural idle window. Production self-update runs from the clean `main` checkout.
 
@@ -159,14 +179,18 @@ Parallel scheduler releases require:
 
 - task-contract tests for explicit canonical resources;
 - real temporary-Git two-repository software overlap;
-- a long-lived control-repository overlap test that crosses the global-control probe interval and proves a second `resources: []` repository starts before the first finishes;
+- pure positive/negative control-admission policy tests, including mixed `LEASE_BUSY`/`DEFERRED` sequences;
+- a long-lived control-repository overlap test that crosses the six-consecutive-`LEASE_BUSY` threshold and proves a second `resources: []` repository starts before the first finishes;
+- explicit evidence that the known-worker path logs/control-pauses rather than taking the global-drain path;
 - real named-resource overlap/exclusion behavior when named resources are changed;
 - real machine-exclusion behavior;
 - real resource-wait status followed by automatic execution after resource release without a new task payload;
 - real POSIX inherited-resource-FD lifetime after worker death;
-- exact-SHA Linux compile/Ruff/full tests;
-- exact-SHA macOS process/multi-repository/parallel smoke;
-- downstream planner-documentation synchronization.
+- exact-SHA Linux compile/Ruff/full tests, coverage and Python 3.14;
+- exact-SHA Bridge browser verification;
+- exact-SHA macOS ARM64 smoke containing the pure policy and real control-overlap regressions;
+- current-documentation/release-metadata contract checks;
+- downstream planner-documentation synchronization/audit.
 
 ## Deployment and rollback
 
@@ -178,6 +202,6 @@ v4.18.13
 = rollback/v4.18.13-known-working
 ```
 
-Use the generated macOS LaunchAgent configuration for bounded parallel mode. The serial mode remains a direct rollback path and uses the same label.
+Use the generated macOS LaunchAgent configuration for bounded parallel mode with `--max-workers 4`. The serial mode remains a direct rollback path and uses the same label.
 
-Candidate branches/worktrees are release-candidate infrastructure only. After a validated candidate is fast-forwarded to `main`, tagged and verified live from `main`, remove obsolete staging worktrees/branches.
+Candidate branches/worktrees are release-candidate infrastructure only. After a validated v4.18.14 candidate is explicitly advanced to `main`, tagged and verified live from `main`, remove obsolete candidate worktrees/branches.
