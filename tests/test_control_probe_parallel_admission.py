@@ -42,7 +42,7 @@ def configure_control_hold_task(
     task["memory_limit_mb"] = 256
     task["command_timeout"] = 15
     task["idle_timeout"] = 10
-    task["task_timeout"] = 30
+    task["task_timeout"] = 120
     task["steps"] = [
         {
             "name": "hold-control-repository",
@@ -91,7 +91,7 @@ def queue_late_task(
         "resources": [],
         "command_timeout": 15,
         "idle_timeout": 10,
-        "task_timeout": 30,
+        "task_timeout": 120,
         "memory_limit_mb": 256,
         "steps": [
             {
