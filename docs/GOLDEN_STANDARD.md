@@ -1,11 +1,12 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The current production release is `v4.18.15`; its runtime behavior was validated live on `a00fda47016654c80e6ec4cf4170f49713e82628`, and `rollback/v4.18.15-production-validated` preserves that exact runtime-validated point. The older `v4.18.13` / `a32e54858c3bcb9687334b3232b71ae6ff130208` baseline remains available as the pre-BUG-002 historical rollback point.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.16` and is still a candidate on this branch; the current production release is `v4.18.15`, whose runtime behavior was validated live on `a00fda47016654c80e6ec4cf4170f49713e82628`. `rollback/v4.18.15-production-validated` preserves that exact runtime-validated point. The older `v4.18.13` / `a32e54858c3bcb9687334b3232b71ae6ff130208` baseline remains available as the pre-BUG-002 historical rollback point.
 
 ## Release/runtime invariants
 
 - `main` is the production source of truth and normal installed runtime checkout.
-- `local_agent.version.RELEASE_VERSION` matches the release being prepared and, after release, the `vX.Y.Z` tag.
+- `local_agent.version.RELEASE_VERSION` names the release prepared by the current source tree and, after release, the `vX.Y.Z` tag.
+- Candidate source must not be described as current production before the explicit release decision advances `main`.
 - A behavior-changing release must have matching `docs/RELEASE_NOTES_V<version>.md` and `docs/CHANGELOG.md` entries before verification can pass.
 - Candidate branches/worktrees are temporary validation infrastructure and are removed after a release is established.
 - Production multi-repository execution uses `agent_parallel.py --max-workers 4`; the scheduler hard cap is four and the default remains one.
@@ -105,17 +106,23 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - The Chrome Chat Bridge is wake-up/control transport only; ChatGPT remains the planner and Local Agent remains the deterministic executor.
 - One autonomous conversation follows one active task at a time for its current goal and never queues a duplicate while that task is active.
 - Planner sequencing is not global executor serialization: unrelated conversations/repositories may overlap when the parallel resource contract permits it.
-- Every bridge wake-up re-reads repository-specific status/run/result evidence before deciding whether to wait, queue one next bounded task, pause for user action or stop a completed goal.
+- Every bridge wake-up re-reads repository-specific status/run/result evidence before deciding whether to wait, queue one next bounded task, cancel one exact doomed active task, pause for user action or stop a completed goal.
 - Bridge `STOP`/`PAUSE` markers control the conversation loop only; they do not stop or reconfigure the Local Agent supervisor.
+- `NEXT=30s` remains protocol-compatible for explicit operator/emergency use, but autonomous polling of a healthy active task must not use 30-second cadence.
+- The first healthy-task liveness re-check should be no sooner than about two minutes; multi-minute builds/tests should normally use 5-10 minute `NEXT` pacing unless exact evidence supports a nearer completion.
+- If exact run/status evidence already proves an active task cannot achieve its intended outcome, the planner should publish repository-scoped `cancel_task` for that exact task id and wait for cancellation/result evidence before replacing it.
 - An unfinished autonomous turn ends with `NEXT=<duration>`; `NEXT` arms or re-arms that conversation and schedules its next wake without overriding the global master switch.
 - Resource/capacity waiting is a continuation state and must use `NEXT`, never `STOP`.
+- Chat Bridge content protocol upgrades must be replaceable in already-open tabs without requiring a normal manual ChatGPT reload when the older content script is still reachable.
+- Transient assistant-control delivery failures use bounded retry/backoff and must not permanently exhaust after a fixed small number of attempts.
+- A Bridge-owned prompt retained after `send_button_not_ready` or `delivery_unconfirmed` may be reused only when the composer still matches the exact prompt; any operator edit blocks automatic reuse.
 
 ## Verification/release gate
 
 A non-trivial runtime release requires:
 
 1. an isolated candidate based on current `main`;
-2. matching release version, release notes and changelog before final verification;
+2. matching source release version, release notes and changelog before final verification; candidate documentation must still name the actually deployed production release separately until the explicit release decision;
 3. focused compile/lint plus positive and negative tests for the changed policy/state transitions;
 4. real SIGTERM/SIGKILL process coverage when lifecycle/lease behavior changes;
 5. real overlap, machine-exclusion and inherited-resource-lock coverage for parallel changes;
