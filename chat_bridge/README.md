@@ -83,7 +83,7 @@ Operator chat mutations use a separate namespace and are processed **only from a
 [LAB:OP:RELOAD=BRIDGE]
 ```
 
-The assistant parser rejects `LAB:OP:*`. The content script's operator scanner reads only the latest DOM message with `data-message-author-role="user"`; the worker additionally requires the same extension id, top frame and exact normalized conversation URL. Operator commands are persistently deduplicated in a bounded cache so ADD/REMOVE/reload operations do not replay after content/extension reload.
+The assistant parser rejects `LAB:OP:*`. The content script's operator scanner reads only the latest DOM message with `data-message-author-role="user"`; the worker additionally requires the same extension id, top frame and exact normalized conversation URL. Operator commands are persistently deduplicated in a bounded cache after execution. Separately, the latest user message already present when the current content script activates is baseline-only and is not executed as a new operator command; the baseline is reset on SPA conversation changes. This prevents a historical `LAB:OP:*` marker from replaying merely because Bridge was installed, reloaded, reinjected or navigated to another chat.
 
 `OP:ADD` resolves only an exact repository id from the current runtime catalog and creates the chat disabled, matching conservative popup onboarding. It never guesses a repository. A different repository for an already-bound chat is rejected; change binding by explicit remove/add rather than implicit rebind.
 
@@ -128,7 +128,7 @@ Transient assistant-control failures are retried for unchanged assistant content
 
 Bridge intentionally does **not** keep a durable ambiguous-delivery journal.
 
-Content protocol v4 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, and exact DOM confirmation when available. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
+Content protocol v5 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available and the LAB operator-control baseline. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value. Chat Bridge 0.5.6 deliberately advances protocol v4 -> v5 so a 0.5.6 worker can distinguish and replace an already-open 0.5.5 content script.
 
 Popup and scheduled-wake paths share worker-owned content activation. Popup does not maintain a second protocol version or `chrome.scripting.executeScript` implementation. When a tab must be refreshed, the worker disposes current Bridge/guard listeners, injects `control_protocol.js`, `content_retry.js`, `content.js`, `dom_contract.js` and `exhaustion_guard.js`, then probes readiness again. A reachable older content script therefore must not require a normal manual ChatGPT page reload.
 
@@ -214,4 +214,4 @@ npx playwright install chromium
 python scripts/verify.py --profile bridge-browser
 ```
 
-Browser smoke uses a disposable offline Chromium profile and the actual unpacked extension. It covers confirmed submission, composer replacement, draft preservation, SPA navigation, overlapping sends, retained/non-blocking `delivery_unconfirmed` recovery, popup behavior, service-worker restart and protocol-refresh regressions without contacting the operator's real ChatGPT session.
+Browser smoke uses a disposable offline Chromium profile and the actual unpacked extension. It covers confirmed submission, composer replacement, draft preservation, SPA navigation, overlapping sends, retained/non-blocking `delivery_unconfirmed` recovery, popup behavior, service-worker restart, operator-control replay baselining and protocol-refresh regressions without contacting the operator's real ChatGPT session.
