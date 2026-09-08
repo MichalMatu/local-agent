@@ -19,9 +19,12 @@ Root cause: `worker_transport.js` and `content.js` were upgraded to content prot
 - Keep content protocol v4 but move `CONTENT_PROTOCOL_VERSION` to the single shared `control_protocol.js` source of truth.
 - Remove popup-owned protocol versioning and popup-owned `chrome.scripting.executeScript` logic.
 - Route popup `Add current chat` activation through the service worker with `bridge:ensure-tab-content`.
-- The worker now performs one centralized force-refresh path: dispose existing Bridge/guard listeners, inject `control_protocol.js`, `content_retry.js`, `content.js`, `dom_contract.js`, and `exhaustion_guard.js`, then probe content protocol and guard readiness again.
-- Add a regression contract that forbids duplicate `CONTENT_PROTOCOL_VERSION` declarations in content, worker, popup and test harness.
+- The worker now performs one centralized force-refresh path: dispose existing Bridge and the actual `__localAgentChatExhaustionGuard` listeners/timers, inject `control_protocol.js`, `content_retry.js`, `content.js`, `dom_contract.js`, and `exhaustion_guard.js`, then probe content protocol and guard readiness again.
+- Add a regression contract that forbids duplicate `CONTENT_PROTOCOL_VERSION` declarations in content, worker, popup and test harness and verifies the exact exhaustion-guard global used by force reload.
 - Add a direct worker regression for the exact live failure: reachable protocol 3 -> worker force refresh -> protocol 4 ready, without a ChatGPT page reload.
+- Treat the latest user message already present when protocol 0.5.6 content activates as an operator baseline. A historical `LAB:OP:*` marker is never executed merely because the extension/content script was installed, reloaded or reinjected.
+- Reset that operator baseline on SPA conversation changes, so navigating an existing tab to another ChatGPT conversation cannot replay the new conversation's historical last user marker.
+- Keep persistent bounded operator-command dedupe after a command has actually executed; baseline protection and dedupe cover different replay classes.
 
 ## Future-proof LAB command plane
 
@@ -85,6 +88,7 @@ The assistant parser rejects `LAB:OP:*`. The operator scanner reads only DOM mes
 - `OP:REMOVE`, `OP:ENABLE`, `OP:DISABLE` and `OP:INTERVAL` operate only on the exact current chat.
 - Operator command dedupe is persistent and bounded independently from conversation state, so ADD can dedupe before/after binding and REMOVE remains deduped after the conversation record is deleted.
 - The dedupe cache retains at most 64 recent chat fingerprints.
+- On content activation/reinjection and SPA navigation, the already-present latest user message is baseline-only and cannot execute as a newly observed operator command. The operator must send a new `LAB:OP:*` message after the current content script is active.
 - Assistant messages cannot execute the operator namespace, preserving the hard-binding rule that repository selection is an operator action.
 
 ## Explicit non-capabilities
@@ -112,6 +116,7 @@ The final 4.18.17 candidate must pass:
 - Node syntax and all Chat Bridge unit/contract tests;
 - the exact popup protocol-3 -> protocol-4 worker recovery regression;
 - assistant/operator privilege-separation tests;
+- Chromium proof that a historical user-authored `LAB:OP:*` marker does not replay after content reinjection while a newly sent marker does execute;
 - full Python unit/integration suite and coverage;
 - Python 3.14 compatibility;
 - macOS ARM64 smoke;
