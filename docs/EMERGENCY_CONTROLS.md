@@ -1,10 +1,10 @@
 # Emergency Local Agent controls
 
-Local Agent 4.14.2 adds repository-independent emergency stop and bounded task cancellation for autonomous chat-driven operation.
+Local Agent provides repository-independent emergency stop and bounded task cancellation for autonomous chat-driven operation.
 
 ## Central emergency stop
 
-The global kill switch no longer depends on any project repository checkout. The always-on guarded entrypoint polls the `operator-control` branch of `MichalMatu/local-agent` and reads:
+The global kill switch does not depend on any project repository checkout. The always-on guarded entrypoint polls the `operator-control` branch of `MichalMatu/local-agent` and reads:
 
 `.agent/operator/state.json`
 
@@ -93,10 +93,11 @@ Existing but mismatched/dirty repositories are not destructively replaced.
 
 ## Safety rules
 
-- Global emergency stop uses the central Local Agent control branch and therefore does not depend on Growbox/C6/LiteGraph/MatrixHub health.
+- Global emergency stop uses the central Local Agent control branch and therefore does not depend on any project repository's health or on which repository is currently designated as supervisor control source.
 - `cancel_task` requires the exact immutable task id.
 - A cancel request for another active task is rejected.
 - `disable` is persistent and fail-closed locally: a malformed but present disable marker still blocks admission.
 - Remote state cannot re-enable the local agent.
 - Local runtime reset is destructive only for ephemeral state and requires disabled mode.
 - Missing workspaces may self-provision, but an existing unexpected checkout is never overwritten automatically.
+- Scheduler control-probe admission policy must never weaken the independent operator-control kill switch; the guarded entrypoint remains authoritative even if project control probing is delayed or degraded.
