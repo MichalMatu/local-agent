@@ -41,6 +41,7 @@ MACOS_SMOKE_TESTS = (
     "tests.test_parallel_integration",
     "tests.test_control_admission_policy",
     "tests.test_control_probe_parallel_admission",
+    "tests.test_current_documentation_contract",
     "tests.test_parallel_resource_wait",
     "tests.test_control_hardening",
     "tests.test_supervisor_modules",
