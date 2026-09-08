@@ -26,6 +26,10 @@ const { createHarness } = require("./worker_test_harness.js");
     }
   });
 
+  // Let the worker's automatic activation refresh finish while no chats are configured,
+  // then build an explicit lifecycle fixture for the startup event below.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
   let response = await h.sendRuntimeMessage({
     type: "bridge:upsert-conversation",
     conversation: {
