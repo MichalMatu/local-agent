@@ -86,19 +86,26 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   assert.equal(await page.evaluate(() => window.submits), 0);
   console.log("PASS: trailing prose, invalid final candidates, invalid ranges and user messages leave conversation state unchanged");
 
-  // Diagnostic feedback must complete the full path automatically: assistant marker ->
-  // worker feedback -> composer insertion -> live Send click -> new user DOM message.
-  const beforeHelpSubmits = await page.evaluate(() => window.submits);
+  // Isolate the live diagnostic-submit regression on a fresh page/content-script state.
+  // The full path is: assistant marker -> worker feedback -> composer insertion ->
+  // live Send click -> new user DOM message, with no operator interaction.
+  await add("help-feedback-submit");
   const beforeHelpUsers = await page.locator('[data-message-author-role="user"]').count();
-  await append("<p>[LAB:HELP]</p>");
+  await page.evaluate(() => {
+    const answer = document.createElement("div");
+    answer.dataset.messageAuthorRole = "assistant";
+    answer.dataset.messageId = "help-feedback-answer";
+    answer.textContent = "[LAB:HELP]";
+    document.body.append(answer);
+  });
   await page.waitForFunction((beforeCount) => {
     const messages = document.querySelectorAll('[data-message-author-role="user"]');
     if (messages.length <= beforeCount) return false;
     const latest = messages[messages.length - 1];
     const text = latest.innerText || latest.textContent || "";
     return text.includes("[LA_BRIDGE_FEEDBACK]") && text.includes("command=HELP");
-  }, beforeHelpUsers);
-  assert.equal(await page.evaluate(() => window.submits), beforeHelpSubmits + 1);
+  }, beforeHelpUsers, { timeout: 10000 });
+  assert.equal(await page.evaluate(() => window.submits), 1);
   assert.equal(await page.locator("#prompt-textarea").textContent(), "");
   console.log("PASS: LAB HELP feedback is inserted and submitted automatically through the live Send path");
 
