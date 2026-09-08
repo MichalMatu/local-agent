@@ -626,9 +626,9 @@ def main() -> int:
 
     running: dict[str, RunningWorker] = {}
     schedules: dict[str, scheduling.RepositorySchedule] = {}
+    control_deferrals = scheduling.ControlDeferralState()
     last_repository: str | None = None
     last_control_at: float | None = None
-    control_retry_not_before = 0.0
     control_pending = True
     priority_repository: str | None = None
     once_completed: set[str] = set()
@@ -636,8 +636,6 @@ def main() -> int:
     once_deferrals: dict[str, int] = {}
     last_idle_log_at: float | None = None
     last_log_maintenance_at: float | None = None
-    control_defer_count = 0
-    last_control_defer_log_at: float | None = None
     disabled_logged = False
 
     try:
@@ -669,19 +667,27 @@ def main() -> int:
                 f"attempts={count}"
             )
 
-    def reset_control_defer_state() -> None:
-        nonlocal control_defer_count, last_control_defer_log_at
-        control_defer_count, last_control_defer_log_at = 0, None
-
-    def note_control_deferred(message: str, *, emit_log: bool = True) -> float:
-        nonlocal control_defer_count, control_retry_not_before, last_control_defer_log_at
-        control_defer_count += 1
+    def note_control_deferred(
+        message: str,
+        *,
+        emit_log: bool = True,
+        lease_busy: bool = False,
+    ) -> float:
         now = time.monotonic()
-        retry = scheduling.control_defer_retry_seconds(control_defer_count)
-        control_retry_not_before = now + retry
-        if emit_log and scheduling.repeated_failure_log_due(last_control_defer_log_at, now):
-            log(f"{message}; consecutive={control_defer_count} retry_in={retry:.0f}s")
-            last_control_defer_log_at = now
+        retry = scheduling.record_control_deferral(
+            control_deferrals,
+            now=now,
+            lease_busy=lease_busy,
+        )
+        if emit_log and scheduling.repeated_failure_log_due(
+            control_deferrals.last_log_at,
+            now,
+        ):
+            log(
+                f"{message}; consecutive={control_deferrals.consecutive_deferrals} "
+                f"retry_in={retry:.0f}s"
+            )
+            control_deferrals.last_log_at = now
         return retry
 
     def record_once_outcomes(completed: dict[str, int]) -> None:
@@ -737,6 +743,10 @@ def main() -> int:
                 log("operator disable state cleared; resuming scheduler")
                 disabled_logged = False
                 control_pending = True
+                scheduling.reset_control_deferral_state(
+                    control_deferrals,
+                    clear_pause=True,
+                )
                 last_control_at = None
 
             repositories = load_repository_registry(path=args.registry)
@@ -761,6 +771,12 @@ def main() -> int:
                 for repository_id, count in once_deferrals.items()
                 if repository_id in enabled
             }
+            control_repository_id = repositories[0].repository_id
+            if scheduling.bind_control_repository(
+                control_deferrals,
+                control_repository_id,
+            ):
+                last_control_at = None
 
             if priority_repository not in enabled:
                 priority_repository = None
@@ -793,8 +809,10 @@ def main() -> int:
                     once=args.once,
                 ):
                     last_control_at = time.monotonic()
-                    control_retry_not_before = 0.0
-                    reset_control_defer_state()
+                    scheduling.reset_control_deferral_state(
+                        control_deferrals,
+                        clear_pause=True,
+                    )
                     control_pending = False
                 else:
                     time.sleep(
@@ -806,7 +824,7 @@ def main() -> int:
 
             now = time.monotonic()
             if (
-                now >= control_retry_not_before
+                now >= control_deferrals.retry_not_before
                 and supervisor_policy.interval_due(
                     last_control_at,
                     supervisor_policy.SUPERVISOR_CONTROL_POLL_SECONDS,
@@ -819,7 +837,10 @@ def main() -> int:
                         time.sleep(REAP_INTERVAL_SECONDS)
                         continue
                     if probe_result is ControlProbeResult.PENDING:
-                        reset_control_defer_state()
+                        scheduling.reset_control_deferral_state(
+                            control_deferrals,
+                            clear_pause=True,
+                        )
                         control_pending = True
                         log("global control request detected; draining active workers")
                         time.sleep(REAP_INTERVAL_SECONDS)
@@ -828,12 +849,32 @@ def main() -> int:
                         note_control_deferred(
                             "global control probe deferred; control repository lease busy",
                             emit_log=False,
+                            lease_busy=True,
                         )
-                        if scheduling.control_lease_busy_should_force_drain(control_defer_count):
+                        action = scheduling.control_lease_busy_action(
+                            control_deferrals,
+                            control_repository_running=(control_repository_id in running),
+                        )
+                        if (
+                            action
+                            is scheduling.ControlLeaseBusyAction.PAUSE_CONTROL_REPOSITORY
+                            and control_deferrals.paused_repository_id
+                            != control_repository_id
+                        ):
+                            control_deferrals.paused_repository_id = control_repository_id
+                            log(
+                                "global control probe lease busy repeatedly; "
+                                "pausing new control-repository admission "
+                                f"repository={control_repository_id} "
+                                "consecutive_lease_busy="
+                                f"{control_deferrals.consecutive_lease_busy}"
+                            )
+                        elif action is scheduling.ControlLeaseBusyAction.DRAIN_ALL:
                             control_pending = True
                             log(
                                 "global control probe lease busy repeatedly; "
-                                f"draining active workers consecutive={control_defer_count}"
+                                "draining active workers consecutive_lease_busy="
+                                f"{control_deferrals.consecutive_lease_busy}"
                             )
                             time.sleep(REAP_INTERVAL_SECONDS)
                             continue
@@ -843,8 +884,10 @@ def main() -> int:
                         )
                     else:
                         last_control_at = time.monotonic()
-                        control_retry_not_before = 0.0
-                        reset_control_defer_state()
+                        scheduling.reset_control_deferral_state(
+                            control_deferrals,
+                            clear_pause=True,
+                        )
                 else:
                     if service_control(
                         repositories,
@@ -853,8 +896,10 @@ def main() -> int:
                         once=args.once,
                     ):
                         last_control_at = time.monotonic()
-                        control_retry_not_before = 0.0
-                        reset_control_defer_state()
+                        scheduling.reset_control_deferral_state(
+                            control_deferrals,
+                            clear_pause=True,
+                        )
                     else:
                         note_control_deferred(
                             "global control service deferred; continuing task admission "
@@ -879,9 +924,14 @@ def main() -> int:
                     )
 
             now = time.monotonic()
+            paused_control_repository = control_deferrals.paused_repository_id
 
             if priority_repository is not None:
-                if priority_repository not in running and not running:
+                if (
+                    priority_repository != paused_control_repository
+                    and priority_repository not in running
+                    and not running
+                ):
                     repository = next(
                         item
                         for item in repositories
@@ -914,6 +964,8 @@ def main() -> int:
                         if capacity <= 0:
                             break
                         if repository.repository_id in running:
+                            continue
+                        if repository.repository_id == paused_control_repository:
                             continue
                         if args.once and repository.repository_id in (
                             once_completed | once_failed
@@ -949,6 +1001,7 @@ def main() -> int:
             if (
                 not running
                 and not control_pending
+                and paused_control_repository is None
                 and priority_repository is None
                 and scheduling.operator_idle_log_due(last_idle_log_at, now)
             ):
@@ -966,7 +1019,11 @@ def main() -> int:
             else:
                 repository_delay = scheduling.next_repository_delay(
                     schedules,
-                    [repo.repository_id for repo in repositories],
+                    [
+                        repo.repository_id
+                        for repo in repositories
+                        if repo.repository_id != paused_control_repository
+                    ],
                     now,
                 )
                 control_delay = max(
@@ -975,7 +1032,7 @@ def main() -> int:
                         supervisor_policy.SUPERVISOR_CONTROL_POLL_SECONDS,
                         now,
                     ),
-                    max(0.0, control_retry_not_before - now),
+                    max(0.0, control_deferrals.retry_not_before - now),
                 )
                 delay = min(repository_delay, control_delay, 1.0)
             time.sleep(max(0.05, delay))

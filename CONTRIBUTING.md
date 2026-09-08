@@ -80,22 +80,24 @@ low-level process/storage foundations
 
 Import packaged owners directly. The four root Python files are operational launchers; root module imports and historical compatibility aliases are unsupported.
 
-Keep modules cohesive. A file should have a clear owner role rather than becoming a collection of unrelated helpers.
+Keep modules cohesive. A file should have a clear owner role rather than becoming a collection of unrelated helpers. Pure scheduling/retry/admission decisions belong in `local_agent.supervisor.scheduling`; `orchestrator.py` should coordinate side effects rather than grow an embedded policy state machine.
 
 ## Runtime change workflow
 
 For non-trivial runtime work:
 
 1. start from current `main`;
-2. use an isolated `work/...` branch;
+2. use an isolated `work/...`, `fix/...` or staging branch;
 3. make the smallest coherent change;
 4. run focused regression checks;
-5. add/adjust targeted tests for changed semantics;
-6. run the full CI matrix on the exact candidate SHA;
-7. review the complete `main...candidate` diff;
-8. audit affected downstream Local Agent documentation/contracts;
-9. merge only after the candidate is green;
-10. restart the live service only during a safe/idle window and verify live evidence.
+5. add/adjust targeted positive and negative tests for changed semantics;
+6. update `local_agent.version.RELEASE_VERSION`, matching release notes and changelog for a release-bearing behavior change;
+7. audit all current operational documentation for stale commands/limits/contracts, not only files already touched by the diff;
+8. run the full CI matrix on the exact candidate SHA;
+9. review the complete `main...candidate` diff and module boundaries;
+10. audit affected downstream Local Agent documentation/contracts;
+11. merge only after the exact candidate is green and explicitly approved for release;
+12. restart the live service only during a safe/idle window and verify live evidence.
 
 Do not use the live production checkout as an experimental worktree while it is servicing autonomous tasks.
 
@@ -119,7 +121,8 @@ Changes involving any of the following require focused negative-path tests in ad
 - claim recovery;
 - self-update/restart;
 - destructive cleanup/reset;
-- control-plane path validation.
+- control-plane path validation;
+- global control admission/drain policy.
 
 A refactor must preserve safety semantics even when no user-visible feature changes.
 
@@ -129,7 +132,7 @@ Do not commit a plist containing developer-specific absolute paths. Use the gene
 
 ```bash
 .venv/bin/python scripts/macos_launchd.py render
-.venv/bin/python scripts/macos_launchd.py install --mode parallel --max-workers 2
+.venv/bin/python scripts/macos_launchd.py install --mode parallel --max-workers 4
 ```
 
 `install` writes configuration without restarting the service. `restart` is intentionally a separate disruptive command.

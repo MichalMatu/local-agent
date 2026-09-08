@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from enum import Enum
 
 from local_agent.supervisor import policy as supervisor_policy
 
@@ -21,6 +22,12 @@ OPERATOR_IDLE_HEARTBEAT_SECONDS = 300.0
 LOCAL_LOG_MAINTENANCE_SECONDS = 30.0
 
 
+class ControlLeaseBusyAction(Enum):
+    RETRY = "retry"
+    PAUSE_CONTROL_REPOSITORY = "pause_control_repository"
+    DRAIN_ALL = "drain_all"
+
+
 @dataclass
 class RepositorySchedule:
     last_poll_at: float | None = None
@@ -30,6 +37,18 @@ class RepositorySchedule:
     last_failure_code: int | None = None
     last_failure_log_at: float | None = None
     resource_deferrals: int = 0
+
+
+@dataclass
+class ControlDeferralState:
+    """Retry and admission state for one supervisor control-repository identity."""
+
+    repository_id: str | None = None
+    retry_not_before: float = 0.0
+    consecutive_deferrals: int = 0
+    consecutive_lease_busy: int = 0
+    last_log_at: float | None = None
+    paused_repository_id: str | None = None
 
 
 def format_operator_idle_summary(repository_count: int, max_workers: int) -> str:
@@ -77,8 +96,60 @@ def control_defer_retry_seconds(attempt: int) -> float:
     )
 
 
+def reset_control_deferral_state(
+    state: ControlDeferralState,
+    *,
+    clear_pause: bool = False,
+) -> None:
+    state.retry_not_before = 0.0
+    state.consecutive_deferrals = 0
+    state.consecutive_lease_busy = 0
+    state.last_log_at = None
+    if clear_pause:
+        state.paused_repository_id = None
+
+
+def bind_control_repository(state: ControlDeferralState, repository_id: str) -> bool:
+    """Reset retry evidence when the configured global-control identity changes."""
+    if state.repository_id == repository_id:
+        return False
+    state.repository_id = repository_id
+    reset_control_deferral_state(state, clear_pause=True)
+    return True
+
+
+def record_control_deferral(
+    state: ControlDeferralState,
+    *,
+    now: float,
+    lease_busy: bool,
+) -> float:
+    """Record one deferred probe while keeping lease-busy streak semantics exact."""
+    state.consecutive_deferrals += 1
+    if lease_busy:
+        state.consecutive_lease_busy += 1
+    else:
+        state.consecutive_lease_busy = 0
+    retry = control_defer_retry_seconds(state.consecutive_deferrals)
+    state.retry_not_before = now + retry
+    return retry
+
+
 def control_lease_busy_should_force_drain(attempt: int) -> bool:
     return attempt >= CONTROL_LEASE_BUSY_DRAIN_ATTEMPTS
+
+
+def control_lease_busy_action(
+    state: ControlDeferralState,
+    *,
+    control_repository_running: bool,
+) -> ControlLeaseBusyAction:
+    """Classify repeated lease contention without performing scheduler side effects."""
+    if not control_lease_busy_should_force_drain(state.consecutive_lease_busy):
+        return ControlLeaseBusyAction.RETRY
+    if control_repository_running:
+        return ControlLeaseBusyAction.PAUSE_CONTROL_REPOSITORY
+    return ControlLeaseBusyAction.DRAIN_ALL
 
 
 def repeated_failure_log_due(last_log_at: float | None, now: float) -> bool:

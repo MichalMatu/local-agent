@@ -4,7 +4,7 @@ This document defines the production design for one `local-agent` service operat
 
 ## Production schedulers
 
-`agent_parallel.py` is the recommended multi-repository supervisor. Production uses `--max-workers 2`.
+`agent_parallel.py` is the production multi-repository supervisor. Production uses `--max-workers 4`, which is also the scheduler hard cap.
 
 `agent_multirepo.py` remains the direct serial fallback with global execution concurrency one. Both supervisors:
 
@@ -26,7 +26,7 @@ Machine-local configuration:
 
 Each entry defines a repository id, remote identity and control/work/checkpoint workspaces. Repository ids/remotes are unique case-insensitively and normalized workspace paths must be disjoint, including aliases and ancestor/descendant relationships.
 
-The first enabled registry entry is the supervisor control repository in registry v1. Reordering enabled entries therefore changes the global restart/self-update/status control source; treat registry order as operational identity.
+The first enabled registry entry is the supervisor control repository in registry v1. Reordering enabled entries therefore changes the global restart/self-update/status control source; treat registry order as operational identity. The scheduler clears stale control-probe retry/pause evidence and invalidates the prior control-poll clock when that identity changes.
 
 Provisioning is explicit:
 
@@ -40,7 +40,7 @@ Polling never implicitly clones, repairs or overwrites a checkout.
 
 ## Worker isolation
 
-A supervisor never binds repository-specific `agent_core` paths in its long-lived process. Each short-lived worker:
+A supervisor never binds repository-specific execution paths in its long-lived process. Each short-lived worker:
 
 1. receives one repository id plus the expected immutable registry-entry digest;
 2. validates inherited repository execution leases;
@@ -59,29 +59,25 @@ Repository exclusion and machine-resource exclusion are deliberately separate. A
 
 Every task must declare `resources` explicitly. The declaration describes only external/shared machine resources used in addition to the task's automatic repository lease.
 
-Canonical rules:
+Canonical runtime rules:
 
-- `resources: []` means no exclusive external resource; software-only builds, tests, lint, static analysis, documentation and repository-local Git work may overlap with other repositories;
+- `resources: []` means no exclusive external resource; repository-local work may overlap with other repositories;
 - named resources are exclusive per exact canonical name and may overlap with unrelated named resources;
 - `resources: ["machine"]` means true full-machine exclusivity and must be declared alone;
 - resource names are canonical lowercase strings using letters, digits, `.`, `_`, `:`, and `-`;
 - duplicate resource names, malformed declarations, missing `resources`, and declarations longer than eight names are invalid task payloads rather than compatibility fallbacks.
 
-Typical hardware declarations:
+The currently registered project repositories intentionally use:
 
 ```json
-{"resources": ["board:growbox-s3"]}
+{"resources": []}
 ```
 
-```json
-{"resources": ["board:zigbee-c6"]}
-```
-
-A Growbox S3 hardware task and a Zigbee C6 hardware task may therefore overlap. Two tasks requiring the same board resource serialize. The hardware task itself must still verify the actual port/device identity before flashing or interacting with a board; resource names are scheduling identities, not hardware discovery.
+for all executable project work, including their project-dedicated hardware operations. The task command discovers and verifies the intended device/port at runtime. Named resources remain available for future genuinely shared external resources; they are not required merely because a task touches hardware dedicated to one repository.
 
 The machine lock remains a useful global gate. Every non-machine task holds it shared, allowing normal tasks to overlap. A true `machine` task takes it exclusive, waits for all normal holders to drain and prevents new normal admission until it can run.
 
-`memory_limit_mb` is independent from resource classification. It remains the per-task RSS watchdog limit and does not silently promote a task to full-machine exclusivity. Production concurrency remains bounded primarily by `max_workers` plus each task's own watchdog limit. A separate global memory-reservation scheduler should be added only if measured host pressure justifies it.
+`memory_limit_mb` is independent from resource classification. It remains the per-task RSS watchdog limit and does not silently promote a task to full-machine exclusivity. The supervisor does not reserve or sum task memory limits during admission. A separate global memory-reservation scheduler should be added only if measured host pressure justifies it.
 
 Resource acquisition is immediate/nonblocking inside a repository worker. A worker that cannot acquire a resource exits without claiming or executing the selected task. The task remains pending and the supervisor retries it automatically. This prevents a stale pre-claim task snapshot while providing durable waiting semantics.
 
@@ -96,7 +92,7 @@ When a selected task cannot acquire a named or machine resource, repository stat
   "state": "waiting_resource",
   "current_task_id": null,
   "pending_task_id": "example-task",
-  "blocked_resources": ["board:growbox-s3"],
+  "blocked_resources": ["shared-resource"],
   "waiting_since": "...",
   "retrying": true,
   "execution_variant": "parallel"
@@ -113,19 +109,41 @@ Machine-exclusive contention retains priority/drain behavior: the supervisor sto
 
 `--once` remains a bounded diagnostic mode and may terminate after its bounded deferral budget; it is not the durability model used by the long-running production supervisor.
 
-## Scheduling
+## Scheduling ownership
 
-Production recommendation: `max_workers=2`; hard cap: `3`; default: `1`.
+Production: `max_workers=4`; hard cap: `4`; default: `1`.
 
-One repository still has only one active repository worker/task at a time. Different repositories may overlap whenever their declared external resources permit it. Two independent repository builds therefore do not serialize merely because both are compilations.
+One repository still has only one active repository worker/task at a time. Different repositories may overlap whenever their declared external resources permit it. Independent repository builds or hardware tasks using dedicated project devices therefore do not serialize merely because they perform similar work.
 
-The scheduler retains adaptive/fair polling and bounded worker turns. One repository failure, lease contention or configuration change does not terminate polling of other repositories.
+The scheduler retains adaptive/fair polling and bounded worker turns. One repository failure, lease contention or configuration change must not terminate polling of other repositories.
+
+Pure due/retry/backoff and control-admission policy state lives in `local_agent/supervisor/scheduling.py`. The parallel orchestrator owns side effects only: it performs real control probes, starts/reaps workers, invokes drains/control service and publishes status. This separation is intentional so starvation policy is deterministic and unit-testable rather than embedded as ad-hoc counters in the long supervisor loop.
 
 ## Global control
 
 Restart, self-update and global status are supervisor-wide operations.
 
-While workers run, the supervisor only probes the designated control repository for a pending valid request. Probe outcomes distinguish `CLEAR`, `PENDING`, `LEASE_BUSY` and degraded `DEFERRED` failures. A detected `PENDING` request stops new admissions immediately. Ordinary lease contention retries without log spam, but six consecutive `LEASE_BUSY` outcomes force a bounded admission drain so global control cannot starve. Before executing global control, the supervisor acquires execution identities for every currently configured repository, which also catches surviving workers/descendants from an earlier supervisor process.
+While workers run, the supervisor probes the designated control repository for a pending valid request. Probe outcomes distinguish `CLEAR`, `PENDING`, `LEASE_BUSY` and degraded `DEFERRED` failures. Before executing global control, the supervisor acquires execution identities for every currently configured repository, which also catches surviving workers/descendants from an earlier supervisor process.
+
+v4.18.14 uses two related but distinct counters:
+
+- **consecutive deferrals** drive bounded 2-15 second retry/backoff;
+- **consecutive `LEASE_BUSY` outcomes** drive lease-ownership starvation protection.
+
+A `DEFERRED` outcome (for example a transient sync/network/ACK-read failure) breaks the lease-busy streak but does not erase bounded retry behavior. This makes the phrase “six consecutive `LEASE_BUSY`” literal rather than approximate.
+
+Control admission behavior is:
+
+1. `CLEAR` — normal control polling resumes and stale deferral/pause evidence is cleared.
+2. `PENDING` — new admission stops immediately; active workers drain; global control runs only after all required repository identities can be acquired.
+3. fewer than six consecutive `LEASE_BUSY` — retry promptly with no admission policy change.
+4. six consecutive `LEASE_BUSY` while the control repository is itself a known active worker — pause only **new control-repository admission**. Existing workers continue and unrelated repositories remain eligible for free worker slots.
+5. six consecutive `LEASE_BUSY` with no corresponding known active control worker — retain the defensive global drain for unexplained/stale lease ownership.
+6. `DEFERRED` — continue unrelated task admission, retry control with bounded backoff, and reset the lease-busy streak.
+
+Pausing new control-repository admission is a fairness gate, not a task cancellation. It prevents a continuous queue in the control repository from reacquiring its own repository lease indefinitely. When the current control worker finishes, the supervisor can obtain that lease and check global control before allowing another control-repository task to start.
+
+This fixes the v4.18.13 BUG-002 failure mode where expected ownership by the supervisor's own control worker could escalate into a global drain and unnecessarily block independent repositories.
 
 Ordinary maintenance/self-update waits for a natural idle window. Production self-update runs from the clean `main` checkout.
 
@@ -141,12 +159,13 @@ Interrupted claimed work is not automatically replayed. Completed durable result
 
 Separate ChatGPT conversations may queue tasks independently in different repositories. An autonomous Chat Bridge conversation follows one active task at a time for its current goal; this planner sequencing does not globally serialize the executor, so unrelated repository tasks may overlap when resource admission permits it.
 
-Every queued task must classify resources explicitly:
+Every queued task must classify resources explicitly. For the currently registered execution-enabled project repositories, executable project work uses:
 
-- software-only build/test/analysis work: `resources: []`;
-- Growbox S3 hardware work: `resources: ["board:growbox-s3"]`;
-- Zigbee C6 hardware work: `resources: ["board:zigbee-c6"]`;
-- truly global host work only: `resources: ["machine"]`.
+```json
+{"resources": []}
+```
+
+including project-dedicated hardware operations. Device/port detection and verification happen inside the task command. Use a named resource only for a genuinely shared external resource that can conflict across repositories, and use `resources: ["machine"]` only for true whole-host exclusivity.
 
 Installing or mutating a shared toolchain may use a dedicated named resource such as `toolchain:platformio` or `toolchain:esp-idf`. Merely compiling with an already installed toolchain does not require that lock.
 
@@ -160,16 +179,29 @@ Parallel scheduler releases require:
 
 - task-contract tests for explicit canonical resources;
 - real temporary-Git two-repository software overlap;
-- real named-resource overlap/exclusion behavior;
+- pure positive/negative control-admission policy tests, including mixed `LEASE_BUSY`/`DEFERRED` sequences;
+- a long-lived control-repository overlap test that crosses the six-consecutive-`LEASE_BUSY` threshold and proves a second `resources: []` repository starts before the first finishes;
+- explicit evidence that the known-worker path logs/control-pauses rather than taking the global-drain path;
+- real named-resource overlap/exclusion behavior when named resources are changed;
 - real machine-exclusion behavior;
 - real resource-wait status followed by automatic execution after resource release without a new task payload;
 - real POSIX inherited-resource-FD lifetime after worker death;
-- exact-SHA Linux compile/Ruff/full tests;
-- exact-SHA macOS process/multi-repository/parallel smoke;
-- downstream planner-documentation synchronization.
+- exact-SHA Linux compile/Ruff/full tests, coverage and Python 3.14;
+- exact-SHA Bridge browser verification;
+- exact-SHA macOS ARM64 smoke containing the pure policy and real control-overlap regressions;
+- current-documentation/release-metadata contract checks;
+- downstream planner-documentation synchronization/audit.
 
 ## Deployment and rollback
 
-Production code runs from `~/local-agent` on `main`. Use `deploy/macos/com.michal.local-agent.parallel.plist` for bounded parallel mode. The serial plist remains a direct rollback path and uses the same label.
+Production code runs from `~/local-agent` on `main`. The frozen known-working v4.18.13 rollback identity is:
 
-Staging branches/worktrees are release-candidate infrastructure only. After a validated candidate is fast-forwarded to `main`, tagged and verified live from `main`, remove obsolete staging worktrees/branches.
+```text
+v4.18.13
+= a32e54858c3bcb9687334b3232b71ae6ff130208
+= rollback/v4.18.13-known-working
+```
+
+Use the generated macOS LaunchAgent configuration for bounded parallel mode with `--max-workers 4`. The serial mode remains a direct rollback path and uses the same label.
+
+Candidate branches/worktrees are release-candidate infrastructure only. After a validated v4.18.14 candidate is explicitly advanced to `main`, tagged and verified live from `main`, remove obsolete candidate worktrees/branches.

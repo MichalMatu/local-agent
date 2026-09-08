@@ -1,4 +1,4 @@
-# Local Agent 4.18.11 candidate
+# Local Agent 4.18.11
 
 ## Four-way repository concurrency
 

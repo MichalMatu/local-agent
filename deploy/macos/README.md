@@ -27,7 +27,7 @@ Write the LaunchAgent definition without activating or restarting it:
 ```bash
 .venv/bin/python scripts/macos_launchd.py install \
   --mode parallel \
-  --max-workers 2
+  --max-workers 4
 ```
 
 Inspect the currently loaded service:
@@ -41,7 +41,7 @@ Restart onto the generated definition only when it is safe to interrupt the runn
 ```bash
 .venv/bin/python scripts/macos_launchd.py restart \
   --mode parallel \
-  --max-workers 2
+  --max-workers 4
 ```
 
 Remove the user LaunchAgent:
@@ -72,6 +72,8 @@ The generator resolves paths at runtime instead of embedding one developer accou
 - stderr: `~/Library/Logs/local-agent-error.log`
 
 The generated environment also sets `PYTHONDONTWRITEBYTECODE=1` and provides the standard macOS/Homebrew/PlatformIO executable search paths used by Local Agent tasks.
+
+Production uses four bounded repository workers, which is also the runtime hard cap. One repository still has at most one active worker/task; independent repositories may overlap when their repository/resource contracts permit it.
 
 ## Important safety rule
 

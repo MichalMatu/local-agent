@@ -86,7 +86,7 @@ The package is the implementation home for reusable code. New implementation mus
 | --- | --- | --- |
 | Installation transaction | `local_agent/daemon/installation.py` | installation lock, durable pending revisions and fail-closed admission after interrupted validation |
 | Daemon service | `local_agent/daemon/service.py` | lifecycle, durable claims/results, control and validated self-update |
-| Parallel orchestration | `local_agent/supervisor/orchestrator.py` | worker admission/reaping, control draining, status and shutdown |
+| Parallel orchestration | `local_agent/supervisor/orchestrator.py` | side-effect coordination: worker admission/reaping, control probing/draining, status publication and shutdown |
 | Serial fallback | `local_agent/supervisor/serial.py` | serial repository polling and mode-preserving restart |
 | Checkout paths | `local_agent/paths.py` | explicit source checkout resolution, independent of cwd |
 | Release version | `local_agent/version.py` | one release version constant |
@@ -108,11 +108,13 @@ The package is the implementation home for reusable code. New implementation mus
 | Remote emergency intent | `local_agent/operator/remote.py` | central operator desired-state polling and fail-closed validation |
 | Guarded service lifecycle | `local_agent/entrypoint.py` | operator polling plus safe supervisor start/stop/reexec |
 | Diagnostics CLI | `local_agent/cli/diagnostics.py` | status, task inspection, task validation and doctor checks |
-| Supervisor policy | `local_agent/supervisor/policy.py` | shared polling/order/control policy |
-| Production scheduling | `local_agent/supervisor/scheduling.py` | pure retry/due/backoff/max-worker policy consumed directly by the parallel orchestrator |
+| Supervisor polling policy | `local_agent/supervisor/policy.py` | shared adaptive polling/order/time policy |
+| Production scheduling | `local_agent/supervisor/scheduling.py` | pure retry/due/backoff/max-worker policy plus control-probe retry/admission state and `RETRY` / `PAUSE_CONTROL_REPOSITORY` / `DRAIN_ALL` classification |
 | Resource admission | `local_agent/supervisor/resources.py` | machine/named-resource flock arbitration and inherited resource FDs |
 | Parallel repository worker | `local_agent/supervisor/worker.py` | resource-aware parallel task admission and dispatch |
 | macOS integration | `local_agent/platform/macos_launchd.py` | portable LaunchAgent generation/lifecycle helpers |
+
+The control-admission boundary is deliberate: `scheduling.py` owns deterministic state transitions and policy decisions and has no Git/process/daemon side effects. `orchestrator.py` observes real probe outcomes and executes the chosen side effect. This keeps BUG-002 handling directly testable without embedding another policy state machine in the supervisor loop.
 
 ## Root boundary
 
@@ -156,9 +158,13 @@ Packaged modules and tests import packaged owners directly. Imports of root laun
 
 ## Remaining decomposition opportunities
 
-The daemon service and parallel orchestrator are still substantial coordination modules. A future change may extract daemon update operations or supervisor process/status handling when it creates a clean ownership boundary. This refactor deliberately keeps claim/result, update rollback, resource admission, control drain and shutdown behavior together with their existing tests.
+The daemon service and parallel orchestrator remain substantial coordination modules, but that alone is not a reason for a risky cosmetic split. Extract a responsibility only when it has a clear owner, deterministic contract and focused tests.
 
-The scheduling extraction is complete: production calls `scheduling.py` directly and the duplicate policy is removed. Scheduling tests now exercise that owner; supervisor and temporary-Git integration tests exercise its production consumers.
+For v4.18.14, control-probe retry/admission state was extracted into the existing scheduling owner rather than creating a new one-off module. `orchestrator.py` still coordinates real worker/process/control side effects; it no longer owns the BUG-002 retry counters or the known-worker-vs-unexplained-holder policy decision.
+
+Future candidates may extract supervisor status/process coordination or daemon update operations if doing so reduces coupling without changing claim/result, update rollback, resource admission, control drain or shutdown behavior.
+
+The scheduling extraction remains direct: production calls `scheduling.py` and scheduling tests exercise that owner; supervisor and temporary-Git integration tests exercise its production consumers.
 
 ## Safety invariants that layout work must not weaken
 
@@ -173,6 +179,8 @@ The scheduling extraction is complete: production calls `scheduling.py` directly
 - repository and resource lease FDs remain inherited through descendants;
 - resource contention occurs before claim and remains durable waiting;
 - global maintenance drains active workers and acquires repository identities;
+- confirmed pending global control drains immediately;
+- unexplained repeated control-repository lease contention remains fail-closed through bounded global drain;
 - remote operator `enabled` never clears the persistent local disable marker;
 - dirty workspaces are never destructively replaced without recoverable evidence;
 - daemon/self-update and supervisor restart paths must still resolve to the installed root checkout.
@@ -199,7 +207,7 @@ flowchart LR
 
 Package-layout changes additionally require `tests/test_package_layout.py` to stay green so moved implementations cannot silently grow back into root shims.
 
-Coverage remains a risk map, not a vanity gate. Lower-covered orchestration and shutdown paths deserve targeted tests before cosmetic decomposition.
+Coverage remains a risk map, not a vanity gate. Lower-covered orchestration and shutdown paths deserve targeted tests before cosmetic decomposition. Current-documentation and release-metadata contract tests prevent operational examples and release identity from silently drifting behind runtime behavior.
 
 ## macOS service boundary
 
@@ -207,8 +215,8 @@ Tracked machine-specific plist files are replaced by generated configuration:
 
 ```bash
 .venv/bin/python scripts/macos_launchd.py render
-.venv/bin/python scripts/macos_launchd.py install --mode parallel --max-workers 2
-.venv/bin/python scripts/macos_launchd.py restart --mode parallel --max-workers 2
+.venv/bin/python scripts/macos_launchd.py install --mode parallel --max-workers 4
+.venv/bin/python scripts/macos_launchd.py restart --mode parallel --max-workers 4
 ```
 
 `install` is intentionally non-disruptive. `restart` is the explicit service interruption boundary.
