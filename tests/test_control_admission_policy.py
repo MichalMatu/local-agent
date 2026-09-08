@@ -81,6 +81,19 @@ class ControlAdmissionPolicyTests(unittest.TestCase):
             scheduling.ControlLeaseBusyAction.RETRY,
         )
 
+    def test_deferred_probe_does_not_clear_existing_control_repository_pause(self) -> None:
+        state = scheduling.ControlDeferralState(
+            repository_id="control",
+            consecutive_deferrals=6,
+            consecutive_lease_busy=6,
+            paused_repository_id="control",
+        )
+        scheduling.record_control_deferral(state, now=7.0, lease_busy=False)
+
+        self.assertEqual(state.consecutive_lease_busy, 0)
+        self.assertEqual(state.paused_repository_id, "control")
+        self.assertGreater(state.retry_not_before, 7.0)
+
     def test_control_repository_identity_change_clears_stale_pause_and_retry_state(self) -> None:
         state = scheduling.ControlDeferralState(
             repository_id="old-control",
