@@ -12,12 +12,62 @@ async function controlContext(message, sender) {
   };
 }
 
+function validControlFingerprint(message) {
+  const fingerprint = String(message.fingerprint || "");
+  return /^[0-9a-f]{8}$/.test(fingerprint) ? fingerprint : "";
+}
+
+async function rememberMaintenanceControl(message, sender, parsed) {
+  const fingerprint = validControlFingerprint(message);
+  if (!fingerprint) return { ok: false, reason: "control_invalid_fingerprint" };
+  const result = await mutateState((state) => {
+    const conversation = conversationForSender(state, message, sender);
+    if (!conversation || !stateModel.isBoundConversation(conversation)) {
+      return { state, value: { ok: false, reason: "control_unbound_conversation" } };
+    }
+    const freshBindingControlsAllowed = conversation.bootstrapPending && conversation.bindingRevision === 1;
+    if (message.bindingRevision !== conversation.bindingRevision ||
+        (conversation.bootstrapPending && !freshBindingControlsAllowed) ||
+        (conversation.assistantBaseline && message.assistantIdentity === conversation.assistantBaseline)) {
+      return { state, value: { ok: false, reason: "control_stale_binding" } };
+    }
+    if (conversation.lastControlFingerprint === fingerprint) {
+      return { state, value: { ok: true, reason: "control_duplicate", duplicate: true } };
+    }
+    conversation.lastControlFingerprint = fingerprint;
+    conversation.lastControlAction = parsed.marker;
+    conversation.lastControlAt = new Date().toISOString();
+    conversation.lastStatus = `${parsed.command}_by_assistant`;
+    return {
+      state,
+      value: {
+        ok: true,
+        conversationId: conversation.id,
+        bindingRevision: conversation.bindingRevision
+      }
+    };
+  });
+  return result.value;
+}
+
 async function applyAssistantControl(message, sender) {
   const parsed = parseAssistantControl(String(message.control?.marker || ""));
   if (!parsed) return { ok: false, reason: "control_invalid_marker" };
-  const fingerprint = String(message.fingerprint || "");
-  if (!/^[0-9a-f]{8}$/.test(fingerprint)) {
-    return { ok: false, reason: "control_invalid_fingerprint" };
+  const fingerprint = validControlFingerprint(message);
+  if (!fingerprint) return { ok: false, reason: "control_invalid_fingerprint" };
+
+  if (parsed.action === "inspect") {
+    return labInspectionFeedback(parsed, message, sender);
+  }
+
+  if (parsed.action === "maintenance") {
+    const remembered = await rememberMaintenanceControl(message, sender, parsed);
+    if (!remembered.ok || remembered.duplicate) return remembered;
+    const result = await labAssistantMaintenance(parsed, message, sender);
+    if (result.reloadBridge) {
+      setTimeout(() => chrome.runtime.reload(), 100);
+    }
+    return result;
   }
 
   const result = await mutateState((state) => {
