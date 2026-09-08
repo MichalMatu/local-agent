@@ -3,20 +3,19 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const protocol = require("./control_protocol.js");
 
 const ROOT = __dirname;
 const read = (name) => fs.readFileSync(path.join(ROOT, name), "utf8");
-const protocolVersion = (name) => {
-  const match = read(name).match(/const CONTENT_PROTOCOL_VERSION = (\d+);/);
-  assert.ok(match, `${name} must declare CONTENT_PROTOCOL_VERSION`);
-  return Number(match[1]);
-};
 
-const contentVersion = protocolVersion("content.js");
-const workerVersion = protocolVersion("worker_base.js");
-const harnessVersion = protocolVersion("worker_test_harness.js");
-assert.equal(contentVersion, workerVersion, "content and worker protocol versions must match");
-assert.equal(harnessVersion, workerVersion, "worker harness must exercise the production protocol version");
+assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 5);
+for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_harness.js"]) {
+  assert.doesNotMatch(
+    read(name),
+    /const CONTENT_PROTOCOL_VERSION = \d+;/,
+    `${name} must consume the shared control_protocol CONTENT_PROTOCOL_VERSION`
+  );
+}
 
 const manifest = JSON.parse(read("manifest.json"));
 assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
@@ -31,7 +30,7 @@ const transport = read("worker_transport.js");
 assert.match(
   transport,
   /files: \["control_protocol\.js", "content_retry\.js", "content\.js"\]/,
-  "dynamic reinjection must include content retry policy before content.js"
+  "dynamic worker reinjection must include content retry policy before content.js"
 );
 assert.match(
   transport,
@@ -39,4 +38,28 @@ assert.match(
   "stale reachable content protocols must be refreshable"
 );
 
-console.log(`Chat Bridge protocol contract tests passed (content protocol v${workerVersion}, extension ${manifest.version}).`);
+const popup = read("popup.js");
+assert.doesNotMatch(popup, /older Bridge content script/i, "popup must not require a manual tab reload for protocol mismatch");
+assert.match(popup, /type: "bridge:ensure-tab-content"/, "popup must delegate content activation to the worker");
+assert.doesNotMatch(popup, /chrome\.scripting\.executeScript/, "popup must not maintain a second reinjection implementation");
+
+const events = read("worker_events.js");
+assert.match(events, /"bridge:ensure-tab-content"/, "worker must expose centralized popup content activation");
+assert.match(events, /"bridge:operator-control"/, "worker must expose user-authored operator controls");
+
+const serviceWorker = read("service_worker.js");
+assert.match(serviceWorker, /"worker_lab_commands\.js"/, "service worker must load LAB command control plane");
+
+const labCommands = read("worker_lab_commands.js");
+assert.match(
+  labCommands,
+  /globalThis\.__localAgentChatExhaustionGuard\?\.dispose\?\.\(\)/,
+  "force content reload must dispose the actual exhaustion guard instance"
+);
+assert.doesNotMatch(
+  labCommands,
+  /__localAgentChatExhaustionGuardState/,
+  "force content reload must not use a stale/nonexistent exhaustion guard global"
+);
+
+console.log(`Chat Bridge protocol contract tests passed (shared content protocol v${protocol.CONTENT_PROTOCOL_VERSION}, extension ${manifest.version}).`);

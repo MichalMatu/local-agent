@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.16` and is still a candidate on this branch; the current production release is `v4.18.15`, whose runtime behavior was validated live on `a00fda47016654c80e6ec4cf4170f49713e82628`. `rollback/v4.18.15-production-validated` preserves that exact runtime-validated point. The older `v4.18.13` / `a32e54858c3bcb9687334b3232b71ae6ff130208` baseline remains available as the pre-BUG-002 historical rollback point.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.17` and is still a candidate on this branch; the current production release is `v4.18.16` at merge SHA `f33c4d4d7e2e0b89e9fe5ec1dec39cc8a8bc47ef`, where production self-update and a hardware-free LiteGraph/Tracker parallel smoke were validated live. The last tagged frozen release remains `v4.18.15` at `338dd59e16e2c52c8148625e4f7bd2551aab92e8`; `rollback/v4.18.15-production-validated` preserves its earlier exact runtime-validation point. The older `v4.18.13` / `a32e54858c3bcb9687334b3232b71ae6ff130208` baseline remains available as the pre-BUG-002 historical rollback point.
 
 ## Release/runtime invariants
 
@@ -113,9 +113,15 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - If exact run/status evidence already proves an active task cannot achieve its intended outcome, the planner should publish repository-scoped `cancel_task` for that exact task id and wait for cancellation/result evidence before replacing it.
 - An unfinished autonomous turn ends with `NEXT=<duration>`; `NEXT` arms or re-arms that conversation and schedules its next wake without overriding the global master switch.
 - Resource/capacity waiting is a continuation state and must use `NEXT`, never `STOP`.
+- Chat Bridge content protocol version is owned only by `control_protocol.js`; worker, content, popup and test harness must consume that shared value rather than declare independent versions.
+- Popup tab activation and stale-content replacement are worker-owned; popup must not maintain a second `chrome.scripting.executeScript`/protocol-mismatch implementation.
 - Chat Bridge content protocol upgrades must be replaceable in already-open tabs without requiring a normal manual ChatGPT reload when the older content script is still reachable.
 - Transient assistant-control delivery failures use bounded retry/backoff and must not permanently exhaust after a fixed small number of attempts.
 - A Bridge-owned prompt retained after `send_button_not_ready` or `delivery_unconfirmed` may be reused only when the composer still matches the exact prompt; any operator edit blocks automatic reuse.
+- Assistant-safe LAB inspection/diagnostic commands may return Bridge-generated read-only evidence into the same conversation but must never change repository binding or grant executor/repository-write authority.
+- `LAB:OP:*` mutations are accepted only from user-authored ChatGPT messages in the exact top-frame conversation; assistant messages cannot execute the operator namespace.
+- Global `CHATS`/cross-chat routing inspection is available only from the `local-agent` infrastructure binding; ordinary project chats remain current-chat scoped.
+- LAB operator-command dedupe is persistent and bounded independently from conversation state so onboarding/removal/reload controls do not replay across extension/content reloads.
 
 ## Verification/release gate
 

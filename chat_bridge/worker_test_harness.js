@@ -5,6 +5,7 @@ const vm = require("node:vm");
 function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 function createHarness(options = {}) {
 const runtimeAgents = require("./runtime.example.json").agents;
+const CONTENT_PROTOCOL_VERSION = require("./control_protocol.js").CONTENT_PROTOCOL_VERSION;
 const bindingFor = (repositoryId) => {
   const agent = runtimeAgents.find((item) => item.repository_id === repositoryId);
   if (!agent) throw new Error(`missing runtime test agent: ${repositoryId}`);
@@ -13,7 +14,6 @@ const bindingFor = (repositoryId) => {
 const MATRIX_BINDING = bindingFor("matrixhub");
 const TRACKER_BINDING = bindingFor("tracker");
 const LOCAL_AGENT_BINDING = bindingFor("local-agent");
-const CONTENT_PROTOCOL_VERSION = 4;
 const EXHAUSTION_GUARD_VERSION = 1;
 
 const storage = options.storage || {};
@@ -21,6 +21,7 @@ const alarms = new Map();
 const sentMessages = [];
 const tabMessages = [];
 const injectedScripts = [];
+const runtimeReloads = [];
 const runtimeMessageListeners = [];
 const alarmListeners = [];
 const installedListeners = [];
@@ -97,7 +98,11 @@ const chrome = {
   },
   scripting: {
     async executeScript(details) {
-      injectedScripts.push(clone(details));
+      injectedScripts.push({
+        target: clone(details.target),
+        files: clone(details.files),
+        hasFunction: typeof details.func === "function"
+      });
       if (options.executeScript) return options.executeScript(details);
       return [];
     }
@@ -105,6 +110,8 @@ const chrome = {
   runtime: {
     id: "test-bridge",
     getURL: (path) => `chrome-extension://test-bridge/${path}`,
+    getManifest: () => ({ version: "0.5.6" }),
+    reload: () => { runtimeReloads.push(Date.now()); },
     onInstalled: { addListener(listener) { installedListeners.push(listener); } },
     onStartup: { addListener(listener) { startupListeners.push(listener); } },
     onMessage: { addListener(listener) { runtimeMessageListeners.push(listener); } }
@@ -189,7 +196,7 @@ async function sendRuntimeMessage(message, sender = { id: chrome.runtime.id, url
   });
 }
 
-return { storage, alarms, sentMessages, tabMessages, injectedScripts, tabs, chrome, context, sendRuntimeMessage,
+return { storage, alarms, sentMessages, tabMessages, injectedScripts, runtimeReloads, tabs, chrome, context, sendRuntimeMessage,
   MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING, runtimeAgents, CONTENT_PROTOCOL_VERSION,
   EXHAUSTION_GUARD_VERSION,
   evaluate: (source) => vm.runInContext(source, context),

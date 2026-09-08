@@ -23,8 +23,6 @@ async function add(harness, overrides = {}) {
   return result.conversation.id;
 }
 
-const sent = { ok: true, reason: "sent", protocolVersion: 4 };
-
 (async () => {
   // Alarm/manual overlap cannot authorize two sends or rebind/remove an in-flight wake.
   {
@@ -34,7 +32,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 4 };
       assert.equal((await authorize()).ok, true);
       ready.resolve();
       await finish.promise;
-      return sent;
+      return { ok: true, reason: "sent", protocolVersion: h.CONTENT_PROTOCOL_VERSION };
     } });
     const id = await add(h);
     const first = h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
@@ -64,7 +62,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 4 };
       ready.resolve();
       await finish.promise;
       assert.equal((await authorize()).ok, false);
-      return { ok: false, reason: "delivery_cancelled", protocolVersion: 4 };
+      return { ok: false, reason: "delivery_cancelled", protocolVersion: h.CONTENT_PROTOCOL_VERSION };
     } });
     const id = await add(h);
     const first = h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
@@ -82,7 +80,7 @@ const sent = { ok: true, reason: "sent", protocolVersion: 4 };
     const h = createHarness({ sendMessage: async ({ authorize }) => {
       attempts += 1;
       assert.equal((await authorize()).ok, true);
-      return { ok: false, reason: "delivery_unconfirmed", protocolVersion: 4 };
+      return { ok: false, reason: "delivery_unconfirmed", protocolVersion: h.CONTENT_PROTOCOL_VERSION };
     } });
     const id = await add(h);
     let response = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
@@ -116,15 +114,15 @@ const sent = { ok: true, reason: "sent", protocolVersion: 4 };
     assert.equal(h.storage.bridgeState.conversations[id].enabled, true);
   }
 
-  // A stale reachable content script is replaced once and the wake continues.
+  // A stale reachable 0.5.5/protocol-v4 content script is replaced once and the wake continues.
   {
     let probes = 0;
     const h = createHarness({ contentScriptProbe: async ({ injectedScripts }) => {
       probes += 1;
       if (!injectedScripts.length) {
-        return { ok: true, reason: "ready", protocolVersion: 3, assistantIdentity: "old-assistant" };
+        return { ok: true, reason: "ready", protocolVersion: 4, assistantIdentity: "old-assistant" };
       }
-      return { ok: true, reason: "ready", protocolVersion: 4, assistantIdentity: "old-assistant" };
+      return { ok: true, reason: "ready", protocolVersion: h.CONTENT_PROTOCOL_VERSION, assistantIdentity: "old-assistant" };
     } });
     const id = await add(h);
     const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });

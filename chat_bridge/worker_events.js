@@ -32,6 +32,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     "bridge:authorize-delivery": authorizeDelivery,
     "bridge:control-context": controlContext,
     "bridge:assistant-control": applyAssistantControl,
+    "bridge:operator-control": applyOperatorLabControl,
     "bridge:conversation-exhausted": reportConversationExhausted
   };
   if (Object.hasOwn(contentHandlers, message.type)) {
@@ -54,6 +55,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       ]);
       sendResponse({ state, runtime, schedules });
     })().catch((error) => sendResponse({ error: String(error) }));
+    return true;
+  }
+  if (message.type === "bridge:ensure-tab-content") {
+    const tabId = Number(message.tabId);
+    const expectedUrl = normalizeConversationUrl(message.expectedUrl || "");
+    if (!Number.isInteger(tabId) || !expectedUrl) {
+      sendResponse({ ok: false, reason: "invalid_tab_content_request" });
+      return false;
+    }
+    labForceReloadContent(tabId, expectedUrl)
+      .then(sendResponse)
+      .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
   }
   if (message.type === "bridge:save-global-settings") {

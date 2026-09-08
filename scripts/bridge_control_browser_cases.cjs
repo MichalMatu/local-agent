@@ -86,6 +86,36 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   assert.equal(await page.evaluate(() => window.submits), 0);
   console.log("PASS: trailing prose, invalid final candidates, invalid ranges and user messages leave conversation state unchanged");
 
+  // A user-authored operator marker that predates a content-script activation must never replay.
+  // The first new OP marker after that activation is eligible and proves the scanner is live.
+  const operatorBaselineId = await add("operator-replay-baseline");
+  const operatorBaselineUrl = page.url();
+  await page.evaluate(() => {
+    try { globalThis.__localAgentChatBridgeState?.dispose?.(); } catch (_error) {}
+    globalThis.__localAgentChatBridgeState = null;
+  });
+  await append("<p>[LAB:OP:REMOVE]</p>", "user");
+  const operatorTabId = await worker.evaluate(async (url) => {
+    const tabs = await chrome.tabs.query({ url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] });
+    return tabs.find((tab) => tab.url === url)?.id || null;
+  }, operatorBaselineUrl);
+  assert.ok(operatorTabId, "fixture tab id must be discoverable");
+  const ensured = await request({
+    type: "bridge:ensure-tab-content",
+    tabId: operatorTabId,
+    expectedUrl: operatorBaselineUrl
+  });
+  assert.equal(ensured.ok, true, ensured.reason);
+  await page.waitForTimeout(1200);
+  assert.ok(await readChat(operatorBaselineId), "historical OP marker must be baselined, not replayed after reinjection");
+  await append("<p>[LAB:OP:REMOVE]</p>", "user");
+  const operatorDeadline = Date.now() + 5000;
+  while (await readChat(operatorBaselineId) && Date.now() < operatorDeadline) {
+    await page.waitForTimeout(50);
+  }
+  assert.equal(await readChat(operatorBaselineId), undefined, "new user-authored OP marker must execute after baseline");
+  console.log("PASS: operator LAB controls baseline historical user messages across content reinjection");
+
   const retainedId = await add("retained-unconfirmed-browser-case");
   await page.evaluate(() => { window.dropDelivery = true; });
   const firstUnconfirmed = await request({ type: "bridge:run-now", conversationId: retainedId });
