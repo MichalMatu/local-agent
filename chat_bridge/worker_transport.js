@@ -103,6 +103,10 @@ async function ensureContentScript(tab, expectedUrl) {
   return { ...content, exhaustionGuardVersion: guard.guardVersion };
 }
 
+function contentProbeReason(result) {
+  return result?.ok ? "ready" : String(result?.reason || "content_script_unavailable");
+}
+
 async function refreshConfiguredContentScripts() {
   const state = await getBridgeState();
   const configured = Object.values(state.conversations || {}).filter((conversation) =>
@@ -111,10 +115,13 @@ async function refreshConfiguredContentScripts() {
   if (!configured.length) return { checked: 0, ready: 0, refreshed: 0, failed: 0 };
 
   const tabs = await chrome.tabs.query({ url: ["https://chatgpt.com/*", "https://chat.openai.com/*"] });
-  const tabByUrl = new Map();
+  const tabsByUrl = new Map();
   for (const tab of tabs) {
     const url = normalizeConversationUrl(tab.url || "");
-    if (tab.id && url && !tabByUrl.has(url)) tabByUrl.set(url, tab);
+    if (!tab.id || !url) continue;
+    const matches = tabsByUrl.get(url) || [];
+    matches.push(tab);
+    tabsByUrl.set(url, matches);
   }
 
   let checked = 0;
@@ -122,10 +129,15 @@ async function refreshConfiguredContentScripts() {
   let refreshed = 0;
   let failed = 0;
   for (const conversation of configured) {
-    const tab = tabByUrl.get(conversation.url);
+    const matches = tabsByUrl.get(conversation.url) || [];
+    const preferred = conversation.preferredTabId !== null
+      ? matches.find((tab) => tab.id === conversation.preferredTabId)
+      : null;
+    const tab = preferred || matches[0] || null;
     if (!tab?.id) continue;
+
     checked += 1;
-    const before = injectedContentProbeReason(await probeContentScript(tab.id, conversation.url));
+    const before = contentProbeReason(await probeContentScript(tab.id, conversation.url));
     if (before === "ready") {
       ready += 1;
       continue;
@@ -139,10 +151,6 @@ async function refreshConfiguredContentScripts() {
     else failed += 1;
   }
   return { checked, ready, refreshed, failed };
-}
-
-function injectedContentProbeReason(result) {
-  return result?.ok ? "ready" : String(result?.reason || "content_script_unavailable");
 }
 
 function definitelyNoContentReceiver(error) {
