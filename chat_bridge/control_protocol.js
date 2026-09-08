@@ -9,7 +9,7 @@
 
   const MIN_INTERVAL_MINUTES = 1;
   const MAX_INTERVAL_MINUTES = 1440;
-  const MIN_NEXT_SECONDS = 120;
+  const MIN_NEXT_SECONDS = 30;
   const MAX_NEXT_SECONDS = 86400;
 
   function normalizeConversationUrl(rawUrl) {
