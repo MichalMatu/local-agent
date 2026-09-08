@@ -1,7 +1,5 @@
 (() => {
   const CONTENT_PROTOCOL_VERSION = 4;
-  const CONTROL_RETRY_BASE_MS = 5000;
-  const CONTROL_RETRY_MAX_MS = 30000;
   const existingBridge = globalThis.__localAgentChatBridgeState;
   if (existingBridge?.protocolVersion === CONTENT_PROTOCOL_VERSION) return;
   try {
@@ -15,7 +13,10 @@
 
   const protocol = globalThis.LocalAgentBridgeProtocol;
   if (!protocol) throw new Error("Local Agent Chat Bridge control protocol is unavailable");
+  const retryPolicy = globalThis.LocalAgentBridgeContentRetry;
+  if (!retryPolicy) throw new Error("Local Agent Chat Bridge content retry policy is unavailable");
   const { normalizeConversationUrl, parseAssistantControl, controlFingerprint, fnv1a32 } = protocol;
+  const controlRetryGate = retryPolicy.createRetryGate();
 
   function findComposer() {
     return (
@@ -234,26 +235,7 @@
   let controlScanTimer = null;
   let lastSubmittedControlFingerprint = "";
   let lastScannedAssistantSignature = "";
-  let controlRetrySignature = "";
-  let controlRetryFailures = 0;
-  let controlRetryNotBefore = 0;
   let controlScanInFlight = false;
-
-  function resetControlRetry(signature) {
-    controlRetrySignature = signature;
-    controlRetryFailures = 0;
-    controlRetryNotBefore = 0;
-  }
-
-  function deferControlRetry(signature) {
-    if (controlRetrySignature !== signature) resetControlRetry(signature);
-    controlRetryFailures += 1;
-    const delay = Math.min(
-      CONTROL_RETRY_BASE_MS * (2 ** Math.min(controlRetryFailures - 1, 3)),
-      CONTROL_RETRY_MAX_MS
-    );
-    controlRetryNotBefore = Date.now() + delay;
-  }
 
   async function scanLatestAssistantControl() {
     if (assistantIsGenerating() || controlScanInFlight) return;
@@ -271,8 +253,7 @@
     }
     const fingerprint = controlFingerprint(location.href, latest.text, control, latest.identity);
     if (fingerprint === lastSubmittedControlFingerprint) return;
-    if (controlRetrySignature !== signature) resetControlRetry(signature);
-    if (Date.now() < controlRetryNotBefore) return;
+    if (!controlRetryGate.canAttempt(signature)) return;
 
     controlScanInFlight = true;
     try {
@@ -281,12 +262,12 @@
         conversationUrl: url
       });
       if (!context?.ok) {
-        deferControlRetry(signature);
+        controlRetryGate.defer(signature);
         return;
       }
       if (context.assistantBaseline === latest.identity) {
         lastScannedAssistantSignature = signature;
-        resetControlRetry(signature);
+        controlRetryGate.reset(signature);
         return;
       }
       const response = await chrome.runtime.sendMessage({
@@ -300,15 +281,15 @@
       if (response?.ok) {
         lastSubmittedControlFingerprint = fingerprint;
         lastScannedAssistantSignature = signature;
-        resetControlRetry(signature);
+        controlRetryGate.reset(signature);
       } else if (response?.reason === "control_stale_binding") {
         lastScannedAssistantSignature = signature;
-        resetControlRetry(signature);
+        controlRetryGate.reset(signature);
       } else {
-        deferControlRetry(signature);
+        controlRetryGate.defer(signature);
       }
     } catch (error) {
-      deferControlRetry(signature);
+      controlRetryGate.defer(signature);
       console.warn("Local Agent Chat Bridge control delivery failed:", error);
     } finally {
       controlScanInFlight = false;
