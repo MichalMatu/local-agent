@@ -630,6 +630,7 @@ def main() -> int:
     last_control_at: float | None = None
     control_retry_not_before = 0.0
     control_pending = True
+    control_probe_pause_repository: str | None = None
     priority_repository: str | None = None
     once_completed: set[str] = set()
     once_failed: set[str] = set()
@@ -737,6 +738,7 @@ def main() -> int:
                 log("operator disable state cleared; resuming scheduler")
                 disabled_logged = False
                 control_pending = True
+                control_probe_pause_repository = None
                 last_control_at = None
 
             repositories = load_repository_registry(path=args.registry)
@@ -761,6 +763,13 @@ def main() -> int:
                 for repository_id, count in once_deferrals.items()
                 if repository_id in enabled
             }
+            control_repository_id = repositories[0].repository_id
+            if (
+                control_probe_pause_repository is not None
+                and control_probe_pause_repository != control_repository_id
+            ):
+                control_probe_pause_repository = None
+                reset_control_defer_state()
 
             if priority_repository not in enabled:
                 priority_repository = None
@@ -796,6 +805,7 @@ def main() -> int:
                     control_retry_not_before = 0.0
                     reset_control_defer_state()
                     control_pending = False
+                    control_probe_pause_repository = None
                 else:
                     time.sleep(
                         note_control_deferred(
@@ -820,37 +830,38 @@ def main() -> int:
                         continue
                     if probe_result is ControlProbeResult.PENDING:
                         reset_control_defer_state()
+                        control_probe_pause_repository = None
                         control_pending = True
                         log("global control request detected; draining active workers")
                         time.sleep(REAP_INTERVAL_SECONDS)
                         continue
                     if probe_result is ControlProbeResult.LEASE_BUSY:
-                        control_repository_running = repositories[0].repository_id in running
+                        note_control_deferred(
+                            "global control probe deferred; control repository lease busy",
+                            emit_log=False,
+                        )
+                        control_repository_running = control_repository_id in running
                         if control_repository_running:
-                            # The control repository worker necessarily owns its own
-                            # repository lease. This is healthy execution, not evidence
-                            # that global control is starving. Retry the probe soon but
-                            # do not accumulate toward the defensive orphan-lease drain.
-                            reset_control_defer_state()
-                            control_retry_not_before = (
-                                time.monotonic()
-                                + scheduling.control_defer_retry_seconds(1)
-                            )
-                        else:
-                            note_control_deferred(
-                                "global control probe deferred; control repository lease busy",
-                                emit_log=False,
-                            )
                             if scheduling.control_lease_busy_should_force_drain(
                                 control_defer_count
-                            ):
-                                control_pending = True
+                            ) and control_probe_pause_repository != control_repository_id:
+                                control_probe_pause_repository = control_repository_id
                                 log(
                                     "global control probe lease busy repeatedly; "
-                                    f"draining active workers consecutive={control_defer_count}"
+                                    "pausing new control-repository admission "
+                                    f"repository={control_repository_id} "
+                                    f"consecutive={control_defer_count}"
                                 )
-                                time.sleep(REAP_INTERVAL_SECONDS)
-                                continue
+                        elif scheduling.control_lease_busy_should_force_drain(
+                            control_defer_count
+                        ):
+                            control_pending = True
+                            log(
+                                "global control probe lease busy repeatedly; "
+                                f"draining active workers consecutive={control_defer_count}"
+                            )
+                            time.sleep(REAP_INTERVAL_SECONDS)
+                            continue
                     elif probe_result is ControlProbeResult.DEFERRED:
                         note_control_deferred(
                             "global control probe degraded; continuing unrelated task admission"
@@ -859,6 +870,7 @@ def main() -> int:
                         last_control_at = time.monotonic()
                         control_retry_not_before = 0.0
                         reset_control_defer_state()
+                        control_probe_pause_repository = None
                 else:
                     if service_control(
                         repositories,
@@ -869,6 +881,7 @@ def main() -> int:
                         last_control_at = time.monotonic()
                         control_retry_not_before = 0.0
                         reset_control_defer_state()
+                        control_probe_pause_repository = None
                     else:
                         note_control_deferred(
                             "global control service deferred; continuing task admission "
@@ -895,7 +908,11 @@ def main() -> int:
             now = time.monotonic()
 
             if priority_repository is not None:
-                if priority_repository not in running and not running:
+                if (
+                    priority_repository != control_probe_pause_repository
+                    and priority_repository not in running
+                    and not running
+                ):
                     repository = next(
                         item
                         for item in repositories
@@ -928,6 +945,8 @@ def main() -> int:
                         if capacity <= 0:
                             break
                         if repository.repository_id in running:
+                            continue
+                        if repository.repository_id == control_probe_pause_repository:
                             continue
                         if args.once and repository.repository_id in (
                             once_completed | once_failed
@@ -963,6 +982,7 @@ def main() -> int:
             if (
                 not running
                 and not control_pending
+                and control_probe_pause_repository is None
                 and priority_repository is None
                 and scheduling.operator_idle_log_due(last_idle_log_at, now)
             ):
@@ -980,7 +1000,11 @@ def main() -> int:
             else:
                 repository_delay = scheduling.next_repository_delay(
                     schedules,
-                    [repo.repository_id for repo in repositories],
+                    [
+                        repo.repository_id
+                        for repo in repositories
+                        if repo.repository_id != control_probe_pause_repository
+                    ],
                     now,
                 )
                 control_delay = max(
