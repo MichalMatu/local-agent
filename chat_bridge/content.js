@@ -156,6 +156,10 @@
     return latestMessage("user");
   }
 
+  function localMessageSignature(url, message) {
+    return message && url ? fnv1a32(`${url}\n${message.identity}\n${message.text}`) : "";
+  }
+
   let deliveryInFlight = false;
 
   async function sendFeedback(
@@ -269,7 +273,8 @@
   let lastScannedAssistantSignature = "";
   let controlScanInFlight = false;
   let lastSubmittedOperatorFingerprint = "";
-  let lastScannedUserSignature = "";
+  let operatorBaselineUrl = normalizeConversationUrl(location.href);
+  let lastScannedUserSignature = localMessageSignature(operatorBaselineUrl, latestUserMessage());
   let operatorScanInFlight = false;
 
   async function scanLatestAssistantControl() {
@@ -278,7 +283,7 @@
     if (!latest) return;
     const url = normalizeConversationUrl(location.href);
     if (!url) return;
-    const signature = fnv1a32(`${url}\n${latest.identity}\n${latest.text}`);
+    const signature = localMessageSignature(url, latest);
     if (signature === lastScannedAssistantSignature) return;
 
     const control = parseAssistantControl(latest.text);
@@ -359,11 +364,22 @@
 
   async function scanLatestOperatorControl() {
     if (operatorScanInFlight) return;
-    const latest = latestUserMessage();
-    if (!latest) return;
     const url = normalizeConversationUrl(location.href);
     if (!url) return;
-    const signature = fnv1a32(`${url}\n${latest.identity}\n${latest.text}`);
+    const latest = latestUserMessage();
+    if (!latest) {
+      operatorBaselineUrl = url;
+      lastScannedUserSignature = "";
+      return;
+    }
+    const signature = localMessageSignature(url, latest);
+    if (url !== operatorBaselineUrl) {
+      operatorBaselineUrl = url;
+      lastScannedUserSignature = signature;
+      lastSubmittedOperatorFingerprint = "";
+      operatorRetryGate.reset(signature);
+      return;
+    }
     if (signature === lastScannedUserSignature) return;
 
     const control = parseOperatorControl(latest.text);
