@@ -2,6 +2,14 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.17
+
+- Fixed the live Chat Bridge 0.5.5 popup regression where `Add current chat` still hard-coded content protocol v3 and rejected an already-open reachable protocol-v4/v3-mismatched tab with a manual-reload error.
+- Centralized `CONTENT_PROTOCOL_VERSION` in `control_protocol.js` and routed popup tab activation through the worker's dispose/inject/re-probe path; popup no longer owns a second protocol version or reinjection implementation.
+- Added Chat Bridge 0.5.6 LAB discovery/diagnostic controls (`HELP`, `CAPABILITIES`, `STATUS`, `DEBUG`, `SETTINGS`, `CHATS`, `CHAT=<id>`) with read-only same-chat feedback and infrastructure-only global chat listing.
+- Added explicit user-authored `LAB:OP:*` chat management for ADD/REMOVE/ENABLE/DISABLE/INTERVAL/Bridge reload, with persistent bounded dedupe and assistant/operator privilege separation so assistant content cannot mutate repository binding.
+- Added direct regression coverage for reachable protocol 3 -> worker refresh -> protocol 4 readiness without a ChatGPT page reload, plus command-catalog/operator-control tests. See `RELEASE_NOTES_V4.18.17.md`.
+
 ## v4.18.16
 
 - Hardened Chat Bridge delivery with content protocol v4 / extension 0.5.5: stale reachable content scripts are reinjected automatically, unconfirmed Bridge-owned prompts remain visible, and exact retained prompts can be reused only when untouched by the operator.
