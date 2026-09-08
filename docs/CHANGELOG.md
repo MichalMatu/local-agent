@@ -2,6 +2,25 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.13
+
+- Increased the generated macOS LaunchAgent `ExitTimeOut` to 15 seconds and the restart helper bootout wait budget to 20 seconds so launchd does not SIGKILL the guarded entrypoint before bounded supervisor cleanup can finish.
+- Retained four-worker launchd rendering and the scheduler hard cap of four.
+- Preserved task schema, resource classification, binding, watchdog, result and downstream planner contracts.
+- Frozen known-working release commit: `a32e54858c3bcb9687334b3232b71ae6ff130208`. See `RELEASE_NOTES_V4.18.13.md` and `PRODUCTION_BASELINE_V4.18.13.md` on the control-probe fix candidate branch.
+
+## v4.18.12
+
+- Removed the duplicated historical macOS `1..3` worker limit from LaunchAgent generation.
+- Reused `local_agent.supervisor.scheduling.MAX_MAX_WORKERS` so runtime admission and macOS deployment validation share the same hard cap of four.
+- Added direct builder and CLI render regression coverage for `--max-workers 4`. See `RELEASE_NOTES_V4.18.12.md`.
+
+## v4.18.11
+
+- Raised bounded parallel repository concurrency from three to four workers while keeping the default at one.
+- Preserved repository leases, named/machine resource exclusion, worker ordering, watchdogs, control synchronization, task contracts and result schemas.
+- Added direct coverage for accepting four workers and rejecting five. See `RELEASE_NOTES_V4.18.11.md`.
+
 ## v4.18.10
 
 - Announce worker admission before acquiring leases, and publish the registered worker set before returning from dispatch.
