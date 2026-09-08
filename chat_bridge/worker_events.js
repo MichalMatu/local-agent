@@ -1,9 +1,19 @@
-chrome.runtime.onInstalled.addListener(() => {
-  reconcileSchedules().catch((error) => console.error(error));
-});
-chrome.runtime.onStartup.addListener(() => {
-  reconcileSchedules().catch((error) => console.error(error));
-});
+async function initializeBridgeWorker() {
+  try {
+    await reconcileSchedules();
+  } catch (error) {
+    console.error(error);
+  }
+  try {
+    return await refreshConfiguredContentScripts();
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() => initializeBridgeWorker());
+chrome.runtime.onStartup.addListener(() => initializeBridgeWorker());
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (!alarm.name.startsWith(ALARM_PREFIX)) return;
@@ -107,3 +117,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   return false;
 });
+
+// A manually reloaded unpacked extension starts a fresh service worker while existing
+// ChatGPT tabs stay open. Probe configured tabs immediately so stale/unavailable content
+// scripts are replaced with this worker's protocol without a page reload or a wake.
+initializeBridgeWorker();
