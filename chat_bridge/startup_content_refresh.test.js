@@ -65,7 +65,7 @@ const { createHarness } = require("./worker_test_harness.js");
   h.sentMessages.length = 0;
 
   const startupResult = await h.startup();
-  assert.deepEqual(startupResult, { checked: 2, ready: 1, refreshed: 1, failed: 0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(startupResult)), { checked: 2, ready: 1, refreshed: 1, failed: 0 });
 
   const staleContentInjection = h.injectedScripts.filter((entry) =>
     entry.target?.tabId === 11 && Array.isArray(entry.files) && entry.files.includes("content.js")
