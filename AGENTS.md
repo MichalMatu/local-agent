@@ -7,7 +7,7 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - All machine-generated execution content is English-only: source, comments, identifiers, tests, documentation, prompts, task metadata, runtime logs, shell-visible status text and commit messages.
 - Interactive ChatGPT conversation language is independent from that execution contract.
 - `local_agent/daemon/service.py` owns daemon lifecycle, durable claims/results, remote status/control and self-update. `local_agent/paths.py` resolves the installed checkout independently of cwd.
-- `local_agent/supervisor/orchestrator.py` owns bounded-parallel supervisor orchestration and directly consumes `local_agent/supervisor/scheduling.py`.
+- `local_agent/supervisor/orchestrator.py` owns bounded-parallel supervisor side-effect orchestration and directly consumes `local_agent/supervisor/scheduling.py`.
 - `local_agent/supervisor/serial.py` owns the direct serial fallback with global concurrency one.
 - `local_agent/version.py` owns the release version.
 - `local_agent/config.py` owns startup-loaded timeout configuration.
@@ -29,8 +29,8 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - `local_agent/entrypoint.py` owns the guarded service lifecycle, remote operator polling and safe supervisor start/stop/reexec.
 - `local_agent/cli/diagnostics.py` owns diagnostics/status/task inspection. The daemon must not depend on diagnostics.
 - `local_agent/supervisor/resources.py` owns external machine/named-resource flock arbitration and inherited resource descriptors used by the parallel worker.
-- `local_agent/supervisor/policy.py` owns shared polling/order/control policy.
-- `local_agent/supervisor/scheduling.py` owns production retry/backoff/due/max-worker policy; do not duplicate that policy in the orchestrator.
+- `local_agent/supervisor/policy.py` owns shared adaptive polling/order/time policy.
+- `local_agent/supervisor/scheduling.py` owns pure production retry/backoff/due/max-worker policy and control-probe retry/admission state/classification; do not duplicate that policy in the orchestrator.
 - `local_agent/supervisor/worker.py` owns parallel worker task admission/dispatch and hard-binding admission.
 - `local_agent/platform/macos_launchd.py` owns portable macOS LaunchAgent generation/lifecycle helpers. Machine-specific plist content must not be committed.
 - Root Python files are limited to four operational launchers: `agentd.py`, `agent_entrypoint.py`, `agent_parallel.py` and `agent_multirepo.py`. Existing launchd definitions and in-flight self-update/restart paths require these filenames. They contain no implementation or import aliases.
@@ -70,15 +70,15 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 
 ## Production scheduling invariants
 
-The bounded-parallel production owner is `local_agent/supervisor/orchestrator.py`:
+The bounded-parallel production coordinator is `local_agent/supervisor/orchestrator.py`; pure policy/state belongs to `local_agent/supervisor/scheduling.py`:
 
 - production `max_workers` is `4` and the hard cap remains `4`;
 - default remains `1`;
 - `agent_multirepo.py` remains the known-safe serial fallback and preserves the same hard binding admission contract;
 - serial and parallel supervisors share the same daemon lock and must never run simultaneously;
 - every task must declare `resources` explicitly; missing, malformed, duplicated or non-canonical declarations are terminal task-contract errors, never silent fallbacks;
-- `resources: []` means the task needs no exclusive external resource beyond its repository lease; builds, tests, lint and other repository-local software work may use it regardless of `memory_limit_mb`;
-- the currently registered project repositories intentionally use `resources: []` for executable project work, including their project-dedicated hardware operations; device/port identity is discovered and verified inside task commands rather than encoded as a scheduler resource;
+- `resources: []` means the task needs no exclusive external resource beyond its repository lease;
+- the currently registered project repositories intentionally use `resources: []` for executable project work, including project-dedicated hardware operations; device/port identity is discovered and verified inside task commands rather than encoded as a scheduler resource;
 - named resources remain available for genuinely shared external resources, and serialize only tasks sharing the same concrete resource name;
 - `resources: ["machine"]` is reserved for operations that truly require the whole host and must not be used merely because a task is a build, hardware test or has a large RSS limit;
 - `memory_limit_mb` is a per-task watchdog bound and is independent from resource classification;
@@ -87,24 +87,31 @@ The bounded-parallel production owner is `local_agent/supervisor/orchestrator.py
 - resource acquisition is non-blocking admission before claim/execution; contention leaves the immutable task pending and retries with bounded backoff instead of failing or disappearing;
 - repository workers publish `waiting_resource` with the pending task/resource when admission is blocked;
 - machine contention retains priority/drain fairness so full-host maintenance cannot starve;
-- while workers are active, maintenance may only probe control state; global restart/status/self-update handling waits for a quiescent worker set and acquires all configured repository identities;
-- after initial supervisor control service succeeds, degraded control probes retry promptly without blocking unrelated task admission; confirmed `PENDING` control drains immediately;
-- v4.18.13 has confirmed BUG-002: repeated `LEASE_BUSY` from the control repository can trigger an unnecessary global admission drain even when the lease is owned by the supervisor's own known active control-repository worker. The candidate fix must treat that known-worker case as expected while preserving bounded defensive handling for unexplained lease contention;
+- while workers are active, supervisor-wide maintenance may only probe control state; actual restart/status/self-update handling waits for a quiescent worker set and acquires all configured repository identities;
+- control retry/backoff and the true consecutive-`LEASE_BUSY` streak are separate scheduling state;
+- `DEFERRED` probe failures keep bounded retry/backoff but break the consecutive lease-busy streak;
+- fewer than six consecutive `LEASE_BUSY` outcomes cause retry only;
+- six consecutive `LEASE_BUSY` outcomes caused by the supervisor's own known active control-repository worker pause only new control-repository admission, leaving unrelated repositories admissible when capacity/resources permit;
+- six consecutive `LEASE_BUSY` outcomes with no known active control worker retain the defensive global drain;
+- confirmed `PENDING` control always drains immediately;
+- successful control recovery and configured control-repository identity changes clear stale retry/pause evidence; an identity change also invalidates the previous normal control-poll clock;
 - registry entries must not be removed or identity-mutated while workers may still be alive.
 
-Repository isolation, hard agent binding and external-resource isolation are separate contracts. One repository still runs one task at a time, while independent hard-bound repositories may compile/test concurrently whenever their declared external resources do not conflict.
+Repository isolation, hard agent binding and external-resource isolation are separate contracts. One repository still runs one task at a time, while independent hard-bound repositories may compile/test or use their project-dedicated hardware concurrently whenever resource policy permits it.
 
 ## Release and branch policy
 
 - `main` is the production/runtime source of truth.
 - Normal installed runtime must execute from `~/local-agent` on `main` so validated self-update and revision reporting work normally.
 - Non-trivial runtime changes are prepared on isolated candidate branches/worktrees.
-- Staging/candidate branches are validation infrastructure, not long-lived production branches.
-- Require exact-candidate compile, Ruff, full unit/integration, Chat Bridge JS tests and macOS smoke before advancing `main`.
+- Candidate branches are validation infrastructure, not long-lived production branches.
+- Behavior-changing releases must update `local_agent.version.RELEASE_VERSION` and have matching release notes/changelog before the final suite can pass.
+- Require exact-candidate focused positive/negative tests, full CI matrix and macOS smoke before advancing `main`.
+- Scheduler/control changes additionally require real temporary-Git overlap/control tests; mocks alone are insufficient.
 - Hard-binding releases additionally require negative missing/wrong-binding coverage on parallel and serial paths plus real E2E of active `cancel_task` and global `disable` before execution is left enabled.
 - Advance `main` only after an explicit release decision and successful exact-candidate validation.
 - Tag the released main commit with `vX.Y.Z` and keep `local_agent.version.RELEASE_VERSION` synchronized with that tag.
-- After live verification from `main`, remove obsolete staging worktrees/branches instead of accumulating them.
+- After live verification from `main`, remove obsolete candidate worktrees/branches instead of accumulating them.
 
 ## Downstream documentation synchronization
 
@@ -132,7 +139,8 @@ Verification is impact-driven:
 - repository lease/process-lifecycle changes require real SIGTERM/SIGKILL process tests;
 - bounded parallel changes require real overlap and exclusivity evidence, not only mocks;
 - hard binding must have positive and negative admission evidence on both the production parallel worker and serial fallback;
-- package ownership moves require `tests/test_package_layout.py` plus the normal full suite.
+- package ownership moves require `tests/test_package_layout.py` plus the normal full suite;
+- current operational documentation and release metadata must pass automated drift checks.
 
 Use `workflow_policy: "efficient-verification-v1"` for staged coding tasks that must make verification cost explicit. Use `work` for implementation, `focused` for affected regression/static checks and exactly one final `full` verification stage.
 
@@ -144,7 +152,7 @@ python scripts/verify.py
 
 CI additionally runs branch-aware coverage, Python 3.14 compatibility and the macOS smoke suite. Do not recreate static compile/Ruff file lists in documentation or workflows; extend `scripts/verify.py` when verification scope changes.
 
-Parallel scheduler releases additionally require real two-repository overlap, a long-lived active control-repository overlap regression that crosses the global-control probe interval, machine-exclusion, inherited-resource-lock, one-shot contention and macOS smoke coverage.
+For v4.18.14/BUG-002, the exact final SHA must have three independent pre-merge verification layers recorded: focused control-admission policy/integration evidence, the complete CI matrix, and macOS ARM64 smoke/recheck including the new control-admission tests.
 
 ## Documentation
 
@@ -155,7 +163,7 @@ Parallel scheduler releases additionally require real two-repository overlap, a 
 - Emergency controls: `docs/EMERGENCY_CONTROLS.md`.
 - v4.11 parallel design/audit/live evidence: `docs/PARALLEL_EXECUTION_PLAN.md`.
 - Established Mac/ESP32 setup: `docs/SESSION_BOOTSTRAP.md`.
-- Current production invariants: `docs/GOLDEN_STANDARD.md`.
+- Current release/runtime invariants: `docs/GOLDEN_STANDARD.md`.
 - Frozen v4.18.13 rollback baseline and BUG-002 evidence: `docs/PRODUCTION_BASELINE_V4.18.13.md`.
 - Historical notes under `docs/history/` are non-canonical.
 
