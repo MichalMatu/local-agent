@@ -86,6 +86,22 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   assert.equal(await page.evaluate(() => window.submits), 0);
   console.log("PASS: trailing prose, invalid final candidates, invalid ranges and user messages leave conversation state unchanged");
 
+  // Diagnostic feedback must complete the full path automatically: assistant marker ->
+  // worker feedback -> composer insertion -> live Send click -> new user DOM message.
+  const beforeHelpSubmits = await page.evaluate(() => window.submits);
+  const beforeHelpUsers = await page.locator('[data-message-author-role="user"]').count();
+  await append("<p>[LAB:HELP]</p>");
+  await page.waitForFunction((beforeCount) => {
+    const messages = document.querySelectorAll('[data-message-author-role="user"]');
+    if (messages.length <= beforeCount) return false;
+    const latest = messages[messages.length - 1];
+    const text = latest.innerText || latest.textContent || "";
+    return text.includes("[LA_BRIDGE_FEEDBACK]") && text.includes("command=HELP");
+  }, beforeHelpUsers);
+  assert.equal(await page.evaluate(() => window.submits), beforeHelpSubmits + 1);
+  assert.equal(await page.locator("#prompt-textarea").textContent(), "");
+  console.log("PASS: LAB HELP feedback is inserted and submitted automatically through the live Send path");
+
   // A user-authored operator marker that predates a content-script activation must never replay.
   // The first new OP marker after that activation is eligible and proves the scanner is live.
   const operatorBaselineId = await add("operator-replay-baseline");
@@ -122,11 +138,11 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   assert.equal(firstUnconfirmed.reason, "delivery_unconfirmed");
   const retainedPrompt = await page.locator("#prompt-textarea").textContent();
   assert.match(retainedPrompt, /\[LA_REPO=tracker\]/);
-  assert.equal(await page.evaluate(() => window.submits), 1);
+  assert.equal(await page.evaluate(() => window.submits), beforeHelpSubmits + 2);
   await page.locator("#prompt-textarea").fill(`${retainedPrompt} operator-edit`);
   const blockedRetry = await request({ type: "bridge:run-now", conversationId: retainedId });
   assert.equal(blockedRetry.reason, "composer_not_empty");
-  assert.equal(await page.evaluate(() => window.submits), 1);
+  assert.equal(await page.evaluate(() => window.submits), beforeHelpSubmits + 2);
   assert.match(await page.locator("#prompt-textarea").textContent(), /operator-edit$/);
   await page.evaluate(() => { window.dropDelivery = false; });
   console.log("PASS: unconfirmed Bridge prompt stays visible and any operator edit blocks automatic reuse");
