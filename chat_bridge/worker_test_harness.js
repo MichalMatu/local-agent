@@ -13,7 +13,7 @@ const bindingFor = (repositoryId) => {
 const MATRIX_BINDING = bindingFor("matrixhub");
 const TRACKER_BINDING = bindingFor("tracker");
 const LOCAL_AGENT_BINDING = bindingFor("local-agent");
-const CONTENT_PROTOCOL_VERSION = 3;
+const CONTENT_PROTOCOL_VERSION = 4;
 const EXHAUSTION_GUARD_VERSION = 1;
 
 const storage = options.storage || {};
