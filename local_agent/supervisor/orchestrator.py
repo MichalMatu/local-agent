@@ -825,18 +825,32 @@ def main() -> int:
                         time.sleep(REAP_INTERVAL_SECONDS)
                         continue
                     if probe_result is ControlProbeResult.LEASE_BUSY:
-                        note_control_deferred(
-                            "global control probe deferred; control repository lease busy",
-                            emit_log=False,
-                        )
-                        if scheduling.control_lease_busy_should_force_drain(control_defer_count):
-                            control_pending = True
-                            log(
-                                "global control probe lease busy repeatedly; "
-                                f"draining active workers consecutive={control_defer_count}"
+                        control_repository_running = repositories[0].repository_id in running
+                        if control_repository_running:
+                            # The control repository worker necessarily owns its own
+                            # repository lease. This is healthy execution, not evidence
+                            # that global control is starving. Retry the probe soon but
+                            # do not accumulate toward the defensive orphan-lease drain.
+                            reset_control_defer_state()
+                            control_retry_not_before = (
+                                time.monotonic()
+                                + scheduling.control_defer_retry_seconds(1)
                             )
-                            time.sleep(REAP_INTERVAL_SECONDS)
-                            continue
+                        else:
+                            note_control_deferred(
+                                "global control probe deferred; control repository lease busy",
+                                emit_log=False,
+                            )
+                            if scheduling.control_lease_busy_should_force_drain(
+                                control_defer_count
+                            ):
+                                control_pending = True
+                                log(
+                                    "global control probe lease busy repeatedly; "
+                                    f"draining active workers consecutive={control_defer_count}"
+                                )
+                                time.sleep(REAP_INTERVAL_SECONDS)
+                                continue
                     elif probe_result is ControlProbeResult.DEFERRED:
                         note_control_deferred(
                             "global control probe degraded; continuing unrelated task admission"
