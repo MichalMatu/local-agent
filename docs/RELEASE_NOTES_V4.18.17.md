@@ -16,13 +16,13 @@ Root cause: `worker_transport.js` and `content.js` were upgraded to content prot
 
 ## Chat Bridge 0.5.6
 
-- Keep content protocol v4 but move `CONTENT_PROTOCOL_VERSION` to the single shared `control_protocol.js` source of truth.
+- Advance content protocol from v4 to **v5** and keep `CONTENT_PROTOCOL_VERSION` in the single shared `control_protocol.js` source of truth. This is required because 0.5.6 changes content behavior; a 0.5.6 worker must distinguish an already-open 0.5.5/v4 content script from the new implementation.
 - Remove popup-owned protocol versioning and popup-owned `chrome.scripting.executeScript` logic.
 - Route popup `Add current chat` activation through the service worker with `bridge:ensure-tab-content`.
 - The worker now performs one centralized force-refresh path: dispose existing Bridge and the actual `__localAgentChatExhaustionGuard` listeners/timers, inject `control_protocol.js`, `content_retry.js`, `content.js`, `dom_contract.js`, and `exhaustion_guard.js`, then probe content protocol and guard readiness again.
 - Add a regression contract that forbids duplicate `CONTENT_PROTOCOL_VERSION` declarations in content, worker, popup and test harness and verifies the exact exhaustion-guard global used by force reload.
-- Add a direct worker regression for the exact live failure: reachable protocol 3 -> worker force refresh -> protocol 4 ready, without a ChatGPT page reload.
-- Treat the latest user message already present when protocol 0.5.6 content activates as an operator baseline. A historical `LAB:OP:*` marker is never executed merely because the extension/content script was installed, reloaded or reinjected.
+- Add a direct worker regression for the current upgrade path: reachable 0.5.5/protocol-v4 content -> 0.5.6 worker force refresh -> protocol v5 ready, without a ChatGPT page reload. The same mismatch mechanism also covers older v3 tabs.
+- Treat the latest user message already present when protocol-v5 content activates as an operator baseline. A historical `LAB:OP:*` marker is never executed merely because the extension/content script was installed, reloaded or reinjected.
 - Reset that operator baseline on SPA conversation changes, so navigating an existing tab to another ChatGPT conversation cannot replay the new conversation's historical last user marker.
 - Keep persistent bounded operator-command dedupe after a command has actually executed; baseline protection and dedupe cover different replay classes.
 
@@ -107,14 +107,14 @@ The ChatGPT planner may still use existing repository-scoped `cancel_task` throu
 - Task schema, binding UUIDs, repository registry, executor resource semantics, result schema, parallel scheduler, BUG-002 behavior and Local Agent self-update semantics are unchanged.
 - Existing Bridge schema-v3 conversation state remains valid.
 - Existing STOP/PAUSE/RESUME/NEXT/INTERVAL markers remain compatible.
-- Content protocol remains v4; Chat Bridge extension version advances from 0.5.5 to 0.5.6.
+- Chat Bridge extension version advances from 0.5.5 to 0.5.6 and content protocol advances from v4 to v5 specifically so already-open 0.5.5 tabs are detectable as stale.
 
 ## Verification required before merge
 
 The final 4.18.17 candidate must pass:
 
 - Node syntax and all Chat Bridge unit/contract tests;
-- the exact popup protocol-3 -> protocol-4 worker recovery regression;
+- the exact 0.5.5/protocol-v4 -> 0.5.6/protocol-v5 worker recovery regression;
 - assistant/operator privilege-separation tests;
 - Chromium proof that a historical user-authored `LAB:OP:*` marker does not replay after content reinjection while a newly sent marker does execute;
 - full Python unit/integration suite and coverage;
