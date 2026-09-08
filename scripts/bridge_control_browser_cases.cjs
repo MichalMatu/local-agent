@@ -55,7 +55,6 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   await accept("<p>[LAB:PAUSE]</p><p>—</p>", "[LAB:PAUSE]", false, null, false);
   await accept("<p>[LAB:PAUSE] [LAB:RESUME]!</p>", "[LAB:RESUME]", true, null, true);
 
-  // Rescanning one answer is a duplicate; the same command in a new answer is new control.
   const duplicateBaseline = await readChat(id);
   await page.evaluate(() => {
     const answers = document.querySelectorAll('[data-message-author-role="assistant"]');
@@ -86,9 +85,6 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   assert.equal(await page.evaluate(() => window.submits), 0);
   console.log("PASS: trailing prose, invalid final candidates, invalid ranges and user messages leave conversation state unchanged");
 
-  // Isolate the live diagnostic-submit regression on a fresh page/content-script state.
-  // The full path is: assistant marker -> worker feedback -> composer insertion ->
-  // live Send click -> new user DOM message, with no operator interaction.
   await add("help-feedback-submit");
   const beforeHelpUsers = await page.locator('[data-message-author-role="user"]').count();
   await page.evaluate(() => {
@@ -98,19 +94,35 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
     answer.textContent = "[LAB:HELP]";
     document.body.append(answer);
   });
+  await page.waitForFunction(() => {
+    const composer = document.querySelector("#prompt-textarea");
+    const text = composer?.innerText || composer?.textContent || "";
+    return text.includes("[LA_BRIDGE_FEEDBACK]") && text.includes("command=HELP");
+  }, null, { timeout: 5000 });
+  const preSubmit = await page.evaluate(() => ({
+    composer: document.querySelector("#prompt-textarea")?.innerText || document.querySelector("#prompt-textarea")?.textContent || "",
+    submits: window.submits,
+    buttonDisabled: document.querySelector("#composer-submit-button")?.disabled,
+    buttonConnected: document.querySelector("#composer-submit-button")?.isConnected,
+    buttonType: document.querySelector("#composer-submit-button")?.type
+  }));
+  assert.match(preSubmit.composer, /\[LA_BRIDGE_FEEDBACK\]/);
+  assert.match(preSubmit.composer, /command=HELP/);
+  assert.equal(preSubmit.buttonDisabled, false);
+  assert.equal(preSubmit.buttonConnected, true);
+  assert.equal(preSubmit.buttonType, "submit");
+  console.log("PASS: LAB HELP feedback reaches an enabled live Send control");
   await page.waitForFunction((beforeCount) => {
     const messages = document.querySelectorAll('[data-message-author-role="user"]');
     if (messages.length <= beforeCount) return false;
     const latest = messages[messages.length - 1];
     const text = latest.innerText || latest.textContent || "";
     return text.includes("[LA_BRIDGE_FEEDBACK]") && text.includes("command=HELP");
-  }, beforeHelpUsers, { timeout: 10000 });
+  }, beforeHelpUsers, { timeout: 7000 });
   assert.equal(await page.evaluate(() => window.submits), 1);
   assert.equal(await page.locator("#prompt-textarea").textContent(), "");
-  console.log("PASS: LAB HELP feedback is inserted and submitted automatically through the live Send path");
+  console.log("PASS: LAB HELP feedback is submitted automatically through the live Send path");
 
-  // A user-authored operator marker that predates a content-script activation must never replay.
-  // The first new OP marker after that activation is eligible and proves the scanner is live.
   const operatorBaselineId = await add("operator-replay-baseline");
   const operatorBaselineUrl = page.url();
   await page.evaluate(() => {
