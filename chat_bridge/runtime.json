@@ -34,6 +34,12 @@
       "repository": "MichalMatu/tracker",
       "agent_binding": "be481b25-9d97-4205-b93f-95f5c5827441",
       "execution_enabled": true
+    },
+    {
+      "repository_id": "local-climate-link-starter",
+      "repository": "MichalMatu/local-climate-link-starter",
+      "agent_binding": "e75c77cb-7589-4452-94b2-decc97ff85a1",
+      "execution_enabled": true
     }
   ]
 }
