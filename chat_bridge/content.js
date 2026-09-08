@@ -141,17 +141,17 @@
 
   let deliveryInFlight = false;
 
-  async function sendFeedback(prompt, expectedUrl, deliveryId) {
+  async function sendFeedback(prompt, expectedUrl, deliveryId, recoverBridgePrompt = false) {
     if (deliveryInFlight) return { ok: false, reason: "delivery_in_progress" };
     deliveryInFlight = true;
     try {
-      return await deliverFeedback(prompt, expectedUrl, deliveryId);
+      return await deliverFeedback(prompt, expectedUrl, deliveryId, recoverBridgePrompt);
     } finally {
       deliveryInFlight = false;
     }
   }
 
-  async function deliverFeedback(prompt, expectedUrl, deliveryId) {
+  async function deliverFeedback(prompt, expectedUrl, deliveryId, recoverBridgePrompt) {
     const normalizedUrl = normalizeConversationUrl(expectedUrl);
     if (!normalizedUrl || normalizeConversationUrl(location.href) !== normalizedUrl) {
       return { ok: false, reason: "wrong_conversation" };
@@ -161,19 +161,30 @@
 
     const composer = findComposer();
     if (!composer) return { ok: false, reason: "composer_not_found" };
-    if (composerText(composer).trim()) return { ok: false, reason: "composer_not_empty" };
+    const existingComposerText = composerText(composer);
+    const reuseExactBridgePrompt = Boolean(
+      recoverBridgePrompt && existingComposerText && existingComposerText === prompt
+    );
+    if (existingComposerText.trim() && !reuseExactBridgePrompt) {
+      return { ok: false, reason: "composer_not_empty" };
+    }
 
-    try {
-      setComposerText(composer, prompt);
-    } catch (error) {
-      return { ok: false, reason: "composer_write_failed", error: String(error) };
+    if (!reuseExactBridgePrompt) {
+      try {
+        setComposerText(composer, prompt);
+      } catch (error) {
+        return { ok: false, reason: "composer_write_failed", error: String(error) };
+      }
     }
     const insertedComposerText = composerText(composer);
-    if (!insertedComposerText.trim()) return { ok: false, reason: "composer_write_failed" };
+    if (!insertedComposerText.trim() || insertedComposerText !== prompt) {
+      return { ok: false, reason: "composer_write_failed" };
+    }
 
     const sendButton = await waitForSendButton(composer);
     if (!sendButton) {
-      clearComposer(composer, insertedComposerText);
+      // Keep the exact Bridge-owned prompt visible for a later bounded retry. An
+      // operator edit changes the text and therefore makes future reuse fail closed.
       return { ok: false, reason: "send_button_not_ready" };
     }
 
@@ -196,7 +207,6 @@
       return { ok: false, reason: "composer_changed" };
     }
     if (assistantIsGenerating() || !sendButton.isConnected || sendButton.disabled) {
-      clearComposer(composer, insertedComposerText);
       return { ok: false, reason: "send_button_not_ready" };
     }
 
@@ -216,8 +226,8 @@
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
-    // A submit attempt has already happened. If ChatGPT keeps the exact prompt in the
-    // composer, preserve it for manual recovery instead of making the wake visibly vanish.
+    // Submission was attempted. Do not erase an exact retained prompt merely because
+    // ChatGPT's DOM did not confirm it quickly enough; a later run may safely reuse it.
     return { ok: false, reason: "delivery_unconfirmed" };
   }
 
@@ -343,7 +353,12 @@
       return false;
     }
     if (message?.type !== "bridge:feedback") return false;
-    sendFeedback(String(message.prompt || ""), String(message.expectedUrl || ""), message.deliveryId)
+    sendFeedback(
+      String(message.prompt || ""),
+      String(message.expectedUrl || ""),
+      message.deliveryId,
+      message.recoverBridgePrompt === true
+    )
       .then((response) => sendResponse({ ...response, protocolVersion: CONTENT_PROTOCOL_VERSION }))
       .catch((error) => sendResponse({
         ok: false,
