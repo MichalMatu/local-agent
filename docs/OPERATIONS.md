@@ -4,15 +4,25 @@ This is the canonical operational workflow for `MichalMatu/local-agent`.
 
 ## Production topology
 
-The production/runtime source is `~/local-agent` on `main`. Releases are tagged `vX.Y.Z`. Temporary `v*-staging` branches/worktrees are candidate-development infrastructure only.
+The production/runtime source is `~/local-agent` on `main`. Releases are tagged `vX.Y.Z`. Temporary candidate branches/worktrees are candidate-development infrastructure only.
 
-The recommended bounded-parallel supervisor is:
+The bounded-parallel production supervisor is:
 
 ```bash
-python agent_parallel.py --registry "$HOME/Library/Application Support/local-agent/repositories.json" --max-workers 2
+python agent_parallel.py --registry "$HOME/Library/Application Support/local-agent/repositories.json" --max-workers 4
 ```
 
-`agent_multirepo.py` remains the direct serial fallback with global concurrency one. In 4.15 both execution paths enforce the same hard agent-binding admission contract. The two supervisors use the same daemon lock and must never run simultaneously.
+`agent_multirepo.py` remains the direct serial fallback with global concurrency one. Both execution paths enforce the same hard agent-binding admission contract. The two supervisors use the same daemon lock and must never run simultaneously.
+
+The frozen known-working v4.18.13 identity before the control-probe admission fix is:
+
+```text
+v4.18.13
+= a32e54858c3bcb9687334b3232b71ae6ff130208
+= rollback/v4.18.13-known-working
+```
+
+See [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) before changing scheduler/control admission behavior.
 
 ## Hard agent-binding contract
 
@@ -58,7 +68,7 @@ The `local-agent` catalog entry is `execution_enabled: false`. It is reserved fo
 
 ## Binding migration while disabled
 
-A 4.15 upgrade must be fail-closed:
+A binding migration must be fail-closed:
 
 ```bash
 cd ~/local-agent
@@ -99,14 +109,14 @@ Legacy/unbound conversations migrate disabled with `binding_required`; they rece
 Remote runtime schema 3 publishes the canonical agent catalog. Production runtime is served from branch `chat-bridge-state`, file `chat_bridge/runtime.json`. Rollout order matters:
 
 1. keep Local Agent globally disabled;
-2. release/fast-forward Local Agent 4.15 code and validate CI;
-3. update/reload Chat Bridge 0.4;
+2. release/fast-forward Local Agent code and validate CI;
+3. update/reload Chat Bridge;
 4. publish runtime schema 3 with the matching catalog;
 5. verify migrated chats are fail-closed and intended chats have exact bindings;
 6. run binding-negative E2E plus emergency-control E2E;
 7. enable Local Agent only after those checks are green.
 
-Publishing schema 3 before an old bridge is replaced is not a reason to enable execution. The kill switch remains the safety boundary during rollout.
+Publishing a new bridge runtime before an old bridge is replaced is not a reason to enable execution. The kill switch remains the safety boundary during rollout.
 
 ## Control data
 
@@ -130,17 +140,18 @@ Control synchronization keeps history shallow and explicitly fetches the control
 
 Every task must declare `resources` explicitly. Missing, malformed, duplicated, oversized or non-canonical declarations are terminal contract errors; there is no fallback to `machine`.
 
-Repository-local work uses:
+The currently registered project repositories use:
 
 ```json
 {"resources": [], "memory_limit_mb": 2048}
 ```
 
-Concrete exclusive resources use stable names, for example:
+for executable project work, including project-dedicated hardware operations. The task itself discovers and verifies the intended device/port before interacting with hardware.
+
+The generic runtime still supports named resources for genuinely shared external resources, for example:
 
 ```json
-{"resources": ["board:growbox-s3"]}
-{"resources": ["board:zigbee-c6"]}
+{"resources": ["shared:example-device"]}
 ```
 
 Full-host exclusivity is explicit:
@@ -149,7 +160,7 @@ Full-host exclusivity is explicit:
 {"resources": ["machine"]}
 ```
 
-`memory_limit_mb` remains an independent RSS watchdog and never implies machine exclusivity.
+`memory_limit_mb` remains an independent per-task RSS watchdog and never implies machine exclusivity. The supervisor does not sum requested memory limits or perform aggregate host-RAM admission.
 
 Resource acquisition is non-blocking before claim. Contention leaves the immutable task pending, reports `waiting_resource`, and retries with bounded backoff. Contention is WAIT, not task failure.
 
@@ -160,7 +171,7 @@ Resource acquisition is non-blocking before claim. Contention leaves the immutab
 3. Inspect `.agent/status/daemon.json` and exact run/result evidence for that repository.
 4. Confirm the intended `work_branch` when it differs from the default.
 5. Prepare the smallest deterministic change.
-6. Classify resources conservatively.
+6. Classify resources explicitly; current registered project repositories use `resources: []` and detect devices inside task commands.
 7. Queue one new unique task containing the exact `agent_binding` and explicit `resources`.
 8. For Chat Bridge work, perform one early liveness check around 30 seconds.
 9. Follow the same digest/attempt until terminal evidence exists.
@@ -212,7 +223,13 @@ Repository controls include `cancel_task`, `disable` and status handling. Active
 
 `disable` is global safety state, not merely a display status. When disabled, workers stop task admission even if task/binding data is otherwise valid.
 
-Repository workers never execute supervisor-wide restart/self-update directly. While workers are active, the parallel supervisor probes global control and drains safely before global maintenance.
+Repository workers never execute supervisor-wide restart/self-update directly. While workers are active, the parallel supervisor probes global control and drains safely before confirmed global maintenance.
+
+### Known v4.18.13 control-probe admission defect
+
+The frozen v4.18.13 scheduler has confirmed BUG-002. If the designated control repository itself runs a long task, the periodic global-control probe cannot acquire that worker's repository lease and returns `LEASE_BUSY`. After six consecutive lease-busy outcomes, v4.18.13 forces a global admission drain. Unrelated repositories can therefore wait even when their tasks use `resources: []` and worker capacity is available.
+
+This is not RAM admission and not normal resource contention. The candidate fix must allow ordinary admission to continue when the lease holder is the supervisor's own known active control-repository worker, while preserving defensive handling for unexplained lease holders and immediate drain for a confirmed pending global control request.
 
 ## Runtime bounds
 
@@ -242,7 +259,7 @@ Write/update `~/Library/LaunchAgents/com.michal.local-agent.plist` without touch
 ```bash
 .venv/bin/python scripts/macos_launchd.py install \
   --mode parallel \
-  --max-workers 2
+  --max-workers 4
 ```
 
 Inspect the loaded service:
@@ -256,7 +273,7 @@ Only when it is safe to interrupt active work, explicitly regenerate and restart
 ```bash
 .venv/bin/python scripts/macos_launchd.py restart \
   --mode parallel \
-  --max-workers 2
+  --max-workers 4
 ```
 
 `install` and `restart` are intentionally separate operations. A configuration write must never silently interrupt an active Local Agent task.
@@ -273,13 +290,13 @@ Cold-start rollout should begin disabled. Verify:
 
 Only after binding/bridge/E2E gates are complete should `python -m local_agent.operator.local enable` remove the marker.
 
-Rollback to `agent_multirepo.py` does not weaken hard binding in 4.15: the serial repository worker enforces the same registry/control/task equality. Do not roll back to a pre-4.15 binary while bound task queues are considered trusted.
+Rollback to `agent_multirepo.py` does not weaken hard binding: the serial repository worker enforces the same registry/control/task equality. Do not roll back to a pre-hard-binding binary while bound task queues are considered trusted.
 
 ## Release flow
 
 ### Package-layout transition from v4.17
 
-The v4.17 updater's in-memory validation command names root aliases removed in v4.18. It correctly rejects the new layout. Perform this one-time transition through the operator: wait for idle, persist local disable with the installed `agent_operator.py disable`, stop the LaunchAgent, fast-forward the production checkout to the validated release, and restart using `scripts/macos_launchd.py restart --mode parallel --max-workers 2`. Verify disabled startup and live cancellation/disable E2E before leaving execution enabled. Keep registry, claims, result spool, workspaces and checkpoints intact.
+The v4.17 updater's in-memory validation command names root aliases removed in v4.18. It correctly rejects the new layout. Perform this one-time transition through the operator: wait for idle, persist local disable with the installed operator command, stop the LaunchAgent, fast-forward the production checkout to the validated release, and restart using `scripts/macos_launchd.py restart --mode parallel --max-workers 4`. Verify disabled startup and live cancellation/disable E2E before leaving execution enabled. Keep registry, claims, result spool, workspaces and checkpoints intact.
 
 ### Interrupted self-update recovery
 
@@ -297,13 +314,14 @@ For non-trivial runtime changes:
 2. implement and run focused verification;
 3. require compile, Ruff, full unittest/integration and macOS smoke on the exact candidate SHA;
 4. review `main...candidate` and verify no unrelated/fallback-breaking changes;
-5. audit planner-facing Local Agent docs in every registered downstream repository;
-6. advance `main` only after the exact candidate is green;
-7. tag released `main` `vX.Y.Z` matching `local_agent.version.RELEASE_VERSION`;
-8. switch production to `~/local-agent` on released `main` and verify live status/result evidence;
-9. remove obsolete staging branches/worktrees after release is established.
+5. for scheduler/control admission changes, require a long-running control-repository overlap regression that crosses the global-control probe interval;
+6. audit planner-facing Local Agent docs in every registered downstream repository;
+7. advance `main` only after the exact candidate is green;
+8. tag released `main` `vX.Y.Z` matching `local_agent.version.RELEASE_VERSION`;
+9. switch production to `~/local-agent` on released `main` and verify live status/result evidence;
+10. remove obsolete staging branches/worktrees after release is established.
 
-For 4.15, release verification additionally requires missing/wrong binding rejection on both parallel and serial execution paths, control-binding mismatch admission failure, Chat Bridge unbound/rebind tests, active `cancel_task`, and global `disable` E2E.
+Hard-binding releases additionally require missing/wrong binding rejection on both parallel and serial execution paths, control-binding mismatch admission failure, Chat Bridge unbound/rebind tests, active `cancel_task`, and global `disable` E2E.
 
 ## Downstream documentation gate
 
@@ -322,6 +340,6 @@ Downstream task examples must include `agent_binding` for executable Chat Bridge
 
 Use focused regression during iteration, then one bounded full suite near the end. Long/noisy structured stages may use `output_policy: "summary"`; bounded raw evidence remains in terminal results.
 
-Unexpected worker exits back off 2-300 s and reset after normal outcomes. Deferred global-control work backs off 2-15 s. Repeated control lease contention enters a bounded drain after six consecutive deferrals.
+Unexpected worker exits back off 2-300 s and reset after normal outcomes. Deferred global-control work backs off 2-15 s. The frozen v4.18.13 baseline escalates six consecutive control-repository lease-busy probes to a global drain; BUG-002 tracks the required known-worker exception.
 
 The production supervisor bounds `~/Library/Logs/local-agent.log` and `local-agent-error.log`. Routine successful internal Git housekeeping is quiet by default; actionable control failures, timeouts, nonzero internal commands, task lifecycle and other degraded states remain logged. Set `LOCAL_AGENT_VERBOSE_LOGS=1` only for temporary low-level diagnostics.
