@@ -2,6 +2,15 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.14
+
+- Fixed BUG-002 so repeated control-probe lease contention caused by the supervisor's own active control-repository worker no longer collapses unrelated cross-repository admission.
+- Track true consecutive `LEASE_BUSY` outcomes separately from degraded `DEFERRED` probes; degraded probes reset the lease-busy streak while preserving bounded control retry/backoff.
+- After six consecutive known-worker `LEASE_BUSY` outcomes, pause only new control-repository admission so the supervisor can regain the control lease before starting another control task; unrelated repositories remain admissible when capacity exists.
+- Preserve the six-consecutive-busy defensive global drain for unexplained control-repository lease holders and the immediate drain for confirmed `PENDING` global control.
+- Move control-probe retry/admission state and pure `RETRY` / `PAUSE_CONTROL_REPOSITORY` / `DRAIN_ALL` policy into `local_agent.supervisor.scheduling`, leaving `orchestrator.py` responsible for side effects and worker coordination.
+- Add pure policy regression tests, real temporary-Git late-admission overlap coverage, macOS smoke coverage, current-documentation drift checks and release metadata checks. See `RELEASE_NOTES_V4.18.14.md`.
+
 ## v4.18.13
 
 - Increased the generated macOS LaunchAgent `ExitTimeOut` to 15 seconds and the restart helper bootout wait budget to 20 seconds so launchd does not SIGKILL the guarded entrypoint before bounded supervisor cleanup can finish.
