@@ -52,12 +52,17 @@ class CurrentDocumentationContractTests(unittest.TestCase):
         forbidden = (
             "candidate fix must",
             "The candidate fix must",
+            "The v4.18.14 candidate is not production",
         )
         for relative in CURRENT_SCHEDULER_DOCS:
             text = (REPO_ROOT / relative).read_text(encoding="utf-8")
             for phrase in forbidden:
                 with self.subTest(path=relative, phrase=phrase):
                     self.assertNotIn(phrase, text)
+
+    def test_golden_standard_names_current_production_release(self) -> None:
+        golden = (REPO_ROOT / "docs" / "GOLDEN_STANDARD.md").read_text(encoding="utf-8")
+        self.assertIn(f"current production release is `v{RELEASE_VERSION}`", golden)
 
     def test_release_version_has_matching_release_notes_and_changelog_entry(self) -> None:
         notes = REPO_ROOT / "docs" / f"RELEASE_NOTES_V{RELEASE_VERSION}.md"
