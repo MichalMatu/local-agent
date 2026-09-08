@@ -23,6 +23,7 @@ function fingerprint(value) {
     assert.equal(parsed?.action, "inspect", marker);
     assert.equal(parsed?.command, command, marker);
   }
+  assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 5);
   assert.equal(protocol.parseAssistantControl("[LAB:RELOAD=CONTENT]")?.command, "reload_content");
   assert.equal(protocol.parseAssistantControl("[LAB:RESTART=WORKER]")?.command, "reload_bridge");
   assert.equal(protocol.parseAssistantControl("[LAB:OP:ADD=tracker]"), null, "assistant parser must not accept operator mutation");
@@ -50,8 +51,8 @@ function fingerprint(value) {
     assert.equal(response.reason, "inspection_ready");
     assert.match(response.feedbackPrompt, /\[LA_BRIDGE_FEEDBACK\]/);
     assert.match(response.feedbackPrompt, /"configured": false/);
-    assert.match(response.feedbackPrompt, /"expectedContentProtocol": 4/);
-    assert.match(response.feedbackPrompt, /"reportedContentProtocol": 4/);
+    assert.match(response.feedbackPrompt, /"expectedContentProtocol": 5/);
+    assert.match(response.feedbackPrompt, /"reportedContentProtocol": 5/);
   }
 
   // User-authored OP controls can add/configure/remove exactly the current chat and dedupe persistently.
@@ -147,7 +148,7 @@ function fingerprint(value) {
       conversationUrl: "https://chatgpt.com/c/infra",
       fingerprint: fingerprint("infra-chats"),
       assistantIdentity: "assistant-infra",
-      contentProtocolVersion: 4,
+      contentProtocolVersion: protocol.CONTENT_PROTOCOL_VERSION,
       control: { marker: "[LAB:CHATS]" }
     }, { tab: { url: "https://chatgpt.com/c/infra" } });
     assert.equal(infra.ok, true);
@@ -159,7 +160,7 @@ function fingerprint(value) {
       conversationUrl: "https://chatgpt.com/c/a",
       fingerprint: fingerprint("project-chats"),
       assistantIdentity: "assistant-project",
-      contentProtocolVersion: 4,
+      contentProtocolVersion: protocol.CONTENT_PROTOCOL_VERSION,
       control: { marker: "[LAB:CHATS]" }
     }, { tab: { url: "https://chatgpt.com/c/a" } });
     assert.equal(project.ok, true);
@@ -167,7 +168,7 @@ function fingerprint(value) {
     assert.match(project.feedbackPrompt, /"count": 1/);
   }
 
-  // Regression for the live 4.18.16 failure: popup activates a reachable protocol-3 tab through the worker.
+  // Upgrade regression: popup activates a reachable 0.5.5/protocol-v4 tab through the 0.5.6 worker.
   {
     const h = createHarness({
       contentScriptProbe: async ({ injectedScripts }) => {
@@ -175,7 +176,7 @@ function fingerprint(value) {
         return {
           ok: true,
           reason: "ready",
-          protocolVersion: refreshed ? protocol.CONTENT_PROTOCOL_VERSION : 3,
+          protocolVersion: refreshed ? protocol.CONTENT_PROTOCOL_VERSION : 4,
           assistantIdentity: "assistant-before-refresh"
         };
       }
@@ -186,7 +187,7 @@ function fingerprint(value) {
       expectedUrl: "https://chatgpt.com/c/a"
     });
     assert.equal(response.ok, true);
-    assert.equal(response.protocolVersion, 4);
+    assert.equal(response.protocolVersion, protocol.CONTENT_PROTOCOL_VERSION);
     assert.equal(h.injectedScripts.length, 2, "force refresh should dispose then inject once");
     assert.equal(h.injectedScripts[0].hasFunction, true);
     assert.deepEqual(h.injectedScripts[1].files, [
