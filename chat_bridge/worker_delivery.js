@@ -112,6 +112,7 @@ async function deliverConversation(chatId, manual) {
         prompt,
         expectedUrl: conversation.url,
         deliveryId,
+        recoverUnconfirmed: conversation.lastStatus === "delivery_unconfirmed",
         bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake",
         agentBinding: conversation.agentBinding,
         repositoryId: conversation.repositoryId,
