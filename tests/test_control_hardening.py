@@ -213,7 +213,10 @@ class DeferredControlAdmissionIntegrationTests(unittest.TestCase):
                     / "results"
                     / "late-task.json"
                 )
-                wait_for_path(result_path, timeout=8.0)
+                # The overlap invariant is release.exists() == False below. Give
+                # slower macOS Git publication enough bounded time to persist the
+                # terminal result without weakening that concurrency assertion.
+                wait_for_path(result_path, timeout=20.0)
                 payload = json.loads(result_path.read_text(encoding="utf-8"))
                 self.assertEqual(payload["status"], "done")
                 self.assertIn("late-task-ok", payload["commands"][0]["output"])
