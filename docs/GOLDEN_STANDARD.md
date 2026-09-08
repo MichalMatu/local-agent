@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The v4.18.14 candidate is not production until explicitly merged to `main`; the immutable pre-release rollback baseline remains v4.18.13 at `a32e54858c3bcb9687334b3232b71ae6ff130208`.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The current production release is `v4.18.15`; its runtime behavior was validated live on `a00fda47016654c80e6ec4cf4170f49713e82628`, and `rollback/v4.18.15-production-validated` preserves that exact runtime-validated point. The older `v4.18.13` / `a32e54858c3bcb9687334b3232b71ae6ff130208` baseline remains available as the pre-BUG-002 historical rollback point.
 
 ## Release/runtime invariants
 
