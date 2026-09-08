@@ -5,10 +5,10 @@ This changelog records operationally relevant Local Agent releases. The release 
 ## v4.18.17
 
 - Fixed the live Chat Bridge 0.5.5 popup regression where `Add current chat` still hard-coded content protocol v3 and rejected an already-open reachable protocol-v4/v3-mismatched tab with a manual-reload error.
-- Centralized `CONTENT_PROTOCOL_VERSION` in `control_protocol.js` and routed popup tab activation through the worker's dispose/inject/re-probe path; popup no longer owns a second protocol version or reinjection implementation.
+- Centralized `CONTENT_PROTOCOL_VERSION` in `control_protocol.js`, advanced Chat Bridge 0.5.6 content protocol from v4 to v5 so already-open 0.5.5 tabs are detectably stale, and routed popup tab activation through the worker's dispose/inject/re-probe path; popup no longer owns a second protocol version or reinjection implementation.
 - Added Chat Bridge 0.5.6 LAB discovery/diagnostic controls (`HELP`, `CAPABILITIES`, `STATUS`, `DEBUG`, `SETTINGS`, `CHATS`, `CHAT=<id>`) with read-only same-chat feedback and infrastructure-only global chat listing.
-- Added explicit user-authored `LAB:OP:*` chat management for ADD/REMOVE/ENABLE/DISABLE/INTERVAL/Bridge reload, with persistent bounded dedupe and assistant/operator privilege separation so assistant content cannot mutate repository binding.
-- Added direct regression coverage for reachable protocol 3 -> worker refresh -> protocol 4 readiness without a ChatGPT page reload, plus command-catalog/operator-control tests. See `RELEASE_NOTES_V4.18.17.md`.
+- Added explicit user-authored `LAB:OP:*` chat management for ADD/REMOVE/ENABLE/DISABLE/INTERVAL/Bridge reload, with persistent bounded dedupe, historical-user-message baselining across reinjection/navigation, and assistant/operator privilege separation so assistant content cannot mutate repository binding.
+- Added direct regression coverage for reachable 0.5.5/protocol-v4 content -> 0.5.6 worker refresh -> protocol-v5 readiness without a ChatGPT page reload, plus command-catalog/operator-control, exhaustion-guard cleanup, and operator-replay tests. See `RELEASE_NOTES_V4.18.17.md`.
 
 ## v4.18.16
 
