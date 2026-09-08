@@ -1,9 +1,4 @@
-async function initializeBridgeWorker() {
-  try {
-    await reconcileSchedules();
-  } catch (error) {
-    console.error(error);
-  }
+async function refreshBridgeContentOnWorkerStart() {
   try {
     return await refreshConfiguredContentScripts();
   } catch (error) {
@@ -12,8 +7,17 @@ async function initializeBridgeWorker() {
   }
 }
 
-chrome.runtime.onInstalled.addListener(() => initializeBridgeWorker());
-chrome.runtime.onStartup.addListener(() => initializeBridgeWorker());
+async function initializeBridgeLifecycle() {
+  try {
+    await reconcileSchedules();
+  } catch (error) {
+    console.error(error);
+  }
+  return refreshBridgeContentOnWorkerStart();
+}
+
+chrome.runtime.onInstalled.addListener(() => initializeBridgeLifecycle());
+chrome.runtime.onStartup.addListener(() => initializeBridgeLifecycle());
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (!alarm.name.startsWith(ALARM_PREFIX)) return;
@@ -121,4 +125,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // A manually reloaded unpacked extension starts a fresh service worker while existing
 // ChatGPT tabs stay open. Probe configured tabs immediately so stale/unavailable content
 // scripts are replaced with this worker's protocol without a page reload or a wake.
-initializeBridgeWorker();
+// Do not reconcile schedules here: service-worker activation itself is transport lifecycle,
+// not a scheduling event.
+refreshBridgeContentOnWorkerStart();
