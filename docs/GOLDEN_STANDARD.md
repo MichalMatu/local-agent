@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.19` and the current production release is `v4.18.19`. The 4.18.19 change is a repository-onboarding/config release: `MichalMatu/local-climate-link-starter` was added with canonical binding `e75c77cb-7589-4452-94b2-decc97ff85a1`, the local registry/control binding and live Chat Bridge runtime were aligned, and a read-only smoke task completed successfully against target `main` SHA `99f565711fdffb4e9b4e2be0289620da359d65a4`. No scheduler, executor, parallel-supervisor, Chat Bridge extension, or content-protocol behavior changed. `v4.18.18` remains the immutable rollback point for the prior runtime/browser release, with `rollback/v4.18.18-production-validated` preserving its exact validated implementation point.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.20` and the current production release is `v4.18.20`. The 4.18.20 change hardens the planner/executor boundary: ChatGPT remains the planner, Chat Bridge prompts explicitly forbid delegation to local coding-agent/LLM CLIs, and Local Agent rejects executable task command strings containing the `codex` token before execution. Scheduler, resource, binding, watchdog, result-schema, Bridge-extension and content-protocol behavior are unchanged. `v4.18.18` remains the immutable rollback point for the prior runtime/browser release, with `rollback/v4.18.18-production-validated` preserving its exact validated implementation point.
 
 ## Release/runtime invariants
 
@@ -17,6 +17,7 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 ## Execution and recovery invariants
 
 - The daemon is a deterministic executor, not a coding model.
+- Executable task command strings containing the `codex` token are rejected by the task contract before task execution.
 - Every task has an immutable payload digest and one durable attempt claim.
 - Interrupted tasks are never automatically replayed.
 - Malformed/oversized task JSON is terminal input evidence.
@@ -104,6 +105,7 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 ## Planner and Chat Bridge invariants
 
 - The Chrome Chat Bridge is wake-up/control transport only; ChatGPT remains the planner and Local Agent remains the deterministic executor.
+- A planner must never use Local Agent to invoke or delegate work to a local Codex CLI. Bridge prompts also forbid delegation to other local coding-agent/LLM CLIs; planning and coding decisions remain in ChatGPT.
 - One autonomous conversation follows one active task at a time for its current goal and never queues a duplicate while that task is active.
 - Planner sequencing is not global executor serialization: unrelated conversations/repositories may overlap when the parallel resource contract permits it.
 - Every bridge wake-up re-reads repository-specific status/run/result evidence before deciding whether to wait, queue one next bounded task, cancel one exact doomed active task, pause for user action or stop a completed goal.
