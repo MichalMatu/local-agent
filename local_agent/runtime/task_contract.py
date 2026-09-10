@@ -11,6 +11,7 @@ from local_agent.config import TIMEOUTS
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _RESOURCE_RE = re.compile(r"^[a-z0-9._:-]+$")
+_LOCAL_CODEX_RE = re.compile(r"\bcodex\b", re.IGNORECASE)
 DEFAULT_IDLE_TIMEOUT = TIMEOUTS.idle_default
 MAX_IDLE_TIMEOUT = TIMEOUTS.idle_max
 DEFAULT_TASK_TIMEOUT = TIMEOUTS.task_default
@@ -91,6 +92,14 @@ def task_resources_for(task: dict[str, Any]) -> tuple[str, ...]:
     return tuple(resources)
 
 
+def _reject_local_codex(command: str, *, field: str) -> None:
+    if _LOCAL_CODEX_RE.search(command):
+        raise ValueError(
+            f"{field} may not invoke local Codex; ChatGPT is the planner and "
+            "Local Agent executes deterministic commands only"
+        )
+
+
 def validate_task(task: dict[str, Any], *, require_agent_binding: bool = False) -> None:
     if not isinstance(task, dict):
         raise ValueError("task must be an object")
@@ -154,14 +163,17 @@ def validate_task(task: dict[str, Any], *, require_agent_binding: bool = False) 
                 raise ValueError(f"{field} items must be non-empty strings")
             if len(command) > MAX_COMMAND_CHARS:
                 raise ValueError(f"{field} item exceeds {MAX_COMMAND_CHARS} characters")
+            _reject_local_codex(command, field=field)
 
     for field in ("steps", "verify_steps"):
         for item in task.get(field, []):
             if not isinstance(item, dict):
                 raise ValueError(f"{field} items must be objects")
             command = item.get("command")
-            if isinstance(command, str) and len(command) > MAX_COMMAND_CHARS:
-                raise ValueError(f"{field} item command exceeds {MAX_COMMAND_CHARS} characters")
+            if isinstance(command, str):
+                if len(command) > MAX_COMMAND_CHARS:
+                    raise ValueError(f"{field} item command exceeds {MAX_COMMAND_CHARS} characters")
+                _reject_local_codex(command, field=field)
     from local_agent.foundation import core as core_module
 
     stage_plan = core_module.stage_plan_for(task)
