@@ -2,6 +2,14 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.20
+
+- Prevented ChatGPT planner conversations from silently delegating Local Agent work to a local Codex CLI.
+- Added fail-closed task-contract validation for `commands`, `verify_commands`, structured `steps`, and `verify_steps`; executable command strings containing the `codex` token are rejected before execution.
+- Added regression coverage for direct Codex invocation, absolute-path invocation, and `npx @openai/codex`.
+- Updated canonical and live Chat Bridge prompts to state that ChatGPT remains the planner and Local Agent may not invoke or delegate work to local Codex or another local coding-agent/LLM CLI.
+- Audited registered downstream planner documentation; existing instructions already preserve the ChatGPT/sandbox planner and deterministic Local Agent executor boundary and require no downstream edits. See `RELEASE_NOTES_V4.18.20.md`.
+
 ## v4.18.19
 
 - Onboarded `MichalMatu/local-climate-link-starter` as the sixth canonical hard-bound repository with immutable binding `e75c77cb-7589-4452-94b2-decc97ff85a1` and execution enabled.
