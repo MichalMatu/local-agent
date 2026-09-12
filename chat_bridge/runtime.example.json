@@ -40,6 +40,12 @@
       "repository": "MichalMatu/local-climate-link-starter",
       "agent_binding": "e75c77cb-7589-4452-94b2-decc97ff85a1",
       "execution_enabled": true
+    },
+    {
+      "repository_id": "photomaps",
+      "repository": "MichalMatu/PhotoMaps",
+      "agent_binding": "2e5d59f8-f6e4-4d75-8d1a-dce7b6bf6607",
+      "execution_enabled": true
     }
   ]
 }
