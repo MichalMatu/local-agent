@@ -25,6 +25,7 @@ dist/
 # IDE
 .vscode/
 .idea/
+.openvisio/
 
 # Environment
 .env
