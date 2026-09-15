@@ -76,6 +76,7 @@ async function rebindConversation(chatId, patch) {
     });
     return { state: updated.state, conversation: updated.conversation };
   });
+  await clearTaskWatch(chatId);
   await scheduleDefault(chatId, true);
   return result.conversation;
 }
@@ -127,6 +128,7 @@ async function deleteConversation(chatId) {
     await chrome.alarms.clear(alarmName(chatId));
     return stateModel.removeConversation(state, chatId);
   });
+  await clearTaskWatch(chatId);
   return result.state;
 }
 
