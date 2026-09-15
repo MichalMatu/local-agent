@@ -7,9 +7,16 @@ let nativePort = null;
 let nativeReconnectTimer = null;
 let nativeReconnectDelayMs = NATIVE_RECONNECT_MIN_MS;
 let nativeHandshakeReady = false;
+let nativeTransportWanted = false;
+
+function clearNativeReconnectTimer() {
+  if (!nativeReconnectTimer) return;
+  clearTimeout(nativeReconnectTimer);
+  nativeReconnectTimer = null;
+}
 
 function scheduleNativeReconnect() {
-  if (nativeReconnectTimer) return;
+  if (!nativeTransportWanted || nativeReconnectTimer) return;
   const delay = nativeReconnectDelayMs;
   nativeReconnectDelayMs = Math.min(NATIVE_RECONNECT_MAX_MS, nativeReconnectDelayMs * 2);
   nativeReconnectTimer = setTimeout(() => {
@@ -18,10 +25,11 @@ function scheduleNativeReconnect() {
   }, delay);
 }
 
-function disconnectNativeEventHost(reason = "native_disconnect") {
+function disconnectNativeEventHost(reason = "native_disconnect", { reconnect = false } = {}) {
   const port = nativePort;
   nativePort = null;
   nativeHandshakeReady = false;
+  if (!reconnect) clearNativeReconnectTimer();
   if (port) {
     try {
       port.disconnect();
@@ -30,10 +38,11 @@ function disconnectNativeEventHost(reason = "native_disconnect") {
     }
   }
   updateNativeDiagnostics({
-    nativeState: "disconnected",
+    nativeState: reconnect ? "disconnected" : "idle",
     lastDisconnectAt: new Date().toISOString(),
-    lastError: reason
+    lastError: reconnect ? reason : null
   }).catch(console.error);
+  if (reconnect) scheduleNativeReconnect();
 }
 
 async function handleNativeMessage(message, port) {
@@ -43,6 +52,7 @@ async function handleNativeMessage(message, port) {
 
   if (messageType === "hello") {
     if (version !== NATIVE_PROTOCOL_VERSION || message.host_name !== NATIVE_HOST_NAME) {
+      nativeTransportWanted = false;
       disconnectNativeEventHost("native_protocol_mismatch");
       return;
     }
@@ -69,10 +79,11 @@ async function handleNativeMessage(message, port) {
     protocol_version: NATIVE_PROTOCOL_VERSION,
     event_id: eventId
   });
+  setTimeout(() => reconcileNativeEventTransport().catch(console.error), 0);
 }
 
 function connectNativeEventHost() {
-  if (nativePort) return;
+  if (!nativeTransportWanted || nativePort) return;
   if (typeof chrome?.runtime?.connectNative !== "function") {
     updateNativeDiagnostics({
       nativeState: "unsupported",
@@ -99,9 +110,9 @@ function connectNativeEventHost() {
       nativePort = null;
       nativeHandshakeReady = false;
       updateNativeDiagnostics({
-        nativeState: "disconnected",
+        nativeState: nativeTransportWanted ? "disconnected" : "idle",
         lastDisconnectAt: new Date().toISOString(),
-        lastError: error
+        lastError: nativeTransportWanted ? error : null
       }).catch(console.error);
       scheduleNativeReconnect();
     });
@@ -118,6 +129,22 @@ function connectNativeEventHost() {
   }
 }
 
+async function reconcileNativeEventTransport() {
+  const state = await loadEventWakeState();
+  const wanted = Object.keys(state.watches).length > 0;
+  nativeTransportWanted = wanted;
+  if (wanted) {
+    connectNativeEventHost();
+    return;
+  }
+  nativeReconnectDelayMs = NATIVE_RECONNECT_MIN_MS;
+  if (nativePort || nativeReconnectTimer) {
+    disconnectNativeEventHost("no_task_watches");
+  } else {
+    await updateNativeDiagnostics({ nativeState: "idle", lastError: null });
+  }
+}
+
 function initializeNativeEventTransport() {
-  connectNativeEventHost();
+  reconcileNativeEventTransport().catch(console.error);
 }
