@@ -180,7 +180,7 @@ See `docs/SECURITY_MODEL.md` and `docs/chat_bridge/EVENT_WAKE_ARCHITECTURE.md`.
 
 Bridge intentionally does **not** keep a durable ambiguous-delivery journal for ordinary wake submission uncertainty.
 
-Content protocol v5 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available and the LAB operator-control baseline. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
+The shared content protocol protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available and the LAB operator-control baseline. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
 
 Popup and scheduled-wake paths share worker-owned content activation. Popup does not maintain a second protocol version or `chrome.scripting.executeScript` implementation. When a tab must be refreshed, the worker disposes current Bridge/guard listeners, injects `control_protocol.js`, `content_retry.js`, `content.js`, `dom_contract.js` and `exhaustion_guard.js`, then probes readiness again. A reachable older content script therefore must not require a normal manual ChatGPT page reload.
 
