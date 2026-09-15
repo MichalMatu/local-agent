@@ -5,6 +5,8 @@ importScripts(
   "worker_binding.js",
   "worker_schedule.js",
   "worker_transport.js",
+  "worker_event_wake.js",
+  "native_events.js",
   "worker_controls.js",
   "worker_delivery.js",
   "worker_conversations.js",
