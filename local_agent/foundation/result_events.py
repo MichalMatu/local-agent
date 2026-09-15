@@ -216,7 +216,7 @@ def prune_outbox(
     for path in directory.glob("evt-*.json"):
         event = _read_event_file(path)
         try:
-            fallback = path.stat().st_mtime
+            fallback = path.lstat().st_mtime
         except OSError:
             continue
         timestamp = _event_timestamp(event or {}, fallback)
