@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Local Agent Chat Bridge",
-  "version": "0.5.7",
-  "description": "Schedules hard-bound Local Agent wake-ups: one ChatGPT conversation equals one immutable agent/repository binding.",
+  "version": "0.5.8",
+  "description": "Schedules hard-bound Local Agent wake-ups with optional event-driven task completion notifications.",
   "permissions": [
     "alarms",
     "storage",
     "tabs",
-    "scripting"
+    "scripting",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
