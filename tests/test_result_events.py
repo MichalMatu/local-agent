@@ -96,7 +96,7 @@ class ResultEventTests(unittest.TestCase):
         )
         result_events.enqueue_event(event, state_dir=self.state_dir)
         conflicting = dict(event, result_status="failed")
-        with self.assertRaisesRegex(ValueError, "event id collision"):
+        with self.assertRaisesRegex(ValueError, "invalid result event payload|event id collision"):
             result_events.enqueue_event(conflicting, state_dir=self.state_dir)
 
     def test_invalid_control_binding_fails_closed(self) -> None:
@@ -123,6 +123,33 @@ class ResultEventTests(unittest.TestCase):
         removed = result_events.prune_outbox(state_dir=self.state_dir, now=future)
         self.assertIn(f"{event['event_id']}.json", removed)
         self.assertEqual(result_events.pending_events(state_dir=self.state_dir), [])
+
+    def test_prune_removes_tampered_payload_with_valid_filename(self) -> None:
+        event = result_events.build_result_event(
+            control_dir=self.control,
+            task_id="task-tampered",
+            result={"id": "task-tampered", "status": "done", "task_digest": "digest-ok"},
+        )
+        path = result_events.enqueue_event(event, state_dir=self.state_dir)
+        tampered = dict(event)
+        tampered["task_id"] = "different-task"
+        path.write_text(json.dumps(tampered), encoding="utf-8")
+
+        removed = result_events.prune_outbox(state_dir=self.state_dir)
+
+        self.assertIn(path.name, removed)
+        self.assertFalse(path.exists())
+        self.assertEqual(result_events.pending_events(state_dir=self.state_dir), [])
+
+    def test_enqueue_rejects_event_id_not_derived_from_payload_identity(self) -> None:
+        event = result_events.build_result_event(
+            control_dir=self.control,
+            task_id="task-derived-id",
+            result={"id": "task-derived-id", "status": "done"},
+        )
+        event["event_id"] = "evt-" + "f" * 32
+        with self.assertRaisesRegex(ValueError, "invalid result event payload"):
+            result_events.enqueue_event(event, state_dir=self.state_dir)
 
 
 if __name__ == "__main__":
