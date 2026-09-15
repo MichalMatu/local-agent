@@ -14,7 +14,8 @@ async function controlContext(message, sender) {
 
 function validControlFingerprint(message) {
   const fingerprint = String(message.fingerprint || "");
-  return /^[0-9a-f]{8}$/.test(fingerprint) ? fingerprint : "";
+  if (!/^[0-9a-f]{8}$/.test(fingerprint)) return "";
+  return fingerprint;
 }
 
 async function rememberMaintenanceControl(message, sender, parsed) {
@@ -104,6 +105,11 @@ async function applyAssistantControl(message, sender) {
       conversation.enabled = true;
       conversation.lastStatus = "resumed_by_assistant";
       value.reason = "resumed";
+    } else if (parsed.action === "wait_task") {
+      conversation.enabled = true;
+      conversation.lastStatus = `waiting_task:${parsed.taskId}`;
+      value.reason = "waiting_task";
+      value.taskId = parsed.taskId;
     } else if (parsed.action === "interval") {
       conversation.intervalOverrideMinutes = parsed.mode === "auto" ? null : parsed.minutes;
       conversation.lastStatus = parsed.mode === "auto"
@@ -123,10 +129,41 @@ async function applyAssistantControl(message, sender) {
 
   const value = result.value;
   if (!value.ok || value.duplicate) return value;
-  if (parsed.action === "stop" || parsed.action === "pause") {
+
+  if (parsed.action === "stop") {
+    await clearTaskWatch(value.conversationId);
     await clearConversationAlarm(value.conversationId, value.generation);
-  } else if (parsed.action === "next") {
+    return value;
+  }
+  if (parsed.action === "pause") {
+    await clearConversationAlarm(value.conversationId, value.generation);
+    return value;
+  }
+  if (parsed.action === "wait_task") {
+    const latestState = await getBridgeState();
+    const conversation = latestState.conversations[value.conversationId];
+    const watch = await registerTaskWatch(conversation, parsed.taskId);
+    if (!watch?.ok) {
+      await updateConversationStatus(value.conversationId, {
+        lastStatus: String(watch?.reason || "task_watch_failed")
+      });
+      return { ...value, ...watch, ok: false };
+    }
+    if (watch.matchedRecentEvent) {
+      await scheduleAt(value.conversationId, Date.now() + 1000, value.generation);
+      return { ...value, ...watch, reason: "task_result_already_ready" };
+    }
+    await scheduleDefault(value.conversationId, false, value.generation);
+    return { ...value, ...watch };
+  }
+  if (parsed.action === "next") {
     await scheduleAt(value.conversationId, Date.now() + parsed.seconds * 1000, value.generation);
+    return value;
+  }
+
+  const pending = await pendingEventWake(value.conversationId);
+  if (pending) {
+    await scheduleAt(value.conversationId, Date.now() + 1000, value.generation);
   } else {
     await scheduleDefault(value.conversationId, parsed.action === "resume", value.generation);
   }
