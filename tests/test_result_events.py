@@ -113,7 +113,7 @@ class ResultEventTests(unittest.TestCase):
             control_dir=self.control,
             task_id="task-old",
             result={"id": "task-old", "status": "done"},
-            emitted_at="2020-01-01T00:00:00+00:00",
+            emitted_at="2026-09-15T20:00:00+00:00",
         )
         result_events.enqueue_event(event, state_dir=self.state_dir)
         removed = result_events.prune_outbox(state_dir=self.state_dir, now=2_000_000_000.0)
