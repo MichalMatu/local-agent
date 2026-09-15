@@ -112,6 +112,13 @@ def status(expected_extension_id: str | None = None) -> int:
     manifest_mode = stat.S_IMODE(MANIFEST_PATH.stat().st_mode) if manifest_exists else None
     registered_path = payload.get("path") if payload else None
     origin_extension_id = _origin_extension_id(payload)
+    expected_wrapper = wrapper_text()
+    wrapper_matches_expected = False
+    if wrapper_exists:
+        try:
+            wrapper_matches_expected = WRAPPER_PATH.read_text(encoding="utf-8") == expected_wrapper
+        except OSError:
+            wrapper_matches_expected = False
 
     if not manifest_exists:
         problems.append("manifest_missing_or_not_regular")
@@ -130,8 +137,11 @@ def status(expected_extension_id: str | None = None) -> int:
             problems.append("allowed_origin_mismatch")
     if not wrapper_exists:
         problems.append("wrapper_missing_or_not_regular")
-    elif not wrapper_executable:
-        problems.append("wrapper_not_executable")
+    else:
+        if not wrapper_executable:
+            problems.append("wrapper_not_executable")
+        if not wrapper_matches_expected:
+            problems.append("wrapper_content_mismatch")
     if wrapper_exists and wrapper_mode != 0o700:
         problems.append("wrapper_mode_unexpected")
     if manifest_exists and manifest_mode != 0o600:
@@ -150,6 +160,8 @@ def status(expected_extension_id: str | None = None) -> int:
                 "wrapper_exists": wrapper_exists,
                 "wrapper_executable": wrapper_executable,
                 "wrapper_mode": oct(wrapper_mode) if wrapper_mode is not None else None,
+                "wrapper_matches_expected": wrapper_matches_expected,
+                "runtime_python": str(runtime_python()),
                 "registered_path": registered_path,
                 "allowed_origins": payload.get("allowed_origins") if payload else None,
                 "registered_extension_id": origin_extension_id,
