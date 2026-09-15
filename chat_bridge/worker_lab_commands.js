@@ -54,6 +54,7 @@ async function labInspectionFeedback(parsed, message, sender) {
   const extensionVersion = chrome.runtime.getManifest().version;
   const reportedContentProtocol = Number(message.contentProtocolVersion || 0) || null;
   const currentSchedule = schedules[chatId] || null;
+  const eventWake = await eventWakeInspection(chatId);
   const command = parsed.command;
 
   if (command === "help") {
@@ -89,6 +90,9 @@ async function labInspectionFeedback(parsed, message, sender) {
           assistantReadOnlyInspection: true,
           assistantBridgeContentReload: true,
           assistantBridgeRuntimeReload: Boolean(conversation),
+          taskResultEventWake: true,
+          nativeMessagingOnDemand: true,
+          alarmFallbackWhileWaiting: true,
           operatorChatAddRemove: true,
           operatorChatEnableDisable: true,
           operatorChatInterval: true,
@@ -96,7 +100,8 @@ async function labInspectionFeedback(parsed, message, sender) {
           operatorBridgeRuntimeReload: true,
           repositoryTaskCancelViaBridge: false,
           localAgentSupervisorRestartViaBridge: false
-        }
+        },
+        eventWake
       })
     };
   }
@@ -111,7 +116,8 @@ async function labInspectionFeedback(parsed, message, sender) {
         configured: Boolean(conversation),
         conversation: labConversationSummary(conversation),
         schedule: currentSchedule,
-        masterEnabled: state.settings.masterEnabled
+        masterEnabled: state.settings.masterEnabled,
+        eventWake
       })
     };
   }
@@ -131,6 +137,7 @@ async function labInspectionFeedback(parsed, message, sender) {
         conversation: labConversationSummary(conversation),
         schedule: currentSchedule,
         masterEnabled: state.settings.masterEnabled,
+        eventWake,
         runtime: {
           source: runtime.source,
           schemaVersion: runtime.schemaVersion,
