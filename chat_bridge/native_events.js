@@ -129,9 +129,26 @@ function connectNativeEventHost() {
   }
 }
 
+function nativeWatchIsActive(watch, bridgeState) {
+  const conversation = bridgeState.conversations[watch.conversationId];
+  return Boolean(
+    bridgeState.settings.masterEnabled &&
+    conversation?.enabled &&
+    stateModel.isBoundConversation(conversation) &&
+    conversation.repositoryId === watch.repositoryId &&
+    conversation.repository === watch.repository &&
+    conversation.agentBinding === watch.agentBinding
+  );
+}
+
 async function reconcileNativeEventTransport() {
-  const state = await loadEventWakeState();
-  const wanted = Object.keys(state.watches).length > 0;
+  const [eventState, bridgeState] = await Promise.all([
+    loadEventWakeState(),
+    getBridgeState()
+  ]);
+  const wanted = Object.values(eventState.watches).some((watch) =>
+    nativeWatchIsActive(watch, bridgeState)
+  );
   nativeTransportWanted = wanted;
   if (wanted) {
     connectNativeEventHost();
@@ -139,7 +156,7 @@ async function reconcileNativeEventTransport() {
   }
   nativeReconnectDelayMs = NATIVE_RECONNECT_MIN_MS;
   if (nativePort || nativeReconnectTimer) {
-    disconnectNativeEventHost("no_task_watches");
+    disconnectNativeEventHost("no_active_task_watches");
   } else {
     await updateNativeDiagnostics({ nativeState: "idle", lastError: null });
   }
