@@ -147,7 +147,8 @@ async function applyAssistantControl(message, sender) {
       await updateConversationStatus(value.conversationId, {
         lastStatus: String(watch?.reason || "task_watch_failed")
       });
-      return { ...value, ...watch, ok: false };
+      await scheduleDefault(value.conversationId, false, value.generation);
+      return { ...value, ...watch, ok: false, fallbackScheduled: true };
     }
     if (watch.matchedRecentEvent) {
       await scheduleAt(value.conversationId, Date.now() + 1000, value.generation);
