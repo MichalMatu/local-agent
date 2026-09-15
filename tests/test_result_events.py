@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from local_agent.foundation import result_events
@@ -65,18 +67,19 @@ class ResultEventTests(unittest.TestCase):
 
     def test_repeated_publication_is_idempotent(self) -> None:
         result = {"id": "task-2", "status": "failed", "task_digest": "digest-2"}
+        first_at = datetime.now().astimezone()
         first = result_events.build_result_event(
             control_dir=self.control,
             task_id="task-2",
             result=result,
-            emitted_at="2026-09-15T20:00:00+00:00",
+            emitted_at=first_at.isoformat(),
         )
         result_events.enqueue_event(first, state_dir=self.state_dir)
         second = result_events.build_result_event(
             control_dir=self.control,
             task_id="task-2",
             result=result,
-            emitted_at="2026-09-15T20:01:00+00:00",
+            emitted_at=(first_at + timedelta(seconds=1)).isoformat(),
         )
         path = result_events.enqueue_event(second, state_dir=self.state_dir)
         stored = json.loads(path.read_text(encoding="utf-8"))
@@ -113,10 +116,11 @@ class ResultEventTests(unittest.TestCase):
             control_dir=self.control,
             task_id="task-old",
             result={"id": "task-old", "status": "done"},
-            emitted_at="2026-09-15T20:00:00+00:00",
+            emitted_at=result_events.now_iso(),
         )
         result_events.enqueue_event(event, state_dir=self.state_dir)
-        removed = result_events.prune_outbox(state_dir=self.state_dir, now=2_000_000_000.0)
+        future = time.time() + result_events.EVENT_TTL_SECONDS + 1
+        removed = result_events.prune_outbox(state_dir=self.state_dir, now=future)
         self.assertIn(f"{event['event_id']}.json", removed)
         self.assertEqual(result_events.pending_events(state_dir=self.state_dir), [])
 
