@@ -137,6 +137,7 @@ async function applyAssistantControl(message, sender) {
   }
   if (parsed.action === "pause") {
     await clearConversationAlarm(value.conversationId, value.generation);
+    await reconcileNativeEventTransport();
     return value;
   }
   if (parsed.action === "wait_task") {
@@ -159,6 +160,7 @@ async function applyAssistantControl(message, sender) {
   }
   if (parsed.action === "next") {
     await scheduleAt(value.conversationId, Date.now() + parsed.seconds * 1000, value.generation);
+    await reconcileNativeEventTransport();
     return value;
   }
 
@@ -168,5 +170,6 @@ async function applyAssistantControl(message, sender) {
   } else {
     await scheduleDefault(value.conversationId, parsed.action === "resume", value.generation);
   }
+  await reconcileNativeEventTransport();
   return value;
 }
