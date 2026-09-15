@@ -68,6 +68,14 @@ def _hello() -> dict[str, Any]:
     }
 
 
+def _error(reason: str) -> dict[str, Any]:
+    return {
+        "type": "error",
+        "protocol_version": PROTOCOL_VERSION,
+        "reason": reason,
+    }
+
+
 def _validate_origin(argv: list[str]) -> str:
     if len(argv) < 2 or not _EXTENSION_ORIGIN_RE.fullmatch(argv[1]):
         raise ValueError("native host caller origin is missing or invalid")
@@ -100,25 +108,30 @@ def run_host(
             message_type = message.get("type")
             protocol_version = message.get("protocol_version")
             if message_type == "hello":
+                if ready:
+                    write_message(output_stream, _error("duplicate_hello"))
+                    return 2
                 if protocol_version != PROTOCOL_VERSION:
-                    write_message(
-                        output_stream,
-                        {
-                            "type": "error",
-                            "protocol_version": PROTOCOL_VERSION,
-                            "reason": "protocol_mismatch",
-                        },
-                    )
+                    write_message(output_stream, _error("protocol_mismatch"))
                     return 2
                 ready = True
                 write_message(output_stream, _hello())
             elif message_type == "ack":
-                event_id = message.get("event_id")
+                if not ready:
+                    write_message(output_stream, _error("handshake_required"))
+                    return 2
                 if protocol_version != PROTOCOL_VERSION:
-                    continue
-                if isinstance(event_id, str) and _EVENT_ID_RE.fullmatch(event_id):
-                    result_events.acknowledge_event(event_id)
-                    last_sent.pop(event_id, None)
+                    write_message(output_stream, _error("protocol_mismatch"))
+                    return 2
+                event_id = message.get("event_id")
+                if not isinstance(event_id, str) or not _EVENT_ID_RE.fullmatch(event_id):
+                    write_message(output_stream, _error("invalid_ack"))
+                    return 2
+                result_events.acknowledge_event(event_id)
+                last_sent.pop(event_id, None)
+            else:
+                write_message(output_stream, _error("unknown_message_type"))
+                return 2
 
         if not ready:
             continue
