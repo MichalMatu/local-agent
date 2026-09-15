@@ -30,14 +30,19 @@ assert.ok(manifest.permissions.includes("nativeMessaging"), "manifest must reque
 const serviceWorker = fs.readFileSync(path.join(root, "service_worker.js"), "utf8");
 const eventIndex = serviceWorker.indexOf('"worker_event_wake.js"');
 const nativeIndex = serviceWorker.indexOf('"native_events.js"');
+const diagnosticsIndex = serviceWorker.indexOf('"worker_event_diagnostics.js"');
 const controlsIndex = serviceWorker.indexOf('"worker_controls.js"');
 assert.ok(eventIndex >= 0, "service worker must load event wake state");
 assert.ok(nativeIndex > eventIndex, "native transport must load after event wake state");
-assert.ok(controlsIndex > nativeIndex, "assistant controls must load after event transport primitives");
+assert.ok(diagnosticsIndex > nativeIndex, "event diagnostics must load after native transport primitives");
+assert.ok(controlsIndex > diagnosticsIndex, "assistant controls must load after event diagnostics");
 
 const nativeSource = fs.readFileSync(path.join(root, "native_events.js"), "utf8");
 assert.match(nativeSource, /chrome\.runtime\.connectNative\(NATIVE_HOST_NAME\)/);
-assert.match(nativeSource, /Object\.keys\(state\.watches\)\.length > 0/);
+assert.match(nativeSource, /Object\.values\(eventState\.watches\)\.some/);
+assert.match(nativeSource, /nativeWatchIsActive\(watch, bridgeState\)/);
+assert.match(nativeSource, /bridgeState\.settings\.masterEnabled/);
+assert.match(nativeSource, /conversation\?\.enabled/);
 assert.match(nativeSource, /if \(!nativeTransportWanted \|\| nativePort\) return/);
 assert.doesNotMatch(nativeSource, /exec|shell|terminal/i, "native event transport must not expose execution commands");
 
@@ -48,6 +53,7 @@ assert.match(eventWake, /delete state\.watches\[watch\.conversationId\]/);
 const delivery = fs.readFileSync(path.join(root, "worker_delivery.js"), "utf8");
 assert.match(delivery, /pendingEventWake\(chatId\)/);
 assert.match(delivery, /buildEventWakePrompt\(runtime, conversation, pending\)/);
+assert.match(delivery, /if \(pending && response\?\.ok\)/);
 assert.match(delivery, /consumePendingEventWake\(chatId, pending\.eventId\)/);
 
 console.log("Chat Bridge event wake protocol tests passed.");
