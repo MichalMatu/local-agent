@@ -29,8 +29,15 @@ def validate_extension_id(value: str) -> str:
     return extension_id
 
 
+def runtime_python() -> Path:
+    installed = ROOT / ".venv" / "bin" / "python"
+    if installed.is_file():
+        return installed.resolve()
+    return Path(sys.executable).resolve()
+
+
 def wrapper_text() -> str:
-    python = shlex.quote(str(Path(sys.executable).resolve()))
+    python = shlex.quote(str(runtime_python()))
     root = shlex.quote(str(ROOT.resolve()))
     return (
         "#!/bin/sh\n"
