@@ -2,170 +2,165 @@
 
 Branch: `feature/chat-bridge-event-wake`
 
-This checklist is intentionally implementation-ordered. Do not skip the audit and protocol phases: the feature crosses Local Agent result publication, Chrome MV3 lifecycle, durable extension state and hard-bound conversation routing.
+Status: implementation candidate. Keep PR #77 draft and **do not merge to `main`** until the real-Mac gates below are completed and an explicit release decision is made.
 
-## Phase 0 — preimplementation audit and freeze the contract
+## Phase 0 — preimplementation audit and contract
 
-- [ ] Inventory every Local Agent path that produces a terminal `.agent/results/<task-id>.json` result.
-- [ ] Inventory deferred/pending publication recovery paths and identify the exact point where remote result availability is proven.
-- [ ] Confirm terminal status values currently emitted for success, failure, rejection and cancellation.
-- [ ] Confirm whether `task_digest` is present on every terminal result; document fallback if not.
-- [ ] Identify the existing Local Agent state-directory owner to host the event outbox without adding cwd-relative state.
-- [ ] Identify current daemon/runtime cleanup policy so outbox retention does not conflict with metadata cleanup.
-- [ ] Map current Chat Bridge schema fields/migrations and select the minimum new persisted state for watches/events.
-- [ ] Map worker delivery entry points so event wake reuses the existing content activation/submission path.
-- [ ] Audit all STOP/PAUSE/RESUME/remove/rebind flows and specify exact task-watch behavior for each.
-- [ ] Audit extension startup/reload/service-worker event handlers and select one native connection owner.
-- [ ] Decide native host package/module name and executable entry point.
-- [ ] Decide macOS Native Messaging host manifest installation/removal path through existing platform helpers.
-- [ ] Decide development extension-id strategy: generated allowlist from installed id vs pinned identity.
-- [ ] Record exact event payload field limits and recent-cache/outbox bounds.
-- [ ] Record a native protocol version and handshake contract before implementation.
-- [ ] Add negative security cases to the test plan before writing transport code.
-
-Exit criterion: architecture document contains no unresolved routing or durability ambiguity that would force a task-contract redesign during implementation.
+- [x] Inventory terminal result publication paths and deferred publication recovery.
+- [x] Place event emission after successful authoritative result push.
+- [x] Confirm result status/digest handling and bounded fallback for missing digest.
+- [x] Use the existing Local Agent application-support state directory for the outbox.
+- [x] Keep event persistence separate from Chat Bridge schema v3.
+- [x] Reuse the existing exact-tab/content delivery path.
+- [x] Define STOP/PAUSE/RESUME/remove/rebind/Master semantics.
+- [x] Define one service-worker-owned Native Messaging lifecycle.
+- [x] Freeze event schema v1, native protocol v1, payload limits and identity fields.
+- [x] Define exact extension-id registration instead of wildcard/pinned guessed identity.
+- [x] Record negative security cases before release.
 
 ## Phase 1 — Local Agent durable event outbox
 
-- [ ] Add a dedicated event schema/outbox owner module.
-- [ ] Define `task_result_ready` schema v1 with bounded metadata only.
-- [ ] Generate stable/deduplicable event identity.
-- [ ] Atomically append events to durable local state.
-- [ ] Add ACK state and safe compaction/pruning.
-- [ ] Bound event count, age and total serialized size.
-- [ ] Make corrupt event/outbox entries explicit diagnostics rather than silent skips.
-- [ ] Emit an event only after successful remote terminal-result publication.
-- [ ] Cover deferred publication recovery so a result that becomes remotely available later emits exactly one logical event.
-- [ ] Ensure event-side failure never changes an already-authoritative task result from success/failure to another task status.
-- [ ] Add outbox health to Local Agent diagnostics.
-- [ ] Add unit tests for append, duplicate, ACK, replay, corruption, bounds and restart recovery.
-
-Exit criterion: Local Agent can produce/replay/ack exact terminal-result notifications without Chrome installed and without changing executor behavior.
+- [x] Dedicated `result_events` module.
+- [x] Bounded `task_result_ready` metadata schema.
+- [x] Stable deterministic event identity.
+- [x] Atomic durable outbox writes and fsync.
+- [x] ACK deletion and bounded pruning.
+- [x] Count, age and serialized-size limits.
+- [x] Full payload/identity validation before replay.
+- [x] Corrupt/tampered event pruning.
+- [x] Event only after successful result push.
+- [x] Re-publication idempotence.
+- [x] Event-side failure cannot rewrite authoritative task outcome.
+- [x] Unit coverage for append, duplicate, ACK, TTL, tamper and identity mismatch.
+- [ ] Surface Local Agent outbox health in a user-facing Local Agent diagnostic/status surface if operational experience shows it is needed. `outbox_health()` already exists; this is observability, not correctness.
 
 ## Phase 2 — Native Messaging host
 
-- [ ] Add a minimal native host executable/module.
-- [ ] Implement Chrome Native Messaging length-prefixed JSON framing.
-- [ ] Add strict handshake with protocol version and bounded capability fields.
-- [ ] Stream/replay unacknowledged outbox events.
-- [ ] Accept only protocol ACK/health requests; no generic command dispatch.
-- [ ] Reject malformed, oversized, unknown-version and unknown-action messages.
-- [ ] Add deterministic stderr diagnostics that do not contain task output/secrets.
-- [ ] Add macOS host-manifest renderer/installer/remover.
-- [ ] Restrict `allowed_origins` to the expected extension id.
-- [ ] Add installation diagnostics for missing executable, wrong manifest and wrong extension id.
-- [ ] Add standalone protocol tests using stdin/stdout pipes.
-- [ ] Add reconnect/replay integration tests.
-
-Exit criterion: a fake extension client can receive and ACK durable Local Agent events across native-host restart without any executor authority exposed.
+- [x] Minimal read-only native host module.
+- [x] Chrome length-prefixed JSON framing and bounds.
+- [x] Versioned handshake.
+- [x] Continuous outbox replay while connected, including events created after handshake.
+- [x] ACK-only extension-to-host event control path; no generic command dispatch.
+- [x] Exact Chrome extension caller-origin validation.
+- [x] macOS manifest/wrapper installer and uninstall.
+- [x] Exact `allowed_origins` registration.
+- [x] Installer health diagnostics for wrong origin/path/mode/executable.
+- [x] Protocol/framing/origin tests.
+- [x] Duplex integration test: handshake -> later event -> delivery -> ACK -> outbox removal.
+- [ ] Real Chrome + real macOS Native Messaging smoke on the operator Mac for the final candidate SHA.
 
 ## Phase 3 — Bridge native connection and durable ingestion
 
-- [ ] Add `nativeMessaging` permission to the extension candidate manifest.
-- [ ] Add one service-worker-owned `connectNative()` lifecycle.
-- [ ] Implement bounded reconnect backoff after `Port.onDisconnect`.
-- [ ] Validate native handshake/protocol before accepting events.
-- [ ] Validate every event before state mutation.
-- [ ] Persist accepted events before sending host ACK.
-- [ ] Add bounded persisted recent-event cache with TTL/oldest-first eviction.
-- [ ] Deduplicate replayed `event_id` values.
-- [ ] Preserve cached events across MV3 service-worker restart.
-- [ ] Expose native transport health through `LAB:CAPABILITIES`/`LAB:DEBUG`.
-- [ ] Keep ordinary scheduled Bridge operation functional when the native host is absent/incompatible.
-- [ ] Add unit tests for receive -> persist -> ACK ordering and crash/restart boundaries.
-
-Exit criterion: Bridge durably receives native events without yet waking any conversation.
+- [x] `nativeMessaging` extension permission.
+- [x] On-demand service-worker-owned native lifecycle.
+- [x] Bounded reconnect backoff.
+- [x] Handshake/protocol validation before event acceptance.
+- [x] Event validation before state mutation.
+- [x] Persist event state before ACK.
+- [x] Bounded recent-event cache with TTL/eviction.
+- [x] Replay deduplication.
+- [x] State survives MV3 worker restart.
+- [x] `LAB:CAPABILITIES`, `STATUS` and `DEBUG` expose bounded event health.
+- [x] Native transport absence leaves ordinary alarm operation functional.
+- [x] Native process is suspended while PAUSE/operator-disable/Master-off prevents delivery.
+- [x] Resume/re-enable/Master-on reconnects retained watches.
 
 ## Phase 4 — exact task-watch routing
 
-- [ ] Add strict `[LAB:WAIT_TASK=<task-id>]` parsing to `control_protocol.js`.
-- [ ] Define task-id length/character bounds compatible with Local Agent task ids.
-- [ ] Persist one active task watch per conversation.
-- [ ] Scope every watch to stored repository id + stored `agent_binding`.
-- [ ] Reject a second conversation attempting to own the same repository/binding/task tuple.
-- [ ] On watch registration, check recent cached events immediately to close the short-task race.
-- [ ] Define STOP behavior: clear watch.
-- [ ] Define remove behavior: clear watch and pending event wake.
-- [ ] Define rebind behavior: clear old watch/event state before new bootstrap.
-- [ ] Define PAUSE behavior: retain watch/event but block normal delivery until resumed.
-- [ ] Define RESUME behavior: reconcile retained pending event before ordinary scheduled wake.
-- [ ] Define stale-watch cleanup during a normal planner reconciliation.
-- [ ] Add current-watch information to diagnostics.
-- [ ] Add same-repository/two-chat negative routing tests.
-
-Exit criterion: an event can be matched to one and only one conversation without adding chat identity to Local Agent task JSON.
+- [x] Strict `[LAB:WAIT_TASK=<task-id>]` parser and task-id bounds.
+- [x] One active exact watch per conversation.
+- [x] Scope watch to repository id + repository name + `agent_binding` + task id.
+- [x] Reject duplicate ownership of the same exact tuple; second chat retains alarm fallback.
+- [x] Immediate recent-cache lookup closes fast-task race.
+- [x] STOP clears watch/pending wake.
+- [x] Remove clears watch/pending wake.
+- [x] Rebind clears old watch/pending wake.
+- [x] PAUSE retains watch but blocks event delivery/native connection.
+- [x] RESUME reconciles retained pending event/watch.
+- [x] Current watch appears in bounded diagnostics.
+- [x] Cross-binding/repository and same-task ownership negative tests.
+- [x] No arbitrary stale-watch TTL: fallback wakes let the planner inspect exact task state; long legitimate tasks are not silently abandoned by a guessed timeout.
 
 ## Phase 5 — event wake delivery
 
-- [ ] Add pending event-wake state owned by the service worker.
-- [ ] Build a fixed event wake prompt containing only bridge-owned envelope + event type + exact task id.
-- [ ] Reuse existing content activation, exact-URL authorization and submission confirmation.
-- [ ] Reuse existing draft-preservation behavior.
-- [ ] Handle assistant-generating/send-button-not-ready without dropping the event.
-- [ ] Keep pending event when the exact ChatGPT tab is absent.
-- [ ] Do not auto-open arbitrary ChatGPT tabs in v1.
-- [ ] Clear the active task watch only after the pending event wake is durably owned/consumed according to the chosen state transition.
-- [ ] Ensure duplicate event delivery cannot submit duplicate logical wake messages.
-- [ ] Preserve normal fallback alarm reconciliation.
-- [ ] Add event-delivery status to diagnostics.
-- [ ] Add browser tests for busy generation, draft present, missing tab, duplicate event and worker restart.
-
-Exit criterion: one terminal result event wakes exactly the owning configured conversation through the existing safe delivery path.
+- [x] Durable pending event wake state.
+- [x] Fixed event envelope contains event type + exact task id and hard binding policy.
+- [x] Existing exact-tab/content activation and authorization reused.
+- [x] Existing draft-preservation behavior reused.
+- [x] Missing tab does not consume pending event.
+- [x] `send_button_not_ready`/transient delivery does not consume pending event.
+- [x] Pending event is consumed only after delivery returns `ok`.
+- [x] No arbitrary ChatGPT tab auto-open.
+- [x] Duplicate native replay cannot create a second exact task watch delivery owner.
+- [x] Scheduled reconciliation remains active.
+- [x] Event-delivery state appears in diagnostics.
+- [x] MV3 restart before native receive and between receive/delivery is covered.
+- [ ] Real live ChatGPT DOM smoke on the operator's current Chrome/ChatGPT build for final candidate.
 
 ## Phase 6 — planner pacing integration
 
-- [ ] Update autonomous planner documentation to prefer `WAIT_TASK` after queueing when native event capability is healthy.
-- [ ] Remove the normal need for an early 2-minute healthy-task poll in the event-capable path.
-- [ ] Keep current `NEXT` behavior as explicit degraded-mode fallback.
-- [ ] Keep the normal/default alarm as bounded reconciliation even while waiting on an event.
-- [ ] Define capability feedback that lets the planner distinguish healthy event transport from fallback mode.
-- [ ] Ensure a native disconnect does not leave a conversation with no future reconciliation alarm.
-- [ ] Update Chat Bridge README/control catalog.
-- [ ] Perform downstream planner-documentation audit required by `AGENTS.md` if the planner contract changes.
+- [x] Runtime bootstrap/wake prompts prefer `WAIT_TASK` after queueing.
+- [x] Remove normal early polling requirement for healthy watched tasks.
+- [x] Keep `NEXT` for genuinely time-based checks.
+- [x] Keep default alarm as bounded fallback while waiting.
+- [x] Capability/debug feedback exposes native/event state.
+- [x] Native disconnect cannot remove scheduled reconciliation.
+- [x] `docs/AUTONOMOUS_CHAT_LOOP.md` updated and CI contract enforces it.
+- [x] `chat_bridge/README.md` updated.
 
-Exit criterion: healthy Local Agent tasks normally create zero no-change polling turns between queue and terminal result availability.
+## Phase 7 — validation
 
-## Phase 7 — end-to-end validation
+Automated candidate evidence:
 
-- [ ] Run focused Python/event-outbox/native-host tests.
-- [ ] Run focused Chat Bridge protocol/state tests.
-- [ ] Run full `python scripts/verify.py --only bridge` or its current canonical equivalent.
-- [ ] Run disposable Chromium browser profile tests.
-- [ ] Install the candidate native host on the real Mac.
-- [ ] Verify a short read-only task that finishes before `WAIT_TASK` registration.
-- [ ] Verify a multi-minute task produces no repeated healthy polling turns.
-- [ ] Verify success result wake.
-- [ ] Verify failed task wake.
-- [ ] Verify rejected/binding-failure task wake where a terminal result exists.
-- [ ] Verify cancelled task wake.
-- [ ] Verify deferred result publication does not wake early and wakes after publication succeeds.
-- [ ] Verify two conversations on the same repository: only watch owner wakes.
-- [ ] Verify another repository never wakes from the event.
-- [ ] Kill native host during a task and verify replay/fallback.
-- [ ] Restart extension service worker between native receive and ChatGPT delivery.
-- [ ] Restart Chrome with a pending/outbox event.
-- [ ] Restart Local Agent before and after result publication.
-- [ ] Verify ordinary polling-only behavior with the native host completely absent.
-- [ ] Verify event flood/storage bounds and no unbounded state growth.
+- [x] Focused Python outbox/native-host/installer tests.
+- [x] Focused Chat Bridge protocol/state/routing tests.
+- [x] Fast-task race test.
+- [x] Same exact task / two-chat conflict test.
+- [x] Cross-repository/binding isolation test.
+- [x] Pause/resume/Master/operator native-lifecycle tests.
+- [x] Pending-event transient-failure retention test.
+- [x] MV3 restart persistence test.
+- [x] Native host event-created-after-handshake duplex test.
+- [x] Tampered outbox identity/pruning tests.
+- [x] Installer wrong-ID/path/executable diagnostics tests.
+- [x] Full CI matrix was green on pre-hardening candidate `098df38bf7f630cd28b6d56b42da8ea16f130673`; final-candidate CI must also be green after all hardening/documentation changes.
 
-Exit criterion: real E2E evidence demonstrates lower latency/no polling spam without weakening hard binding or fallback recovery.
+Still required before release/merge:
+
+- [ ] Final full CI green for the final exact branch SHA.
+- [ ] Final disposable Chromium browser smoke green for the exact branch SHA.
+- [ ] Install/register native host on the real Mac using the exact loaded extension id.
+- [ ] `status --extension-id <id>` reports healthy on the real Mac.
+- [ ] Real short task that finishes before `WAIT_TASK` registration wakes correctly.
+- [ ] Real multi-minute task completes with no repeated healthy polling turns.
+- [ ] Real success result wake.
+- [ ] Real failed result wake.
+- [ ] Real rejected/binding-failure result wake.
+- [ ] Real cancelled result wake.
+- [ ] Real deferred result publication wakes only after successful publication.
+- [ ] Kill/restart native host and verify replay/fallback.
+- [ ] Restart Chrome with a pending/outbox event and verify recovery.
+- [ ] Restart Local Agent around result publication and verify no lost authoritative result/event.
+- [ ] Verify polling-only fallback with native host intentionally absent.
 
 ## Phase 8 — release preparation
 
-- [ ] Review threat model and permission change (`nativeMessaging`).
-- [ ] Update `docs/SECURITY_MODEL.md`.
-- [ ] Update `docs/AUTONOMOUS_CHAT_LOOP.md`.
-- [ ] Update `chat_bridge/README.md`.
-- [ ] Update `docs/ARCHITECTURE.md` if module ownership changes.
-- [ ] Update installer/operations documentation.
-- [ ] Complete downstream documentation synchronization required by `AGENTS.md`.
-- [ ] Bump release/version metadata only when implementation is release-ready.
-- [ ] Record focused, full CI, Chromium and real-macOS evidence for the exact candidate SHA.
-- [ ] Merge only after explicit release decision.
+- [x] Threat model and `nativeMessaging` permission reviewed.
+- [x] `docs/SECURITY_MODEL.md` updated.
+- [x] `docs/AUTONOMOUS_CHAT_LOOP.md` updated.
+- [x] `chat_bridge/README.md` updated.
+- [x] Development architecture/TODO documentation updated.
+- [x] Native host installer/health documentation added.
+- [ ] Update `docs/ARCHITECTURE.md` if final release review requires the event modules in the top-level ownership map.
+- [ ] Complete any remaining release-document synchronization required by `AGENTS.md` after final real-Mac evidence.
+- [ ] Bump release/version metadata only when explicitly preparing release.
+- [ ] Record final exact-SHA CI + Chromium + real-macOS evidence.
+- [ ] Mark PR ready only after explicit release decision.
+- [ ] **Merge only after explicit user decision. Merging to `main` may trigger autoupdate and is intentionally forbidden during this pre-merge audit.**
 
-## Explicitly deferred ideas
+## Explicitly deferred
 
-Do not mix these into event-wake v1 unless testing proves they are required:
+Do not mix these into event-wake v1 without a new design/security review:
 
 - arbitrary terminal access from Chat Bridge;
 - raw daemon log streaming into ChatGPT;
