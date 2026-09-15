@@ -8,6 +8,7 @@ async function refreshBridgeContentOnWorkerStart() {
 }
 
 async function initializeBridgeLifecycle() {
+  initializeNativeEventTransport();
   try {
     await reconcileSchedules();
   } catch (error) {
@@ -63,11 +64,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "bridge:get-state") {
     (async () => {
       const state = await getBridgeState();
-      const [runtime, schedules] = await Promise.all([
+      const [runtime, schedules, eventWake] = await Promise.all([
         loadRuntimeConfig(state),
-        getScheduleSnapshot(state)
+        getScheduleSnapshot(state),
+        loadEventWakeState()
       ]);
-      sendResponse({ state, runtime, schedules });
+      sendResponse({ state, runtime, schedules, eventWake });
     })().catch((error) => sendResponse({ error: String(error) }));
     return true;
   }
@@ -125,6 +127,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // A manually reloaded unpacked extension starts a fresh service worker while existing
 // ChatGPT tabs stay open. Probe configured tabs immediately so stale/unavailable content
 // scripts are replaced with this worker's protocol without a page reload or a wake.
-// Do not reconcile schedules here: service-worker activation itself is transport lifecycle,
-// not a scheduling event.
+// Native transport is also reconnected here so durable local result events can replay.
+// Do not reconcile ordinary schedules here: service-worker activation itself is transport
+// lifecycle, not a scheduling event. Persisted Chrome alarms remain the fallback.
+initializeNativeEventTransport();
 refreshBridgeContentOnWorkerStart();
