@@ -4,8 +4,9 @@ import json
 import tempfile
 import time
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 from local_agent.foundation import result_events
 
@@ -150,6 +151,49 @@ class ResultEventTests(unittest.TestCase):
         event["event_id"] = "evt-" + "f" * 32
         with self.assertRaisesRegex(ValueError, "invalid result event payload"):
             result_events.enqueue_event(event, state_dir=self.state_dir)
+
+    def test_prune_bounds_event_count_oldest_first(self) -> None:
+        base = datetime.now(timezone.utc)
+        events: list[dict[str, object]] = []
+        with mock.patch.object(result_events, "MAX_OUTBOX_EVENTS", 3):
+            for index in range(4):
+                task_id = f"bounded-{index}"
+                event = result_events.build_result_event(
+                    control_dir=self.control,
+                    task_id=task_id,
+                    result={"id": task_id, "status": "done", "task_digest": f"digest-{index}"},
+                    emitted_at=(base + timedelta(seconds=index)).isoformat(),
+                )
+                result_events.enqueue_event(event, state_dir=self.state_dir)
+                events.append(event)
+
+            pending = result_events.pending_events(state_dir=self.state_dir)
+
+        self.assertEqual(len(pending), 3)
+        self.assertNotIn(events[0]["event_id"], {event["event_id"] for event in pending})
+        self.assertEqual(
+            [event["task_id"] for event in pending],
+            ["bounded-1", "bounded-2", "bounded-3"],
+        )
+
+    def test_prune_removes_symlink_event_without_following_target(self) -> None:
+        event = result_events.build_result_event(
+            control_dir=self.control,
+            task_id="symlink-event",
+            result={"id": "symlink-event", "status": "done"},
+        )
+        directory = result_events.outbox_dir(self.state_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        target = self.root / "outside.json"
+        target.write_text(json.dumps(event), encoding="utf-8")
+        link = directory / f"{event['event_id']}.json"
+        link.symlink_to(target)
+
+        removed = result_events.prune_outbox(state_dir=self.state_dir)
+
+        self.assertIn(link.name, removed)
+        self.assertFalse(link.exists())
+        self.assertTrue(target.exists(), "pruning a symlink must not delete its target")
 
 
 if __name__ == "__main__":
