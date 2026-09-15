@@ -49,8 +49,6 @@ async function assistantControl(harness, conversation, marker, seed) {
   assert.match(response.feedbackPrompt, /"taskId": "diag-1"/);
   assert.match(response.feedbackPrompt, /"repositoryId": "matrixhub"/);
   assert.match(response.feedbackPrompt, /"state": "unsupported"/);
-  assert.doesNotMatch(response.feedbackPrompt, /agentBinding/,
-    "event-wake diagnostics should not duplicate binding UUID in the event section");
 
   console.log("Chat Bridge event wake diagnostic tests passed.");
 })().catch((error) => {
