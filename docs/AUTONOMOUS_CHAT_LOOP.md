@@ -292,7 +292,7 @@ User-authored Bridge mutations use a distinct namespace:
 
 The assistant parser rejects `LAB:OP:*`. The operator scanner reads only the latest `data-message-author-role="user"` DOM message and the worker independently requires the same extension id, top frame and exact normalized conversation URL. `OP:ADD` resolves one exact repository id from the runtime catalog and creates the current chat disabled; it never guesses or implicitly rebinds. To change an existing binding, the operator removes the current chat and explicitly adds it with the desired repository id.
 
-Already executed operator controls are persistently deduplicated in a bounded cache. Separately, the latest user message present when content protocol v5 activates/reinjects is baseline-only and is not executed; SPA navigation establishes a new baseline before scanning the destination conversation. These rules prevent install/reload/reinjection/navigation from replaying historical `LAB:OP:*` mutations.
+Already executed operator controls are persistently deduplicated in a bounded cache. Separately, the latest user message present when the current shared content protocol activates/reinjects is baseline-only and is not executed; SPA navigation establishes a new baseline before scanning the destination conversation. These rules prevent install/reload/reinjection/navigation from replaying historical `LAB:OP:*` mutations.
 
 A bridge control is accepted only when the final marker/suffix satisfies the strict syntax in `chat_bridge/README.md`. Compatibility forms using `LOCAL_AGENT_BRIDGE:` remain accepted for the assistant namespace. Only the last candidate marker is considered; malformed final candidates do not fall back to earlier markers.
 
@@ -348,7 +348,7 @@ Canonical executor and rollout rules remain in `AGENTS.md` and `docs/OPERATIONS.
 
 ## Delivery behavior in Bridge 0.5
 
-Chat Bridge 0.5.6 uses **content protocol v5**. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that one value. Advancing v4 -> v5 was deliberate because 0.5.6 changed content behavior: a current worker must distinguish and replace already-open stale protocol tabs.
+Chat Bridge uses one shared content protocol version owned by `control_protocol.js`; content, worker, popup and tests consume that one value. Protocol bumps are deliberate when content behavior changes so a current worker can distinguish and replace already-open stale protocol tabs without duplicating protocol constants across modules.
 
 The worker owns content activation for both scheduled delivery and popup onboarding. A missing or mismatched reachable content script is replaced without requiring a normal ChatGPT page reload: the worker disposes the current Bridge listener/timers and the exhaustion guard, injects `control_protocol.js`, `content_retry.js`, `content.js`, `dom_contract.js` and `exhaustion_guard.js`, then re-probes both content protocol and guard readiness. Popup code does not maintain a second protocol constant or its own `chrome.scripting.executeScript` policy.
 
