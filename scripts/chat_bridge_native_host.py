@@ -12,11 +12,6 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from local_agent.paths import repository_root
-
 HOST_NAME = "com.michalmatu.local_agent_bridge"
 _EXTENSION_ID_RE = re.compile(r"^[a-p]{32}$")
 CHROME_HOST_DIR = (
@@ -36,7 +31,7 @@ def validate_extension_id(value: str) -> str:
 
 def wrapper_text() -> str:
     python = shlex.quote(str(Path(sys.executable).resolve()))
-    root = shlex.quote(str(repository_root().resolve()))
+    root = shlex.quote(str(ROOT.resolve()))
     return (
         "#!/bin/sh\n"
         f"export PYTHONPATH={root}${{PYTHONPATH:+:$PYTHONPATH}}\n"
