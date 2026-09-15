@@ -28,6 +28,17 @@ _TASK_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
 _EVENT_ID_RE = re.compile(r"^evt-[0-9a-f]{32}$")
 _STATUS_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 _DIGEST_RE = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
+_EVENT_IDENTITY_FIELDS = (
+    "schema_version",
+    "event_id",
+    "event_type",
+    "repository_id",
+    "repository",
+    "agent_binding",
+    "task_id",
+    "task_digest",
+    "result_status",
+)
 
 
 def now_iso() -> str:
@@ -146,6 +157,10 @@ def _read_event_file(path: Path) -> dict[str, Any] | None:
     return payload
 
 
+def _same_event_identity(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    return all(left.get(field) == right.get(field) for field in _EVENT_IDENTITY_FIELDS)
+
+
 def prune_outbox(
     *,
     state_dir: Path | None = None,
@@ -205,7 +220,7 @@ def enqueue_event(
 
     if path.exists():
         existing = _read_event_file(path)
-        if existing != event:
+        if existing is None or not _same_event_identity(existing, event):
             raise ValueError(f"event id collision for {event_id}")
         return path
 
@@ -223,8 +238,8 @@ def record_published_result(
     state_dir: Path | None = None,
 ) -> dict[str, Any]:
     event = build_result_event(control_dir=control_dir, task_id=task_id, result=result)
-    enqueue_event(event, state_dir=state_dir)
-    return event
+    path = enqueue_event(event, state_dir=state_dir)
+    return _read_event_file(path) or event
 
 
 def pending_events(*, state_dir: Path | None = None) -> list[dict[str, Any]]:
