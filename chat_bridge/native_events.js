@@ -73,6 +73,14 @@ async function handleNativeMessage(message, port) {
 
 function connectNativeEventHost() {
   if (nativePort) return;
+  if (typeof chrome?.runtime?.connectNative !== "function") {
+    updateNativeDiagnostics({
+      nativeState: "unsupported",
+      nativeProtocolVersion: null,
+      lastError: "native_messaging_api_unavailable"
+    }).catch(console.error);
+    return;
+  }
   try {
     const port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
     nativePort = port;
