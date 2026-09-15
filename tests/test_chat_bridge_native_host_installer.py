@@ -73,6 +73,7 @@ class ChatBridgeNativeHostInstallerTests(unittest.TestCase):
             self.assertTrue(status_payload["manifest_exists"])
             self.assertTrue(status_payload["wrapper_exists"])
             self.assertTrue(status_payload["wrapper_executable"])
+            self.assertTrue(status_payload["wrapper_matches_expected"])
             self.assertEqual(status_payload["manifest_mode"], "0o600")
             self.assertEqual(status_payload["wrapper_mode"], "0o700")
             self.assertEqual(
@@ -201,6 +202,45 @@ class ChatBridgeNativeHostInstallerTests(unittest.TestCase):
             payload = json.loads(status.stdout)
             self.assertIn("wrapper_not_executable", payload["problems"])
             self.assertIn("wrapper_mode_unexpected", payload["problems"])
+
+    def test_status_detects_wrapper_from_stale_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            environment = os.environ.copy()
+            environment["HOME"] = str(home)
+            extension_id = "a" * 32
+            result = subprocess.run(
+                [sys.executable, str(INSTALLER), "install", "--extension-id", extension_id],
+                cwd=REPO_ROOT,
+                env=environment,
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            manifest = json.loads(Path(result.stdout.strip()).read_text(encoding="utf-8"))
+            wrapper = Path(str(manifest["path"]))
+            original = wrapper.read_text(encoding="utf-8")
+            wrapper.write_text(original.replace(str(REPO_ROOT), "/tmp/old-local-agent-checkout"), encoding="utf-8")
+            os.chmod(wrapper, 0o700)
+
+            status = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSTALLER),
+                    "status",
+                    "--extension-id",
+                    extension_id,
+                ],
+                cwd=REPO_ROOT,
+                env=environment,
+                check=False,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(status.returncode, 1)
+            payload = json.loads(status.stdout)
+            self.assertFalse(payload["wrapper_matches_expected"])
+            self.assertIn("wrapper_content_mismatch", payload["problems"])
 
 
 if __name__ == "__main__":
