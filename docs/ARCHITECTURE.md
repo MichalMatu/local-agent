@@ -10,6 +10,8 @@ This document describes the current code ownership boundaries. Runtime truth sti
 flowchart LR
     Planner["ChatGPT / planner"]
     Bridge["Chat Bridge"]
+    Native["Native Messaging host"]
+    EventOutbox["Bounded result-event outbox"]
     Control["Git control plane"]
     Entry["Guarded entrypoint"]
     Supervisor["Supervisor"]
@@ -29,9 +31,12 @@ flowchart LR
     Runtime --> Repo
     Runtime --> Results
     Results --> Control
+    Results -->|after successful terminal-result push| EventOutbox
+    EventOutbox -->|bounded read-only replay| Native
+    Native -->|task-result wake hint| Bridge
 ```
 
-The planner chooses intent. The executor independently owns repository identity, hard binding, resource admission, process lifecycle, watchdogs, checkpoints, publication and emergency stop.
+The planner chooses intent. The executor independently owns repository identity, hard binding, resource admission, process lifecycle, watchdogs, checkpoints, publication and emergency stop. Event-driven wake is a continuation-latency optimization only: it adds no repository-write or executor authority, and the planner still reads the exact remote terminal result before acting.
 
 ## Package map
 
@@ -50,11 +55,13 @@ local_agent/
 ├── foundation/
 │   ├── core.py
 │   ├── process.py
+│   ├── result_events.py
 │   └── storage.py
 ├── operator/
 │   ├── local.py
 │   └── remote.py
 ├── platform/
+│   ├── chrome_native_host.py
 │   └── macos_launchd.py
 ├── repository/
 │   ├── admin.py
@@ -93,6 +100,7 @@ The package is the implementation home for reusable code. New implementation mus
 | Runtime configuration | `local_agent/config.py` | startup-loaded timeout policy |
 | Execution core | `local_agent/foundation/core.py` | deterministic task execution, workspace preparation/checkpointing and result publication |
 | Process foundation | `local_agent/foundation/process.py` | registered spawning, process groups, bounded stdout, durable writes and inherited lease FDs |
+| Result-event outbox | `local_agent/foundation/result_events.py` | bounded durable `task_result_ready` metadata after successful result publication, deterministic identity, validation, ACK and pruning |
 | Storage foundation | `local_agent/foundation/storage.py` | bounded control Git sync, resilient network retry and storage diagnostics |
 | Repository identity | `local_agent/repository/context.py` | registry parsing, workspace identity, config digests and lease keys |
 | Hard binding | `local_agent/repository/binding.py` | canonical UUID identity and control-binding validation |
@@ -112,6 +120,7 @@ The package is the implementation home for reusable code. New implementation mus
 | Production scheduling | `local_agent/supervisor/scheduling.py` | pure retry/due/backoff/max-worker policy plus control-probe retry/admission state and `RETRY` / `PAUSE_CONTROL_REPOSITORY` / `DRAIN_ALL` classification |
 | Resource admission | `local_agent/supervisor/resources.py` | machine/named-resource flock arbitration and inherited resource FDs |
 | Parallel repository worker | `local_agent/supervisor/worker.py` | resource-aware parallel task admission and dispatch |
+| Chrome native event host | `local_agent/platform/chrome_native_host.py` | notification-only Native Messaging framing, exact caller-origin/protocol validation, outbox replay and ACK handling |
 | macOS integration | `local_agent/platform/macos_launchd.py` | portable LaunchAgent generation/lifecycle helpers |
 
 The control-admission boundary is deliberate: `scheduling.py` owns deterministic state transitions and policy decisions and has no Git/process/daemon side effects. `orchestrator.py` observes real probe outcomes and executes the chosen side effect. This keeps BUG-002 handling directly testable without embedding another policy state machine in the supervisor loop.
@@ -152,6 +161,7 @@ flowchart TD
     Runtime --> Foundation
     Operator --> Repo
     Operator --> Foundation
+    Native["local_agent.platform.chrome_native_host"] --> EventFoundation["local_agent.foundation.result_events"]
 ```
 
 Packaged modules and tests import packaged owners directly. Imports of root launcher names are unsupported and prohibited.
@@ -183,7 +193,13 @@ The scheduling extraction remains direct: production calls `scheduling.py` and s
 - unexplained repeated control-repository lease contention remains fail-closed through bounded global drain;
 - remote operator `enabled` never clears the persistent local disable marker;
 - dirty workspaces are never destructively replaced without recoverable evidence;
-- daemon/self-update and supervisor restart paths must still resolve to the installed root checkout.
+- daemon/self-update and supervisor restart paths must still resolve to the installed root checkout;
+- a `task_result_ready` event is created only after successful authoritative terminal-result push;
+- a result-ready event is only a wake hint and never substitutes for exact remote result evidence;
+- event routing must match exact repository id, repository name, `agent_binding` and task id;
+- Native Messaging remains notification-only and exposes no shell, task-control, arbitrary-file or log-stream authority;
+- malformed/tampered outbox entries fail closed and are not replayed indefinitely;
+- scheduled Bridge reconciliation remains available when Native Messaging is absent, disabled or broken.
 
 ## Verification architecture
 
@@ -203,11 +219,14 @@ flowchart LR
     CI --> Coverage["branch-aware coverage"]
     CI --> Py314["Python 3.14"]
     CI --> Mac["macOS smoke"]
+    CI --> Browser["disposable Chromium Bridge smoke"]
 ```
 
 Package-layout changes additionally require `tests/test_package_layout.py` to stay green so moved implementations cannot silently grow back into root shims.
 
 Coverage remains a risk map, not a vanity gate. Lower-covered orchestration and shutdown paths deserve targeted tests before cosmetic decomposition. Current-documentation and release-metadata contract tests prevent operational examples and release identity from silently drifting behind runtime behavior.
+
+Event-wake changes additionally require focused result-event, Native Messaging, installer, exact-routing, restart and transient-delivery tests plus the disposable Chromium extension profile. A green browser fixture does not prove the operator's installed extension id/native-host registration; that remains a real-machine release gate.
 
 ## macOS service boundary
 
@@ -223,10 +242,12 @@ Tracked machine-specific plist files are replaced by generated configuration:
 
 ## Browser transport boundary
 
-`chat_bridge/service_worker.js` is composition-only. Worker responsibilities are split by ownership: `worker_state.js` serializes Chrome storage, `worker_runtime.js` validates/caches runtime configuration, `worker_binding.js` owns hard-binding lookup and prompt policy, `worker_schedule.js` owns alarms, `worker_transport.js` owns tab/content-script transport and delivery authorization, `worker_controls.js` owns assistant control transitions, `worker_delivery.js` owns one delivery lifecycle, `worker_conversations.js` owns operator conversation/global-setting mutations, and `worker_events.js` routes Chrome events/messages. `worker_base.js` contains only shared constants and small process-local registries.
+`chat_bridge/service_worker.js` is composition-only. Worker responsibilities are split by ownership: `worker_state.js` serializes Chrome storage, `worker_runtime.js` validates/caches runtime configuration, `worker_binding.js` owns hard-binding lookup and prompt policy, `worker_schedule.js` owns alarms, `worker_transport.js` owns tab/content-script transport and delivery authorization, `worker_event_wake.js` owns persisted exact task watches/recent events/pending event wakes, `native_events.js` owns the on-demand Native Messaging lifecycle, `worker_event_diagnostics.js` owns bounded event-wake inspection data, `worker_controls.js` owns assistant control transitions, `worker_delivery.js` owns one normal/event delivery lifecycle, `worker_conversations.js` owns operator conversation/global-setting mutations, and `worker_events.js` routes Chrome events/messages. `worker_base.js` contains only shared constants and small process-local registries.
 
 `content.js` owns ChatGPT DOM interaction and observable delivery confirmation. `bridge_state.js` owns state normalization; `control_protocol.js` owns marker/identity parsing. `popup.js` owns explicit operator rendering/actions, while `popup_live.js` owns live popup synchronization and in-place state patching. Content messages cannot invoke popup-only configuration or Rebind operations, and assistant controls may alter only per-conversation state; they can never mutate the global Master switch.
 
-Bridge keeps no durable ambiguous-delivery journal. A lost post-submit confirmation is diagnostic `delivery_unconfirmed` only and never creates `pendingDelivery` or blocks future controls. Only an actively running delivery is protected by an in-memory overlap guard, which disappears when the send completes or the worker restarts.
+Bridge keeps no durable ambiguous-delivery journal for ordinary wake submission. A lost post-submit confirmation is diagnostic `delivery_unconfirmed` only and never creates `pendingDelivery` or blocks future controls. Event wake has a separate exact durable `pendingWake`: it is consumed only after successful delivery, survives MV3 restart, and is reconciled through normal alarms when native delivery is unavailable.
 
-The planner chooses direct GitHub edits with sufficient diff/CI evidence or bounded local execution. Neither the Bridge nor the daemon chooses implementation work. See [the planner contract](AUTONOMOUS_CHAT_LOOP.md) and [the Bridge audit](RELEASE_NOTES_V4.18.1.md).
+The Native Messaging port is not a permanent MV3 keepalive. It is opened only while an exact watch belongs to a bound/enabled conversation with Bridge Master on. Pause/operator-disable/Master-off retain the watch but suspend the native host; re-enable/resume can replay the durable Local Agent outbox. The host accepts handshake and ACK only.
+
+The planner chooses direct GitHub edits with sufficient diff/CI evidence or bounded local execution. Neither the Bridge nor the daemon chooses implementation work. See [the planner contract](AUTONOMOUS_CHAT_LOOP.md), [the security model](SECURITY_MODEL.md) and [the event-wake pre-merge audit](chat_bridge/PREMERGE_AUDIT.md).
