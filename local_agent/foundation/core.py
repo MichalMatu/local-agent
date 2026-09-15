@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
+import local_agent.foundation.result_events as result_events
 import local_agent.foundation.storage as storage
 from local_agent.config import TIMEOUTS
 from local_agent.foundation.process import (
@@ -484,7 +485,7 @@ def checkpoint_worktree(task_id: str, *, reason: str) -> dict[str, Any] | None:
             "untracked_files": untracked_files,
             "tracked_patch_bytes": patch_bytes,
             "untracked_bytes": copied_bytes,
-            "total_bytes": patch_bytes + copied_bytes,
+            "total_bytes": patch_bytes + untracked_bytes,
             "status": short_status,
         }
         atomic_write_text(
@@ -1152,4 +1153,13 @@ def publish_result(task_id: str, result: dict[str, Any]) -> None:
         if push["exit_code"] != 0:
             raise RuntimeError(push["output"])
 
+    try:
+        event = result_events.record_published_result(
+            control_dir=CONTROL,
+            task_id=task_id,
+            result=result,
+        )
+        log(f"queued result event {event['event_id']} task={task_id}")
+    except Exception as exc:
+        log(f"result event enqueue failed for {task_id}: {type(exc).__name__}: {exc}")
     log(f"published result {task_id}")
