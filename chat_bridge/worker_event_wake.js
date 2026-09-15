@@ -38,14 +38,16 @@ function sanitizeTaskWatch(raw) {
   if (!raw || typeof raw !== "object") return null;
   const conversationId = String(raw.conversationId || "");
   const repositoryId = stateModel.sanitizeRepositoryId(raw.repositoryId);
+  const repository = stateModel.sanitizeRepository(raw.repository);
   const agentBinding = stateModel.sanitizeAgentBinding(raw.agentBinding);
   const taskId = String(raw.taskId || "");
-  if (!protocol.CHAT_ID_RE.test(conversationId) || !repositoryId || !agentBinding || !protocol.TASK_ID_RE.test(taskId)) {
+  if (!protocol.CHAT_ID_RE.test(conversationId) || !repositoryId || !repository || !agentBinding || !protocol.TASK_ID_RE.test(taskId)) {
     return null;
   }
   return {
     conversationId,
     repositoryId,
+    repository,
     agentBinding,
     taskId,
     createdAt: boundedIso(raw.createdAt) || new Date().toISOString()
@@ -162,6 +164,7 @@ function eventMatchesWatch(event, watch) {
   return Boolean(
     event && watch &&
     event.repositoryId === watch.repositoryId &&
+    event.repository === watch.repository &&
     event.agentBinding === watch.agentBinding &&
     event.taskId === watch.taskId
   );
@@ -180,6 +183,7 @@ async function registerTaskWatch(conversation, taskId) {
   const watch = sanitizeTaskWatch({
     conversationId: conversation.id,
     repositoryId: conversation.repositoryId,
+    repository: conversation.repository,
     agentBinding: conversation.agentBinding,
     taskId,
     createdAt: new Date().toISOString()
@@ -190,6 +194,7 @@ async function registerTaskWatch(conversation, taskId) {
     const conflict = Object.values(state.watches).find((candidate) =>
       candidate.conversationId !== conversation.id &&
       candidate.repositoryId === watch.repositoryId &&
+      candidate.repository === watch.repository &&
       candidate.agentBinding === watch.agentBinding &&
       candidate.taskId === watch.taskId
     );
@@ -204,6 +209,7 @@ async function registerTaskWatch(conversation, taskId) {
         taskId: event.taskId,
         receivedAt: event.receivedAt
       };
+      delete state.watches[conversation.id];
     } else {
       delete state.pendingWakes[conversation.id];
     }
@@ -216,6 +222,9 @@ async function registerTaskWatch(conversation, taskId) {
       }
     };
   });
+  if (typeof reconcileNativeEventTransport === "function") {
+    await reconcileNativeEventTransport();
+  }
   return result.value;
 }
 
@@ -225,6 +234,9 @@ async function clearTaskWatch(chatId, { clearPending = true } = {}) {
     if (clearPending) delete state.pendingWakes[chatId];
     return state;
   });
+  if (typeof reconcileNativeEventTransport === "function") {
+    await reconcileNativeEventTransport();
+  }
 }
 
 async function pendingEventWake(chatId) {
@@ -253,7 +265,8 @@ async function acceptNativeTaskEvent(rawEvent) {
 
     const conversation = bridgeState.conversations[watch.conversationId];
     if (!conversation || !stateModel.isBoundConversation(conversation) ||
-        conversation.repositoryId !== watch.repositoryId || conversation.agentBinding !== watch.agentBinding) {
+        conversation.repositoryId !== watch.repositoryId || conversation.repository !== watch.repository ||
+        conversation.agentBinding !== watch.agentBinding) {
       delete state.watches[watch.conversationId];
       delete state.pendingWakes[watch.conversationId];
       return { state, value: { ok: true, reason: "event_cached_stale_watch", matchedChatId: null } };
@@ -264,6 +277,7 @@ async function acceptNativeTaskEvent(rawEvent) {
       taskId: event.taskId,
       receivedAt: event.receivedAt
     };
+    delete state.watches[watch.conversationId];
     return {
       state,
       value: {
@@ -289,12 +303,14 @@ async function consumePendingEventWake(chatId, eventId) {
     const pending = state.pendingWakes[chatId];
     if (!pending || pending.eventId !== eventId) return state;
     delete state.pendingWakes[chatId];
-    const watch = state.watches[chatId];
-    if (watch && watch.taskId === pending.taskId) delete state.watches[chatId];
+    delete state.watches[chatId];
     state.diagnostics.lastDeliveredEventId = eventId;
     state.diagnostics.lastDeliveredAt = new Date().toISOString();
     return state;
   });
+  if (typeof reconcileNativeEventTransport === "function") {
+    await reconcileNativeEventTransport();
+  }
 }
 
 async function updateNativeDiagnostics(patch) {
