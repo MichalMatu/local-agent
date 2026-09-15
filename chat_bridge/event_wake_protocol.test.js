@@ -37,7 +37,13 @@ assert.ok(controlsIndex > nativeIndex, "assistant controls must load after event
 
 const nativeSource = fs.readFileSync(path.join(root, "native_events.js"), "utf8");
 assert.match(nativeSource, /chrome\.runtime\.connectNative\(NATIVE_HOST_NAME\)/);
+assert.match(nativeSource, /Object\.keys\(state\.watches\)\.length > 0/);
+assert.match(nativeSource, /if \(!nativeTransportWanted \|\| nativePort\) return/);
 assert.doesNotMatch(nativeSource, /exec|shell|terminal/i, "native event transport must not expose execution commands");
+
+const eventWake = fs.readFileSync(path.join(root, "worker_event_wake.js"), "utf8");
+assert.match(eventWake, /event\.repository === watch\.repository/);
+assert.match(eventWake, /delete state\.watches\[watch\.conversationId\]/);
 
 const delivery = fs.readFileSync(path.join(root, "worker_delivery.js"), "utf8");
 assert.match(delivery, /pendingEventWake\(chatId\)/);
