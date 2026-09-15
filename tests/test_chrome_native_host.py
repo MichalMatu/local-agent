@@ -50,6 +50,116 @@ class ChromeNativeHostTests(unittest.TestCase):
         self.assertNotIn("path", hello)
         self.assertNotIn("command", hello)
 
+    def test_unknown_message_type_fails_closed(self) -> None:
+        server, client = socket.socketpair()
+        self.addCleanup(server.close)
+        self.addCleanup(client.close)
+        client.settimeout(3.0)
+        server_stream = server.makefile("rwb", buffering=0)
+        client_stream = client.makefile("rwb", buffering=0)
+        self.addCleanup(server_stream.close)
+        self.addCleanup(client_stream.close)
+        outcome: list[int] = []
+        origin = "chrome-extension://" + "a" * 32 + "/"
+        thread = threading.Thread(
+            target=lambda: outcome.append(
+                chrome_native_host.run_host(
+                    stdin=server_stream,
+                    stdout=server_stream,
+                    argv=["host", origin],
+                )
+            ),
+            daemon=True,
+        )
+        thread.start()
+        self.assertEqual(chrome_native_host.read_message(client_stream), chrome_native_host._hello())
+        chrome_native_host.write_message(
+            client_stream,
+            {"type": "execute", "protocol_version": chrome_native_host.PROTOCOL_VERSION},
+        )
+        error = chrome_native_host.read_message(client_stream)
+        self.assertEqual(error["type"], "error")
+        self.assertEqual(error["reason"], "unknown_message_type")
+        thread.join(timeout=2.0)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(outcome, [2])
+
+    def test_ack_before_handshake_and_invalid_ack_fail_closed(self) -> None:
+        for message, expected in (
+            (
+                {
+                    "type": "ack",
+                    "protocol_version": chrome_native_host.PROTOCOL_VERSION,
+                    "event_id": "evt-" + "a" * 32,
+                },
+                "handshake_required",
+            ),
+        ):
+            with self.subTest(expected=expected):
+                server, client = socket.socketpair()
+                server_stream = server.makefile("rwb", buffering=0)
+                client_stream = client.makefile("rwb", buffering=0)
+                client.settimeout(3.0)
+                outcome: list[int] = []
+                origin = "chrome-extension://" + "a" * 32 + "/"
+                thread = threading.Thread(
+                    target=lambda: outcome.append(
+                        chrome_native_host.run_host(
+                            stdin=server_stream,
+                            stdout=server_stream,
+                            argv=["host", origin],
+                        )
+                    ),
+                    daemon=True,
+                )
+                thread.start()
+                self.assertEqual(chrome_native_host.read_message(client_stream), chrome_native_host._hello())
+                chrome_native_host.write_message(client_stream, message)
+                error = chrome_native_host.read_message(client_stream)
+                self.assertEqual(error["reason"], expected)
+                thread.join(timeout=2.0)
+                self.assertEqual(outcome, [2])
+                client_stream.close()
+                server_stream.close()
+                client.close()
+                server.close()
+
+        server, client = socket.socketpair()
+        server_stream = server.makefile("rwb", buffering=0)
+        client_stream = client.makefile("rwb", buffering=0)
+        client.settimeout(3.0)
+        outcome = []
+        origin = "chrome-extension://" + "a" * 32 + "/"
+        thread = threading.Thread(
+            target=lambda: outcome.append(
+                chrome_native_host.run_host(
+                    stdin=server_stream,
+                    stdout=server_stream,
+                    argv=["host", origin],
+                )
+            ),
+            daemon=True,
+        )
+        thread.start()
+        self.assertEqual(chrome_native_host.read_message(client_stream), chrome_native_host._hello())
+        chrome_native_host.write_message(
+            client_stream,
+            {"type": "hello", "protocol_version": chrome_native_host.PROTOCOL_VERSION},
+        )
+        self.assertEqual(chrome_native_host.read_message(client_stream), chrome_native_host._hello())
+        chrome_native_host.write_message(
+            client_stream,
+            {"type": "ack", "protocol_version": chrome_native_host.PROTOCOL_VERSION, "event_id": "bad"},
+        )
+        error = chrome_native_host.read_message(client_stream)
+        self.assertEqual(error["reason"], "invalid_ack")
+        thread.join(timeout=2.0)
+        self.assertEqual(outcome, [2])
+        client_stream.close()
+        server_stream.close()
+        client.close()
+        server.close()
+
     def test_connected_host_delivers_event_created_after_handshake_and_acks_it(self) -> None:
         event_id = "evt-" + "b" * 32
         event = {
@@ -124,7 +234,6 @@ class ChromeNativeHostTests(unittest.TestCase):
                 },
             )
 
-            # Give the host one poll cycle to consume the ACK before closing the browser side.
             for _ in range(100):
                 if acknowledged:
                     break
