@@ -6,6 +6,7 @@ async function saveGlobalSettings(patch) {
     return state;
   });
   await reconcileSchedules();
+  await reconcileNativeEventTransport();
   return result.state;
 }
 
@@ -44,6 +45,7 @@ async function upsertConversation(patch) {
     return { state: upserted.state, conversation: upserted.conversation };
   });
   if (result.conversation?.enabled) await scheduleDefault(result.conversation.id, true);
+  await reconcileNativeEventTransport();
   return result.conversation;
 }
 
@@ -78,6 +80,7 @@ async function rebindConversation(chatId, patch) {
   });
   await clearTaskWatch(chatId);
   await scheduleDefault(chatId, true);
+  await reconcileNativeEventTransport();
   return result.conversation;
 }
 
@@ -117,6 +120,7 @@ async function updateConversation(chatId, patch) {
   } else if (result.value?.pacingChanged) {
     await scheduleDefault(chatId);
   }
+  await reconcileNativeEventTransport();
   return result.conversation;
 }
 
@@ -129,6 +133,6 @@ async function deleteConversation(chatId) {
     return stateModel.removeConversation(state, chatId);
   });
   await clearTaskWatch(chatId);
+  await reconcileNativeEventTransport();
   return result.state;
 }
-
