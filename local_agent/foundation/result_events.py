@@ -138,6 +138,51 @@ def _event_timestamp(event: dict[str, Any], fallback: float) -> float:
     return fallback
 
 
+def _valid_event_payload(payload: dict[str, Any]) -> bool:
+    if payload.get("schema_version") != EVENT_SCHEMA_VERSION:
+        return False
+    if payload.get("event_type") != EVENT_TYPE_TASK_RESULT_READY:
+        return False
+
+    event_id = payload.get("event_id")
+    repository_id = payload.get("repository_id")
+    repository = payload.get("repository")
+    task_id = payload.get("task_id")
+    result_status = payload.get("result_status")
+    emitted_at = payload.get("emitted_at")
+    raw_digest = payload.get("task_digest")
+
+    if not isinstance(event_id, str) or not _EVENT_ID_RE.fullmatch(event_id):
+        return False
+    if not isinstance(repository_id, str) or not _REPOSITORY_ID_RE.fullmatch(repository_id):
+        return False
+    if not isinstance(repository, str) or not _REPOSITORY_RE.fullmatch(repository):
+        return False
+    if not isinstance(task_id, str) or not _TASK_ID_RE.fullmatch(task_id):
+        return False
+    if not isinstance(result_status, str) or not _STATUS_RE.fullmatch(result_status):
+        return False
+    if raw_digest is not None and (
+        not isinstance(raw_digest, str) or not _DIGEST_RE.fullmatch(raw_digest)
+    ):
+        return False
+    if not isinstance(emitted_at, str) or len(emitted_at) > 64:
+        return False
+    try:
+        parsed = datetime.fromisoformat(emitted_at)
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        return False
+
+    try:
+        agent_binding = _canonical_binding(payload.get("agent_binding"))
+    except ValueError:
+        return False
+    expected_id = _event_id(repository_id, agent_binding, task_id, raw_digest)
+    return event_id == expected_id
+
+
 def _read_event_file(path: Path) -> dict[str, Any] | None:
     try:
         if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_EVENT_BYTES:
@@ -145,13 +190,9 @@ def _read_event_file(path: Path) -> dict[str, Any] | None:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    if not isinstance(payload, dict):
+    if not isinstance(payload, dict) or not _valid_event_payload(payload):
         return None
-    if payload.get("schema_version") != EVENT_SCHEMA_VERSION:
-        return None
-    event_id = payload.get("event_id")
-    if not isinstance(event_id, str) or not _EVENT_ID_RE.fullmatch(event_id):
-        return None
+    event_id = payload["event_id"]
     if path.name != f"{event_id}.json":
         return None
     return payload
@@ -210,6 +251,8 @@ def enqueue_event(
     event_id = event.get("event_id")
     if not isinstance(event_id, str):
         raise ValueError("event_id is required")
+    if not _valid_event_payload(event):
+        raise ValueError("invalid result event payload")
     path = _event_path(event_id, state_dir=state_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     prune_outbox(state_dir=state_dir)
