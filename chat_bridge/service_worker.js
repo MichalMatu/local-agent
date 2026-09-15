@@ -7,6 +7,7 @@ importScripts(
   "worker_transport.js",
   "worker_event_wake.js",
   "native_events.js",
+  "worker_event_diagnostics.js",
   "worker_controls.js",
   "worker_delivery.js",
   "worker_conversations.js",
