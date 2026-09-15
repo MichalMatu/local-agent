@@ -485,7 +485,7 @@ def checkpoint_worktree(task_id: str, *, reason: str) -> dict[str, Any] | None:
             "untracked_files": untracked_files,
             "tracked_patch_bytes": patch_bytes,
             "untracked_bytes": copied_bytes,
-            "total_bytes": patch_bytes + untracked_bytes,
+            "total_bytes": patch_bytes + copied_bytes,
             "status": short_status,
         }
         atomic_write_text(
