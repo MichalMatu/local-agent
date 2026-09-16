@@ -127,6 +127,9 @@ def run_host(
                 if not isinstance(event_id, str) or not _EVENT_ID_RE.fullmatch(event_id):
                     write_message(output_stream, _error("invalid_ack"))
                     return 2
+                if event_id not in last_sent:
+                    write_message(output_stream, _error("ack_unknown_event"))
+                    return 2
                 result_events.acknowledge_event(event_id)
                 last_sent.pop(event_id, None)
             else:
