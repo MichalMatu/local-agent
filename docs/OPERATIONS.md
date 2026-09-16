@@ -116,7 +116,7 @@ Remote runtime schema 3 publishes the canonical agent catalog. Production runtim
 6. run binding-negative E2E plus emergency-control E2E when those boundaries changed;
 7. enable Local Agent only after required checks are green.
 
-Publishing a new bridge runtime before an old bridge is replaced is not a reason to enable execution. The kill switch remains the safety boundary during rollout. Detailed current planner/Bridge semantics live in [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md).
+Publishing a new bridge runtime before an old bridge is replaced is not a reason to enable execution. The kill switch remains the safety boundary during rollout. Detailed current planner/Bridge semantics live in [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md); planner-facing bootstrap/wake layering and prompt-size budgets live in [`chat_bridge/PLANNER_RUNTIME_CONTRACT.md`](chat_bridge/PLANNER_RUNTIME_CONTRACT.md).
 
 ## Control data
 
@@ -173,7 +173,7 @@ Resource acquisition is non-blocking before claim. Contention leaves the immutab
 5. Prepare the smallest deterministic change.
 6. Classify resources explicitly; current registered project repositories use `resources: []` and detect/verify devices inside task commands.
 7. Queue one new unique task containing the exact `agent_binding` and explicit `resources`.
-8. For Chat Bridge work, perform one early liveness check around 30 seconds.
+8. For a queued Local Agent task, arm `[LAB:WAIT_TASK=<task-id>]` and rely on event-driven completion wake plus the normal alarm fallback. Do not add an early 30-second completion poll for a healthy watched task; use `NEXT` only for an independent time-based or external recheck.
 9. Follow the same digest/attempt until terminal evidence exists.
 10. Diagnose exact output; never infer success from submission.
 11. Run focused verification first and one final broad gate when warranted.
