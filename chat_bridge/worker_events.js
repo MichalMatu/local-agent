@@ -1,3 +1,6 @@
+const STARTUP_RECONCILE_ALARM_PREFIX = "local-agent-chat-startup-reconcile:";
+const STARTUP_RECONCILE_DELAYS_MS = [1000, 3000, 8000];
+
 async function refreshBridgeContentOnWorkerStart() {
   try {
     return await refreshConfiguredContentScripts();
@@ -7,14 +10,50 @@ async function refreshBridgeContentOnWorkerStart() {
   }
 }
 
-async function initializeBridgeLifecycle() {
+async function scheduleStartupReconciliation() {
+  await Promise.all(STARTUP_RECONCILE_DELAYS_MS.map((delayMs, index) =>
+    chrome.alarms.create(`${STARTUP_RECONCILE_ALARM_PREFIX}${index}`, {
+      when: Date.now() + delayMs
+    })
+  ));
+}
+
+async function reconcileRestoredTabsAfterStartup() {
+  const content = await refreshBridgeContentOnWorkerStart();
+  const state = await getBridgeState();
+  if (!state.settings.masterEnabled) return { content, pendingScheduled: 0 };
+
+  let pendingScheduled = 0;
+  for (const conversation of Object.values(state.conversations || {})) {
+    if (!conversation.enabled || !stateModel.isBoundConversation(conversation)) continue;
+    const pending = await pendingEventWake(conversation.id);
+    if (!pending) continue;
+    const scheduled = await scheduleAt(
+      conversation.id,
+      Date.now() + 1000,
+      conversation.generation
+    );
+    if (scheduled) pendingScheduled += 1;
+  }
+  return { content, pendingScheduled };
+}
+
+async function initializeBridgeLifecycle({ startupRecovery = false } = {}) {
   initializeNativeEventTransport();
   try {
     await reconcileSchedules();
   } catch (error) {
     console.error(error);
   }
-  return refreshBridgeContentOnWorkerStart();
+  const content = await refreshBridgeContentOnWorkerStart();
+  if (startupRecovery) {
+    try {
+      await scheduleStartupReconciliation();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  return content;
 }
 
 async function reconcilePendingWakeForCompletedTab(tabId, changeInfo, tab) {
@@ -39,13 +78,17 @@ async function reconcilePendingWakeForCompletedTab(tabId, changeInfo, tab) {
 }
 
 chrome.runtime.onInstalled.addListener(() => initializeBridgeLifecycle());
-chrome.runtime.onStartup.addListener(() => initializeBridgeLifecycle());
+chrome.runtime.onStartup.addListener(() => initializeBridgeLifecycle({ startupRecovery: true }));
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) =>
   reconcilePendingWakeForCompletedTab(tabId, changeInfo, tab).catch(console.error)
 );
 
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name.startsWith(STARTUP_RECONCILE_ALARM_PREFIX)) {
+    reconcileRestoredTabsAfterStartup().catch(console.error);
+    return;
+  }
   if (!alarm.name.startsWith(ALARM_PREFIX)) return;
   const chatId = alarm.name.slice(ALARM_PREFIX.length);
   runFeedbackCycle({ conversationId: chatId }).catch(async (error) => {
@@ -153,6 +196,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // ChatGPT tabs stay open. Probe configured tabs immediately so stale/unavailable content
 // scripts are replaced with this worker's protocol without a page reload or a wake.
 // Native transport is also reconnected here so durable local result events can replay.
+// Browser startup additionally arms a short bounded sequence of alarm-backed probes because
+// session-restored tabs can appear after onStartup and may never emit tabs.onUpdated=complete.
 // Do not reconcile ordinary schedules here: service-worker activation itself is transport
 // lifecycle, not a scheduling event. Persisted Chrome alarms remain the fallback.
 initializeNativeEventTransport();
