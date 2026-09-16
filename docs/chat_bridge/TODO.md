@@ -2,7 +2,7 @@
 
 Branch: `feature/chat-bridge-event-wake`
 
-Status: implementation candidate. Keep PR #77 draft and **do not merge to `main`** until the real-Mac gates below are completed and an explicit release decision is made.
+Status: implementation candidate. Keep PR #77 draft and **do not merge to `main`** until the remaining real-machine gates are completed and an explicit release decision is made.
 
 ## Phase 0 — preimplementation audit and contract
 
@@ -32,7 +32,7 @@ Status: implementation candidate. Keep PR #77 draft and **do not merge to `main`
 - [x] Re-publication idempotence.
 - [x] Event-side failure cannot rewrite authoritative task outcome.
 - [x] Unit coverage for append, duplicate, ACK, TTL, tamper and identity mismatch.
-- [ ] Surface Local Agent outbox health in a user-facing Local Agent diagnostic/status surface if operational experience shows it is needed. `outbox_health()` already exists; this is observability, not correctness.
+- [ ] Surface Local Agent outbox health in a user-facing diagnostic/status surface if operational experience shows it is needed. `outbox_health()` already exists; this is observability, not correctness.
 
 ## Phase 2 — Native Messaging host
 
@@ -47,7 +47,8 @@ Status: implementation candidate. Keep PR #77 draft and **do not merge to `main`
 - [x] Installer health diagnostics for wrong origin/path/mode/executable.
 - [x] Protocol/framing/origin tests.
 - [x] Duplex integration test: handshake -> later event -> delivery -> ACK -> outbox removal.
-- [x] Native host was installed and healthy on the operator Mac for the previous 0.5.10 live candidate; final exact 0.5.11 loaded-head health still needs confirmation.
+- [x] Real operator-Mac Native Messaging transport works on final 0.5.11 code candidate `c69ebeb5bd3fe56ae385ef4b5c0aedbc1596a5f4` with protocol v1 and exact extension origin.
+- [ ] Re-run installer `status --extension-id <id>` on the final loaded candidate path and record the explicit health output.
 
 ## Phase 3 — Bridge native connection and durable ingestion
 
@@ -97,7 +98,8 @@ Status: implementation candidate. Keep PR #77 draft and **do not merge to `main`
 - [x] MV3 restart before native receive and between receive/delivery is covered.
 - [x] Live 0.5.10 synthetic watch-before-event wake reached ChatGPT and cleared exact pending/watch after confirmed delivery.
 - [x] Live 0.5.10 synthetic event-before-watch durable outbox replay reached ChatGPT and cleared exact pending/watch after confirmed delivery.
-- [ ] Real live ChatGPT DOM smoke on the final exact 0.5.11 branch head.
+- [x] Real live ChatGPT DOM smoke passed on exact 0.5.11 code/docs candidate `c69ebeb5bd3fe56ae385ef4b5c0aedbc1596a5f4` with protocol `7/7`.
+- [x] Exact native-host kill -> durable outbox -> reconnect -> replay -> live ChatGPT delivery passed on 0.5.11 (`evt-4174b0dd4c6e6142746e5d32146474ed`).
 
 ## Phase 6 — planner pacing and token-budget integration
 
@@ -128,14 +130,14 @@ Automated candidate evidence:
 - [x] Native host event-created-after-handshake duplex test.
 - [x] Tampered outbox identity/pruning tests.
 - [x] Installer wrong-ID/path/executable diagnostics tests.
-- [x] Pre-documentation 0.5.11 code candidate `adfc62d8754ae57e96eb7892041de6b566a3d20a` passed CI #789 (`35110618291`) with `test`, `bridge-browser`, `coverage`, `python-314` and `macos-smoke` all green.
-- [x] #789 disposable Chromium `bridge-browser` smoke passed on that same exact code candidate.
+- [x] Pre-evidence 0.5.11 code candidate `adfc62d8754ae57e96eb7892041de6b566a3d20a` passed CI #789 (`35110618291`).
+- [x] Documentation-synchronized/live-loaded candidate `c69ebeb5bd3fe56ae385ef4b5c0aedbc1596a5f4` passed full CI #791 (`35111409415`) with `test`, `bridge-browser`, `coverage`, `python-314` and `macos-smoke` all green.
+- [x] #791 disposable Chromium `bridge-browser` smoke passed on that exact candidate.
 
 Still required before release/merge:
 
-- [ ] Final full CI green for the documentation-synchronized exact branch SHA; this documentation commit intentionally moves the head after #789.
-- [ ] Load/reload the final exact 0.5.11 branch SHA in the real Chrome profile.
-- [ ] Confirm native-host `status --extension-id <id>` remains healthy with that loaded candidate path.
+- [ ] Final PR-head CI green after the evidence-only documentation commits that record the live 0.5.11 validation.
+- [ ] Explicit native-host installer `status --extension-id <id>` health output on the final loaded candidate path.
 - [ ] Real short Local Agent task that finishes before `WAIT_TASK` registration wakes correctly; synthetic event injection is not sufficient for this semantic gate.
 - [ ] Real multi-minute task completes with no repeated healthy polling turns.
 - [ ] Real success result wake.
@@ -143,7 +145,7 @@ Still required before release/merge:
 - [ ] Real rejected/binding-failure result wake.
 - [ ] Real cancelled result wake.
 - [ ] Real deferred result publication wakes only after successful publication.
-- [ ] Kill/restart native host and verify replay/fallback.
+- [x] Kill/restart native host and verify durable replay. Final 0.5.11 live evidence recorded in `LIVE_EVIDENCE_2026-09-16.md`.
 - [ ] Restart Chrome with a pending/outbox event and verify recovery.
 - [ ] Restart Local Agent around result publication and verify no lost authoritative result/event.
 - [ ] Verify polling-only fallback with native host intentionally absent.
@@ -157,10 +159,10 @@ Still required before release/merge:
 - [x] Development architecture/TODO documentation updated.
 - [x] Native host installer/health documentation added.
 - [x] Prompt/token budget and hybrid wake semantics recorded in the pre-merge audit/TODO.
+- [x] Final 0.5.11 live host-kill/replay evidence recorded.
 - [ ] Update `docs/ARCHITECTURE.md` if final release review requires the event modules in the top-level ownership map.
 - [ ] Complete any remaining release-document synchronization required by `AGENTS.md` after final real-Mac evidence.
-- [ ] Bump release/version metadata only when explicitly preparing release.
-- [ ] Record final exact-SHA CI + real-macOS evidence without changing behavior afterward.
+- [ ] Record final PR-head CI after evidence-only documentation commits.
 - [ ] Mark PR ready only after explicit release decision.
 - [ ] **Merge only after explicit user decision. Merging to `main` may trigger autoupdate and is intentionally forbidden during this pre-merge audit.**
 
