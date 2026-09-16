@@ -19,6 +19,7 @@ CURRENT_OPERATIONAL_DOCS = (
     "docs/OPERATIONS.md",
     "docs/SECURITY_MODEL.md",
     "docs/SESSION_BOOTSTRAP.md",
+    "docs/chat_bridge/PLANNER_RUNTIME_CONTRACT.md",
     "deploy/macos/README.md",
 )
 CURRENT_SCHEDULER_DOCS = (
@@ -59,6 +60,21 @@ class CurrentDocumentationContractTests(unittest.TestCase):
             for phrase in forbidden:
                 with self.subTest(path=relative, phrase=phrase):
                     self.assertNotIn(phrase, text)
+
+    def test_chat_bridge_docs_do_not_restore_early_completion_polling(self) -> None:
+        operations = (REPO_ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
+        self.assertNotIn("perform one early liveness check around 30 seconds", operations)
+        self.assertIn("[LAB:WAIT_TASK=<task-id>]", operations)
+        self.assertIn("event-driven completion wake", operations)
+        self.assertIn("use `NEXT` only for an independent time-based or external recheck", operations)
+
+        planner_contract = (
+            REPO_ROOT / "docs" / "chat_bridge" / "PLANNER_RUNTIME_CONTRACT.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Bootstrap — once per add/rebind", planner_contract)
+        self.assertIn("Terminal event wake — minimal action payload", planner_contract)
+        self.assertIn("<= 700 characters", planner_contract)
+        self.assertIn("project-bound onboarding does not require cross-repository", planner_contract)
 
     def test_golden_standard_names_released_source_as_current_production(self) -> None:
         golden = (REPO_ROOT / "docs" / "GOLDEN_STANDARD.md").read_text(encoding="utf-8")
