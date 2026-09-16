@@ -238,6 +238,24 @@ function recentEventForWatch(state, watch) {
     .sort((a, b) => Date.parse(b.receivedAt) - Date.parse(a.receivedAt))[0] || null;
 }
 
+async function reconcileEventWakeOwnership(bridgeState = null) {
+  const currentBridgeState = bridgeState || await getBridgeState();
+  const result = await mutateEventWakeState((state) => {
+    for (const [chatId, watch] of Object.entries(state.watches)) {
+      if (!watchMatchesConversation(watch, currentBridgeState.conversations[chatId])) {
+        delete state.watches[chatId];
+      }
+    }
+    for (const [chatId, pending] of Object.entries(state.pendingWakes)) {
+      if (!pendingWakeMatchesConversation(pending, currentBridgeState.conversations[chatId])) {
+        delete state.pendingWakes[chatId];
+      }
+    }
+    return state;
+  });
+  return result.state;
+}
+
 async function registerTaskWatch(conversation, taskId) {
   if (!stateModel.isBoundConversation(conversation) || !protocol.TASK_ID_RE.test(String(taskId || ""))) {
     return { ok: false, reason: "task_watch_invalid" };
@@ -253,6 +271,12 @@ async function registerTaskWatch(conversation, taskId) {
     createdAt: new Date().toISOString()
   });
   if (!watch) return { ok: false, reason: "task_watch_invalid" };
+
+  const bridgeState = await getBridgeState();
+  if (!watchMatchesConversation(watch, bridgeState.conversations[conversation.id])) {
+    return { ok: false, reason: "task_watch_stale_binding" };
+  }
+  await reconcileEventWakeOwnership(bridgeState);
 
   const result = await mutateEventWakeState((state) => {
     const watchConflict = Object.values(state.watches).find((candidate) =>
