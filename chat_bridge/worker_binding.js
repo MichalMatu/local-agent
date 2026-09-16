@@ -47,15 +47,19 @@ function assistantScheduleControlSummary() {
     .join(", ");
 }
 
+function eventWakePlannerPolicy() {
+  return "When one exact Local Agent task is queued or active, prefer [LAB:WAIT_TASK=<task-id>] instead of periodic NEXT polling. WAIT_TASK retains a bounded scheduled reconciliation alarm, so Native Messaging is an optimization rather than a correctness dependency. Use NEXT only for genuinely time-based or external rechecks that are not represented by one exact Local Agent terminal task. A task_result_ready event is only a wake hint; inspect the exact terminal result before deciding the next action.";
+}
+
 function buildBootstrapPrompt(runtime, conversation) {
   const agent = runtimeAgentForConversation(runtime, conversation);
   const controls = assistantScheduleControlSummary();
-  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\nBridge controls are conversation-scoped. Continue only the active goal of this conversation. Supported scheduling controls: ${controls}. Conversation controls may overwrite this chat's pause/enabled state, wake timing, and interval. They must never change the global Master switch. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch.`;
+  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\n${eventWakePlannerPolicy()}\nBridge controls are conversation-scoped. Continue only the active goal of this conversation. Supported scheduling controls: ${controls}. Conversation controls may overwrite this chat's pause/enabled state, wake timing, and interval. They must never change the global Master switch. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch.`;
 }
 
 function buildWakePrompt(runtime, conversation) {
   const agent = runtimeAgentForConversation(runtime, conversation);
-  return `${bindingPolicy(conversation, agent)}\n${runtime.wakePrompt}`;
+  return `${bindingPolicy(conversation, agent)}\n${runtime.wakePrompt}\n${eventWakePlannerPolicy()}`;
 }
 
 function buildEventWakePrompt(runtime, conversation, pending) {
