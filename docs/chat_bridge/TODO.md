@@ -47,7 +47,7 @@ Status: implementation candidate. Keep PR #77 draft and **do not merge to `main`
 - [x] Installer health diagnostics for wrong origin/path/mode/executable.
 - [x] Protocol/framing/origin tests.
 - [x] Duplex integration test: handshake -> later event -> delivery -> ACK -> outbox removal.
-- [ ] Real Chrome + real macOS Native Messaging smoke on the operator Mac for the final candidate SHA.
+- [x] Native host was installed and healthy on the operator Mac for the previous 0.5.10 live candidate; final exact 0.5.11 loaded-head health still needs confirmation.
 
 ## Phase 3 — Bridge native connection and durable ingestion
 
@@ -95,18 +95,23 @@ Status: implementation candidate. Keep PR #77 draft and **do not merge to `main`
 - [x] Scheduled reconciliation remains active.
 - [x] Event-delivery state appears in diagnostics.
 - [x] MV3 restart before native receive and between receive/delivery is covered.
-- [ ] Real live ChatGPT DOM smoke on the operator's current Chrome/ChatGPT build for final candidate.
+- [x] Live 0.5.10 synthetic watch-before-event wake reached ChatGPT and cleared exact pending/watch after confirmed delivery.
+- [x] Live 0.5.10 synthetic event-before-watch durable outbox replay reached ChatGPT and cleared exact pending/watch after confirmed delivery.
+- [ ] Real live ChatGPT DOM smoke on the final exact 0.5.11 branch head.
 
-## Phase 6 — planner pacing integration
+## Phase 6 — planner pacing and token-budget integration
 
 - [x] Runtime bootstrap/wake prompts prefer `WAIT_TASK` after queueing.
+- [x] Hybrid model is explicit: `WAIT_TASK` uses action-driven wake plus alarm fallback; manual `NEXT` remains for genuinely time/external rechecks.
 - [x] Remove normal early polling requirement for healthy watched tasks.
 - [x] Keep `NEXT` for genuinely time-based checks.
 - [x] Keep default alarm as bounded fallback while waiting.
 - [x] Capability/debug feedback exposes native/event state.
 - [x] Native disconnect cannot remove scheduled reconciliation.
-- [x] `docs/AUTONOMOUS_CHAT_LOOP.md` updated and CI contract enforces it.
+- [x] `docs/AUTONOMOUS_CHAT_LOOP.md` describes the hybrid model and CI contract enforces the planner pacing rules.
 - [x] `chat_bridge/README.md` updated.
+- [x] Repeated prompt payload was reduced without weakening explicit hard-binding/Master safety invariants.
+- [x] Measured 0.5.11 worst-case prompt sizes: bootstrap 1556 chars, normal wake 1041 chars, event wake 661 chars.
 
 ## Phase 7 — validation
 
@@ -123,15 +128,15 @@ Automated candidate evidence:
 - [x] Native host event-created-after-handshake duplex test.
 - [x] Tampered outbox identity/pruning tests.
 - [x] Installer wrong-ID/path/executable diagnostics tests.
-- [x] Full CI matrix was green on pre-hardening candidate `098df38bf7f630cd28b6d56b42da8ea16f130673`; final-candidate CI must also be green after all hardening/documentation changes.
+- [x] Pre-documentation 0.5.11 code candidate `adfc62d8754ae57e96eb7892041de6b566a3d20a` passed CI #789 (`35110618291`) with `test`, `bridge-browser`, `coverage`, `python-314` and `macos-smoke` all green.
+- [x] #789 disposable Chromium `bridge-browser` smoke passed on that same exact code candidate.
 
 Still required before release/merge:
 
-- [ ] Final full CI green for the final exact branch SHA.
-- [ ] Final disposable Chromium browser smoke green for the exact branch SHA.
-- [ ] Install/register native host on the real Mac using the exact loaded extension id.
-- [ ] `status --extension-id <id>` reports healthy on the real Mac.
-- [ ] Real short task that finishes before `WAIT_TASK` registration wakes correctly.
+- [ ] Final full CI green for the documentation-synchronized exact branch SHA; this documentation commit intentionally moves the head after #789.
+- [ ] Load/reload the final exact 0.5.11 branch SHA in the real Chrome profile.
+- [ ] Confirm native-host `status --extension-id <id>` remains healthy with that loaded candidate path.
+- [ ] Real short Local Agent task that finishes before `WAIT_TASK` registration wakes correctly; synthetic event injection is not sufficient for this semantic gate.
 - [ ] Real multi-minute task completes with no repeated healthy polling turns.
 - [ ] Real success result wake.
 - [ ] Real failed result wake.
@@ -151,10 +156,11 @@ Still required before release/merge:
 - [x] `chat_bridge/README.md` updated.
 - [x] Development architecture/TODO documentation updated.
 - [x] Native host installer/health documentation added.
+- [x] Prompt/token budget and hybrid wake semantics recorded in the pre-merge audit/TODO.
 - [ ] Update `docs/ARCHITECTURE.md` if final release review requires the event modules in the top-level ownership map.
 - [ ] Complete any remaining release-document synchronization required by `AGENTS.md` after final real-Mac evidence.
 - [ ] Bump release/version metadata only when explicitly preparing release.
-- [ ] Record final exact-SHA CI + Chromium + real-macOS evidence.
+- [ ] Record final exact-SHA CI + real-macOS evidence without changing behavior afterward.
 - [ ] Mark PR ready only after explicit release decision.
 - [ ] **Merge only after explicit user decision. Merging to `main` may trigger autoupdate and is intentionally forbidden during this pre-merge audit.**
 
