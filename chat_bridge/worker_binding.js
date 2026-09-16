@@ -40,12 +40,27 @@ function bindingPolicy(conversation, runtimeAgent) {
   return `${bindingEnvelope(conversation)}\nHard binding is immutable for this wake. Work only on repository ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository. ${executionPolicy} If the active goal appears to require another repository, pause instead of rebinding or guessing.`;
 }
 
+function assistantScheduleControlSummary() {
+  return protocol.COMMAND_CATALOG
+    .filter((entry) => entry.privilege === "assistant" && entry.category === "schedule")
+    .map((entry) => `[LAB:${entry.marker}]`)
+    .join(", ");
+}
+
 function buildBootstrapPrompt(runtime, conversation) {
   const agent = runtimeAgentForConversation(runtime, conversation);
-  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\nBridge controls are conversation-scoped. Continue only the active goal of this conversation. Prefer short final-line controls: [LAB:STOP], [LAB:PAUSE], [LAB:RESUME], [LAB:NEXT=30s], [LAB:NEXT=10m], [LAB:INTERVAL=30m], [LAB:INTERVAL=AUTO]. Conversation controls may overwrite this chat's pause/enabled state, wake timing, and interval. They must never change the global Master switch. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch.`;
+  const controls = assistantScheduleControlSummary();
+  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\nBridge controls are conversation-scoped. Continue only the active goal of this conversation. Supported scheduling controls: ${controls}. Conversation controls may overwrite this chat's pause/enabled state, wake timing, and interval. They must never change the global Master switch. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch.`;
 }
 
 function buildWakePrompt(runtime, conversation) {
   const agent = runtimeAgentForConversation(runtime, conversation);
   return `${bindingPolicy(conversation, agent)}\n${runtime.wakePrompt}`;
+}
+
+function buildEventWakePrompt(runtime, conversation, pending) {
+  const base = conversation.bootstrapPending
+    ? buildBootstrapPrompt(runtime, conversation)
+    : buildWakePrompt(runtime, conversation);
+  return `${base}\n[LA_EVENT=task_result_ready]\n[LA_TASK=${pending.taskId}]\nExact terminal result evidence is now available. Read the exact result before deciding the next action; this event is only a wake hint.`;
 }
