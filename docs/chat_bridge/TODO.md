@@ -2,153 +2,136 @@
 
 Branch: `feature/chat-bridge-event-wake`
 
-Status: implementation candidate. Keep PR #77 draft and **do not merge to `main`** until the remaining real-machine gates are completed and an explicit release decision is made.
+Status: implementation candidate. Keep PR #77 draft and **do not merge to `main`** until an explicit release decision is made. A `main` update may trigger Local Agent autoupdate.
 
-## Phase 0 — preimplementation audit and contract
+Final live-loaded code candidate before evidence-only docs:
+
+- extension: `0.5.12`
+- commit: `8da2dd576fd2d5e076961886492f59c0164fdbf2`
+- CI: run #801 (`35117866465`), all five jobs green
+
+## Phase 0 — contract and authority
 
 - [x] Inventory terminal result publication paths and deferred publication recovery.
-- [x] Place event emission after successful authoritative result push.
-- [x] Confirm result status/digest handling and bounded fallback for missing digest.
-- [x] Use the existing Local Agent application-support state directory for the outbox.
-- [x] Keep event persistence separate from Chat Bridge schema v3.
-- [x] Reuse the existing exact-tab/content delivery path.
+- [x] Emit `task_result_ready` only after successful authoritative result publication.
+- [x] Keep event persistence separate from Chat Bridge runtime state.
+- [x] Reuse exact-tab/content delivery rather than add a second execution path.
 - [x] Define STOP/PAUSE/RESUME/remove/rebind/Master semantics.
-- [x] Define one service-worker-owned Native Messaging lifecycle.
-- [x] Freeze event schema v1, native protocol v1, payload limits and identity fields.
-- [x] Define exact extension-id registration instead of wildcard/pinned guessed identity.
-- [x] Record negative security cases before release.
+- [x] Keep Native Messaging notification-only: no shell, terminal, arbitrary file/log access, task create/cancel or repository rebind.
+- [x] Freeze event schema v1 and native protocol v1.
+- [x] Preserve exact hard binding: repository id + repository name + `agent_binding` + task id.
 
-## Phase 1 — Local Agent durable event outbox
+## Phase 1 — durable Local Agent outbox
 
 - [x] Dedicated `result_events` module.
 - [x] Bounded `task_result_ready` metadata schema.
-- [x] Stable deterministic event identity.
-- [x] Atomic durable outbox writes and fsync.
-- [x] ACK deletion and bounded pruning.
-- [x] Count, age and serialized-size limits.
+- [x] Deterministic event identity.
+- [x] Atomic durable writes and fsync.
+- [x] ACK deletion and bounded count/age/size pruning.
 - [x] Full payload/identity validation before replay.
-- [x] Corrupt/tampered event pruning.
-- [x] Event only after successful result push.
+- [x] Corrupt/tampered entry pruning.
 - [x] Re-publication idempotence.
 - [x] Event-side failure cannot rewrite authoritative task outcome.
-- [x] Unit coverage for append, duplicate, ACK, TTL, tamper and identity mismatch.
-- [ ] Surface Local Agent outbox health in a user-facing diagnostic/status surface if operational experience shows it is needed. `outbox_health()` already exists; this is observability, not correctness.
+- [ ] Surface `outbox_health()` in a user-facing diagnostic only if operational experience shows it is needed; this is observability, not correctness.
 
 ## Phase 2 — Native Messaging host
 
-- [x] Minimal read-only native host module.
-- [x] Chrome length-prefixed JSON framing and bounds.
-- [x] Versioned handshake.
-- [x] Continuous outbox replay while connected, including events created after handshake.
-- [x] ACK-only extension-to-host event control path; no generic command dispatch.
-- [x] Exact Chrome extension caller-origin validation.
+- [x] Minimal read-only host with bounded Chrome framing.
+- [x] Versioned handshake and session-scoped ACK.
+- [x] Continuous durable outbox replay while connected.
+- [x] Exact extension-origin validation and registration.
 - [x] macOS manifest/wrapper installer and uninstall.
-- [x] Exact `allowed_origins` registration.
-- [x] Installer health diagnostics for wrong origin/path/mode/executable.
-- [x] Protocol/framing/origin tests.
-- [x] Duplex integration test: handshake -> later event -> delivery -> ACK -> outbox removal.
-- [x] Real operator-Mac Native Messaging transport works on final 0.5.11 code candidate `c69ebeb5bd3fe56ae385ef4b5c0aedbc1596a5f4` with protocol v1 and exact extension origin.
-- [ ] Re-run installer `status --extension-id <id>` on the final loaded candidate path and record the explicit health output.
+- [x] Installer diagnostics for wrong origin/path/mode/executable.
+- [x] Real operator-Mac transport works with protocol v1.
+- [x] Final installer status on the operator Mac reported `healthy = true`, `problems = []`, manifest `0o600`, wrapper `0o700`, executable, matching expected wrapper and exact registered extension origin.
 
-## Phase 3 — Bridge native connection and durable ingestion
+## Phase 3 — Bridge ingestion and connection lifecycle
 
-- [x] `nativeMessaging` extension permission.
+- [x] `nativeMessaging` permission.
 - [x] On-demand service-worker-owned native lifecycle.
-- [x] Bounded reconnect backoff.
-- [x] Handshake/protocol validation before event acceptance.
-- [x] Event validation before state mutation.
+- [x] Bounded reconnect backoff starting at 5 seconds.
+- [x] Handshake/protocol validation before acceptance.
 - [x] Persist event state before ACK.
-- [x] Bounded recent-event cache with TTL/eviction.
-- [x] Replay deduplication.
+- [x] Bounded recent-event cache with replay deduplication.
 - [x] State survives MV3 worker restart.
 - [x] `LAB:CAPABILITIES`, `STATUS` and `DEBUG` expose bounded event health.
-- [x] Native transport absence leaves ordinary alarm operation functional.
-- [x] Native process is suspended while PAUSE/operator-disable/Master-off prevents delivery.
-- [x] Resume/re-enable/Master-on reconnects retained watches.
+- [x] Native transport absence leaves alarm fallback intact.
+- [x] PAUSE/operator-disable/Master-off suspend native transport without silently discarding retained ownership.
 
-## Phase 4 — exact task-watch routing
+## Phase 4 — exact task watch routing
 
 - [x] Strict `[LAB:WAIT_TASK=<task-id>]` parser and task-id bounds.
 - [x] One active exact watch per conversation.
-- [x] Scope watch to repository id + repository name + `agent_binding` + task id.
-- [x] Reject duplicate ownership of the same exact tuple; second chat retains alarm fallback.
-- [x] Immediate recent-cache lookup closes fast-task race.
-- [x] STOP clears watch/pending wake.
-- [x] Remove clears watch/pending wake.
-- [x] Rebind clears old watch/pending wake.
-- [x] PAUSE retains watch but blocks event delivery/native connection.
-- [x] RESUME reconciles retained pending event/watch.
-- [x] Current watch appears in bounded diagnostics.
-- [x] Cross-binding/repository and same-task ownership negative tests.
-- [x] No arbitrary stale-watch TTL: fallback wakes let the planner inspect exact task state; long legitimate tasks are not silently abandoned by a guessed timeout.
+- [x] Every Local Agent task JSON remains bound to the exact `agent_binding` when execution is enabled; `bridge/operator-only` conversations do not create Local Agent project task files.
+- [x] Never infer, substitute, inspect, queue, cancel, or execute work for another repository.
+- [x] Exact repository/binding/task matching.
+- [x] Duplicate ownership rejection with fallback retained.
+- [x] Event-before-watch fast-task race recovery.
+- [x] STOP/remove/rebind clear ownership; PAUSE retains it.
+- [x] Binding epoch (`bindingRevision` + `bindingSetAt`) prevents stale ownership crossing a rebind.
 
-## Phase 5 — event wake delivery
+## Phase 5 — event wake delivery and recovery
 
-- [x] Durable pending event wake state.
-- [x] Fixed event envelope contains event type + exact task id and hard binding policy.
-- [x] Existing exact-tab/content activation and authorization reused.
-- [x] Existing draft-preservation behavior reused.
-- [x] Missing tab does not consume pending event.
-- [x] `send_button_not_ready`/transient delivery does not consume pending event.
+- [x] Durable pending wake state.
+- [x] Fixed event wake envelope contains exact event/task and hard-binding policy.
+- [x] Existing exact-tab activation/authorization reused.
+- [x] Missing tab/transient send failure does not consume pending event.
+- [x] `assistant_busy`, `send_button_not_ready`, content readiness failures and other retryable states retain the pending event.
 - [x] Pending event is consumed only after delivery returns `ok`.
-- [x] No arbitrary ChatGPT tab auto-open.
-- [x] Duplicate native replay cannot create a second exact task watch delivery owner.
-- [x] Scheduled reconciliation remains active.
-- [x] Event-delivery state appears in diagnostics.
-- [x] MV3 restart before native receive and between receive/delivery is covered.
-- [x] Live 0.5.10 synthetic watch-before-event wake reached ChatGPT and cleared exact pending/watch after confirmed delivery.
-- [x] Live 0.5.10 synthetic event-before-watch durable outbox replay reached ChatGPT and cleared exact pending/watch after confirmed delivery.
-- [x] Real live ChatGPT DOM smoke passed on exact 0.5.11 code/docs candidate `c69ebeb5bd3fe56ae385ef4b5c0aedbc1596a5f4` with protocol `7/7`.
-- [x] Exact native-host kill -> durable outbox -> reconnect -> replay -> live ChatGPT delivery passed on 0.5.11 (`evt-4174b0dd4c6e6142746e5d32146474ed`).
+- [x] Scheduled fallback remains active.
+- [x] Live watch-before-event wake reached ChatGPT.
+- [x] Live event-before-watch durable replay reached ChatGPT.
+- [x] Exact native-host kill -> durable outbox -> reconnect -> replay -> live ChatGPT delivery passed (`evt-4174b0dd4c6e6142746e5d32146474ed`).
+- [x] Full Chrome restart on 0.5.12 replayed and accepted the exact outbox event after startup: `evt-5a518b7b5f2d3a5d5f5506a33d39ea33`, accepted at `2026-09-16T15:56:27.716Z`.
+- [x] Full Chrome restart retained that exact event as `pendingWake` when the renderer returned `assistant_busy`, with one-minute retry scheduled instead of losing/consuming it.
+- [ ] Observe a successful immediate ChatGPT send after full Chrome restart while the renderer is not busy. The final operator run proved replay/retention but did not observe this final UI delivery step.
 
-## Phase 6 — planner pacing and token-budget integration
+0.5.12 cold-start mitigation is bounded rather than permanent polling: startup arms three one-shot reconciliation passes at approximately 1 s, 3 s and 8 s to refresh configured restored tabs and re-arm pending wakes. `tabs.onUpdated(status=complete)` remains an additional signal.
 
-- [x] Runtime bootstrap/wake prompts prefer `WAIT_TASK` after queueing.
-- [x] Hybrid model is explicit: `WAIT_TASK` uses action-driven wake plus alarm fallback; manual `NEXT` remains for genuinely time/external rechecks.
-- [x] Remove normal early polling requirement for healthy watched tasks.
-- [x] Keep `NEXT` for genuinely time-based checks.
-- [x] Keep default alarm as bounded fallback while waiting.
-- [x] Capability/debug feedback exposes native/event state.
+## Phase 6 — planner pacing and token budget
+
+- [x] Runtime prompts prefer `WAIT_TASK` for exact Local Agent tasks.
+- [x] `WAIT_TASK` combines event-driven wake with alarm fallback.
+- [x] `NEXT` remains for genuinely time/external checks.
+- [x] No healthy-task 30-second polling requirement.
 - [x] Native disconnect cannot remove scheduled reconciliation.
-- [x] `docs/AUTONOMOUS_CHAT_LOOP.md` describes the hybrid model and CI contract enforces the planner pacing rules.
-- [x] `chat_bridge/README.md` updated.
-- [x] Repeated prompt payload was reduced without weakening explicit hard-binding/Master safety invariants.
-- [x] Measured 0.5.11 worst-case prompt sizes: bootstrap 1556 chars, normal wake 1041 chars, event wake 661 chars.
+- [x] Documentation describes the hybrid model.
+- [x] Repeated prompts were reduced without weakening explicit hard-binding/Master safety invariants.
+- [x] Measured candidate prompt maxima: bootstrap 1556 chars, normal wake 1041 chars, event wake 661 chars.
 
 ## Phase 7 — validation
 
-Automated candidate evidence:
+Automated/live evidence completed:
 
-- [x] Focused Python outbox/native-host/installer tests.
-- [x] Focused Chat Bridge protocol/state/routing tests.
-- [x] Fast-task race test.
-- [x] Same exact task / two-chat conflict test.
-- [x] Cross-repository/binding isolation test.
-- [x] Pause/resume/Master/operator native-lifecycle tests.
-- [x] Pending-event transient-failure retention test.
-- [x] MV3 restart persistence test.
-- [x] Native host event-created-after-handshake duplex test.
-- [x] Tampered outbox identity/pruning tests.
-- [x] Installer wrong-ID/path/executable diagnostics tests.
-- [x] Pre-evidence 0.5.11 code candidate `adfc62d8754ae57e96eb7892041de6b566a3d20a` passed CI #789 (`35110618291`).
-- [x] Documentation-synchronized/live-loaded candidate `c69ebeb5bd3fe56ae385ef4b5c0aedbc1596a5f4` passed full CI #791 (`35111409415`) with `test`, `bridge-browser`, `coverage`, `python-314` and `macos-smoke` all green.
-- [x] #791 disposable Chromium `bridge-browser` smoke passed on that exact candidate.
+- [x] Focused outbox/native-host/installer tests.
+- [x] Bridge protocol/state/routing tests.
+- [x] Fast-task and duplicate-owner races.
+- [x] Cross-repository/binding isolation.
+- [x] Pause/resume/Master/operator lifecycle tests.
+- [x] Pending-event transient-failure retention.
+- [x] MV3 restart persistence.
+- [x] Native host duplex replay/ACK integration.
+- [x] Tamper/identity pruning tests.
+- [x] Browser startup regression that covers restored tabs appearing only after `onStartup`.
+- [x] Exact final code candidate `8da2dd576fd2d5e076961886492f59c0164fdbf2` passed CI #801 (`35117866465`) with `test`, `bridge-browser`, `coverage`, `python-314` and `macos-smoke` all green.
+- [x] Real Chrome loaded 0.5.12 with content protocol `7/7` and exact binding retained.
+- [x] Installer health passed on the operator Mac.
+- [x] Native host kill/restart durable replay passed end-to-end.
+- [x] Chrome full-restart outbox replay/event acceptance/pending retention passed on 0.5.12.
 
-Still required before release/merge:
+Evidence-only documentation commits move the PR head. Final CI for the documentation-synchronized PR head is recorded in the PR conversation/final review rather than by making another self-invalidating documentation edit.
 
-- [ ] Final PR-head CI green after the evidence-only documentation commits that record the live 0.5.11 validation.
-- [ ] Explicit native-host installer `status --extension-id <id>` health output on the final loaded candidate path.
-- [ ] Real short Local Agent task that finishes before `WAIT_TASK` registration wakes correctly; synthetic event injection is not sufficient for this semantic gate.
-- [ ] Real multi-minute task completes with no repeated healthy polling turns.
-- [ ] Real success result wake.
-- [ ] Real failed result wake.
-- [ ] Real rejected/binding-failure result wake.
-- [ ] Real cancelled result wake.
-- [ ] Real deferred result publication wakes only after successful publication.
-- [x] Kill/restart native host and verify durable replay. Final 0.5.11 live evidence recorded in `LIVE_EVIDENCE_2026-09-16.md`.
-- [ ] Restart Chrome with a pending/outbox event and verify recovery.
-- [ ] Restart Local Agent around result publication and verify no lost authoritative result/event.
-- [ ] Verify polling-only fallback with native host intentionally absent.
+Still open as **release evidence**, not implementation blockers for freezing this draft branch:
+
+- [ ] Real short Local Agent task whose authoritative `.agent/results/<task-id>.json` publication precedes the wake.
+- [ ] Real multi-minute task with no repeated healthy polling turns.
+- [ ] Real done/failed/rejected/cancelled result wakes.
+- [ ] Real deferred result publication wake only after successful publication.
+- [ ] Local Agent restart around result publication.
+- [ ] Polling-only fallback with Native Messaging intentionally absent.
+- [ ] Successful immediate ChatGPT injection after full Chrome restart when renderer is not busy.
+
+These semantic task gates cannot be manufactured in this hard-bound `local-agent` conversation because it is intentionally `bridge/operator-only` / execution-disabled.
 
 ## Phase 8 — release preparation
 
@@ -156,13 +139,10 @@ Still required before release/merge:
 - [x] `docs/SECURITY_MODEL.md` updated.
 - [x] `docs/AUTONOMOUS_CHAT_LOOP.md` updated.
 - [x] `chat_bridge/README.md` updated.
-- [x] Development architecture/TODO documentation updated.
 - [x] Native host installer/health documentation added.
-- [x] Prompt/token budget and hybrid wake semantics recorded in the pre-merge audit/TODO.
-- [x] Final 0.5.11 live host-kill/replay evidence recorded.
-- [ ] Update `docs/ARCHITECTURE.md` if final release review requires the event modules in the top-level ownership map.
-- [ ] Complete any remaining release-document synchronization required by `AGENTS.md` after final real-Mac evidence.
-- [ ] Record final PR-head CI after evidence-only documentation commits.
+- [x] Prompt/token budget and hybrid wake semantics recorded.
+- [x] Final 0.5.12 Chrome-restart evidence recorded in `LIVE_EVIDENCE_2026-09-16.md`.
+- [ ] Update top-level architecture ownership map only if required by a later release review.
 - [ ] Mark PR ready only after explicit release decision.
 - [ ] **Merge only after explicit user decision. Merging to `main` may trigger autoupdate and is intentionally forbidden during this pre-merge audit.**
 
@@ -173,11 +153,7 @@ Do not mix these into event-wake v1 without a new design/security review:
 - arbitrary terminal access from Chat Bridge;
 - raw daemon log streaming into ChatGPT;
 - arbitrary filesystem reads through Native Messaging;
-- task cancellation through the native host;
-- task creation through the native host;
+- task cancellation or creation through the native host;
 - automatic ChatGPT tab/conversation creation;
-- removal of scheduled reconciliation;
 - repository rebind through native events;
 - continuous command-output streaming.
-
-If later diagnostics need more local visibility, design a separate bounded read-only protocol around exact task ids and explicit data classes rather than adding a generic shell/log endpoint.
