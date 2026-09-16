@@ -2,6 +2,7 @@
 
 Branch: `feature/chat-bridge-event-wake`
 PR: `#77` (must remain draft during this audit)
+Candidate extension: `0.5.11`
 
 > [!IMPORTANT]
 > Do not merge this branch to `main` during pre-merge validation. In this repository a `main` update may trigger the installed Local Agent self-update path. Release/merge requires an explicit operator decision after the real-Mac gates below.
@@ -9,6 +10,8 @@ PR: `#77` (must remain draft during this audit)
 ## Intended property
 
 A Local Agent task that reaches authoritative terminal-result publication can wake the exact hard-bound ChatGPT conversation without periodic no-change polling. The notification is a continuation hint only; `.agent/results/<task-id>.json` remains authoritative.
+
+The target scheduler is deliberately hybrid, not event-only. Exact Local Agent tasks use `WAIT_TASK`, which combines event-driven Native Messaging wake with durable scheduled reconciliation. Explicit `NEXT` remains available for genuinely time-based or external rechecks that are not represented by one exact Local Agent terminal task.
 
 ## Authority audit
 
@@ -186,7 +189,23 @@ The extension's native state machine has a bounded handshake timeout. Protocol m
 
 Bridge persists the event before ACK. Immediate alarm creation is best-effort after persistence; schedule failure does not revoke durable event ownership, and the pre-existing fallback/restart reconciliation remains able to deliver it.
 
-Planner prompts now derive their schedule-command list from the formal command catalog, prefer exact `WAIT_TASK` after queueing, and reserve `NEXT` for genuinely time-based checks. This contract is covered by planner/protocol tests.
+Planner prompts derive their schedule-command list from the formal command catalog, prefer exact `WAIT_TASK` after queueing, and reserve `NEXT` for genuinely time-based/external checks. This contract is covered by planner/protocol tests.
+
+## Prompt payload budget audit
+
+Chat Bridge 0.5.11 shortens the repeated wake text without weakening the hard-binding safety contract. The full fail-closed repository sentence, the bridge/operator-only restriction and the rule that chat controls cannot mutate global Master/repository binding remain explicit.
+
+Measured worst-case prompt sizes after the 0.5.11 optimization are:
+
+```text
+bootstrap: 1556 characters
+wake:      1041 characters
+event:      661 characters
+```
+
+The event path is intentionally smallest because it carries only hard-bound identity/safety context, `[LA_EVENT=task_result_ready]`, the exact task id and the instruction to read authoritative result evidence. It does not repeat the full bootstrap/control catalog on every task completion.
+
+This keeps the action-driven path materially cheaper than the old repeated wake payload while preserving scheduled fallback and manual controls.
 
 ## Security-sensitive negative cases covered
 
@@ -213,27 +232,44 @@ Automated coverage now includes:
 
 ## CI evidence
 
-An earlier implementation candidate, `098df38bf7f630cd28b6d56b42da8ea16f130673`, passed the repository's full GitHub Actions matrix including Linux tests/lint/compile/Bridge validation, Python 3.14, coverage, macOS smoke and disposable Chromium Bridge browser smoke.
+The pre-documentation 0.5.11 code candidate `adfc62d8754ae57e96eb7892041de6b566a3d20a` passed GitHub Actions run #789 (`35110618291`) with every job green:
 
-Subsequent candidates have independently exercised Chromium, Python 3.14 and coverage while the architecture hardening progressed. Those superseded runs are useful regression signals but are not release evidence.
+- `test`, including compile, lint, Chat Bridge validation, unit and integration tests;
+- `bridge-browser` disposable Chromium delivery/restart smoke;
+- `coverage`;
+- `python-314`;
+- `macos-smoke`.
 
-The exact final branch SHA must independently pass the full matrix after the golden-standard refactor before the PR is considered ready.
+The preceding run #788 exposed two non-release failures: one case-sensitive documentation/prompt contract (`bridge/operator-only`) and one macOS timing/flaky integration assertion whose own log showed the unrelated late task had in fact been admitted. The prompt contract was corrected; the unchanged macOS behavior passed on #789.
+
+Because this audit synchronization itself creates a newer documentation-only branch SHA, the final exact branch head must still receive its own green CI run before live validation is treated as final release evidence. No further source behavior change should be introduced between that run and the live 0.5.11 gates.
+
+## Previous real-Mac evidence
+
+Before 0.5.11 payload/documentation synchronization, real Mac Chrome + Native Messaging on 0.5.10 proved:
+
+- protocol 7/7 and exact hard binding;
+- `WAIT_TASK` watch registration with native transport connected;
+- ordinary scheduled fallback delivery was confirmed and preserved the watch;
+- synthetic watch-before-event wake reached ChatGPT and was accepted/delivered with the same event id, then cleared pending/watch;
+- synthetic event-before-watch durable outbox replay reached ChatGPT and was accepted/delivered with the same event id, then cleared pending/watch.
+
+These are valuable regression evidence, but synthetic events do not prove the semantic real-task publication gate and they do not replace final exact-SHA 0.5.11 live validation.
 
 ## Remaining real-machine release gates
 
-These deliberately remain open because CI cannot prove the operator's installed Chrome/native-host state:
+These deliberately remain open because CI cannot prove the operator's installed Chrome/native-host state for the final exact 0.5.11 head:
 
-1. final exact SHA full CI green;
-2. exact SHA disposable Chromium profile green;
-3. install the host on the real Mac with the exact currently loaded extension id;
-4. native-host `status --extension-id <id>` reports healthy;
-5. real short task finishing before watch registration wakes correctly;
-6. real multi-minute task produces no periodic no-change polling spam;
-7. real done/failed/rejected/cancelled result wakes;
-8. real deferred result publication wakes only after remote publication succeeds;
-9. kill/restart host and verify durable replay + alarm fallback;
-10. restart Chrome with pending/outbox state and verify recovery;
-11. verify fallback with host intentionally absent.
+1. final documentation-synchronized exact SHA full CI green;
+2. load/reload that exact 0.5.11 SHA in the real Chrome profile;
+3. confirm native-host status remains healthy for the exact loaded extension id;
+4. real short task finishing before watch registration wakes correctly;
+5. real multi-minute task produces no periodic no-change polling spam;
+6. real done/failed/rejected/cancelled result wakes;
+7. real deferred result publication wakes only after remote publication succeeds;
+8. kill/restart host and verify durable replay + alarm fallback;
+9. restart Chrome with pending/outbox state and verify recovery;
+10. verify fallback with host intentionally absent.
 
 ## Explicit non-goals for v1
 
