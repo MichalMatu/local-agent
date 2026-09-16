@@ -2,6 +2,15 @@
 
 This repository is execution infrastructure. Prefer deterministic behavior, bounded execution, explicit failure and recoverable state over clever recovery.
 
+## Chat Bridge planner workflow on this candidate branch
+
+- For Chat Bridge conversations running this candidate branch, the live Bridge binding/bootstrap plus the current branch documentation define the active planner protocol. Do not fall back to older polling guidance from `main` when it conflicts with this branch.
+- ChatGPT remains the planner. Use direct GitHub edits when exact diff/CI evidence is sufficient; use Local Agent only for bounded local build/test/device/terminal execution.
+- For one exact queued or active Local Agent task, use `[LAB:WAIT_TASK=<task-id>]` as the normal completion wait. The resulting `task_result_ready` event is only a wake hint; the exact terminal result remains authoritative.
+- Do not use repeated `NEXT` polling merely to discover whether a healthy watched task has finished. Use `NEXT` only for genuine time-based or external rechecks that are not represented by a Local Agent terminal task event.
+- Never launch local Codex from a Local Agent task, never leave the hard-bound repository, and pause rather than substituting another repository.
+- `main` remains the stable production source until this candidate is explicitly released; do not copy candidate-only behavior into `main` documentation before that release decision.
+
 ## Execution contract
 
 - All machine-generated execution content is English-only: source, comments, identifiers, tests, documentation, prompts, task metadata, runtime logs, shell-visible status text and commit messages.
