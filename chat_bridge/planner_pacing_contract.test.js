@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const protocol = require("./control_protocol.js");
 const runtime = require("./runtime.example.json");
+const { createHarness } = require("./worker_test_harness.js");
 
 const explicitShortWake = protocol.parseAssistantControl("[LAB:NEXT=30s]");
 assert.equal(explicitShortWake?.action, "next");
@@ -25,6 +26,49 @@ for (const [name, prompt] of [
   assert.match(prompt, /cancel .*task/i, `${name} must tell the planner to stop demonstrably doomed work`);
   assert.match(prompt, /exact terminal result|inspect the exact terminal result/i,
     `${name} must keep task-result events non-authoritative`);
+}
+
+// The candidate must remain correct even while the production chat-bridge-state branch
+// still serves its pre-event-wake NEXT guidance. Capability-specific policy is appended by
+// the candidate extension and therefore does not require mutating production runtime state.
+const harness = createHarness();
+const normalizedAgents = harness.runtimeAgents.map((agent) => ({
+  repositoryId: agent.repository_id,
+  repository: agent.repository,
+  agentBinding: agent.agent_binding,
+  executionEnabled: agent.execution_enabled
+}));
+const conversation = {
+  id: "chat-1234abcd",
+  repositoryId: "matrixhub",
+  repository: "MichalMatu/MatrixHub",
+  agentBinding: harness.MATRIX_BINDING,
+  bootstrapPending: true
+};
+const legacyRuntime = {
+  bootstrapPrompt: "LEGACY RUNTIME: poll healthy work with NEXT every few minutes.",
+  wakePrompt: "LEGACY WAKE: continue polling with NEXT.",
+  agents: normalizedAgents
+};
+const bootstrap = harness.evaluate(
+  `buildBootstrapPrompt(${JSON.stringify(legacyRuntime)}, ${JSON.stringify(conversation)})`
+);
+const wake = harness.evaluate(
+  `buildWakePrompt(${JSON.stringify(legacyRuntime)}, ${JSON.stringify({ ...conversation, bootstrapPending: false })})`
+);
+for (const [name, prompt, legacyMarker] of [
+  ["candidate bootstrap", bootstrap, legacyRuntime.bootstrapPrompt],
+  ["candidate wake", wake, legacyRuntime.wakePrompt]
+]) {
+  assert.ok(prompt.includes(legacyMarker), `${name} must preserve valid remote planner context`);
+  assert.match(prompt, /prefer \[LAB:WAIT_TASK=<task-id>\]/i,
+    `${name} must append candidate-owned exact task waiting policy`);
+  assert.match(prompt, /Use NEXT only for genuinely time-based or external rechecks/i);
+  assert.match(prompt, /task_result_ready event is only a wake hint/i);
+  assert.ok(
+    prompt.lastIndexOf("WAIT_TASK") > prompt.indexOf(legacyMarker),
+    `${name} must place candidate event-wake policy after legacy runtime pacing text`
+  );
 }
 
 const autonomous = fs.readFileSync(path.join(__dirname, "..", "docs", "AUTONOMOUS_CHAT_LOOP.md"), "utf8");
