@@ -17,8 +17,33 @@ async function initializeBridgeLifecycle() {
   return refreshBridgeContentOnWorkerStart();
 }
 
+async function reconcilePendingWakeForCompletedTab(tabId, changeInfo, tab) {
+  if (!Number.isInteger(tabId) || changeInfo?.status !== "complete") return false;
+  const url = normalizeConversationUrl(tab?.url || changeInfo?.url || "");
+  if (!url) return false;
+
+  const state = await getBridgeState();
+  const conversation = Object.values(state.conversations || {}).find((candidate) => candidate.url === url);
+  if (
+    !conversation ||
+    !state.settings.masterEnabled ||
+    !conversation.enabled ||
+    !stateModel.isBoundConversation(conversation)
+  ) {
+    return false;
+  }
+
+  const pending = await pendingEventWake(conversation.id);
+  if (!pending) return false;
+  return scheduleAt(conversation.id, Date.now() + 1000, conversation.generation);
+}
+
 chrome.runtime.onInstalled.addListener(() => initializeBridgeLifecycle());
 chrome.runtime.onStartup.addListener(() => initializeBridgeLifecycle());
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) =>
+  reconcilePendingWakeForCompletedTab(tabId, changeInfo, tab).catch(console.error)
+);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (!alarm.name.startsWith(ALARM_PREFIX)) return;
