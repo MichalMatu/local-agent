@@ -42,6 +42,20 @@ assert.ok(found);
 assert.equal(found.button, button);
 assert.equal(found.assistantIdentity, "23ce695f-ebce-4b62-ae56-7eed597d913f");
 
+const recoveredConversationRoot = {
+  querySelectorAll() {
+    return [
+      message,
+      element({ attrs: { "data-message-id": "newer-normal-answer" } })
+    ];
+  }
+};
+assert.equal(
+  dom.findConversationExhaustion(recoveredConversationRoot),
+  null,
+  "a stale historical exhaustion marker must not disable a chat with a newer assistant response"
+);
+
 const missingButtonRoot = {
   querySelectorAll() {
     return [element({
