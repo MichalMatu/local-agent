@@ -40,11 +40,12 @@ function bindingPolicy(conversation, runtimeAgent) {
   return `${bindingEnvelope(conversation)}\nHard binding is immutable for this wake. Work only on repository ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository. ${executionPolicy} If the active goal appears to require another repository, pause instead of rebinding or guessing.`;
 }
 
-function assistantControlMarker(commandName) {
+function assistantControlMarker(markerName) {
   const entry = protocol.COMMAND_CATALOG.find((candidate) =>
-    candidate.privilege === "assistant" && candidate.command === commandName
+    candidate.privilege === "assistant" &&
+    (candidate.marker === markerName || candidate.marker.startsWith(`${markerName}=`))
   );
-  if (!entry) throw new Error(`missing assistant command catalog entry: ${commandName}`);
+  if (!entry) throw new Error(`missing assistant command catalog entry: ${markerName}`);
   return `[LAB:${entry.marker}]`;
 }
 
