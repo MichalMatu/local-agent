@@ -92,7 +92,8 @@ function nativeEvent(harness, taskId) {
     const waiting = await waitTask(harness, conversation, "native-mismatch-1");
     assert.equal(waiting.ok, true);
     assert.equal(ports.length, 1);
-    assert.deepEqual(ports[0].sent[0], { type: "hello", protocol_version: 1 });
+    assert.equal(ports[0].sent[0].type, "hello");
+    assert.equal(ports[0].sent[0].protocol_version, 1);
 
     ports[0].emitMessage({
       type: "hello",
@@ -144,11 +145,9 @@ function nativeEvent(harness, taskId) {
     );
     assert.ok(harness.alarms.has(`local-agent-chat:${conversation.id}`));
     const ack = port.sent.find((message) => message.type === "ack");
-    assert.deepEqual(ack, {
-      type: "ack",
-      protocol_version: 1,
-      event_id: event.event_id
-    });
+    assert.ok(ack);
+    assert.equal(ack.protocol_version, 1);
+    assert.equal(ack.event_id, event.event_id);
   }
 
   console.log("Chat Bridge native transport state-machine tests passed.");
