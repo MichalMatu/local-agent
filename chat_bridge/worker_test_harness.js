@@ -27,6 +27,7 @@ const runtimeMessageListeners = [];
 const alarmListeners = [];
 const installedListeners = [];
 const startupListeners = [];
+const tabUpdatedListeners = [];
 const tabs = [
   { id: 11, url: "https://chatgpt.com/c/a", title: "Project A" },
   { id: 22, url: "https://chatgpt.com/c/b", title: "Project B" },
@@ -95,6 +96,11 @@ const chrome = {
       const permission = await authorize();
       return permission.ok ? { ok: true, reason: "sent", protocolVersion: CONTENT_PROTOCOL_VERSION }
         : { ok: false, reason: "delivery_cancelled", protocolVersion: CONTENT_PROTOCOL_VERSION };
+    },
+    onUpdated: {
+      addListener(listener) {
+        tabUpdatedListeners.push(listener);
+      }
     }
   },
   scripting: {
@@ -198,10 +204,19 @@ async function sendRuntimeMessage(message, sender = { id: chrome.runtime.id, url
   });
 }
 
+async function tabUpdated(tabId, changeInfo = { status: "complete" }) {
+  const tab = tabs.find((candidate) => candidate.id === tabId);
+  if (!tab) throw new Error(`unknown test tab: ${tabId}`);
+  if (typeof changeInfo.url === "string") tab.url = changeInfo.url;
+  await Promise.all(tabUpdatedListeners.map((listener) =>
+    Promise.resolve(listener(tabId, clone(changeInfo), clone(tab)))
+  ));
+}
+
 return { storage, alarms, sentMessages, tabMessages, injectedScripts, runtimeReloads, tabs, chrome, context, sendRuntimeMessage,
   MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING, runtimeAgents, CONTENT_PROTOCOL_VERSION,
   EXHAUSTION_GUARD_VERSION, EXTENSION_VERSION,
   evaluate: (source) => vm.runInContext(source, context),
-  installed: () => installedListeners[0](), startup: () => startupListeners[0]() };
+  installed: () => installedListeners[0](), startup: () => startupListeners[0](), tabUpdated };
 }
 module.exports = { createHarness };
