@@ -139,10 +139,8 @@ function nativeWatchIsActive(watch, bridgeState) {
 }
 
 async function reconcileNativeEventTransport() {
-  const [eventState, bridgeState] = await Promise.all([
-    loadEventWakeState(),
-    getBridgeState()
-  ]);
+  const bridgeState = await getBridgeState();
+  const eventState = await reconcileEventWakeOwnership(bridgeState);
   const wanted = Object.values(eventState.watches).some((watch) =>
     nativeWatchIsActive(watch, bridgeState)
   );
