@@ -209,6 +209,16 @@ function pendingWakeMatchesConversation(pending, conversation) {
   );
 }
 
+function pendingWakeClaimsWatch(pending, watch) {
+  return Boolean(
+    pending && watch &&
+    pending.repositoryId === watch.repositoryId &&
+    pending.repository === watch.repository &&
+    pending.agentBinding === watch.agentBinding &&
+    pending.taskId === watch.taskId
+  );
+}
+
 function pendingWakeFromEvent(event, watch) {
   return {
     eventId: event.eventId,
@@ -245,15 +255,21 @@ async function registerTaskWatch(conversation, taskId) {
   if (!watch) return { ok: false, reason: "task_watch_invalid" };
 
   const result = await mutateEventWakeState((state) => {
-    const conflict = Object.values(state.watches).find((candidate) =>
+    const watchConflict = Object.values(state.watches).find((candidate) =>
       candidate.conversationId !== conversation.id &&
       candidate.repositoryId === watch.repositoryId &&
       candidate.repository === watch.repository &&
       candidate.agentBinding === watch.agentBinding &&
       candidate.taskId === watch.taskId
     );
-    if (conflict) {
-      return { state, value: { ok: false, reason: "task_watch_conflict", conflictChatId: conflict.conversationId } };
+    if (watchConflict) {
+      return { state, value: { ok: false, reason: "task_watch_conflict", conflictChatId: watchConflict.conversationId } };
+    }
+    const pendingConflict = Object.entries(state.pendingWakes).find(([candidateChatId, candidate]) =>
+      candidateChatId !== conversation.id && pendingWakeClaimsWatch(candidate, watch)
+    );
+    if (pendingConflict) {
+      return { state, value: { ok: false, reason: "task_watch_conflict", conflictChatId: pendingConflict[0] } };
     }
     state.watches[conversation.id] = watch;
     const event = recentEventForWatch(state, watch);
