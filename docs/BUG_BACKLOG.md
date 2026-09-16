@@ -192,6 +192,131 @@ Mark this item `Fixed` only after all of the following are true:
 
 ---
 
+## BUG-003 — historical conversation-limit message can disable an active Chat Bridge chat
+
+**Status:** Candidate patch on `feature/chat-bridge-event-wake`; not yet released  
+**Priority:** P1  
+**First confirmed:** 2026-09-16  
+**Area:** Chat Bridge, exhaustion detection, DOM contract
+
+### Symptom
+
+A configured Chat Bridge conversation can unexpectedly become `enabled=false`, with its alarm removed, even though the current conversation is still active and usable.
+
+### Evidence / reproduction
+
+The exhaustion detector introduced in commit `a3b78b35817a01b824f3d2ffb5012ad1a2d989ae` scanned assistant messages from newest to oldest until it found any historical error containing `You've reached the maximum length for this conversation` plus a `Start new chat` button. A stale historical error retained in the DOM could therefore be treated as current exhaustion.
+
+`reportConversationExhausted()` then sets `enabled=false`, clears `nextRunAt`, increments generation and clears the conversation alarm. A later pacing command such as `INTERVAL` can overwrite `lastStatus` while preserving the disabled state, obscuring the original exhaustion status in diagnostics.
+
+The operator observed exactly the resulting disabled/no-schedule state during the 2026-09-16 background-tab investigation. That live observation is consistent with this defect, although the original exhaustion transition itself was not captured in a historical state log.
+
+### Candidate repair
+
+On the working branch, exhaustion detection was narrowed so only the **latest assistant message** may qualify as current conversation exhaustion. Regression coverage now requires that an old exhaustion message followed by a newer normal assistant message returns no exhaustion.
+
+Candidate extension version: `0.5.13`.  
+Candidate code head after the focused patch/version bump: `4f2d7e76cc68f008034226ae4a89a519470ffbc6`.
+
+### Required regression coverage
+
+- latest assistant message is the exact exhaustion UI -> detected;
+- older exhaustion message followed by a newer normal assistant message -> not detected;
+- unrelated error plus `Start new chat` -> not detected;
+- exhaustion text without the expected button -> not detected;
+- live chat remains enabled/scheduled after reload with a stale historical limit message in DOM.
+
+### Closure criteria
+
+Mark `Fixed` only after the exact candidate passes CI, is explicitly released/merged, and live verification confirms a stale historical limit message cannot disable an otherwise active chat.
+
+---
+
+## BUG-004 — interval scheduler does not reliably wake an inactive ChatGPT tab
+
+**Status:** Open; known issue intentionally deferred  
+**Priority:** P1  
+**First confirmed:** 2026-09-16  
+**Area:** Chat Bridge, Chrome alarms, background-tab scheduling
+
+### Symptom
+
+A configured conversation with a short interval can fail to produce the expected scheduled wake while the operator is working on another browser tab. Returning to the ChatGPT tab may make the timing/UI appear to advance, but the expected autonomous interval wake was not observed while the tab remained inactive.
+
+### Evidence / reproduction
+
+The failure was reproduced with the conversation enabled and an interval override during a deliberate background-tab test. Chrome Memory Saver and Energy Saver were disabled and the ChatGPT site was allowed to stay active, so those user-facing optimization settings do not explain the observed failure.
+
+Two control tests succeeded while the ChatGPT tab was inactive:
+
+1. `Run now` delivered `[LA_WAKE]` to the inactive conversation.
+2. An exact synthetic `task_result_ready` event for `e2e-bg-event-20260916-1910`, armed with `WAIT_TASK`, delivered `[LA_WAKE]` to the inactive conversation through the Native Messaging/event path.
+
+Therefore background **message injection/delivery itself works**. The remaining defect is specifically in the ordinary interval/scheduler path or its transition into delivery, not in the general ability to send into an inactive ChatGPT tab.
+
+### Impact
+
+- normal periodic Chat Bridge tracking cannot currently be trusted when the operator works in another tab;
+- event-driven exact task wakes still work in the tested background-tab case;
+- `Run now` remains a manual workaround;
+- diagnosing this as generic Chrome background-tab blocking would be misleading based on current evidence.
+
+### Deferred repair direction
+
+Do not fix during the current branch-freeze/cleanup pass. When resumed, compare the exact `Run now` path with the `chrome.alarms.onAlarm` path and instrument the handoff from alarm firing to delivery authorization. Add a browser regression where the configured ChatGPT tab is present but inactive for longer than the chosen interval.
+
+### Required regression coverage
+
+- inactive configured tab receives an ordinary interval wake without user focus change;
+- active and inactive tab cases use the same hard-bound conversation identity;
+- `Run now` and event-driven delivery remain unaffected;
+- no permanent high-frequency polling is introduced as a workaround.
+
+### Closure criteria
+
+A real inactive-tab interval run must wake the chat autonomously at the expected bounded cadence, with diagnostic evidence showing the alarm-to-delivery path completed without requiring a focus change.
+
+---
+
+## BUG-005 — some Chat Bridge state/content transitions still require manual `Ctrl+R`
+
+**Status:** Open; known issue intentionally deferred  
+**Priority:** P2  
+**First confirmed:** 2026-09-16  
+**Area:** Chat Bridge, content-script lifecycle, page/runtime refresh
+
+### Symptom
+
+In some Bridge reload/recovery scenarios, the ChatGPT conversation does not immediately reflect the expected current Bridge/content-script state until the operator manually refreshes the page with `Ctrl+R`.
+
+### Evidence / reproduction
+
+Manual page refresh has been required during live recovery/testing to make the conversation use or expose the expected current state. The exact minimal trigger is not yet isolated well enough to attribute this to one code path, so this item is intentionally recorded without a speculative root cause.
+
+The current event-driven branch already contains bounded cold-start reconciliation and content-script refresh logic, but the operator still identified manual `Ctrl+R` as a remaining practical issue after the event-wake work.
+
+### Impact
+
+- operator may need an unexpected manual page refresh after a Bridge/content transition;
+- it weakens confidence in zero-touch recovery even when transport/runtime state itself is healthy;
+- it can obscure whether a failure belongs to service-worker state, content-script freshness or page state.
+
+### Deferred repair direction
+
+Do not change behavior during the current cleanup pass. First produce a minimal deterministic reproduction and capture `DEBUG` state before and after the required refresh. Then isolate whether the stale component is the content script, page DOM, service-worker state, or message listener registration.
+
+### Required regression coverage
+
+- reproduce the current `Ctrl+R` dependency in an automated browser scenario;
+- after the eventual repair, equivalent state/reload transitions converge without manual page refresh;
+- existing restart, event replay and stale-content auto-refresh tests remain green.
+
+### Closure criteria
+
+The issue is closed only when the same live transition that currently needs `Ctrl+R` converges automatically and a regression test covers the exact trigger.
+
+---
+
 ## New bug template
 
 ```text
