@@ -160,6 +160,59 @@ class ChromeNativeHostTests(unittest.TestCase):
         client.close()
         server.close()
 
+    def test_ack_for_event_not_sent_by_this_host_fails_closed(self) -> None:
+        server, client = socket.socketpair()
+        self.addCleanup(server.close)
+        self.addCleanup(client.close)
+        client.settimeout(3.0)
+        server_stream = server.makefile("rwb", buffering=0)
+        client_stream = client.makefile("rwb", buffering=0)
+        self.addCleanup(server_stream.close)
+        self.addCleanup(client_stream.close)
+        acknowledged: list[str] = []
+        outcome: list[int] = []
+        origin = "chrome-extension://" + "a" * 32 + "/"
+        with (
+            mock.patch.object(chrome_native_host.result_events, "pending_events", return_value=[]),
+            mock.patch.object(
+                chrome_native_host.result_events,
+                "acknowledge_event",
+                side_effect=lambda event_id: acknowledged.append(event_id) or True,
+            ),
+        ):
+            thread = threading.Thread(
+                target=lambda: outcome.append(
+                    chrome_native_host.run_host(
+                        stdin=server_stream,
+                        stdout=server_stream,
+                        argv=["host", origin],
+                    )
+                ),
+                daemon=True,
+            )
+            thread.start()
+            self.assertEqual(chrome_native_host.read_message(client_stream), chrome_native_host._hello())
+            chrome_native_host.write_message(
+                client_stream,
+                {"type": "hello", "protocol_version": chrome_native_host.PROTOCOL_VERSION},
+            )
+            self.assertEqual(chrome_native_host.read_message(client_stream), chrome_native_host._hello())
+            chrome_native_host.write_message(
+                client_stream,
+                {
+                    "type": "ack",
+                    "protocol_version": chrome_native_host.PROTOCOL_VERSION,
+                    "event_id": "evt-" + "c" * 32,
+                },
+            )
+            error = chrome_native_host.read_message(client_stream)
+            self.assertEqual(error["type"], "error")
+            self.assertEqual(error["reason"], "ack_unknown_event")
+            thread.join(timeout=2.0)
+            self.assertFalse(thread.is_alive())
+            self.assertEqual(outcome, [2])
+            self.assertEqual(acknowledged, [])
+
     def test_connected_host_delivers_event_created_after_handshake_and_acks_it(self) -> None:
         event_id = "evt-" + "b" * 32
         event = {
