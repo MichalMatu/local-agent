@@ -35,9 +35,9 @@ function bindingEnvelope(conversation) {
 
 function bindingPolicy(conversation, runtimeAgent) {
   const executionPolicy = runtimeAgent?.executionEnabled === false
-    ? "This binding is bridge/operator-only; do not create Local Agent project task files for it."
-    : `Every Local Agent task JSON created by this conversation MUST contain exactly \"agent_binding\": \"${conversation.agentBinding}\".`;
-  return `${bindingEnvelope(conversation)}\nHard binding is immutable for this wake. Work only on repository ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository. ${executionPolicy} If the active goal appears to require another repository, pause instead of rebinding or guessing.`;
+    ? "Bridge/operator-only: do not create Local Agent project task files."
+    : `Any Local Agent task must use exactly \"agent_binding\": \"${conversation.agentBinding}\".`;
+  return `${bindingEnvelope(conversation)}\nBound to ${conversation.repository} (${conversation.repositoryId}); never inspect, queue, cancel, execute, switch, or rebind another repository. ${executionPolicy} If another repository is required, use PAUSE.`;
 }
 
 function assistantControlMarker(markerName) {
@@ -58,13 +58,13 @@ function assistantScheduleControlSummary() {
 
 function eventWakePlannerPolicy() {
   const waitTask = assistantControlMarker("WAIT_TASK");
-  return `When one exact Local Agent task is queued or active, prefer ${waitTask} instead of periodic NEXT polling. WAIT_TASK retains a bounded scheduled reconciliation alarm, so Native Messaging is an optimization rather than a correctness dependency. Use NEXT only for genuinely time-based or external rechecks that are not represented by one exact Local Agent terminal task. A task_result_ready event is only a wake hint; inspect the exact terminal result before deciding the next action.`;
+  return `For one exact queued/active Local Agent task use ${waitTask}: event-driven wake plus alarm fallback. Use NEXT only for time/external checks. A task_result_ready event is a wake hint only; read the exact terminal result.`;
 }
 
 function buildBootstrapPrompt(runtime, conversation) {
   const agent = runtimeAgentForConversation(runtime, conversation);
   const controls = assistantScheduleControlSummary();
-  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\n${eventWakePlannerPolicy()}\nBridge controls are conversation-scoped. Continue only the active goal of this conversation. Supported scheduling controls: ${controls}. Conversation controls may overwrite this chat's pause/enabled state, wake timing, and interval. They must never change the global Master switch. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch.`;
+  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\n${eventWakePlannerPolicy()}\nSupported chat controls: ${controls}. Controls are conversation-scoped; Master and repository binding are operator-only.`;
 }
 
 function buildWakePrompt(runtime, conversation) {
@@ -73,8 +73,9 @@ function buildWakePrompt(runtime, conversation) {
 }
 
 function buildEventWakePrompt(runtime, conversation, pending) {
-  const base = conversation.bootstrapPending
-    ? buildBootstrapPrompt(runtime, conversation)
-    : buildWakePrompt(runtime, conversation);
-  return `${base}\n[LA_EVENT=task_result_ready]\n[LA_TASK=${pending.taskId}]\nExact terminal result evidence is now available. Read the exact result before deciding the next action; this event is only a wake hint.`;
+  if (conversation.bootstrapPending) {
+    return `${buildBootstrapPrompt(runtime, conversation)}\n[LA_EVENT=task_result_ready]\n[LA_TASK=${pending.taskId}]\nWake hint only. Read the exact result before deciding the next action; continue the active goal in this bound repository.`;
+  }
+  const agent = runtimeAgentForConversation(runtime, conversation);
+  return `${bindingPolicy(conversation, agent)}\n[LA_WAKE]\n[LA_EVENT=task_result_ready]\n[LA_TASK=${pending.taskId}]\nWake hint only. Read the exact result before deciding the next action; continue the active goal in this bound repository.`;
 }
