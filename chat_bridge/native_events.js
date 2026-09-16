@@ -134,10 +134,7 @@ function nativeWatchIsActive(watch, bridgeState) {
   return Boolean(
     bridgeState.settings.masterEnabled &&
     conversation?.enabled &&
-    stateModel.isBoundConversation(conversation) &&
-    conversation.repositoryId === watch.repositoryId &&
-    conversation.repository === watch.repository &&
-    conversation.agentBinding === watch.agentBinding
+    watchMatchesConversation(watch, conversation)
   );
 }
 
