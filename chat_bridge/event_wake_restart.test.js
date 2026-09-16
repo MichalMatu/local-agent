@@ -69,7 +69,6 @@ function eventFor(harness, taskId) {
     "watch must retain the exact binding epoch"
   );
 
-  // Simulate MV3 worker replacement while the task is still running.
   const secondWorker = createHarness({ storage });
   assert.equal(storage.eventWakeState.watches[conversation.id].taskId, "restart-1");
   const accepted = await secondWorker.evaluate(
@@ -85,7 +84,6 @@ function eventFor(harness, taskId) {
     "pending wake must retain the exact binding epoch"
   );
 
-  // Replace the worker again after native receive but before ChatGPT delivery.
   const thirdWorker = createHarness({ storage });
   assert.equal(thirdWorker.alarms.size, 0, "new worker starts with no in-memory test alarms");
   await thirdWorker.startup();
@@ -104,9 +102,6 @@ function eventFor(harness, taskId) {
   assert.equal(storage.eventWakeState.pendingWakes[conversation.id], undefined);
   assert.equal(storage.eventWakeState.watches[conversation.id], undefined);
 
-  // Create another pending wake, then model a crash after the bridge binding epoch was
-  // changed but before rebind cleanup could clear eventWakeState. A normal bootstrap or
-  // reconciliation alarm may still exist, but the old task event must never be routed.
   const fourthWorker = createHarness({ storage });
   const currentConversation = storage.bridgeState.conversations[conversation.id];
   const waitingAgain = await waitTask(fourthWorker, currentConversation, "restart-rebind-race");
@@ -144,9 +139,6 @@ function eventFor(harness, taskId) {
     "old task event must not cross a binding epoch change"
   );
 
-  // A crash can also happen before the event arrives, leaving an old watch behind after
-  // bridgeState has moved to a new binding epoch. Startup reconciliation must remove that
-  // stale owner so it cannot keep Native Messaging alive or block another conversation.
   const staleWatchStorage = {};
   const staleWatchWorker = createHarness({ storage: staleWatchStorage });
   const staleWatchConversation = await addMatrixChat(staleWatchWorker);
@@ -167,7 +159,7 @@ function eventFor(harness, taskId) {
     "startup must prune a watch from an obsolete binding epoch"
   );
   assert.equal(
-    staleWatchRestart.evaluate("nativeTransportWanted"),
+    staleWatchRestart.evaluate("nativeTransport.wanted"),
     false,
     "obsolete watch must not keep Native Messaging alive"
   );
