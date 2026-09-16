@@ -161,6 +161,7 @@ async function deliverConversation(chatId, manual) {
 
   if (pending && response?.ok) {
     await consumePendingEventWake(chatId, pending.eventId);
+    await reconcileNativeEventTransport();
   }
 
   if (!manual) {
@@ -186,4 +187,3 @@ async function deliverConversation(chatId, manual) {
     bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
   };
 }
-
