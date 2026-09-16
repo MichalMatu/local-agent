@@ -28,11 +28,11 @@ const alarmListeners = [];
 const installedListeners = [];
 const startupListeners = [];
 const tabUpdatedListeners = [];
-const tabs = [
+const tabs = clone(options.tabs || [
   { id: 11, url: "https://chatgpt.com/c/a", title: "Project A" },
   { id: 22, url: "https://chatgpt.com/c/b", title: "Project B" },
   { id: 33, url: "https://chatgpt.com/c/infra", title: "Local Agent" }
-];
+]);
 
 const chrome = {
   storage: {
