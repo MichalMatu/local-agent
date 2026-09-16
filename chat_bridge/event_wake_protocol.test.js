@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const protocol = require("./control_protocol.js");
+const { createHarness } = require("./worker_test_harness.js");
 
 assert.deepEqual(protocol.parseAssistantControl("Queued. [LAB:WAIT_TASK=build-17]"), {
   action: "wait_task",
@@ -73,6 +74,15 @@ assert.match(bindingSource, /protocol\.COMMAND_CATALOG/,
   "bootstrap control guidance must derive from the formal protocol catalog");
 assert.match(bindingSource, /buildEventWakePrompt/,
   "binding/prompt policy module must own event wake prompt construction");
+
+const harness = createHarness();
+const scheduleSummary = harness.evaluate("assistantScheduleControlSummary()");
+for (const command of protocol.COMMAND_CATALOG.filter(
+  (entry) => entry.privilege === "assistant" && entry.category === "schedule"
+)) {
+  assert.match(scheduleSummary, new RegExp(`\\[LAB:${command.marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`),
+    `bootstrap schedule guidance must advertise ${command.marker} from the protocol catalog`);
+}
 
 const delivery = read("worker_delivery.js");
 assert.match(delivery, /pendingEventWake\(chatId\)/);
