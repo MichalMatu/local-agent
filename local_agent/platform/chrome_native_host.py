@@ -93,73 +93,73 @@ def run_host(
     arguments = list(sys.argv if argv is None else argv)
     _validate_origin(arguments)
 
-    selector = selectors.DefaultSelector()
-    selector.register(input_stream, selectors.EVENT_READ)
     ready = False
     last_sent: dict[str, float] = {}
     write_message(output_stream, _hello())
 
-    while True:
-        readable = selector.select(timeout=POLL_SECONDS)
-        if readable:
-            message = read_message(input_stream)
-            if message is None:
-                return 0
-            message_type = message.get("type")
-            protocol_version = message.get("protocol_version")
-            if message_type == "hello":
-                if ready:
-                    write_message(output_stream, _error("duplicate_hello"))
+    with selectors.DefaultSelector() as selector:
+        selector.register(input_stream, selectors.EVENT_READ)
+        while True:
+            readable = selector.select(timeout=POLL_SECONDS)
+            if readable:
+                message = read_message(input_stream)
+                if message is None:
+                    return 0
+                message_type = message.get("type")
+                protocol_version = message.get("protocol_version")
+                if message_type == "hello":
+                    if ready:
+                        write_message(output_stream, _error("duplicate_hello"))
+                        return 2
+                    if protocol_version != PROTOCOL_VERSION:
+                        write_message(output_stream, _error("protocol_mismatch"))
+                        return 2
+                    ready = True
+                    write_message(output_stream, _hello())
+                elif message_type == "ack":
+                    if not ready:
+                        write_message(output_stream, _error("handshake_required"))
+                        return 2
+                    if protocol_version != PROTOCOL_VERSION:
+                        write_message(output_stream, _error("protocol_mismatch"))
+                        return 2
+                    event_id = message.get("event_id")
+                    if not isinstance(event_id, str) or not _EVENT_ID_RE.fullmatch(event_id):
+                        write_message(output_stream, _error("invalid_ack"))
+                        return 2
+                    if event_id not in last_sent:
+                        write_message(output_stream, _error("ack_unknown_event"))
+                        return 2
+                    result_events.acknowledge_event(event_id)
+                    last_sent.pop(event_id, None)
+                else:
+                    write_message(output_stream, _error("unknown_message_type"))
                     return 2
-                if protocol_version != PROTOCOL_VERSION:
-                    write_message(output_stream, _error("protocol_mismatch"))
-                    return 2
-                ready = True
-                write_message(output_stream, _hello())
-            elif message_type == "ack":
-                if not ready:
-                    write_message(output_stream, _error("handshake_required"))
-                    return 2
-                if protocol_version != PROTOCOL_VERSION:
-                    write_message(output_stream, _error("protocol_mismatch"))
-                    return 2
-                event_id = message.get("event_id")
-                if not isinstance(event_id, str) or not _EVENT_ID_RE.fullmatch(event_id):
-                    write_message(output_stream, _error("invalid_ack"))
-                    return 2
-                if event_id not in last_sent:
-                    write_message(output_stream, _error("ack_unknown_event"))
-                    return 2
-                result_events.acknowledge_event(event_id)
-                last_sent.pop(event_id, None)
-            else:
-                write_message(output_stream, _error("unknown_message_type"))
-                return 2
 
-        if not ready:
-            continue
-
-        now = time.monotonic()
-        pending = result_events.pending_events()
-        pending_ids = {str(event["event_id"]) for event in pending}
-        for event_id in tuple(last_sent):
-            if event_id not in pending_ids:
-                last_sent.pop(event_id, None)
-
-        for event in pending:
-            event_id = str(event["event_id"])
-            previous = last_sent.get(event_id)
-            if previous is not None and now - previous < RESEND_SECONDS:
+            if not ready:
                 continue
-            write_message(
-                output_stream,
-                {
-                    "type": "event",
-                    "protocol_version": PROTOCOL_VERSION,
-                    "event": event,
-                },
-            )
-            last_sent[event_id] = now
+
+            now = time.monotonic()
+            pending = result_events.pending_events()
+            pending_ids = {str(event["event_id"]) for event in pending}
+            for event_id in tuple(last_sent):
+                if event_id not in pending_ids:
+                    last_sent.pop(event_id, None)
+
+            for event in pending:
+                event_id = str(event["event_id"])
+                previous = last_sent.get(event_id)
+                if previous is not None and now - previous < RESEND_SECONDS:
+                    continue
+                write_message(
+                    output_stream,
+                    {
+                        "type": "event",
+                        "protocol_version": PROTOCOL_VERSION,
+                        "event": event,
+                    },
+                )
+                last_sent[event_id] = now
 
 
 def main() -> int:
