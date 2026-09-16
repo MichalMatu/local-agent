@@ -89,9 +89,12 @@ async function deliverConversation(chatId, manual) {
     };
   }
 
-  const prompt = conversation.bootstrapPending
-    ? buildBootstrapPrompt(runtime, conversation)
-    : buildWakePrompt(runtime, conversation);
+  const pending = await pendingEventWake(chatId);
+  const prompt = pending
+    ? buildEventWakePrompt(runtime, conversation, pending)
+    : conversation.bootstrapPending
+      ? buildBootstrapPrompt(runtime, conversation)
+      : buildWakePrompt(runtime, conversation);
   const deliveryId = crypto.randomUUID();
   const active = {
     id: deliveryId,
@@ -150,11 +153,16 @@ async function deliverConversation(chatId, manual) {
     }
     if (latest.generation === conversation.generation) {
       latest.lastRunAt = runAt;
-      latest.lastStatus = status;
+      latest.lastStatus = pending && response?.ok ? `event_sent:${pending.taskId}` : status;
       latest.lastRuntimeSource = runtime.source;
     }
     return current;
   });
+
+  if (pending && response?.ok) {
+    await consumePendingEventWake(chatId, pending.eventId);
+    await reconcileNativeEventTransport();
+  }
 
   if (!manual) {
     const delay = response?.ok
@@ -171,6 +179,7 @@ async function deliverConversation(chatId, manual) {
     ...response,
     runtime,
     status,
+    eventWake: pending ? { eventId: pending.eventId, taskId: pending.taskId } : null,
     conversationId: chatId,
     agentBinding: conversation.agentBinding,
     repositoryId: conversation.repositoryId,
@@ -178,4 +187,3 @@ async function deliverConversation(chatId, manual) {
     bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
   };
 }
-

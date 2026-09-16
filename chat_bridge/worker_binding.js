@@ -35,17 +35,47 @@ function bindingEnvelope(conversation) {
 
 function bindingPolicy(conversation, runtimeAgent) {
   const executionPolicy = runtimeAgent?.executionEnabled === false
-    ? "This binding is bridge/operator-only; do not create Local Agent project task files for it."
-    : `Every Local Agent task JSON created by this conversation MUST contain exactly \"agent_binding\": \"${conversation.agentBinding}\".`;
-  return `${bindingEnvelope(conversation)}\nHard binding is immutable for this wake. Work only on repository ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository. ${executionPolicy} If the active goal appears to require another repository, pause instead of rebinding or guessing.`;
+    ? "bridge/operator-only: do not create Local Agent project task files."
+    : `Every Local Agent task JSON must use exactly \"agent_binding\": \"${conversation.agentBinding}\".`;
+  return `${bindingEnvelope(conversation)}\nBound to ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository. ${executionPolicy} If another repository is required, use PAUSE.`;
+}
+
+function assistantControlMarker(markerName) {
+  const entry = protocol.COMMAND_CATALOG.find((candidate) =>
+    candidate.privilege === "assistant" &&
+    (candidate.marker === markerName || candidate.marker.startsWith(`${markerName}=`))
+  );
+  if (!entry) throw new Error(`missing assistant command catalog entry: ${markerName}`);
+  return `[LAB:${entry.marker}]`;
+}
+
+function assistantScheduleControlSummary() {
+  return protocol.COMMAND_CATALOG
+    .filter((entry) => entry.privilege === "assistant" && entry.category === "schedule")
+    .map((entry) => `[LAB:${entry.marker}]`)
+    .join(", ");
+}
+
+function eventWakePlannerPolicy() {
+  const waitTask = assistantControlMarker("WAIT_TASK");
+  return `For one exact queued/active Local Agent task use ${waitTask}: event-driven wake plus alarm fallback. Use NEXT only for time/external checks. A task_result_ready event is a wake hint only; read the exact terminal result.`;
 }
 
 function buildBootstrapPrompt(runtime, conversation) {
   const agent = runtimeAgentForConversation(runtime, conversation);
-  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\nBridge controls are conversation-scoped. Continue only the active goal of this conversation. Prefer short final-line controls: [LAB:STOP], [LAB:PAUSE], [LAB:RESUME], [LAB:NEXT=30s], [LAB:NEXT=10m], [LAB:INTERVAL=30m], [LAB:INTERVAL=AUTO]. Conversation controls may overwrite this chat's pause/enabled state, wake timing, and interval. They must never change the global Master switch. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch.`;
+  const controls = assistantScheduleControlSummary();
+  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\n${eventWakePlannerPolicy()}\nSupported chat controls: ${controls}. Controls are conversation-scoped; chat controls must never change the global Master switch or repository binding.`;
 }
 
 function buildWakePrompt(runtime, conversation) {
   const agent = runtimeAgentForConversation(runtime, conversation);
-  return `${bindingPolicy(conversation, agent)}\n${runtime.wakePrompt}`;
+  return `${bindingPolicy(conversation, agent)}\n${runtime.wakePrompt}\n${eventWakePlannerPolicy()}`;
+}
+
+function buildEventWakePrompt(runtime, conversation, pending) {
+  if (conversation.bootstrapPending) {
+    return `${buildBootstrapPrompt(runtime, conversation)}\n[LA_EVENT=task_result_ready]\n[LA_TASK=${pending.taskId}]\nWake hint only. Read the exact result before deciding the next action; continue the active goal in this bound repository.`;
+  }
+  const agent = runtimeAgentForConversation(runtime, conversation);
+  return `${bindingPolicy(conversation, agent)}\n[LA_WAKE]\n[LA_EVENT=task_result_ready]\n[LA_TASK=${pending.taskId}]\nWake hint only. Read the exact result before deciding the next action; continue the active goal in this bound repository.`;
 }

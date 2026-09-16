@@ -7,7 +7,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function createProtocol() {
   "use strict";
 
-  const CONTENT_PROTOCOL_VERSION = 6;
+  const CONTENT_PROTOCOL_VERSION = 7;
   const MIN_INTERVAL_MINUTES = 1;
   const MAX_INTERVAL_MINUTES = 1440;
   const MIN_NEXT_SECONDS = 30;
@@ -27,6 +27,7 @@
     Object.freeze({ marker: "RELOAD=CONTENT", privilege: "assistant", category: "maintenance", description: "Replace content scripts in this exact ChatGPT tab and re-probe protocol readiness." }),
     Object.freeze({ marker: "RELOAD=BRIDGE", privilege: "assistant", category: "maintenance", description: "Reload the unpacked extension runtime after persisting control dedupe state." }),
     Object.freeze({ marker: "RESTART=WORKER", privilege: "assistant", category: "maintenance", description: "Alias for RELOAD=BRIDGE; Chrome exposes extension reload rather than an isolated service-worker restart API." }),
+    Object.freeze({ marker: "WAIT_TASK=<task-id>", privilege: "assistant", category: "schedule", description: "Wait for an exact Local Agent terminal-result event while retaining scheduled reconciliation as fallback." }),
     Object.freeze({ marker: "PAUSE", privilege: "assistant", category: "schedule", description: "Pause scheduled wakes for this conversation." }),
     Object.freeze({ marker: "RESUME", privilege: "assistant", category: "schedule", description: "Resume scheduled wakes for this conversation." }),
     Object.freeze({ marker: "STOP", privilege: "assistant", category: "schedule", description: "Stop this conversation and clear its interval override." }),
@@ -129,6 +130,11 @@
     if (body === "STOP") return { action: "stop", marker };
     if (body === "PAUSE") return { action: "pause", marker };
     if (body === "RESUME") return { action: "resume", marker };
+
+    if (body.startsWith("WAIT_TASK=")) {
+      const taskId = body.slice("WAIT_TASK=".length);
+      return TASK_ID_RE.test(taskId) ? { action: "wait_task", taskId, marker } : null;
+    }
 
     if (body.startsWith("INTERVAL=")) {
       const interval = parseIntervalBody(body.slice("INTERVAL=".length));

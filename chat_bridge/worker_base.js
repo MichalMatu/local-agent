@@ -20,6 +20,7 @@ const CONTENT_PREFLIGHT_TIMEOUT_MS = 1500;
 const DELIVERY_TIMEOUT_MS = 12000;
 const RETRY_REASONS = new Set([
   "assistant_busy",
+  "assistant_control_pending",
   "composer_not_empty",
   "composer_not_found",
   "content_script_unavailable",

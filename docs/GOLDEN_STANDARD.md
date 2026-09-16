@@ -2,6 +2,9 @@
 
 This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.20` and the current production release is `v4.18.20`. The 4.18.20 change hardens the planner/executor boundary: ChatGPT remains the planner, Chat Bridge prompts explicitly forbid delegation to local coding-agent/LLM CLIs, and Local Agent rejects executable task command strings containing the `codex` token before execution. Scheduler, resource, binding, watchdog, result-schema, Bridge-extension and content-protocol behavior are unchanged. `v4.18.18` remains the immutable rollback point for the prior runtime/browser release, with `rollback/v4.18.18-production-validated` preserving its exact validated implementation point.
 
+> [!NOTE]
+> The `feature/chat-bridge-event-wake` branch adds candidate-only event-wake invariants below. They are pre-release requirements for PR #77 and must not be described as deployed production behavior until the explicit release decision advances `main`.
+
 ## Release/runtime invariants
 
 - `main` is the production source of truth and normal installed runtime checkout.
@@ -100,6 +103,11 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - `local_agent.supervisor.orchestrator` coordinates side effects: reading probe outcomes, starting/reaping workers, invoking global drain/service, status publication and shutdown.
 - Scheduling policy must not import daemon, Git/storage, subprocess/process management or repository worker implementations.
 - Do not solve a focused scheduler defect by adding another embedded state machine to `orchestrator.py` or by creating a new miscellaneous helper module without a stable ownership boundary.
+- Candidate Chat Bridge event-wake state validation is a pure model owned by `chat_bridge/event_wake_state.js`; it must not access Chrome APIs, alarms, tabs or Native Messaging.
+- `chat_bridge/worker_event_wake.js` owns persisted task-watch/recent-event/pending-wake routing only. It must not own planner prompt construction, alarm scheduling or Native Messaging lifecycle.
+- `chat_bridge/worker_schedule.js` owns Chrome alarm decisions; `chat_bridge/native_events.js` owns Native Messaging protocol/lifecycle and orchestrates immediate event scheduling; `chat_bridge/worker_binding.js` owns binding and planner-prompt policy.
+- Event-wake dependencies must remain one-way in service-worker load order: pure state model -> persisted routing -> schedule/transport orchestration -> controls/delivery. Routing must never call back into Native Messaging.
+- Shared command guidance must derive from `control_protocol.js::COMMAND_CATALOG`; a second hard-coded command list is forbidden.
 - Refactors must preserve hard binding, claims/results, resource exclusion, emergency controls, self-update and process lifecycle semantics.
 
 ## Planner and Chat Bridge invariants
@@ -110,11 +118,16 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - Planner sequencing is not global executor serialization: unrelated conversations/repositories may overlap when the parallel resource contract permits it.
 - Every bridge wake-up re-reads repository-specific status/run/result evidence before deciding whether to wait, queue one next bounded task, cancel one exact doomed active task, pause for user action or stop a completed goal.
 - Bridge `STOP`/`PAUSE` markers control the conversation loop only; they do not stop or reconfigure the Local Agent supervisor.
-- `NEXT=30s` remains protocol-compatible for explicit operator/emergency use, but autonomous polling of a healthy active task must not use 30-second cadence.
-- The first healthy-task liveness re-check should be no sooner than about two minutes; multi-minute builds/tests should normally use 5-10 minute `NEXT` pacing unless exact evidence supports a nearer completion.
+- `NEXT=30s` remains protocol-compatible for explicit operator/emergency use, but autonomous polling of a healthy exact Local Agent task must not use 30-second cadence.
+- On the event-wake candidate, after queueing or observing one exact healthy Local Agent task, the normal continuation is `WAIT_TASK=<task-id>`. Bridge retains a bounded scheduled reconciliation alarm, so Native Messaging is an optimization rather than a correctness dependency.
+- `NEXT=<duration>` remains the continuation mechanism for genuinely time-based or external conditions that are not represented by one exact Local Agent terminal task event. It must not be used merely to discover whether a healthy watched task completed.
 - If exact run/status evidence already proves an active task cannot achieve its intended outcome, the planner should publish repository-scoped `cancel_task` for that exact task id and wait for cancellation/result evidence before replacing it.
-- An unfinished autonomous turn ends with `NEXT=<duration>`; `NEXT` arms or re-arms that conversation and schedules its next wake without overriding the global master switch.
-- Resource/capacity waiting is a continuation state and must use `NEXT`, never `STOP`.
+- An unfinished autonomous turn waiting on an exact Local Agent task ends with `WAIT_TASK=<task-id>`; an unfinished turn waiting on an independent time condition ends with `NEXT=<duration>`. Neither control may override the global Master switch.
+- Resource/capacity waiting for an already queued exact task may retain `WAIT_TASK`; waiting without an exact queued task uses `NEXT`, never `STOP`.
+- A `task_result_ready` event is only a wake hint. ChatGPT must read the exact `.agent/results/<task-id>.json` evidence before classifying success, failure, rejection or cancellation.
+- Event ownership is scoped to exact repository id, repository name, `agent_binding`, task id and conversation binding epoch. A stale watch/pending wake from a prior binding revision must fail closed after restart/rebind.
+- Native Messaging is notification-only: no shell, arbitrary filesystem/log streaming, task creation, cancellation or binding mutation may be added to that protocol without a separate security design and release review.
+- Host ACK means Bridge durably owns the bounded notification; transient alarm/delivery failure must not make the event authoritative or lose the persisted pending wake.
 - Chat Bridge content protocol version is owned only by `control_protocol.js`; worker, content, popup and test harness must consume that shared value rather than declare independent versions.
 - Popup tab activation and stale-content replacement are worker-owned; popup must not maintain a second `chrome.scripting.executeScript`/protocol-mismatch implementation.
 - Chat Bridge content protocol upgrades must be replaceable in already-open tabs without requiring a normal manual ChatGPT reload when the older content script is still reachable.
@@ -143,10 +156,11 @@ A non-trivial runtime release requires:
 10. current-documentation drift/release-metadata contract checks;
 11. downstream planner-documentation audit for every registered repository when Local Agent contract/flow changed;
 12. three independent pre-merge verification passes recorded for the exact final SHA: focused policy/integration evidence, full cross-platform CI matrix, and macOS exact-SHA smoke/recheck;
-13. only then an explicit decision to advance `main`;
-14. matching `vX.Y.Z` tag on released `main`;
-15. production restart/self-update from `~/local-agent` on `main` and live version/revision/task verification;
-16. candidate branch/worktree cleanup after the release is established.
+13. for the event-wake candidate, real-Mac validation of the exact extension id/native-host registration, event delivery, restart replay and scheduled fallback before release;
+14. only then an explicit decision to advance `main`;
+15. matching `vX.Y.Z` tag on released `main`;
+16. production restart/self-update from `~/local-agent` on `main` and live version/revision/task verification;
+17. candidate branch/worktree cleanup after the release is established.
 
 ## Downstream contract
 

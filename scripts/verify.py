@@ -49,6 +49,9 @@ MACOS_SMOKE_TESTS = (
     "tests.test_supervisor_modules",
     "tests.test_emergency_controls",
     "tests.test_entrypoint_guard",
+    "tests.test_result_events",
+    "tests.test_chrome_native_host",
+    "tests.test_chat_bridge_native_host_installer",
 )
 
 

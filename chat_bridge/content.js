@@ -260,8 +260,7 @@
       return { ok: false, reason: "send_button_not_ready" };
     }
 
-    const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
-    const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
+    const previousUserTurn = latestUserMessage();
     try {
       submitComposer(composer, sendButton);
     } catch (error) {
@@ -270,13 +269,28 @@
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
-      const userMessages = document.querySelectorAll('[data-message-author-role="user"]');
-      const lastUser = userMessages[userMessages.length - 1];
-      if (
-        userMessages.length > previousUserMessages &&
-        normalizedText(lastUser?.innerText || lastUser?.textContent) === normalizedText(prompt)
-      ) {
+      const currentUserTurn = latestUserMessage();
+      const currentComposer = findComposer();
+      const composerAccepted = Boolean(
+        !currentComposer ||
+        currentComposer !== composer ||
+        !composerText(currentComposer).trim()
+      );
+      if (retryPolicy.deliveryWasAccepted({
+        previousTurn: previousUserTurn,
+        currentTurn: currentUserTurn,
+        expectedText: prompt,
+        composerAccepted,
+        assistantGenerating: assistantIsGenerating()
+      })) {
         return { ok: true, reason: "sent" };
+      }
+      if (
+        currentComposer === composer &&
+        composerText(composer) &&
+        composerText(composer) !== insertedComposerText
+      ) {
+        return { ok: false, reason: "composer_changed" };
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
@@ -367,6 +381,20 @@
     } finally {
       controlScanInFlight = false;
     }
+  }
+
+  async function drainLatestAssistantControlBeforeFeedback() {
+    if (assistantIsGenerating()) return { ok: false, reason: "assistant_busy" };
+    const latest = latestAssistantMessage();
+    if (!latest) return { ok: true };
+    const control = parseAssistantControl(latest.text);
+    if (!control || control.action === "inspect") return { ok: true };
+    const url = normalizeConversationUrl(location.href);
+    const signature = localMessageSignature(url, latest);
+    await scanLatestAssistantControl();
+    return signature === lastScannedAssistantSignature
+      ? { ok: true }
+      : { ok: false, reason: "assistant_control_pending" };
   }
 
   const terminalOperatorReasons = new Set([
@@ -474,13 +502,17 @@
       return false;
     }
     if (message?.type !== "bridge:feedback") return false;
-    sendFeedback(
-      String(message.prompt || ""),
-      String(message.expectedUrl || ""),
-      message.deliveryId,
-      message.recoverBridgePrompt === true,
-      true
-    )
+    (async () => {
+      const drained = await drainLatestAssistantControlBeforeFeedback();
+      if (!drained.ok) return drained;
+      return sendFeedback(
+        String(message.prompt || ""),
+        String(message.expectedUrl || ""),
+        message.deliveryId,
+        message.recoverBridgePrompt === true,
+        true
+      );
+    })()
       .then((response) => sendResponse({ ...response, protocolVersion: CONTENT_PROTOCOL_VERSION }))
       .catch((error) => sendResponse({
         ok: false,

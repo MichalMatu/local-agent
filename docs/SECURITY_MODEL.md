@@ -11,6 +11,8 @@ Local Agent is **execution infrastructure**, not a security sandbox. It is desig
 flowchart LR
     Planner["Planner / ChatGPT"]
     Bridge["Chat Bridge"]
+    Native["Native Messaging host"]
+    EventOutbox["bounded local result-event outbox"]
     RepoControl["Repository agent-control"]
     Operator["operator-control"]
     Supervisor["Local Agent supervisor"]
@@ -23,6 +25,10 @@ flowchart LR
     Operator -->|global safety state| Supervisor
     Supervisor -->|admitted work| Worker
     Worker --> Host
+    Worker -->|terminal result publication| RepoControl
+    Worker -->|after successful result push| EventOutbox
+    EventOutbox -->|read-only event replay| Native
+    Native -->|bounded wake hint| Bridge
 ```
 
 The important boundaries are:
@@ -31,6 +37,8 @@ The important boundaries are:
 2. **Control state → executor** — schema, digest, repository identity, hard binding and resource admission are checked before execution.
 3. **Supervisor → worker** — repository work runs in short-lived isolated worker processes with process-group tracking and inherited execution/resource leases.
 4. **Operator control → all work** — repository-independent emergency disable has precedence over normal task admission.
+5. **Published result → event outbox** — a local `task_result_ready` notification is created only after the authoritative terminal result has been pushed successfully. Event creation failure must not rewrite task outcome.
+6. **Native host → Chat Bridge** — Chrome Native Messaging is a narrow read-only notification transport. It may replay bounded result metadata and accept protocol ACKs; it is not an executor/control channel.
 
 ## What Local Agent protects
 
@@ -40,15 +48,42 @@ One executable repository has one canonical opaque `agent_binding` UUID. Before 
 
 Chat Bridge conversation binding is not inferred from model context. Changing repository identity is an explicit operator **Rebind** operation.
 
+Event-driven wake preserves the same identity boundary. A Bridge task watch is matched only when `repository_id`, repository name, `agent_binding` and exact task id all agree. A notification for another repository/binding/task is cached or ignored for routing and cannot wake the wrong conversation.
+
 ### Task identity and replay
 
 - task payloads have immutable digests;
 - a task id cannot silently acquire a different payload inside one repository;
 - malformed task data becomes terminal evidence instead of an implicit retry;
 - an interrupted claimed task is never silently replayed;
-- terminal result publication is recoverable independently from command execution.
+- terminal result publication is recoverable independently from command execution;
+- result-ready event ids are deterministic from repository/binding/task/digest identity;
+- malformed, tampered, oversized or identity-inconsistent outbox entries are rejected/pruned rather than replayed indefinitely.
 
 These rules reduce accidental duplicate execution and make recovery auditable.
+
+### Event-wake authority boundary
+
+`task_result_ready` is **not** result evidence. It is only a local hint that exact terminal evidence should now be available remotely. Chat Bridge wakes the owning conversation with the exact task id; the planner must still read `.agent/results/<task-id>.json` before deciding whether the task succeeded, failed, was rejected or was cancelled.
+
+The event payload is deliberately bounded metadata only. It contains no task command output and grants no ability to:
+
+- execute shell/terminal commands;
+- create or cancel tasks;
+- read arbitrary files;
+- stream daemon logs;
+- rebind a conversation;
+- change global operator controls.
+
+Native Messaging permission therefore expands local notification reach, not executor authority.
+
+### Native Messaging registration
+
+The macOS host manifest uses one exact `allowed_origins` entry for the installed Chrome extension id. The host independently requires a syntactically valid exact `chrome-extension://<id>/` caller origin. The installer/status tooling checks the registered host path, origin, file type, executable bit and expected restrictive file modes.
+
+The extension opens the native transport only while at least one exact task watch belongs to a currently enabled, bound conversation and the Bridge Master switch is on. `PAUSE`, operator disable and Master-off suspend the native process without deleting the durable watch; re-enable/resume can replay an event from the durable Local Agent outbox. Scheduled reconciliation remains available as fallback.
+
+The host accepts only protocol handshake and ACK messages. Adding generic commands, shell access, log streaming or arbitrary filesystem reads to this host would be a new security-sensitive feature and is explicitly outside the event-wake contract.
 
 ### Bounded execution
 
@@ -77,9 +112,10 @@ Local Agent currently does **not** claim to provide:
 - network egress isolation;
 - secret redaction from arbitrary command output;
 - protection against a deliberately malicious task authored by a trusted control-plane principal;
-- multi-tenant hostile-code isolation.
+- multi-tenant hostile-code isolation;
+- authenticity of ChatGPT model conclusions merely because an event wake occurred.
 
-If any of these become requirements, they should be added as explicit executor-side mechanisms rather than inferred from the existing watchdog and worker model.
+If any of these become requirements, they should be added as explicit executor-side mechanisms rather than inferred from the existing watchdog, worker or event-wake model.
 
 ## Fail-closed rules
 
@@ -92,23 +128,27 @@ The executor intentionally refuses or terminally rejects work when identity or t
 - changed repository configuration between scheduling and dispatch;
 - malformed persistent disable state.
 
+The event path also fails closed for malformed event schema, invalid/cross-binding identity, wrong protocol version, wrong native-host registration/origin and invalid ACK ids. Failure of event delivery does not create execution authority and does not make the event authoritative; the scheduled alarm path remains reconciliation fallback.
+
 Unexpected checkout state is not automatically overwritten. Self-update must validate before restart and roll back on validation failure.
 
 ## Operator checklist
 
-Before enabling autonomous execution:
+Before enabling autonomous execution and event-driven wake:
 
 - verify the running daemon revision/status rather than relying only on the checkout;
 - keep repository bindings and the local registry intentional and unique;
 - keep `operator-control` available as an independent stop path;
 - do not share control-plane write access with untrusted principals;
 - treat credentials available to the Local Agent OS user as potentially available to executed tasks;
+- verify the Native Messaging manifest with `scripts/chat_bridge_native_host.py status --extension-id <installed-extension-id>` and resolve any reported path/origin/mode problem;
+- remember that `[LA_EVENT=task_result_ready]` is a wake hint and inspect exact terminal result evidence before acting;
 - for the currently registered project repositories, use `resources: []` for project-dedicated hardware and verify the intended device/port inside the task; reserve named resources for genuinely shared external hardware/state and `machine` for true whole-host exclusivity;
 - preserve the release verification gates in [`../AGENTS.md`](../AGENTS.md).
 
 ## Security changes
 
-A change to binding, task validation, process lifecycle, emergency controls, Git publication, resource locking, self-update, global control admission/drain policy or command execution is security-relevant even when it is not branded as a security feature. Such changes require targeted positive and negative regression coverage plus the broader release checks described in [`../AGENTS.md`](../AGENTS.md).
+A change to binding, task validation, process lifecycle, emergency controls, Git publication, resource locking, self-update, global control admission/drain policy, command execution, Native Messaging permissions/registration, event identity validation or event-to-chat routing is security-relevant even when it is not branded as a security feature. Such changes require targeted positive and negative regression coverage plus the broader release checks described in [`../AGENTS.md`](../AGENTS.md).
 
 > [!IMPORTANT]
-> When a safety property matters, encode it in the executor and test it. Planner instructions and documentation are supporting controls, not enforcement boundaries.
+> When a safety property matters, encode it in the executor/transport and test it. Planner instructions and documentation are supporting controls, not enforcement boundaries.

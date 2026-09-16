@@ -6,6 +6,7 @@ function clone(value) { return value === undefined ? undefined : JSON.parse(JSON
 function createHarness(options = {}) {
 const runtimeAgents = require("./runtime.example.json").agents;
 const CONTENT_PROTOCOL_VERSION = require("./control_protocol.js").CONTENT_PROTOCOL_VERSION;
+const EXTENSION_VERSION = require("./manifest.json").version;
 const bindingFor = (repositoryId) => {
   const agent = runtimeAgents.find((item) => item.repository_id === repositoryId);
   if (!agent) throw new Error(`missing runtime test agent: ${repositoryId}`);
@@ -26,11 +27,12 @@ const runtimeMessageListeners = [];
 const alarmListeners = [];
 const installedListeners = [];
 const startupListeners = [];
-const tabs = [
+const tabUpdatedListeners = [];
+const tabs = clone(options.tabs || [
   { id: 11, url: "https://chatgpt.com/c/a", title: "Project A" },
   { id: 22, url: "https://chatgpt.com/c/b", title: "Project B" },
   { id: 33, url: "https://chatgpt.com/c/infra", title: "Local Agent" }
-];
+]);
 
 const chrome = {
   storage: {
@@ -94,6 +96,11 @@ const chrome = {
       const permission = await authorize();
       return permission.ok ? { ok: true, reason: "sent", protocolVersion: CONTENT_PROTOCOL_VERSION }
         : { ok: false, reason: "delivery_cancelled", protocolVersion: CONTENT_PROTOCOL_VERSION };
+    },
+    onUpdated: {
+      addListener(listener) {
+        tabUpdatedListeners.push(listener);
+      }
     }
   },
   scripting: {
@@ -110,13 +117,14 @@ const chrome = {
   runtime: {
     id: "test-bridge",
     getURL: (path) => `chrome-extension://test-bridge/${path}`,
-    getManifest: () => ({ version: "0.5.6" }),
+    getManifest: () => ({ version: EXTENSION_VERSION }),
     reload: () => { runtimeReloads.push(Date.now()); },
     onInstalled: { addListener(listener) { installedListeners.push(listener); } },
     onStartup: { addListener(listener) { startupListeners.push(listener); } },
     onMessage: { addListener(listener) { runtimeMessageListeners.push(listener); } }
   }
 };
+if (options.connectNative) chrome.runtime.connectNative = options.connectNative;
 
 const context = vm.createContext({
   console: options.console || console,
@@ -196,10 +204,19 @@ async function sendRuntimeMessage(message, sender = { id: chrome.runtime.id, url
   });
 }
 
+async function tabUpdated(tabId, changeInfo = { status: "complete" }) {
+  const tab = tabs.find((candidate) => candidate.id === tabId);
+  if (!tab) throw new Error(`unknown test tab: ${tabId}`);
+  if (typeof changeInfo.url === "string") tab.url = changeInfo.url;
+  await Promise.all(tabUpdatedListeners.map((listener) =>
+    Promise.resolve(listener(tabId, clone(changeInfo), clone(tab)))
+  ));
+}
+
 return { storage, alarms, sentMessages, tabMessages, injectedScripts, runtimeReloads, tabs, chrome, context, sendRuntimeMessage,
   MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING, runtimeAgents, CONTENT_PROTOCOL_VERSION,
-  EXHAUSTION_GUARD_VERSION,
+  EXHAUSTION_GUARD_VERSION, EXTENSION_VERSION,
   evaluate: (source) => vm.runInContext(source, context),
-  installed: () => installedListeners[0](), startup: () => startupListeners[0]() };
+  installed: () => installedListeners[0](), startup: () => startupListeners[0](), tabUpdated };
 }
 module.exports = { createHarness };
