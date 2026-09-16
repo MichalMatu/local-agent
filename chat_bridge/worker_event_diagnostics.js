@@ -1,18 +1,19 @@
 async function eventWakeInspection(chatId) {
-  const state = await loadEventWakeState();
+  const bridgeState = await getBridgeState();
+  const state = await reconcileEventWakeOwnership(bridgeState);
   const watch = state.watches[chatId] || null;
   const pending = state.pendingWakes[chatId] || null;
-  const diagnostics = state.diagnostics || {};
+  const diagnostics = state.diagnostics;
 
   return {
     supported: true,
     mode: "native_messaging_on_demand_with_alarm_fallback",
     transport: {
-      state: String(diagnostics.nativeState || "unknown"),
-      protocolVersion: diagnostics.nativeProtocolVersion ?? null,
-      lastConnectAt: diagnostics.lastConnectAt || null,
-      lastDisconnectAt: diagnostics.lastDisconnectAt || null,
-      lastError: diagnostics.lastError || null
+      state: diagnostics.nativeState,
+      protocolVersion: diagnostics.nativeProtocolVersion,
+      lastConnectAt: diagnostics.lastConnectAt,
+      lastDisconnectAt: diagnostics.lastDisconnectAt,
+      lastError: diagnostics.lastError
     },
     currentWatch: watch
       ? {
@@ -29,11 +30,11 @@ async function eventWakeInspection(chatId) {
           receivedAt: pending.receivedAt
         }
       : null,
-    recentEventCount: Object.keys(state.recentEvents || {}).length,
-    lastAcceptedEventId: diagnostics.lastAcceptedEventId || null,
-    lastAcceptedTaskId: diagnostics.lastAcceptedTaskId || null,
-    lastAcceptedAt: diagnostics.lastAcceptedAt || null,
-    lastDeliveredEventId: diagnostics.lastDeliveredEventId || null,
-    lastDeliveredAt: diagnostics.lastDeliveredAt || null
+    recentEventCount: Object.keys(state.recentEvents).length,
+    lastAcceptedEventId: diagnostics.lastAcceptedEventId,
+    lastAcceptedTaskId: diagnostics.lastAcceptedTaskId,
+    lastAcceptedAt: diagnostics.lastAcceptedAt,
+    lastDeliveredEventId: diagnostics.lastDeliveredEventId,
+    lastDeliveredAt: diagnostics.lastDeliveredAt
   };
 }
