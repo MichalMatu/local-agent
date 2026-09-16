@@ -133,6 +133,7 @@ async function applyAssistantControl(message, sender) {
   if (parsed.action === "stop") {
     await clearTaskWatch(value.conversationId);
     await clearConversationAlarm(value.conversationId, value.generation);
+    await reconcileNativeEventTransport();
     return value;
   }
   if (parsed.action === "pause") {
@@ -149,13 +150,16 @@ async function applyAssistantControl(message, sender) {
         lastStatus: String(watch?.reason || "task_watch_failed")
       });
       await scheduleDefault(value.conversationId, false, value.generation);
+      await reconcileNativeEventTransport();
       return { ...value, ...watch, ok: false, fallbackScheduled: true };
     }
     if (watch.matchedRecentEvent) {
       await scheduleAt(value.conversationId, Date.now() + 1000, value.generation);
+      await reconcileNativeEventTransport();
       return { ...value, ...watch, reason: "task_result_already_ready" };
     }
     await scheduleDefault(value.conversationId, false, value.generation);
+    await reconcileNativeEventTransport();
     return { ...value, ...watch };
   }
   if (parsed.action === "next") {
