@@ -50,12 +50,12 @@ async function assistantControl(harness, conversation, marker, seed) {
     "wait"
   );
   assert.equal(response.ok, true);
-  assert.equal(harness.evaluate("nativeTransportWanted"), true);
+  assert.equal(harness.evaluate("nativeTransport.wanted"), true);
 
   const latestAfterWait = harness.storage.bridgeState.conversations[conversation.id];
   response = await assistantControl(harness, latestAfterWait, "[LAB:PAUSE]", "pause");
   assert.equal(response.ok, true);
-  assert.equal(harness.evaluate("nativeTransportWanted"), false,
+  assert.equal(harness.evaluate("nativeTransport.wanted"), false,
     "paused chat must not keep Native Messaging alive");
   assert.equal(harness.storage.eventWakeState.watches[conversation.id].taskId, "lifecycle-1",
     "pause must retain the durable task watch");
@@ -63,7 +63,7 @@ async function assistantControl(harness, conversation, marker, seed) {
   const paused = harness.storage.bridgeState.conversations[conversation.id];
   response = await assistantControl(harness, paused, "[LAB:RESUME]", "resume");
   assert.equal(response.ok, true);
-  assert.equal(harness.evaluate("nativeTransportWanted"), true,
+  assert.equal(harness.evaluate("nativeTransport.wanted"), true,
     "resume must reconnect transport for the retained watch");
 
   const masterOff = await harness.sendRuntimeMessage({
@@ -71,7 +71,7 @@ async function assistantControl(harness, conversation, marker, seed) {
     settings: { masterEnabled: false }
   });
   assert.equal(masterOff.ok, true);
-  assert.equal(harness.evaluate("nativeTransportWanted"), false,
+  assert.equal(harness.evaluate("nativeTransport.wanted"), false,
     "Master-off must suspend Native Messaging transport");
   assert.equal(harness.storage.eventWakeState.watches[conversation.id].taskId, "lifecycle-1");
 
@@ -80,7 +80,7 @@ async function assistantControl(harness, conversation, marker, seed) {
     settings: { masterEnabled: true }
   });
   assert.equal(masterOn.ok, true);
-  assert.equal(harness.evaluate("nativeTransportWanted"), true,
+  assert.equal(harness.evaluate("nativeTransport.wanted"), true,
     "Master-on must reconnect transport for an active retained watch");
 
   const disabled = await harness.sendRuntimeMessage({
@@ -89,7 +89,7 @@ async function assistantControl(harness, conversation, marker, seed) {
     patch: { enabled: false }
   });
   assert.equal(disabled.ok, true);
-  assert.equal(harness.evaluate("nativeTransportWanted"), false,
+  assert.equal(harness.evaluate("nativeTransport.wanted"), false,
     "operator-disabled chat must not keep Native Messaging alive");
 
   const enabled = await harness.sendRuntimeMessage({
@@ -98,7 +98,7 @@ async function assistantControl(harness, conversation, marker, seed) {
     patch: { enabled: true }
   });
   assert.equal(enabled.ok, true);
-  assert.equal(harness.evaluate("nativeTransportWanted"), true,
+  assert.equal(harness.evaluate("nativeTransport.wanted"), true,
     "operator re-enable must reconnect transport for retained watch");
 
   console.log("Chat Bridge event wake transport lifecycle tests passed.");
