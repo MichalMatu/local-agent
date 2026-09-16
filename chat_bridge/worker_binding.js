@@ -37,7 +37,7 @@ function bindingPolicy(conversation, runtimeAgent) {
   const executionPolicy = runtimeAgent?.executionEnabled === false
     ? "Bridge/operator-only: do not create Local Agent project task files."
     : `Every Local Agent task JSON must use exactly \"agent_binding\": \"${conversation.agentBinding}\".`;
-  return `${bindingEnvelope(conversation)}\nBound to ${conversation.repository} (${conversation.repositoryId}); never inspect, queue, cancel, execute, switch, or rebind another repository. ${executionPolicy} If another repository is required, use PAUSE.`;
+  return `${bindingEnvelope(conversation)}\nBound to ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository. Do not switch or rebind repositories from chat context. ${executionPolicy} If another repository is required, use PAUSE.`;
 }
 
 function assistantControlMarker(markerName) {
@@ -64,7 +64,7 @@ function eventWakePlannerPolicy() {
 function buildBootstrapPrompt(runtime, conversation) {
   const agent = runtimeAgentForConversation(runtime, conversation);
   const controls = assistantScheduleControlSummary();
-  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\n${eventWakePlannerPolicy()}\nSupported chat controls: ${controls}. Controls are conversation-scoped; Master and repository binding are operator-only.`;
+  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\n${eventWakePlannerPolicy()}\nSupported chat controls: ${controls}. Controls are conversation-scoped; chat controls must never change the global Master switch or repository binding.`;
 }
 
 function buildWakePrompt(runtime, conversation) {
