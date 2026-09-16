@@ -92,6 +92,33 @@ function eventFor(harness, taskId) {
     "restored ChatGPT tab completion must immediately re-arm an existing pending event wake"
   );
 
+  const delayedRestoreStorage = JSON.parse(JSON.stringify(storage));
+  const delayedRestoreWorker = createHarness({
+    storage: delayedRestoreStorage,
+    tabs: [],
+    contentScriptProbe({ injectedScripts }) {
+      return injectedScripts.length
+        ? { ok: true, reason: "ready", protocolVersion: protocol.CONTENT_PROTOCOL_VERSION, assistantIdentity: "restored" }
+        : { ok: false, reason: "content_script_unavailable" };
+    }
+  });
+  await delayedRestoreWorker.startup();
+  const startupProbeAlarms = Array.from(delayedRestoreWorker.alarms.keys()).filter((name) =>
+    name.startsWith("local-agent-chat-startup-reconcile:")
+  );
+  assert.equal(startupProbeAlarms.length, 3, "startup must arm a bounded three-probe restore window");
+  delayedRestoreWorker.tabs.push({ id: 11, url: conversation.url, title: "Project A" });
+  const restored = await delayedRestoreWorker.evaluate("reconcileRestoredTabsAfterStartup()");
+  assert.equal(restored.pendingScheduled, 1, "late restored tab must re-arm the pending event wake");
+  assert.ok(
+    delayedRestoreWorker.injectedScripts.some((entry) => entry.target.tabId === 11),
+    "late restored tab must receive the bridge content script without operator reload"
+  );
+  assert.ok(
+    delayedRestoreWorker.alarms.has(`local-agent-chat:${conversation.id}`),
+    "late restored tab reconciliation must arm immediate event delivery"
+  );
+
   const thirdWorker = createHarness({ storage });
   assert.equal(thirdWorker.alarms.size, 0, "new worker starts with no in-memory test alarms");
   await thirdWorker.startup();
