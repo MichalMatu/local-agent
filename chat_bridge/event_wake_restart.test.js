@@ -144,6 +144,34 @@ function eventFor(harness, taskId) {
     "old task event must not cross a binding epoch change"
   );
 
+  // A crash can also happen before the event arrives, leaving an old watch behind after
+  // bridgeState has moved to a new binding epoch. Startup reconciliation must remove that
+  // stale owner so it cannot keep Native Messaging alive or block another conversation.
+  const staleWatchStorage = {};
+  const staleWatchWorker = createHarness({ storage: staleWatchStorage });
+  const staleWatchConversation = await addMatrixChat(staleWatchWorker);
+  const staleWait = await waitTask(staleWatchWorker, staleWatchConversation, "stale-owner-1");
+  assert.equal(staleWait.ok, true);
+  assert.equal(staleWatchStorage.eventWakeState.watches[staleWatchConversation.id].taskId, "stale-owner-1");
+
+  staleWatchStorage.bridgeState.conversations[staleWatchConversation.id].bindingRevision += 1;
+  staleWatchStorage.bridgeState.conversations[staleWatchConversation.id].bindingSetAt = "2026-09-16T08:30:00.000Z";
+  staleWatchStorage.bridgeState.conversations[staleWatchConversation.id].generation += 1;
+  staleWatchStorage.bridgeState.conversations[staleWatchConversation.id].bootstrapPending = true;
+
+  const staleWatchRestart = createHarness({ storage: staleWatchStorage });
+  await staleWatchRestart.startup();
+  assert.equal(
+    staleWatchStorage.eventWakeState.watches[staleWatchConversation.id],
+    undefined,
+    "startup must prune a watch from an obsolete binding epoch"
+  );
+  assert.equal(
+    staleWatchRestart.evaluate("nativeTransportWanted"),
+    false,
+    "obsolete watch must not keep Native Messaging alive"
+  );
+
   console.log("Chat Bridge event wake restart persistence tests passed.");
 })().catch((error) => {
   console.error(error);
