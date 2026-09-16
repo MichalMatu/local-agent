@@ -84,6 +84,14 @@ function eventFor(harness, taskId) {
     "pending wake must retain the exact binding epoch"
   );
 
+  const restoredTabWorker = createHarness({ storage });
+  assert.equal(restoredTabWorker.alarms.size, 0, "cold-start worker begins without test alarms");
+  await restoredTabWorker.tabUpdated(11, { status: "complete" });
+  assert.ok(
+    restoredTabWorker.alarms.has(`local-agent-chat:${conversation.id}`),
+    "restored ChatGPT tab completion must immediately re-arm an existing pending event wake"
+  );
+
   const thirdWorker = createHarness({ storage });
   assert.equal(thirdWorker.alarms.size, 0, "new worker starts with no in-memory test alarms");
   await thirdWorker.startup();
