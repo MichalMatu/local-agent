@@ -65,6 +65,8 @@ Test evidence includes append/ACK, idempotent re-publication, collision, TTL pru
 
 The host uses Chrome Native Messaging length-prefixed JSON with bounded inbound size. It validates a concrete Chrome extension caller origin and a protocol-v1 handshake. While connected it polls the durable outbox, so events created after connection are observed; delivery is not limited to startup replay.
 
+ACK is session-scoped: the host accepts an event id only when that exact host process previously emitted it. A syntactically valid ACK for an unknown event fails closed instead of deleting arbitrary outbox state. Selector resources are context-managed and close deterministically on every return path.
+
 A duplex integration test proves:
 
 ```text
@@ -72,6 +74,41 @@ connect -> hello -> empty outbox -> create event -> host emits event -> ACK -> o
 ```
 
 Installer/status diagnostics verify exact host name/type/path/origin, regular files, executable wrapper and restrictive file modes. An optional expected extension id detects registration drift.
+
+## Golden-standard structure audit
+
+The final quality pass explicitly separates model, persistence/routing and orchestration instead of growing one event helper into a cross-layer state machine:
+
+```text
+control_protocol.js / bridge_state.js
+            |
+            v
+event_wake_state.js        pure validation + identity + retention model
+            |
+            v
+worker_event_wake.js       serialized persisted watches/recent/pending routing
+            |
+            +------> worker_schedule.js       alarms/reconciliation
+            |
+            +------> native_events.js         Native Messaging lifecycle + event orchestration
+                        |
+                        v
+                 controls / delivery
+```
+
+Invariants enforced by tests:
+
+- `event_wake_state.js` has no Chrome API dependency;
+- persisted routing does not call Native Messaging, `scheduleAt()` or prompt construction;
+- service-worker imports follow dependency order rather than relying on circular globals;
+- `worker_binding.js` owns event/planner prompt policy;
+- assistant scheduling guidance is derived from `control_protocol.js::COMMAND_CATALOG`, not a duplicated hard-coded list;
+- test harness extension version comes from `manifest.json` rather than a second literal;
+- Native Messaging has an explicit handshake timeout and visible `incompatible` state for protocol mismatch;
+- persisted diagnostics use an explicit bounded allowlist;
+- corrupt/far-future cached timestamps fail closed rather than being silently replaced with the current time.
+
+This pass also updates `docs/GOLDEN_STANDARD.md` with candidate-only ownership and `WAIT_TASK` invariants while preserving the explicit statement that `main` is still production.
 
 ## Bridge routing audit
 
@@ -84,7 +121,16 @@ agent_binding
 task_id
 ```
 
-A second conversation attempting to own the same exact tuple is rejected and retains scheduled fallback. Events for another repository/binding/task cannot wake the conversation.
+Persisted watch/pending ownership additionally records the exact conversation binding epoch:
+
+```text
+bindingRevision
+bindingSetAt
+```
+
+A rebind crash therefore cannot route an old task event through the new binding after MV3 restart. Stale pre-event watches are also reconciled so they cannot retain false ownership or keep Native Messaging alive.
+
+A second conversation attempting to own the same exact task tuple is rejected while either the original watch **or its pending wake** still owns that task. It retains scheduled fallback rather than receiving the event. Events for another repository/binding/task cannot wake the conversation.
 
 Fast-task race is closed by durable outbox + Bridge recent-event cache: event-before-watch is promoted when the exact watch is later registered.
 
@@ -100,9 +146,11 @@ Event state is separate from bridge schema v3 and persisted in `chrome.storage.l
 Regression coverage replaces the service-worker harness:
 
 1. after `WAIT_TASK` but before terminal event;
-2. again after native receive but before ChatGPT delivery.
+2. again after native receive but before ChatGPT delivery;
+3. after bridge binding state changes but before event-state cleanup;
+4. after a stale pre-event watch survives the same crash window.
 
-Startup reconciliation recreates a pending wake alarm and the exact event is delivered once.
+Startup reconciliation preserves valid ownership, removes obsolete binding epochs and recreates only legitimate pending wake alarms.
 
 ## Delivery-loss audit
 
@@ -111,19 +159,19 @@ A pending event is consumed only after `chrome.tabs.sendMessage` returns a succe
 - the exact ChatGPT tab is missing;
 - the send button is not ready/transient delivery fails.
 
-Normal retry/reconciliation alarm remains armed. A later successful attempt consumes the event.
+Normal retry/reconciliation alarm remains armed. A later successful attempt consumes the event and delivery orchestration explicitly reconciles the now-idle native transport.
 
 ## Pause/Master/operator lifecycle audit
 
 Native Messaging is on-demand rather than a permanent MV3 keepalive. It is wanted only for a watch whose exact conversation is:
 
-- present and hard-bound;
+- present and hard-bound to the same binding epoch;
 - enabled;
 - allowed by Bridge Master.
 
 `PAUSE`, operator disable and Master-off retain the durable watch but disconnect/suppress the native process. `RESUME`, operator re-enable and Master-on reconnect and allow outbox replay. `STOP`, removal and rebind clear the old watch.
 
-This avoids keeping Chrome's worker and the Python native host alive while event delivery is disabled.
+The extension's native state machine has a bounded handshake timeout. Protocol mismatch is recorded as `incompatible` and does not enter an automatic reconnect loop; a later explicit reconciliation can retry after the operator fixes/reloads the host.
 
 ## Fallback/liveness audit
 
@@ -136,9 +184,9 @@ This avoids keeping Chrome's worker and the Python native host alive while event
 - delivery is paused/disabled;
 - an event arrives but immediate scheduling races/fails.
 
-Pending event state is durable and schedule reconciliation prioritizes it after startup.
+Bridge persists the event before ACK. Immediate alarm creation is best-effort after persistence; schedule failure does not revoke durable event ownership, and the pre-existing fallback/restart reconciliation remains able to deliver it.
 
-Planner prompts now prefer exact `WAIT_TASK` after queueing and reserve `NEXT` for genuinely time-based checks. This contract is covered by `planner_pacing_contract.test.js`.
+Planner prompts now derive their schedule-command list from the formal command catalog, prefer exact `WAIT_TASK` after queueing, and reserve `NEXT` for genuinely time-based checks. This contract is covered by planner/protocol tests.
 
 ## Security-sensitive negative cases covered
 
@@ -146,10 +194,16 @@ Automated coverage now includes:
 
 - invalid caller origin;
 - oversized Native Messaging frame;
+- ACK before handshake, invalid ACK and ACK for an event not emitted by the current host session;
+- extension/native protocol mismatch with fail-closed diagnostics;
 - invalid/tampered outbox event;
 - event identity mismatch;
+- invalid/far-future persisted recent-event timestamps;
+- unexpected/unbounded persisted diagnostics fields;
 - cross-repository/binding route;
-- duplicate exact task ownership attempt;
+- cross-binding-epoch restart route;
+- duplicate exact task ownership attempt while watched and while pending;
+- stale-owner cleanup after rebind crash;
 - fast event-before-watch race;
 - MV3 restart before event and before delivery;
 - missing tab/transient send failure retention;
@@ -161,7 +215,9 @@ Automated coverage now includes:
 
 An earlier implementation candidate, `098df38bf7f630cd28b6d56b42da8ea16f130673`, passed the repository's full GitHub Actions matrix including Linux tests/lint/compile/Bridge validation, Python 3.14, coverage, macOS smoke and disposable Chromium Bridge browser smoke.
 
-That evidence is not sufficient for release after subsequent hardening. The exact final branch SHA must independently pass the full matrix before the PR is considered ready.
+Subsequent candidates have independently exercised Chromium, Python 3.14 and coverage while the architecture hardening progressed. Those superseded runs are useful regression signals but are not release evidence.
+
+The exact final branch SHA must independently pass the full matrix after the golden-standard refactor before the PR is considered ready.
 
 ## Remaining real-machine release gates
 
