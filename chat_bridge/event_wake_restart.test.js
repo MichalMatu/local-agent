@@ -104,9 +104,9 @@ function eventFor(harness, taskId) {
   assert.equal(storage.eventWakeState.pendingWakes[conversation.id], undefined);
   assert.equal(storage.eventWakeState.watches[conversation.id], undefined);
 
-  // Create another pending wake, then model a crash after the bridge binding was changed
-  // but before rebind cleanup could clear eventWakeState. Startup must fail closed rather
-  // than route the old task id through the new binding epoch.
+  // Create another pending wake, then model a crash after the bridge binding epoch was
+  // changed but before rebind cleanup could clear eventWakeState. A normal bootstrap or
+  // reconciliation alarm may still exist, but the old task event must never be routed.
   const fourthWorker = createHarness({ storage });
   const currentConversation = storage.bridgeState.conversations[conversation.id];
   const waitingAgain = await waitTask(fourthWorker, currentConversation, "restart-rebind-race");
@@ -131,10 +131,17 @@ function eventFor(harness, taskId) {
     undefined,
     "stale pending wake must be discarded when the binding epoch changed before cleanup"
   );
-  assert.equal(
-    restartedAfterRebindCrash.alarms.has(`local-agent-chat:${conversation.id}`),
-    false,
-    "stale cross-binding pending wake must not create an immediate event alarm"
+
+  const postCrashDelivery = await restartedAfterRebindCrash.evaluate(
+    `runFeedbackCycle({ conversationId: ${JSON.stringify(conversation.id)}, manual: false })`
+  );
+  assert.equal(postCrashDelivery.ok, true);
+  assert.equal(postCrashDelivery.eventWake, null);
+  assert.equal(restartedAfterRebindCrash.sentMessages.length, 1);
+  assert.doesNotMatch(
+    restartedAfterRebindCrash.sentMessages[0].message.prompt,
+    /\[LA_TASK=restart-rebind-race\]/,
+    "old task event must not cross a binding epoch change"
   );
 
   console.log("Chat Bridge event wake restart persistence tests passed.");
