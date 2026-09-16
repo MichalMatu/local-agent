@@ -64,7 +64,7 @@ async function scheduleDefault(chatId, useBusyRetry = false, expectedGeneration 
   const state = await getBridgeState();
   const conversation = state.conversations[chatId];
   if (!conversation || (expectedGeneration !== null && conversation.generation !== expectedGeneration)) return false;
-  if (typeof pendingEventWake === "function" && await pendingEventWake(chatId)) {
+  if (await pendingEventWake(chatId)) {
     return scheduleAt(chatId, Date.now() + 1000, conversation.generation);
   }
   const runtime = await loadRuntimeConfig(state, conversation);
@@ -98,7 +98,7 @@ async function reconcileSchedules() {
       await clearConversationAlarm(conversation.id);
       continue;
     }
-    if (typeof pendingEventWake === "function" && await pendingEventWake(conversation.id)) {
+    if (await pendingEventWake(conversation.id)) {
       await scheduleAt(conversation.id, Date.now() + 1000, conversation.generation);
       continue;
     }
