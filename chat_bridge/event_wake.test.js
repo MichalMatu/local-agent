@@ -167,8 +167,8 @@ async function acceptEvent(harness, event) {
     assert.equal(after, before);
   }
 
-  // Only one chat can own an exact repository/binding/task watch. A rejected second owner
-  // must retain polling fallback rather than becoming dependent on the native event path.
+  // Only one chat can own an exact repository/binding/task tuple. Ownership remains with
+  // the first chat while its result is pending delivery, not only while a watch exists.
   {
     const harness = createHarness();
     const first = await addMatrixChat(harness, "https://chatgpt.com/c/owner-a");
@@ -184,6 +184,25 @@ async function acceptEvent(harness, event) {
     assert.equal(harness.storage.eventWakeState.watches[first.id].taskId, "shared-1");
     assert.equal(harness.storage.eventWakeState.watches[second.id], undefined);
     assert.ok(harness.alarms.has(`local-agent-chat:${second.id}`));
+
+    const accepted = await acceptEvent(harness, nativeEvent(harness, "shared-1", { eventHex: "e" }));
+    assert.equal(accepted.ok, true);
+    assert.equal(accepted.matchedChatId, first.id);
+    assert.equal(harness.storage.eventWakeState.watches[first.id], undefined);
+    assert.equal(harness.storage.eventWakeState.pendingWakes[first.id].taskId, "shared-1");
+
+    const currentSecond = harness.storage.bridgeState.conversations[second.id];
+    const pendingConflict = await assistantControl(
+      harness,
+      currentSecond,
+      "[LAB:WAIT_TASK=shared-1]",
+      "assistant-owner-b-retry"
+    );
+    assert.equal(pendingConflict.ok, false);
+    assert.equal(pendingConflict.reason, "task_watch_conflict");
+    assert.equal(pendingConflict.conflictChatId, first.id);
+    assert.equal(harness.storage.eventWakeState.pendingWakes[second.id], undefined);
+    assert.equal(harness.storage.eventWakeState.pendingWakes[first.id].taskId, "shared-1");
   }
 
   console.log("Chat Bridge event wake tests passed.");
