@@ -63,18 +63,37 @@
     return identity || text ? `${identity}\n${text}` : "";
   }
 
+  function isNewDeliveryTurn(previousTurn, currentTurn) {
+    const currentSignature = deliveryTurnSignature(currentTurn);
+    return Boolean(currentSignature && currentSignature !== deliveryTurnSignature(previousTurn));
+  }
+
   function isNewMatchingDeliveryTurn(previousTurn, currentTurn, expectedText) {
     if (!currentTurn || normalizeDeliveryText(currentTurn.text) !== normalizeDeliveryText(expectedText)) {
       return false;
     }
-    const currentSignature = deliveryTurnSignature(currentTurn);
-    return Boolean(currentSignature && currentSignature !== deliveryTurnSignature(previousTurn));
+    return isNewDeliveryTurn(previousTurn, currentTurn);
+  }
+
+  function deliveryWasAccepted({
+    previousTurn,
+    currentTurn,
+    expectedText,
+    composerAccepted = false,
+    assistantGenerating = false
+  } = {}) {
+    if (isNewMatchingDeliveryTurn(previousTurn, currentTurn, expectedText)) return true;
+    if (!composerAccepted) return false;
+    if (isNewDeliveryTurn(previousTurn, currentTurn)) return true;
+    return Boolean(assistantGenerating);
   }
 
   return Object.freeze({
     createRetryGate,
     normalizeDeliveryText,
     deliveryTurnSignature,
-    isNewMatchingDeliveryTurn
+    isNewDeliveryTurn,
+    isNewMatchingDeliveryTurn,
+    deliveryWasAccepted
   });
 });
