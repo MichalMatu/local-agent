@@ -40,6 +40,14 @@ function bindingPolicy(conversation, runtimeAgent) {
   return `${bindingEnvelope(conversation)}\nHard binding is immutable for this wake. Work only on repository ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository. ${executionPolicy} If the active goal appears to require another repository, pause instead of rebinding or guessing.`;
 }
 
+function assistantControlMarker(commandName) {
+  const entry = protocol.COMMAND_CATALOG.find((candidate) =>
+    candidate.privilege === "assistant" && candidate.command === commandName
+  );
+  if (!entry) throw new Error(`missing assistant command catalog entry: ${commandName}`);
+  return `[LAB:${entry.marker}]`;
+}
+
 function assistantScheduleControlSummary() {
   return protocol.COMMAND_CATALOG
     .filter((entry) => entry.privilege === "assistant" && entry.category === "schedule")
@@ -48,7 +56,8 @@ function assistantScheduleControlSummary() {
 }
 
 function eventWakePlannerPolicy() {
-  return "When one exact Local Agent task is queued or active, prefer [LAB:WAIT_TASK=<task-id>] instead of periodic NEXT polling. WAIT_TASK retains a bounded scheduled reconciliation alarm, so Native Messaging is an optimization rather than a correctness dependency. Use NEXT only for genuinely time-based or external rechecks that are not represented by one exact Local Agent terminal task. A task_result_ready event is only a wake hint; inspect the exact terminal result before deciding the next action.";
+  const waitTask = assistantControlMarker("WAIT_TASK");
+  return `When one exact Local Agent task is queued or active, prefer ${waitTask} instead of periodic NEXT polling. WAIT_TASK retains a bounded scheduled reconciliation alarm, so Native Messaging is an optimization rather than a correctness dependency. Use NEXT only for genuinely time-based or external rechecks that are not represented by one exact Local Agent terminal task. A task_result_ready event is only a wake hint; inspect the exact terminal result before deciding the next action.`;
 }
 
 function buildBootstrapPrompt(runtime, conversation) {
