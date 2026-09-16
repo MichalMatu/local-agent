@@ -37,7 +37,7 @@ function bindingPolicy(conversation, runtimeAgent) {
   const executionPolicy = runtimeAgent?.executionEnabled === false
     ? "Bridge/operator-only: do not create Local Agent project task files."
     : `Every Local Agent task JSON must use exactly \"agent_binding\": \"${conversation.agentBinding}\".`;
-  return `${bindingEnvelope(conversation)}\nBound to ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository. Do not switch or rebind repositories from chat context. ${executionPolicy} If another repository is required, use PAUSE.`;
+  return `${bindingEnvelope(conversation)}\nBound to ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository. ${executionPolicy} If another repository is required, use PAUSE.`;
 }
 
 function assistantControlMarker(markerName) {
