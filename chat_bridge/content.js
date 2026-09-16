@@ -260,8 +260,7 @@
       return { ok: false, reason: "send_button_not_ready" };
     }
 
-    const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
-    const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
+    const previousUserTurn = latestUserMessage();
     try {
       submitComposer(composer, sendButton);
     } catch (error) {
@@ -270,12 +269,7 @@
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
-      const userMessages = document.querySelectorAll('[data-message-author-role="user"]');
-      const lastUser = userMessages[userMessages.length - 1];
-      if (
-        userMessages.length > previousUserMessages &&
-        normalizedText(lastUser?.innerText || lastUser?.textContent) === normalizedText(prompt)
-      ) {
+      if (retryPolicy.isNewMatchingDeliveryTurn(previousUserTurn, latestUserMessage(), prompt)) {
         return { ok: true, reason: "sent" };
       }
       await new Promise((resolve) => setTimeout(resolve, 100));

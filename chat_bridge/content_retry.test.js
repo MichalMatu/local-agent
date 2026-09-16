@@ -1,7 +1,12 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { createRetryGate } = require("./content_retry.js");
+const {
+  createRetryGate,
+  normalizeDeliveryText,
+  deliveryTurnSignature,
+  isNewMatchingDeliveryTurn
+} = require("./content_retry.js");
 
 const retry = createRetryGate({ baseMs: 5000, maxMs: 30000 });
 const signature = "assistant-control-a";
@@ -45,4 +50,43 @@ assert.equal(retry.snapshot().failures, 0);
 assert.throws(() => createRetryGate({ baseMs: 0, maxMs: 1 }), /invalid retry gate bounds/);
 assert.throws(() => createRetryGate({ baseMs: 100, maxMs: 99 }), /invalid retry gate bounds/);
 
-console.log("Chat Bridge content retry policy tests passed.");
+assert.equal(normalizeDeliveryText("  hello\n  world  "), "hello world");
+assert.equal(deliveryTurnSignature(null), "");
+assert.equal(
+  isNewMatchingDeliveryTurn(
+    { identity: "user-old", text: "older prompt" },
+    { identity: "user-new", text: "expected\n prompt" },
+    "expected prompt"
+  ),
+  true,
+  "a new matching turn must confirm delivery"
+);
+assert.equal(
+  isNewMatchingDeliveryTurn(
+    { identity: "user-old", text: "old prompt" },
+    { identity: "user-old", text: "old prompt" },
+    "old prompt"
+  ),
+  false,
+  "an unchanged prior turn must never confirm delivery"
+);
+assert.equal(
+  isNewMatchingDeliveryTurn(
+    { identity: "user-17", text: "old prompt" },
+    { identity: "user-17", text: "expected prompt" },
+    "expected prompt"
+  ),
+  true,
+  "DOM virtualization may keep fallback identity/count stable while replacing the latest turn text"
+);
+assert.equal(
+  isNewMatchingDeliveryTurn(
+    { identity: "user-old", text: "old prompt" },
+    { identity: "user-new", text: "different prompt" },
+    "expected prompt"
+  ),
+  false,
+  "a different new user turn must fail closed"
+);
+
+console.log("Chat Bridge content retry and delivery confirmation policy tests passed.");

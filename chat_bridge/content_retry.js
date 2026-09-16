@@ -52,5 +52,29 @@
     return Object.freeze({ canAttempt, defer, reset, snapshot });
   }
 
-  return Object.freeze({ createRetryGate });
+  function normalizeDeliveryText(value) {
+    return String(value || "").trim().replace(/\s+/g, " ");
+  }
+
+  function deliveryTurnSignature(turn) {
+    if (!turn || typeof turn !== "object") return "";
+    const identity = String(turn.identity || "");
+    const text = normalizeDeliveryText(turn.text);
+    return identity || text ? `${identity}\n${text}` : "";
+  }
+
+  function isNewMatchingDeliveryTurn(previousTurn, currentTurn, expectedText) {
+    if (!currentTurn || normalizeDeliveryText(currentTurn.text) !== normalizeDeliveryText(expectedText)) {
+      return false;
+    }
+    const currentSignature = deliveryTurnSignature(currentTurn);
+    return Boolean(currentSignature && currentSignature !== deliveryTurnSignature(previousTurn));
+  }
+
+  return Object.freeze({
+    createRetryGate,
+    normalizeDeliveryText,
+    deliveryTurnSignature,
+    isNewMatchingDeliveryTurn
+  });
 });
