@@ -63,6 +63,11 @@ function eventFor(harness, taskId) {
   const waiting = await waitTask(firstWorker, conversation, "restart-1");
   assert.equal(waiting.ok, true);
   assert.equal(storage.eventWakeState.watches[conversation.id].taskId, "restart-1");
+  assert.equal(
+    storage.eventWakeState.watches[conversation.id].bindingSetAt,
+    conversation.bindingSetAt,
+    "watch must retain the exact binding epoch"
+  );
 
   // Simulate MV3 worker replacement while the task is still running.
   const secondWorker = createHarness({ storage });
@@ -74,6 +79,11 @@ function eventFor(harness, taskId) {
   assert.equal(accepted.reason, "event_pending");
   assert.equal(storage.eventWakeState.watches[conversation.id], undefined);
   assert.equal(storage.eventWakeState.pendingWakes[conversation.id].taskId, "restart-1");
+  assert.equal(
+    storage.eventWakeState.pendingWakes[conversation.id].bindingSetAt,
+    conversation.bindingSetAt,
+    "pending wake must retain the exact binding epoch"
+  );
 
   // Replace the worker again after native receive but before ChatGPT delivery.
   const thirdWorker = createHarness({ storage });
@@ -93,6 +103,39 @@ function eventFor(harness, taskId) {
   assert.match(thirdWorker.sentMessages[0].message.prompt, /\[LA_TASK=restart-1\]/);
   assert.equal(storage.eventWakeState.pendingWakes[conversation.id], undefined);
   assert.equal(storage.eventWakeState.watches[conversation.id], undefined);
+
+  // Create another pending wake, then model a crash after the bridge binding was changed
+  // but before rebind cleanup could clear eventWakeState. Startup must fail closed rather
+  // than route the old task id through the new binding epoch.
+  const fourthWorker = createHarness({ storage });
+  const currentConversation = storage.bridgeState.conversations[conversation.id];
+  const waitingAgain = await waitTask(fourthWorker, currentConversation, "restart-rebind-race");
+  assert.equal(waitingAgain.ok, true);
+  const acceptedAgain = await fourthWorker.evaluate(
+    `acceptNativeTaskEvent(${JSON.stringify(eventFor(fourthWorker, "restart-rebind-race"))})`
+  );
+  assert.equal(acceptedAgain.ok, true);
+  assert.equal(storage.eventWakeState.pendingWakes[conversation.id].taskId, "restart-rebind-race");
+
+  const oldBindingSetAt = storage.bridgeState.conversations[conversation.id].bindingSetAt;
+  storage.bridgeState.conversations[conversation.id].bindingRevision += 1;
+  storage.bridgeState.conversations[conversation.id].bindingSetAt = "2026-09-16T08:00:00.000Z";
+  storage.bridgeState.conversations[conversation.id].generation += 1;
+  storage.bridgeState.conversations[conversation.id].bootstrapPending = true;
+  assert.notEqual(storage.bridgeState.conversations[conversation.id].bindingSetAt, oldBindingSetAt);
+
+  const restartedAfterRebindCrash = createHarness({ storage });
+  await restartedAfterRebindCrash.startup();
+  assert.equal(
+    storage.eventWakeState.pendingWakes[conversation.id],
+    undefined,
+    "stale pending wake must be discarded when the binding epoch changed before cleanup"
+  );
+  assert.equal(
+    restartedAfterRebindCrash.alarms.has(`local-agent-chat:${conversation.id}`),
+    false,
+    "stale cross-binding pending wake must not create an immediate event alarm"
+  );
 
   console.log("Chat Bridge event wake restart persistence tests passed.");
 })().catch((error) => {
