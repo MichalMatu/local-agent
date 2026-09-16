@@ -41,15 +41,20 @@ function sanitizeTaskWatch(raw) {
   const repository = stateModel.sanitizeRepository(raw.repository);
   const agentBinding = stateModel.sanitizeAgentBinding(raw.agentBinding);
   const taskId = String(raw.taskId || "");
+  const bindingRevision = Number(raw.bindingRevision);
+  const bindingSetAt = boundedIso(raw.bindingSetAt);
   if (!protocol.CHAT_ID_RE.test(conversationId) || !repositoryId || !repository || !agentBinding || !protocol.TASK_ID_RE.test(taskId)) {
     return null;
   }
+  if (!Number.isInteger(bindingRevision) || bindingRevision < 1 || !bindingSetAt) return null;
   return {
     conversationId,
     repositoryId,
     repository,
     agentBinding,
     taskId,
+    bindingRevision,
+    bindingSetAt,
     createdAt: boundedIso(raw.createdAt) || new Date().toISOString()
   };
 }
@@ -87,10 +92,21 @@ function sanitizePendingWake(raw) {
   if (!raw || typeof raw !== "object") return null;
   const eventId = String(raw.eventId || "");
   const taskId = String(raw.taskId || "");
+  const repositoryId = stateModel.sanitizeRepositoryId(raw.repositoryId);
+  const repository = stateModel.sanitizeRepository(raw.repository);
+  const agentBinding = stateModel.sanitizeAgentBinding(raw.agentBinding);
+  const bindingRevision = Number(raw.bindingRevision);
+  const bindingSetAt = boundedIso(raw.bindingSetAt);
   if (!NATIVE_EVENT_ID_RE.test(eventId) || !protocol.TASK_ID_RE.test(taskId)) return null;
+  if (!repositoryId || !repository || !agentBinding || !Number.isInteger(bindingRevision) || bindingRevision < 1 || !bindingSetAt) return null;
   return {
     eventId,
     taskId,
+    repositoryId,
+    repository,
+    agentBinding,
+    bindingRevision,
+    bindingSetAt,
     receivedAt: boundedIso(raw.receivedAt) || new Date().toISOString()
   };
 }
@@ -170,6 +186,42 @@ function eventMatchesWatch(event, watch) {
   );
 }
 
+function watchMatchesConversation(watch, conversation) {
+  return Boolean(
+    watch && conversation && stateModel.isBoundConversation(conversation) &&
+    conversation.id === watch.conversationId &&
+    conversation.repositoryId === watch.repositoryId &&
+    conversation.repository === watch.repository &&
+    conversation.agentBinding === watch.agentBinding &&
+    conversation.bindingRevision === watch.bindingRevision &&
+    conversation.bindingSetAt === watch.bindingSetAt
+  );
+}
+
+function pendingWakeMatchesConversation(pending, conversation) {
+  return Boolean(
+    pending && conversation && stateModel.isBoundConversation(conversation) &&
+    conversation.repositoryId === pending.repositoryId &&
+    conversation.repository === pending.repository &&
+    conversation.agentBinding === pending.agentBinding &&
+    conversation.bindingRevision === pending.bindingRevision &&
+    conversation.bindingSetAt === pending.bindingSetAt
+  );
+}
+
+function pendingWakeFromEvent(event, watch) {
+  return {
+    eventId: event.eventId,
+    taskId: event.taskId,
+    repositoryId: watch.repositoryId,
+    repository: watch.repository,
+    agentBinding: watch.agentBinding,
+    bindingRevision: watch.bindingRevision,
+    bindingSetAt: watch.bindingSetAt,
+    receivedAt: event.receivedAt
+  };
+}
+
 function recentEventForWatch(state, watch) {
   return Object.values(state.recentEvents)
     .filter((event) => eventMatchesWatch(event, watch))
@@ -186,6 +238,8 @@ async function registerTaskWatch(conversation, taskId) {
     repository: conversation.repository,
     agentBinding: conversation.agentBinding,
     taskId,
+    bindingRevision: conversation.bindingRevision,
+    bindingSetAt: conversation.bindingSetAt,
     createdAt: new Date().toISOString()
   });
   if (!watch) return { ok: false, reason: "task_watch_invalid" };
@@ -204,11 +258,7 @@ async function registerTaskWatch(conversation, taskId) {
     state.watches[conversation.id] = watch;
     const event = recentEventForWatch(state, watch);
     if (event) {
-      state.pendingWakes[conversation.id] = {
-        eventId: event.eventId,
-        taskId: event.taskId,
-        receivedAt: event.receivedAt
-      };
+      state.pendingWakes[conversation.id] = pendingWakeFromEvent(event, watch);
       delete state.watches[conversation.id];
     } else {
       delete state.pendingWakes[conversation.id];
@@ -241,7 +291,21 @@ async function clearTaskWatch(chatId, { clearPending = true } = {}) {
 
 async function pendingEventWake(chatId) {
   const state = await loadEventWakeState();
-  return state.pendingWakes[chatId] || null;
+  const pending = state.pendingWakes[chatId] || null;
+  if (!pending) return null;
+  const bridgeState = await getBridgeState();
+  const conversation = bridgeState.conversations[chatId];
+  if (pendingWakeMatchesConversation(pending, conversation)) return pending;
+
+  await mutateEventWakeState((nextState) => {
+    const current = nextState.pendingWakes[chatId];
+    if (current && current.eventId === pending.eventId &&
+        current.bindingRevision === pending.bindingRevision && current.bindingSetAt === pending.bindingSetAt) {
+      delete nextState.pendingWakes[chatId];
+    }
+    return nextState;
+  });
+  return null;
 }
 
 async function acceptNativeTaskEvent(rawEvent) {
@@ -264,19 +328,13 @@ async function acceptNativeTaskEvent(rawEvent) {
     if (!watch) return { state, value: { ok: true, reason: "event_cached", matchedChatId: null } };
 
     const conversation = bridgeState.conversations[watch.conversationId];
-    if (!conversation || !stateModel.isBoundConversation(conversation) ||
-        conversation.repositoryId !== watch.repositoryId || conversation.repository !== watch.repository ||
-        conversation.agentBinding !== watch.agentBinding) {
+    if (!watchMatchesConversation(watch, conversation)) {
       delete state.watches[watch.conversationId];
       delete state.pendingWakes[watch.conversationId];
       return { state, value: { ok: true, reason: "event_cached_stale_watch", matchedChatId: null } };
     }
 
-    state.pendingWakes[watch.conversationId] = {
-      eventId: event.eventId,
-      taskId: event.taskId,
-      receivedAt: event.receivedAt
-    };
+    state.pendingWakes[watch.conversationId] = pendingWakeFromEvent(event, watch);
     delete state.watches[watch.conversationId];
     return {
       state,
