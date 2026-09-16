@@ -2,10 +2,10 @@
 
 Branch: `feature/chat-bridge-event-wake`
 PR: `#77` (must remain draft during this audit)
-Candidate extension: `0.5.11`
+Candidate extension: `0.5.12`
 
 > [!IMPORTANT]
-> Do not merge this branch to `main` during pre-merge validation. In this repository a `main` update may trigger the installed Local Agent self-update path. Release/merge requires an explicit operator decision after the remaining real-machine gates below.
+> Do not merge this branch to `main` during pre-merge validation. In this repository a `main` update may trigger the installed Local Agent self-update path. Release/merge requires an explicit operator decision.
 
 ## Intended property
 
@@ -30,7 +30,9 @@ The event path adds no execution authority:
 - assistant controls cannot mutate repository binding or global Master;
 - `task_result_ready` never substitutes for exact result inspection.
 
-Result: no new repository-write/executor capability found in the event transport.
+Every Local Agent task JSON must use the exact bound `agent_binding` when execution is enabled. A `bridge/operator-only` conversation does not create Local Agent project task files. Never infer, substitute, inspect, queue, cancel, or execute work for another repository.
+
+Result: no new repository-write/executor capability was introduced by the event transport.
 
 ## Publication-order audit
 
@@ -70,7 +72,7 @@ The host uses bounded Chrome Native Messaging framing, validates the exact Chrom
 
 On disconnect the extension reconnects with bounded exponential backoff starting at 5 seconds. Native transport is on-demand rather than a permanent MV3 keepalive and suspends while PAUSE/operator-disable/Master-off prevents delivery.
 
-Installer/status diagnostics verify host name/type/path/origin, wrapper executable and restrictive modes.
+Final operator-Mac installer status reported `healthy = true`, `problems = []`, manifest mode `0o600`, executable wrapper mode `0o700`, expected wrapper match, and exact registered extension origin.
 
 ## Golden-standard structure audit
 
@@ -99,7 +101,6 @@ Key enforced invariants:
 - persistence/routing does not call Native Messaging, scheduling or prompt construction;
 - import order follows dependencies;
 - `worker_binding.js` owns event/planner prompt policy;
-- scheduling guidance derives from the formal LAB command catalog;
 - Native Messaging has handshake timeout and incompatible-state diagnostics;
 - persisted diagnostics are bounded/allowlisted;
 - malformed/far-future cached timestamps fail closed.
@@ -119,15 +120,17 @@ Persisted ownership also stores `bindingRevision` + `bindingSetAt`, preventing o
 
 A second conversation cannot take the same exact task tuple while the original watch or pending wake owns it. Fast-task race is closed by durable Local Agent outbox plus Bridge recent-event cache: event-before-watch is promoted when the exact watch is later registered.
 
-## Delivery/restart audit
+## Delivery and restart audit
 
-Pending events are consumed only after successful ChatGPT delivery. Tests cover missing tab, transient delivery failure, MV3 worker restart before event and before delivery, stale-owner cleanup, duplicate replay and cross-binding isolation.
+Pending events are consumed only after successful ChatGPT delivery. Missing tab, content readiness failures and retryable renderer states such as `assistant_busy` retain the exact pending event. `assistant_busy` is explicitly in the retry set and uses the configured busy retry interval rather than consuming the event.
 
-Scheduled reconciliation remains armed even when Native Messaging is absent or broken. `WAIT_TASK` therefore uses Native Messaging as latency optimization, not as correctness dependency.
+0.5.12 adds bounded browser-startup reconciliation for a gap found in live 0.5.11 testing. A session-restored ChatGPT tab can appear after `onStartup` and may already be complete, so waiting only for `tabs.onUpdated(status=complete)` is insufficient. Browser startup therefore arms three one-shot reconciliation passes at approximately 1 s, 3 s and 8 s. Each pass refreshes configured content scripts and re-arms exact pending wakes. This is bounded recovery, not permanent polling.
+
+Scheduled reconciliation remains armed when Native Messaging is absent or broken. `WAIT_TASK` therefore uses Native Messaging as a latency optimization, not as the sole correctness mechanism.
 
 ## Prompt payload budget audit
 
-0.5.11 separates one-time bootstrap from compact repeated wakes without weakening fail-closed safety text.
+The compact runtime separates one-time bootstrap from repeated wakes without weakening fail-closed safety text.
 
 Measured worst-case prompt sizes:
 
@@ -137,87 +140,74 @@ wake:      1041 characters
 event:      661 characters
 ```
 
-The event prompt is intentionally smallest: hard-bound identity/safety context + exact event/task + instruction to read authoritative result evidence. It does not repeat the full bootstrap/control catalog.
+The event prompt is intentionally smallest: hard-bound identity/safety context + exact event/task + instruction to read authoritative result evidence.
 
 ## Automated CI evidence
 
-The final live-loaded code/docs candidate `c69ebeb5bd3fe56ae385ef4b5c0aedbc1596a5f4` passed GitHub Actions run #791 (`35111409415`) with all jobs green:
+Exact final live-loaded 0.5.12 code candidate:
 
-- `test`, including compile, lint, Chat Bridge validation, unit and integration tests;
-- `bridge-browser` disposable Chromium delivery/restart smoke;
-- `coverage`;
-- `python-314`;
-- `macos-smoke`.
+- commit `8da2dd576fd2d5e076961886492f59c0164fdbf2`;
+- GitHub Actions run #801 (`35117866465`);
+- `test`, `bridge-browser`, `coverage`, `python-314` and `macos-smoke` all green.
 
-The earlier pre-evidence 0.5.11 candidate `adfc62d8754ae57e96eb7892041de6b566a3d20a` also passed full CI #789 (`35110618291`).
+The browser regression suite includes the restored-tab startup case that was missing from the earlier 0.5.11 test harness.
 
-Evidence-only documentation commits after live validation move the PR head, so the final PR head must independently return green CI before release. These documentation commits do not change runtime behavior.
+Evidence-only documentation commits after this code candidate move the PR head. The final documentation-synchronized head is therefore verified separately and recorded in the PR conversation/final review rather than by another self-invalidating documentation edit.
 
 ## Real Mac / live ChatGPT evidence
 
-Exact candidate `c69ebeb5bd3fe56ae385ef4b5c0aedbc1596a5f4` was loaded from the dedicated candidate worktree and verified live with:
+### Existing end-to-end delivery gates — PASSED
 
-- extension `0.5.11`;
-- content protocol `7/7`;
-- exact `local-agent` repository/chat/binding retained;
-- Native Messaging protocol v1 connected on demand;
-- live compact wake payload path active.
+Earlier real-Chrome tests proved:
 
-Previous 0.5.10 live tests proved both exact watch-before-event and event-before-watch durable replay through the current Chrome/ChatGPT renderer.
+- exact watch-before-event live delivery;
+- exact event-before-watch durable replay and live delivery;
+- native-host kill -> durable outbox -> reconnect -> replay -> ACK -> live ChatGPT delivery;
+- accepted event id equals delivered event id;
+- pending/watch state is consumed only after successful delivery;
+- Native Messaging returns to idle after delivery.
 
-### 0.5.11 host kill/restart durable replay — PASSED
+For the host restart test, accepted and delivered event id was `evt-4174b0dd4c6e6142746e5d32146474ed`, accepted at `2026-09-16T15:04:27.252Z` and delivered at `2026-09-16T15:04:28.972Z`.
 
-Task/watch: `e2e-host-restart-0510-20260916`.
+### Full Chrome restart 0.5.11 — gap reproduced
 
-The exact native host PID `97585` was identified as the expected `local_agent.platform.chrome_native_host` process for extension `emgnoogeajmnkpijlaedlooabdgbblgb`, then killed with SIGTERM. The matching event was immediately queued through production `record_published_result()` into the real default outbox, before the 5-second minimum reconnect window elapsed.
+Task `e2e-chrome-restart-0511-20260916` produced event `evt-b1ca5559ea7bc25620a7fe3407cbd291`. The event was accepted at `2026-09-16T15:22:05.726Z` but not delivered until `2026-09-16T15:35:15.850Z`, after later page activity. This exposed the restored-tab readiness gap addressed by 0.5.12.
 
-Post-test DEBUG proved:
+### Full Chrome restart 0.5.12 — replay/retention PASSED; immediate send not claimed
 
-- `lastStatus = event_sent:e2e-host-restart-0510-20260916`;
-- accepted and delivered event id both `evt-4174b0dd4c6e6142746e5d32146474ed`;
-- `lastAcceptedTaskId = e2e-host-restart-0510-20260916`;
-- new Native Messaging connection recorded at `2026-09-16T15:04:27.252Z`;
-- event delivered at `2026-09-16T15:04:28.972Z`;
-- final `currentWatch = null`;
-- final `pendingWake = null`;
-- final native transport `idle`, `lastError = null`.
+Final live task: `e2e-chrome-restart-final-0512-20260916`.
 
-This closes the real-Mac transport gate for:
+After full Chrome quit, creation of the matching synthetic event while Chrome was closed, and browser restart, fresh DEBUG on exact 0.5.12 proved:
 
-```text
-active WAIT_TASK
- -> host crash/kill
- -> durable event queued during outage
- -> native reconnect/restart
- -> replay + ACK
- -> live ChatGPT delivery confirmation
- -> watch/pending consumption
- -> transport idle
-```
+- extension `0.5.12`, content protocol `7/7`;
+- exact repository/chat/binding retained;
+- event `evt-5a518b7b5f2d3a5d5f5506a33d39ea33` accepted at `2026-09-16T15:56:27.716Z`;
+- `currentWatch = null` after exact event acceptance;
+- the same event remained as `pendingWake`;
+- Native Messaging connected at `2026-09-16T15:56:27.714Z`, ACK/replay completed and transport returned to idle with no error;
+- delivery attempt reported `assistant_busy`;
+- one-minute retry remained scheduled;
+- the event was not consumed and was not falsely marked delivered.
 
-This is transport/recovery proof, not semantic real-task publication proof: the event was synthetic and no authoritative real `.agent/results/<task-id>.json` was manufactured in this bridge/operator-only repository.
+This is strong evidence that the 0.5.12 browser-startup recovery closes the lost/readiness side of the cold-start path: the durable event is replayed, accepted, persisted and retained safely across a renderer-busy attempt. It is **not** evidence of a successful immediate ChatGPT injection after full Chrome restart, because that final UI send was not observed in the operator run.
 
-Full timestamps/event ids and previous 0.5.10 evidence are recorded in `docs/chat_bridge/LIVE_EVIDENCE_2026-09-16.md`.
+The branch is intentionally frozen at this point rather than extending operator testing indefinitely.
 
-## Remaining real-machine release gates
+Full timestamps and event ids are recorded in `docs/chat_bridge/LIVE_EVIDENCE_2026-09-16.md`.
 
-Still open:
+## Remaining release evidence
 
-1. final PR-head full CI green after the evidence-only documentation commits;
-2. explicit native-host installer `status --extension-id <id>` health output on the final loaded candidate path;
-3. real short Local Agent task finishing before watch registration wakes correctly;
-4. real multi-minute task produces no periodic no-change polling spam;
-5. real done/failed/rejected/cancelled result wakes;
-6. real deferred result publication wakes only after remote publication succeeds;
-7. restart Chrome with pending/outbox state and verify recovery;
-8. restart Local Agent around result publication and verify no lost authoritative result/event;
-9. verify polling-only fallback with host intentionally absent.
+Still open, but not grounds for further manual testing in this audit session:
 
-Closed live gate:
+1. a real short Local Agent task whose authoritative result publication precedes the wake;
+2. real multi-minute task with no repeated healthy polling spam;
+3. real done/failed/rejected/cancelled result wakes;
+4. real deferred result publication wake only after successful publication;
+5. Local Agent restart around result publication;
+6. polling-only fallback with Native Messaging intentionally absent;
+7. an observed successful immediate ChatGPT send after full Chrome restart while the renderer is not busy.
 
-- [x] kill/restart native host and verify durable replay to the exact live conversation.
-
-The semantic real-task gates cannot be manufactured inside this `local-agent` conversation because its catalog binding is deliberately `execution_enabled: false` and bridge/operator-only.
+The semantic real-task gates cannot be manufactured inside this `local-agent` conversation because its catalog binding is deliberately execution-disabled and `bridge/operator-only`.
 
 ## Explicit non-goals for v1
 
@@ -234,4 +224,4 @@ Do not add before release without a new security/design review:
 
 ## Merge gate
 
-The branch is pre-merge ready only when automated checks are green and the required real-machine gates are recorded. Even then, merge is a separate explicit operator action because it may activate Local Agent autoupdate.
+The implementation/audit branch may be frozen when exact-head CI is green and the evidence above is recorded. Release readiness is a separate decision because some semantic real-task evidence remains open. Merge is always a separate explicit operator action because it may activate Local Agent autoupdate.
