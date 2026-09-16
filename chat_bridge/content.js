@@ -384,6 +384,7 @@
   }
 
   async function drainLatestAssistantControlBeforeFeedback() {
+    if (assistantIsGenerating()) return { ok: false, reason: "assistant_busy" };
     const latest = latestAssistantMessage();
     if (!latest) return { ok: true };
     const control = parseAssistantControl(latest.text);
