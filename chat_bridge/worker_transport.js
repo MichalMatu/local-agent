@@ -158,9 +158,11 @@ function definitelyNoContentReceiver(error) {
   return /receiving end does not exist|could not establish connection/i.test(text);
 }
 
-async function updateConversationStatus(chatId, patch) {
+async function updateConversationStatus(chatId, patch, expectedGeneration = null) {
   return mutateState((state) => {
-    if (!state.conversations[chatId]) return state;
+    const conversation = state.conversations[chatId];
+    if (!conversation) return state;
+    if (expectedGeneration !== null && conversation.generation !== expectedGeneration) return state;
     return stateModel.patchConversation(state, chatId, patch).state;
   });
 }
@@ -178,11 +180,14 @@ async function reportConversationExhausted(message, sender) {
   const state = await getBridgeState();
   const conversation = conversationForSender(state, message, sender);
   if (!conversation) return { ok: false, reason: "conversation_not_found" };
-  const generation = conversation.generation;
+  const bindingRevision = conversation.bindingRevision;
   const result = await mutateState((current) => {
     const latest = current.conversations[conversation.id];
-    if (!latest || latest.generation !== generation || latest.url !== conversation.url) {
+    if (!latest || latest.url !== conversation.url || latest.bindingRevision !== bindingRevision) {
       return { state: current, value: null };
+    }
+    if (!latest.enabled && latest.lastStatus === "conversation_exhausted") {
+      return { state: current, value: latest.generation };
     }
     const disabledGeneration = latest.generation + 1;
     return {
