@@ -85,21 +85,23 @@ async function reconcileSchedules() {
 
   if (!state.settings.masterEnabled) {
     await Promise.all(
-      Object.keys(state.conversations).map((id) => clearConversationAlarm(id, null, false))
+      Object.values(state.conversations).map((conversation) =>
+        clearConversationAlarm(conversation.id, conversation.generation, false)
+      )
     );
     return;
   }
 
   for (const conversation of Object.values(state.conversations)) {
     if (!conversation.enabled || !stateModel.isBoundConversation(conversation)) {
-      await clearConversationAlarm(conversation.id);
+      await clearConversationAlarm(conversation.id, conversation.generation);
       continue;
     }
     const storedWhen = Date.parse(conversation.nextRunAt || "");
     if (Number.isFinite(storedWhen) && storedWhen > Date.now() + 1000) {
       await scheduleAt(conversation.id, storedWhen, conversation.generation);
     } else {
-      await scheduleDefault(conversation.id);
+      await scheduleDefault(conversation.id, false, conversation.generation);
     }
   }
 }
