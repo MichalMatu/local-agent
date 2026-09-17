@@ -43,7 +43,9 @@ async function upsertConversation(patch) {
     }
     return { state: upserted.state, conversation: upserted.conversation };
   });
-  if (result.conversation?.enabled) await scheduleDefault(result.conversation.id, true);
+  if (result.conversation?.enabled) {
+    await scheduleDefault(result.conversation.id, true, result.conversation.generation);
+  }
   return result.conversation;
 }
 
@@ -76,7 +78,7 @@ async function rebindConversation(chatId, patch) {
     });
     return { state: updated.state, conversation: updated.conversation };
   });
-  await scheduleDefault(chatId, true);
+  await scheduleDefault(chatId, true, result.conversation.generation);
   return result.conversation;
 }
 
