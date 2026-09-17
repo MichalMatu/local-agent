@@ -126,7 +126,7 @@ function holdNextDefaultSchedule(harness, signal, release, suffix) {
     assert.equal(h.alarms.has(alarmName), true);
   }
 
-  // A rebind's delayed bootstrap schedule cannot overwrite a newer NEXT on the new binding.
+  // A rebind's delayed bootstrap schedule cannot overwrite newer operator pacing.
   {
     const h = createHarness();
     const id = await addConversation(h);
@@ -143,22 +143,22 @@ function holdNextDefaultSchedule(harness, signal, release, suffix) {
     await scheduleReady.promise;
     assert.equal(h.storage.bridgeState.conversations[id].agentBinding, h.TRACKER_BINDING);
 
-    const next = await h.sendRuntimeMessage({
-      type: "bridge:assistant-control",
-      conversationUrl: "https://chatgpt.com/c/a",
-      fingerprint: "fedcba98",
-      control: { marker: "[LAB:NEXT=30s]" }
-    }, { tab: { id: 11, url: "https://chatgpt.com/c/a" } });
-    assert.equal(next.ok, true);
-    assert.equal(next.reason, "next_scheduled");
-    const nextGeneration = h.storage.bridgeState.conversations[id].generation;
-    const nextWhen = h.alarms.get(alarmName).when;
+    const pacing = await h.sendRuntimeMessage({
+      type: "bridge:update-conversation",
+      conversationId: id,
+      patch: { intervalOverrideMinutes: 7 }
+    });
+    assert.equal(pacing.ok, true, pacing.error);
+    const pacingGeneration = h.storage.bridgeState.conversations[id].generation;
+    const pacingWhen = h.alarms.get(alarmName).when;
+    assert.equal(h.storage.bridgeState.conversations[id].intervalOverrideMinutes, 7);
 
     releaseSchedule.resolve();
     const rebound = await rebind;
     assert.equal(rebound.ok, true, rebound.error);
-    assert.equal(h.storage.bridgeState.conversations[id].generation, nextGeneration);
-    assert.equal(h.alarms.get(alarmName).when, nextWhen);
+    assert.equal(h.storage.bridgeState.conversations[id].generation, pacingGeneration);
+    assert.equal(h.storage.bridgeState.conversations[id].intervalOverrideMinutes, 7);
+    assert.equal(h.alarms.get(alarmName).when, pacingWhen);
   }
 
   // Stale asynchronous status from an older generation cannot overwrite newer control state.
