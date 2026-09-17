@@ -14,6 +14,7 @@
     {
       "repository_id": "litegraph",
       "repository": "MichalMatu/esp32s3_LiteGraph",
+      "work_branch": "main",
       "agent_binding": "2db52048-57ea-4643-bf4b-1ea5c5c3fa86",
       "execution_enabled": true
     },
