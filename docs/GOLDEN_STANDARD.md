@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.21` and the current production release is `v4.18.21`. The 4.18.21 change hardens Chat Bridge schedule ordering: delayed schedule, clear and status side effects are generation-ordered, confirmed conversation exhaustion remains terminal for the same hard binding, and stale exhaustion cannot cross an explicit Rebind. Chat Bridge advances to `0.5.8` while content protocol remains `v6`; task schema, `work_branch`, repository binding, resource scheduling, executor and result contracts are unchanged. `v4.18.20` remains the immediate rollback point for the prior production source, while `v4.18.18` remains the immutable rollback point for the prior runtime/browser release.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.22` and the current production release is `v4.18.22`. The 4.18.22 release allows explicit assistant-controlled Chat Bridge `ADD`, `REBIND` and `REMOVE` mutations using exact runtime-catalog repository ids, keeps each wake hard-bound to one repository, and makes Bridge-local reload maintenance independent of ordinary binding bootstrap freshness. Chat Bridge advances to `0.5.9` and content protocol to `v7`; task schema, `work_branch`, resource scheduling, executor and result contracts are unchanged. `v4.18.21` remains the immediate rollback point.
 
 ## Release/runtime invariants
 
@@ -122,10 +122,11 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - Transient assistant-control delivery failures use bounded retry/backoff and must not permanently exhaust after a fixed small number of attempts.
 - A Bridge-owned prompt retained after `send_button_not_ready` or `delivery_unconfirmed` may be reused only when the composer still matches the exact prompt; any operator edit blocks automatic reuse.
 - Immediately before submission Bridge must re-resolve the current enabled ChatGPT Send button and use its live DOM `click()` path as the primary action; `form.requestSubmit()` may be used only as a last-resort fallback and never with a stale button reference.
-- Assistant-safe LAB inspection/diagnostic commands may return Bridge-generated read-only evidence into the same conversation but must never change repository binding or grant executor/repository-write authority.
-- `LAB:OP:*` mutations are accepted only from user-authored ChatGPT messages in the exact top-frame conversation; assistant messages cannot execute the operator namespace.
+- Assistant LAB inspection/diagnostic commands are read-only; repository binding changes require an explicit exact-id `[LAB:ADD=<repository-id>]`, `[LAB:REBIND=<repository-id>]`, or `[LAB:REMOVE]` control and create a fresh bootstrap boundary before work may continue under a new binding.
+- `LAB:OP:*` mutations remain accepted only from user-authored ChatGPT messages in the exact top-frame conversation; assistant messages use the non-`OP` control namespace instead.
 - Global `CHATS`/cross-chat routing inspection is available only from the `local-agent` infrastructure binding; ordinary project chats remain current-chat scoped.
-- LAB operator-command dedupe is persistent and bounded independently from conversation state so onboarding/removal/reload controls do not replay across extension/content reloads.
+- Assistant and operator binding-control dedupe is persistent and bounded independently from conversation state so onboarding/removal/reload controls do not replay across extension/content reloads.
+- The global Bridge Master switch and Local Agent emergency-disable marker remain independent manual kill switches and are not changed by assistant binding controls.
 
 ## Verification/release gate
 

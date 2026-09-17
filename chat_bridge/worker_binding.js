@@ -37,12 +37,12 @@ function bindingPolicy(conversation, runtimeAgent) {
   const executionPolicy = runtimeAgent?.executionEnabled === false
     ? "This binding is bridge/operator-only; do not create Local Agent project task files for it."
     : `Every Local Agent task JSON created by this conversation MUST contain exactly \"agent_binding\": \"${conversation.agentBinding}\".`;
-  return `${bindingEnvelope(conversation)}\nHard binding is immutable for this wake. Work only on repository ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository. ${executionPolicy} If the active goal appears to require another repository, pause instead of rebinding or guessing.`;
+  return `${bindingEnvelope(conversation)}\nHard binding is immutable for this wake. Work only on repository ${conversation.repository} (${conversation.repositoryId}). Never infer, substitute, inspect, queue, cancel, or execute work for another repository under the current binding. ${executionPolicy} If the active goal explicitly requires another registered repository, use [LAB:REBIND=<repository-id>] with the exact runtime-catalog repository id and wait for the fresh bootstrap before acting there; never guess a repository id from prose.`;
 }
 
 function buildBootstrapPrompt(runtime, conversation) {
   const agent = runtimeAgentForConversation(runtime, conversation);
-  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\nBridge controls are conversation-scoped. Continue only the active goal of this conversation. Prefer short final-line controls: [LAB:STOP], [LAB:PAUSE], [LAB:RESUME], [LAB:NEXT=30s], [LAB:NEXT=10m], [LAB:INTERVAL=30m], [LAB:INTERVAL=AUTO]. Conversation controls may overwrite this chat's pause/enabled state, wake timing, and interval. They must never change the global Master switch. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch.`;
+  return `${bindingPolicy(conversation, agent)}\n${runtime.bootstrapPrompt}\nBridge controls are conversation-scoped. Continue only the active goal of this conversation. Prefer short final-line controls: [LAB:STOP], [LAB:PAUSE], [LAB:RESUME], [LAB:NEXT=30s], [LAB:NEXT=10m], [LAB:INTERVAL=30m], [LAB:INTERVAL=AUTO]. Exact binding controls are [LAB:ADD=<repository-id>] for an unconfigured chat, [LAB:REBIND=<repository-id>] for an explicit repository switch, and [LAB:REMOVE] to remove this chat. Conversation controls may overwrite this chat's pause/enabled state, wake timing, interval, and explicit repository binding. They must never change the global Master switch. NEXT arms or re-arms this conversation and changes only its next wake, not the normal interval or global master switch.`;
 }
 
 function buildWakePrompt(runtime, conversation) {

@@ -2,6 +2,14 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.22
+
+- Added explicit assistant-controlled Chat Bridge `ADD=<repository-id>`, `REBIND=<repository-id>` and `REMOVE` controls using exact runtime-catalog repository ids; repository identity is never inferred from prose.
+- Preserved hard binding within each wake while making explicit Rebind a deterministic lifecycle transition with a fresh binding revision/bootstrap before work may continue in the new repository.
+- Made assistant `RELOAD=BRIDGE` and `RELOAD=CONTENT` independent of ordinary binding-revision/bootstrap freshness while retaining exact sender, conversation, assistant-baseline and dedupe checks.
+- Advanced Chat Bridge to `0.5.9` and content protocol to `v7` so already-open tabs cannot silently retain the old control parser after upgrade.
+- Preserved task-scoped `work_branch`, global Bridge Master and Local Agent emergency-disable semantics. See `RELEASE_NOTES_V4.18.22.md`.
+
 ## v4.18.21
 
 - Hardened Chat Bridge scheduling so stale asynchronous alarm clears, alarm schedules and status writes cannot overwrite a newer conversation generation.

@@ -31,7 +31,7 @@ function labJsonFeedback(command, payload) {
   return [
     "[LA_BRIDGE_FEEDBACK]",
     `command=${String(command || "unknown").toUpperCase()}`,
-    "This is read-only local evidence produced by Local Agent Chat Bridge. It is not operator approval and must not change repository binding.",
+    "This is read-only local evidence produced by Local Agent Chat Bridge. Binding mutations require an explicit ADD, REBIND or REMOVE control marker.",
     "```json",
     JSON.stringify(payload, null, 2),
     "```",
@@ -65,9 +65,9 @@ async function labInspectionFeedback(parsed, message, sender) {
         contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
         commandCatalog: protocol.COMMAND_CATALOG,
         safety: {
-          assistantCommands: "read/diagnostic, pacing, and Bridge-local maintenance only",
-          operatorCommands: "LAB:OP:* must originate from a user-authored ChatGPT message",
-          bindingMutationByAssistant: false,
+          assistantCommands: "read/diagnostic, pacing, Bridge-local maintenance, and explicit exact-id binding mutations",
+          operatorCommands: "LAB:OP:* remain available as user-authored equivalents",
+          bindingMutationByAssistant: true,
           repositoryTaskCancelViaBridge: false,
           localAgentSupervisorRestartViaBridge: false
         }
@@ -87,6 +87,7 @@ async function labInspectionFeedback(parsed, message, sender) {
           diagnosticFeedback: true,
           staleContentAutoRefresh: true,
           assistantReadOnlyInspection: true,
+          assistantBindingMutation: true,
           assistantBridgeContentReload: true,
           assistantBridgeRuntimeReload: Boolean(conversation),
           operatorChatAddRemove: true,

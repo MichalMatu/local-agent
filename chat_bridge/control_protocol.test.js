@@ -23,6 +23,28 @@ assert.deepEqual(parse("Continue.\n[LAB:RESUME]"), {
   action: "resume",
   marker: "[LAB:RESUME]"
 });
+assert.deepEqual(parse("Bind.\n[LAB:ADD=tracker]"), {
+  action: "inspect",
+  command: "add",
+  repositoryId: "tracker",
+  marker: "[LAB:ADD=tracker]"
+});
+assert.deepEqual(parse("Switch.\n[LAB:REBIND=matrixhub]"), {
+  action: "inspect",
+  command: "rebind",
+  repositoryId: "matrixhub",
+  marker: "[LAB:REBIND=matrixhub]"
+});
+assert.deepEqual(parse("Remove.\n[LAB:REMOVE]"), {
+  action: "inspect",
+  command: "remove",
+  marker: "[LAB:REMOVE]"
+});
+assert.deepEqual(parse("Reload.\n[LAB:RELOAD=BRIDGE]"), {
+  action: "inspect",
+  command: "reload_bridge",
+  marker: "[LAB:RELOAD=BRIDGE]"
+});
 assert.deepEqual(parse("Long task.\n[LOCAL_AGENT_BRIDGE:INTERVAL=30]"), {
   action: "interval",
   mode: "fixed",
@@ -51,6 +73,8 @@ assert.deepEqual(parse("Check later.\n[LOCAL_AGENT_BRIDGE:NEXT=10m]"), {
   marker: "[LOCAL_AGENT_BRIDGE:NEXT=10m]"
 });
 
+assert.equal(parse("[LAB:ADD=bad repo]"), null);
+assert.equal(parse("[LAB:REBIND=bad/repo]"), null);
 assert.equal(parse("[LAB:NEXT=29s]"), null);
 assert.equal(parse("[LAB:NEXT=1441m]"), null);
 assert.equal(parse("[LOCAL_AGENT_BRIDGE:INTERVAL=0]"), null);

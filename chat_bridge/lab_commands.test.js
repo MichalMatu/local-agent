@@ -9,7 +9,8 @@ function fingerprint(value) {
 }
 
 (async () => {
-  // Future-proof parser catalog keeps assistant and operator privilege domains separate.
+  // Assistant and operator controls remain explicitly named even though the assistant may now
+  // perform exact repository binding mutations through its own ADD/REBIND/REMOVE commands.
   for (const [marker, command] of [
     ["[LAB:HELP]", "help"],
     ["[LAB:CAPABILITIES]", "capabilities"],
@@ -17,7 +18,10 @@ function fingerprint(value) {
     ["[LAB:DEBUG]", "debug"],
     ["[LAB:SETTINGS]", "settings"],
     ["[LAB:CHATS]", "chats"],
-    ["[LAB:CHAT=chat-deadbeef]", "chat"]
+    ["[LAB:CHAT=chat-deadbeef]", "chat"],
+    ["[LAB:ADD=tracker]", "add"],
+    ["[LAB:REBIND=matrixhub]", "rebind"],
+    ["[LAB:REMOVE]", "remove"]
   ]) {
     const parsed = protocol.parseAssistantControl(marker);
     assert.equal(parsed?.action, "inspect", marker);
@@ -26,14 +30,14 @@ function fingerprint(value) {
   assert.ok(Number.isInteger(protocol.CONTENT_PROTOCOL_VERSION) && protocol.CONTENT_PROTOCOL_VERSION > 0);
   assert.equal(protocol.parseAssistantControl("[LAB:RELOAD=CONTENT]")?.command, "reload_content");
   assert.equal(protocol.parseAssistantControl("[LAB:RESTART=WORKER]")?.command, "reload_bridge");
-  assert.equal(protocol.parseAssistantControl("[LAB:OP:ADD=tracker]"), null, "assistant parser must not accept operator mutation");
+  assert.equal(protocol.parseAssistantControl("[LAB:OP:ADD=tracker]"), null, "assistant parser must not accept OP namespace");
   assert.equal(protocol.parseOperatorControl("[LAB:PAUSE]"), null, "operator parser must not accept assistant controls");
   assert.deepEqual(protocol.parseOperatorControl("[LAB:OP:ADD=tracker]"), {
     action: "operator", command: "add", repositoryId: "tracker", marker: "[LAB:OP:ADD=tracker]"
   });
   assert.equal(protocol.parseOperatorControl("[LAB:OP:INTERVAL=AUTO]")?.mode, "auto");
   assert.equal(protocol.parseOperatorControl("[LAB:OP:INTERVAL=10m]")?.minutes, 10);
-  assert.ok(protocol.COMMAND_CATALOG.some((item) => item.marker === "DEBUG" && item.privilege === "assistant"));
+  assert.ok(protocol.COMMAND_CATALOG.some((item) => item.marker === "ADD=<repository-id>" && item.privilege === "assistant"));
   assert.ok(protocol.COMMAND_CATALOG.some((item) => item.marker === "OP:ADD=<repository-id>" && item.privilege === "operator"));
 
   // DEBUG works even before a chat is configured, so Bridge can diagnose its own onboarding path.
@@ -61,7 +65,107 @@ function fingerprint(value) {
     );
   }
 
-  // User-authored OP controls can add/configure/remove exactly the current chat and dedupe persistently.
+  // Assistant binding mutations use exact runtime repository ids and persistent dedupe.
+  {
+    const h = createHarness();
+    const url = "https://chatgpt.com/c/a";
+    const sender = { tab: { id: 11, url } };
+    const chatId = protocol.conversationId(url);
+
+    let response = await h.sendRuntimeMessage({
+      type: "bridge:assistant-control",
+      conversationUrl: url,
+      fingerprint: fingerprint("assistant-add-tracker"),
+      assistantIdentity: "assistant-add-1",
+      chatLabel: "Project A",
+      contentProtocolVersion: protocol.CONTENT_PROTOCOL_VERSION,
+      control: { marker: "[LAB:ADD=tracker]" }
+    }, sender);
+    assert.equal(response.ok, true);
+    assert.equal(response.reason, "assistant_add");
+    assert.equal(h.storage.bridgeState.conversations[chatId].repositoryId, "tracker");
+    assert.equal(h.storage.bridgeState.conversations[chatId].enabled, true);
+    assert.equal(h.storage.bridgeState.conversations[chatId].assistantBaseline, "assistant-add-1");
+
+    response = await h.sendRuntimeMessage({
+      type: "bridge:assistant-control",
+      conversationUrl: url,
+      fingerprint: fingerprint("assistant-rebind-matrixhub"),
+      assistantIdentity: "assistant-rebind-1",
+      contentProtocolVersion: protocol.CONTENT_PROTOCOL_VERSION,
+      control: { marker: "[LAB:REBIND=matrixhub]" }
+    }, sender);
+    assert.equal(response.ok, true);
+    assert.equal(response.reason, "assistant_rebind");
+    assert.equal(h.storage.bridgeState.conversations[chatId].repositoryId, "matrixhub");
+    assert.equal(h.storage.bridgeState.conversations[chatId].bindingRevision, 2);
+    assert.equal(h.storage.bridgeState.conversations[chatId].enabled, true);
+
+    const removeFingerprint = fingerprint("assistant-remove");
+    response = await h.sendRuntimeMessage({
+      type: "bridge:assistant-control",
+      conversationUrl: url,
+      fingerprint: removeFingerprint,
+      assistantIdentity: "assistant-remove-1",
+      contentProtocolVersion: protocol.CONTENT_PROTOCOL_VERSION,
+      control: { marker: "[LAB:REMOVE]" }
+    }, sender);
+    assert.equal(response.ok, true);
+    assert.equal(response.reason, "assistant_remove");
+    assert.equal(h.storage.bridgeState.conversations[chatId], undefined);
+    assert.ok(h.storage.bridgeAssistantBindingControlDedupe?.[chatId]);
+
+    response = await h.sendRuntimeMessage({
+      type: "bridge:assistant-control",
+      conversationUrl: url,
+      fingerprint: removeFingerprint,
+      assistantIdentity: "assistant-remove-1",
+      contentProtocolVersion: protocol.CONTENT_PROTOCOL_VERSION,
+      control: { marker: "[LAB:REMOVE]" }
+    }, sender);
+    assert.equal(response.ok, true);
+    assert.equal(response.duplicate, true);
+  }
+
+  // Bridge-local assistant reload is allowed even while a newly rebound chat is bootstrap-pending.
+  {
+    const h = createHarness();
+    const url = "https://chatgpt.com/c/a";
+    const sender = { tab: { id: 11, url } };
+    const chatId = protocol.conversationId(url);
+    let response = await h.sendRuntimeMessage({
+      type: "bridge:operator-control",
+      conversationUrl: url,
+      fingerprint: fingerprint("reload-add-tracker"),
+      userIdentity: "user-add-1",
+      chatLabel: "Project A",
+      assistantBaseline: "assistant-old",
+      control: { marker: "[LAB:OP:ADD=tracker]" }
+    }, sender);
+    assert.equal(response.ok, true);
+    await h.sendRuntimeMessage({
+      type: "bridge:rebind-conversation",
+      conversationId: chatId,
+      binding: { repositoryId: "matrixhub" }
+    });
+    assert.equal(h.storage.bridgeState.conversations[chatId].bootstrapPending, true);
+    assert.equal(h.storage.bridgeState.conversations[chatId].bindingRevision, 2);
+
+    response = await h.sendRuntimeMessage({
+      type: "bridge:assistant-control",
+      conversationUrl: url,
+      fingerprint: fingerprint("assistant-reload-pending-bootstrap"),
+      assistantIdentity: "assistant-reload-new",
+      contentProtocolVersion: protocol.CONTENT_PROTOCOL_VERSION,
+      control: { marker: "[LAB:RELOAD=BRIDGE]" }
+    }, sender);
+    assert.equal(response.ok, true);
+    assert.equal(response.reason, "bridge_reload_requested");
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(h.runtimeReloads.length, 1);
+  }
+
+  // User-authored OP controls remain available as explicit operator equivalents.
   {
     const h = createHarness();
     const url = "https://chatgpt.com/c/a";
@@ -206,7 +310,7 @@ function fingerprint(value) {
     ]);
   }
 
-  console.log("LAB diagnostic, operator control and popup protocol recovery tests passed.");
+  console.log("LAB diagnostic, binding, operator control and popup protocol recovery tests passed.");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

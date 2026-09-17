@@ -7,7 +7,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function createProtocol() {
   "use strict";
 
-  const CONTENT_PROTOCOL_VERSION = 6;
+  const CONTENT_PROTOCOL_VERSION = 7;
   const MIN_INTERVAL_MINUTES = 1;
   const MAX_INTERVAL_MINUTES = 1440;
   const MIN_NEXT_SECONDS = 30;
@@ -24,6 +24,9 @@
     Object.freeze({ marker: "SETTINGS", privilege: "assistant", category: "inspect", description: "Show effective settings for this conversation." }),
     Object.freeze({ marker: "CHATS", privilege: "assistant", category: "inspect", description: "List configured chats; global list is restricted to the local-agent infrastructure binding." }),
     Object.freeze({ marker: "CHAT=<chat-id>", privilege: "assistant", category: "inspect", description: "Inspect one configured chat; cross-chat inspection is restricted to the local-agent infrastructure binding." }),
+    Object.freeze({ marker: "ADD=<repository-id>", privilege: "assistant", category: "binding", description: "Bind this unconfigured chat to one exact runtime-catalog repository id and enable it." }),
+    Object.freeze({ marker: "REBIND=<repository-id>", privilege: "assistant", category: "binding", description: "Explicitly change this configured chat to one exact runtime-catalog repository id." }),
+    Object.freeze({ marker: "REMOVE", privilege: "assistant", category: "binding", description: "Remove this chat from Bridge configuration." }),
     Object.freeze({ marker: "RELOAD=CONTENT", privilege: "assistant", category: "maintenance", description: "Replace content scripts in this exact ChatGPT tab and re-probe protocol readiness." }),
     Object.freeze({ marker: "RELOAD=BRIDGE", privilege: "assistant", category: "maintenance", description: "Reload the unpacked extension runtime after persisting control dedupe state." }),
     Object.freeze({ marker: "RESTART=WORKER", privilege: "assistant", category: "maintenance", description: "Alias for RELOAD=BRIDGE; Chrome exposes extension reload rather than an isolated service-worker restart API." }),
@@ -121,9 +124,25 @@
         ? { action: "inspect", command: "chat", chatId, marker }
         : null;
     }
-    if (body === "RELOAD=CONTENT") return { action: "maintenance", command: "reload_content", marker };
+
+    // These controls intentionally use the context-free transport path used by inspections.
+    // The worker still performs exact sender, catalog, state and dedupe validation before mutation.
+    if (body.startsWith("ADD=")) {
+      const repositoryId = body.slice("ADD=".length);
+      return REPOSITORY_ID_RE.test(repositoryId)
+        ? { action: "inspect", command: "add", repositoryId, marker }
+        : null;
+    }
+    if (body.startsWith("REBIND=")) {
+      const repositoryId = body.slice("REBIND=".length);
+      return REPOSITORY_ID_RE.test(repositoryId)
+        ? { action: "inspect", command: "rebind", repositoryId, marker }
+        : null;
+    }
+    if (body === "REMOVE") return { action: "inspect", command: "remove", marker };
+    if (body === "RELOAD=CONTENT") return { action: "inspect", command: "reload_content", marker };
     if (body === "RELOAD=BRIDGE" || body === "RESTART=WORKER") {
-      return { action: "maintenance", command: "reload_bridge", marker };
+      return { action: "inspect", command: "reload_bridge", marker };
     }
 
     if (body === "STOP") return { action: "stop", marker };
