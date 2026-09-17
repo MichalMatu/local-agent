@@ -110,11 +110,11 @@ async function updateConversation(chatId, patch) {
   });
 
   if (!result.conversation?.enabled) {
-    await clearConversationAlarm(chatId);
+    await clearConversationAlarm(chatId, result.conversation?.generation ?? null);
   } else if (result.value?.enabledChanged) {
-    await scheduleDefault(chatId, true);
+    await scheduleDefault(chatId, true, result.conversation.generation);
   } else if (result.value?.pacingChanged) {
-    await scheduleDefault(chatId);
+    await scheduleDefault(chatId, false, result.conversation.generation);
   }
   return result.conversation;
 }
@@ -129,4 +129,3 @@ async function deleteConversation(chatId) {
   });
   return result.state;
 }
-
