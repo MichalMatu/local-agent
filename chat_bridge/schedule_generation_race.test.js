@@ -40,6 +40,23 @@ function holdNextAlarmClear(harness, signal, release, suffix) {
   `);
 }
 
+function holdNextDefaultSchedule(harness, signal, release, suffix) {
+  harness.context[`signalDefaultSchedule${suffix}`] = signal.resolve;
+  harness.context[`releaseDefaultSchedule${suffix}`] = release.promise;
+  harness.evaluate(`
+    const originalScheduleDefault${suffix} = scheduleDefault;
+    let holdNextScheduleDefault${suffix} = true;
+    scheduleDefault = async function (...args) {
+      if (holdNextScheduleDefault${suffix}) {
+        holdNextScheduleDefault${suffix} = false;
+        signalDefaultSchedule${suffix}();
+        await releaseDefaultSchedule${suffix};
+      }
+      return originalScheduleDefault${suffix}(...args);
+    };
+  `);
+}
+
 (async () => {
   // A stale popup disable cleanup cannot clear a newer assistant NEXT schedule.
   {
@@ -107,6 +124,41 @@ function holdNextAlarmClear(harness, signal, release, suffix) {
     assert.equal(h.storage.bridgeState.settings.masterEnabled, true);
     assert.equal(h.storage.bridgeState.conversations[id].generation, currentGeneration);
     assert.equal(h.alarms.has(alarmName), true);
+  }
+
+  // A rebind's delayed bootstrap schedule cannot overwrite a newer NEXT on the new binding.
+  {
+    const h = createHarness();
+    const id = await addConversation(h);
+    const alarmName = `local-agent-chat:${id}`;
+    const scheduleReady = deferred();
+    const releaseSchedule = deferred();
+    holdNextDefaultSchedule(h, scheduleReady, releaseSchedule, "Rebind");
+
+    const rebind = h.sendRuntimeMessage({
+      type: "bridge:rebind-conversation",
+      conversationId: id,
+      binding: { agentBinding: h.TRACKER_BINDING }
+    });
+    await scheduleReady.promise;
+    assert.equal(h.storage.bridgeState.conversations[id].agentBinding, h.TRACKER_BINDING);
+
+    const next = await h.sendRuntimeMessage({
+      type: "bridge:assistant-control",
+      conversationUrl: "https://chatgpt.com/c/a",
+      fingerprint: "fedcba98",
+      control: { marker: "[LAB:NEXT=30s]" }
+    }, { tab: { id: 11, url: "https://chatgpt.com/c/a" } });
+    assert.equal(next.ok, true);
+    assert.equal(next.reason, "next_scheduled");
+    const nextGeneration = h.storage.bridgeState.conversations[id].generation;
+    const nextWhen = h.alarms.get(alarmName).when;
+
+    releaseSchedule.resolve();
+    const rebound = await rebind;
+    assert.equal(rebound.ok, true, rebound.error);
+    assert.equal(h.storage.bridgeState.conversations[id].generation, nextGeneration);
+    assert.equal(h.alarms.get(alarmName).when, nextWhen);
   }
 
   // Stale asynchronous status from an older generation cannot overwrite newer control state.
