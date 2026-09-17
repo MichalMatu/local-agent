@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.22` and the current production release is `v4.18.21`. The 4.18.22 candidate allows explicit assistant-controlled Chat Bridge `ADD`, `REBIND` and `REMOVE` mutations using exact runtime-catalog repository ids, keeps each wake hard-bound to one repository, and makes Bridge-local reload maintenance independent of ordinary binding bootstrap freshness. Chat Bridge advances to `0.5.9` and content protocol to `v7`; task schema, `work_branch`, resource scheduling, executor and result contracts are unchanged. `v4.18.21` remains the current production and immediate rollback point until the explicit release decision advances `main`.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.22` and the current production release is `v4.18.22`. The 4.18.22 release allows explicit assistant-controlled Chat Bridge `ADD`, `REBIND` and `REMOVE` mutations using exact runtime-catalog repository ids, keeps each wake hard-bound to one repository, and makes Bridge-local reload maintenance independent of ordinary binding bootstrap freshness. Chat Bridge advances to `0.5.9` and content protocol to `v7`; task schema, `work_branch`, resource scheduling, executor and result contracts are unchanged. `v4.18.21` remains the immediate rollback point.
 
 ## Release/runtime invariants
 
