@@ -2,6 +2,14 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.21
+
+- Hardened Chat Bridge scheduling so stale asynchronous alarm clears, alarm schedules and status writes cannot overwrite a newer conversation generation.
+- Preserved confirmed `conversation_exhausted` as terminal for the same hard binding while preventing a stale exhaustion report from crossing an explicit Rebind.
+- Added deterministic regression coverage for exhaustion/NEXT, exhaustion/Rebind, stale disable cleanup, master-off/master-on reconciliation, delayed Rebind bootstrap scheduling, and stale status writes.
+- Advanced Chat Bridge to `0.5.8` while retaining content protocol `v6`; task schema, `work_branch`, repository binding, resource scheduling, executor and result contracts are unchanged.
+- Preserved the known-good branch-neutral conversation binding model from `d2c23951456d1e1528e3c52e47bdd104294cf170`; source branch selection remains task-scoped and does not require Rebind. See `RELEASE_NOTES_V4.18.21.md`.
+
 ## v4.18.20
 
 - Prevented ChatGPT planner conversations from silently delegating Local Agent work to a local Codex CLI.
