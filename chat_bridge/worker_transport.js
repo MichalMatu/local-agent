@@ -179,18 +179,25 @@ async function reportConversationExhausted(message, sender) {
   const conversation = conversationForSender(state, message, sender);
   if (!conversation) return { ok: false, reason: "conversation_not_found" };
   const generation = conversation.generation;
-  await mutateState((current) => {
+  const result = await mutateState((current) => {
     const latest = current.conversations[conversation.id];
-    if (!latest || latest.generation !== generation || latest.url !== conversation.url) return current;
-    return stateModel.patchConversation(current, conversation.id, {
-      enabled: false,
-      generation: latest.generation + 1,
-      lastStatus: "conversation_exhausted",
-      lastRunAt: new Date().toISOString(),
-      nextRunAt: null
-    }).state;
+    if (!latest || latest.generation !== generation || latest.url !== conversation.url) {
+      return { state: current, value: null };
+    }
+    const disabledGeneration = latest.generation + 1;
+    return {
+      state: stateModel.patchConversation(current, conversation.id, {
+        enabled: false,
+        generation: disabledGeneration,
+        lastStatus: "conversation_exhausted",
+        lastRunAt: new Date().toISOString(),
+        nextRunAt: null
+      }).state,
+      value: disabledGeneration
+    };
   });
-  await clearConversationAlarm(conversation.id);
+  if (result.value === null) return { ok: false, reason: "conversation_state_changed" };
+  await clearConversationAlarm(conversation.id, result.value);
   return { ok: true, reason: "conversation_exhausted" };
 }
 
