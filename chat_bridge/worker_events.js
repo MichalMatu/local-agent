@@ -27,14 +27,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     const state = await getBridgeState();
     const conversation = state.conversations[chatId];
     if (!conversation) return;
+    const generation = conversation.generation;
     const runtime = await loadRuntimeConfig(state, conversation);
     await updateConversationStatus(chatId, {
       lastRunAt: new Date().toISOString(),
       lastStatus: `worker_error:${String(error)}`,
       lastRuntimeSource: runtime.source
-    });
+    }, generation);
     if (state.settings.masterEnabled && conversation.enabled && stateModel.isBoundConversation(conversation)) {
-      await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes);
+      await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes, generation);
     }
   });
 });

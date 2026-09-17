@@ -158,9 +158,11 @@ function definitelyNoContentReceiver(error) {
   return /receiving end does not exist|could not establish connection/i.test(text);
 }
 
-async function updateConversationStatus(chatId, patch) {
+async function updateConversationStatus(chatId, patch, expectedGeneration = null) {
   return mutateState((state) => {
-    if (!state.conversations[chatId]) return state;
+    const conversation = state.conversations[chatId];
+    if (!conversation) return state;
+    if (expectedGeneration !== null && conversation.generation !== expectedGeneration) return state;
     return stateModel.patchConversation(state, chatId, patch).state;
   });
 }
@@ -178,19 +180,29 @@ async function reportConversationExhausted(message, sender) {
   const state = await getBridgeState();
   const conversation = conversationForSender(state, message, sender);
   if (!conversation) return { ok: false, reason: "conversation_not_found" };
-  const generation = conversation.generation;
-  await mutateState((current) => {
+  const bindingRevision = conversation.bindingRevision;
+  const result = await mutateState((current) => {
     const latest = current.conversations[conversation.id];
-    if (!latest || latest.generation !== generation || latest.url !== conversation.url) return current;
-    return stateModel.patchConversation(current, conversation.id, {
-      enabled: false,
-      generation: latest.generation + 1,
-      lastStatus: "conversation_exhausted",
-      lastRunAt: new Date().toISOString(),
-      nextRunAt: null
-    }).state;
+    if (!latest || latest.url !== conversation.url || latest.bindingRevision !== bindingRevision) {
+      return { state: current, value: null };
+    }
+    if (!latest.enabled && latest.lastStatus === "conversation_exhausted") {
+      return { state: current, value: latest.generation };
+    }
+    const disabledGeneration = latest.generation + 1;
+    return {
+      state: stateModel.patchConversation(current, conversation.id, {
+        enabled: false,
+        generation: disabledGeneration,
+        lastStatus: "conversation_exhausted",
+        lastRunAt: new Date().toISOString(),
+        nextRunAt: null
+      }).state,
+      value: disabledGeneration
+    };
   });
-  await clearConversationAlarm(conversation.id);
+  if (result.value === null) return { ok: false, reason: "conversation_state_changed" };
+  await clearConversationAlarm(conversation.id, result.value);
   return { ok: true, reason: "conversation_exhausted" };
 }
 

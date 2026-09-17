@@ -18,12 +18,12 @@ async function deliverConversation(chatId, manual) {
       enabled: false,
       lastStatus: "binding_required",
       nextRunAt: null
-    });
-    await clearConversationAlarm(chatId);
+    }, conversation.generation);
+    await clearConversationAlarm(chatId, conversation.generation);
     return { ok: false, reason: "conversation_unbound" };
   }
   if ((!state.settings.masterEnabled || !conversation.enabled) && !manual) {
-    await clearConversationAlarm(chatId);
+    await clearConversationAlarm(chatId, conversation.generation);
     return { ok: false, reason: "disabled" };
   }
 
@@ -32,7 +32,7 @@ async function deliverConversation(chatId, manual) {
     await updateConversationStatus(chatId, {
       lastStatus: "runtime_unavailable",
       lastRuntimeSource: runtime.source
-    });
+    }, conversation.generation);
     if (!manual) await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes, conversation.generation);
     return { ok: false, reason: "runtime_unavailable", runtime };
   }
@@ -42,8 +42,8 @@ async function deliverConversation(chatId, manual) {
       enabled: false,
       lastStatus: "binding_catalog_mismatch",
       nextRunAt: null
-    });
-    await clearConversationAlarm(chatId);
+    }, conversation.generation);
+    await clearConversationAlarm(chatId, conversation.generation);
     return { ok: false, reason: "binding_catalog_mismatch", runtime };
   }
 
@@ -54,12 +54,12 @@ async function deliverConversation(chatId, manual) {
       lastRunAt: runAt,
       lastStatus: "conversation_tab_missing",
       lastRuntimeSource: runtime.source
-    });
+    }, conversation.generation);
     if (!manual) await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes, conversation.generation);
     return { ok: false, reason: "conversation_tab_missing", runtime };
   }
   if (conversation.preferredTabId !== tab.id) {
-    await updateConversationStatus(chatId, { preferredTabId: tab.id });
+    await updateConversationStatus(chatId, { preferredTabId: tab.id }, conversation.generation);
   }
 
   const contentReady = await ensureContentScript(tab, conversation.url);
@@ -69,7 +69,7 @@ async function deliverConversation(chatId, manual) {
       lastRunAt: runAt,
       lastStatus: status,
       lastRuntimeSource: runtime.source
-    });
+    }, conversation.generation);
     if (!manual) {
       await scheduleAfterMinutes(
         chatId,
@@ -178,4 +178,3 @@ async function deliverConversation(chatId, manual) {
     bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
   };
 }
-
