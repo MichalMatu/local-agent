@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,10 @@ from local_agent.workflow.store import WorkflowStore
 ACTIVATION_SCHEMA_VERSION = 1
 MAX_ACTIVATION_FILE_BYTES = 1024 * 1024
 ACTIVATION_FILENAME_WIDTH = 6
+MAX_ACTIVATION_ID_CHARS = 200
+MAX_RESOLVER_CHARS = 200
+_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 _ACTIVATION_FIELDS = {
     "schema_version",
@@ -49,20 +54,31 @@ def canonical_digest(payload: Any) -> str:
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-def _validate_timestamp(value: Any) -> str:
+def _validate_timestamp(value: Any, *, field: str) -> str:
     if not isinstance(value, str) or not value.endswith("Z"):
-        raise ValueError("activation timestamp must be RFC3339 UTC ending in Z")
+        raise ValueError(f"{field} must be RFC3339 UTC ending in Z")
     try:
         parsed = datetime.fromisoformat(value[:-1] + "+00:00")
     except ValueError as exc:
-        raise ValueError("activation timestamp must be valid RFC3339 UTC") from exc
+        raise ValueError(f"{field} must be valid RFC3339 UTC") from exc
     if parsed.tzinfo != timezone.utc:
-        raise ValueError("activation timestamp must use UTC")
+        raise ValueError(f"{field} must use UTC")
     return value
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _validate_canonical_id(value: Any, *, field: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > MAX_ACTIVATION_ID_CHARS
+        or not _ID_RE.fullmatch(value)
+    ):
+        raise ValueError(f"{field} must be a bounded canonical identifier")
+    return value
 
 
 def _validate_checkpoint_resolution(
@@ -78,11 +94,16 @@ def _validate_checkpoint_resolution(
     if resolution.get("node_id") != checkpoint_node_id:
         raise ValueError("checkpoint resolution node identity mismatch")
     resolver = resolution.get("resolver")
-    if not isinstance(resolver, str) or not resolver.strip():
-        raise ValueError("checkpoint resolution resolver is missing")
-    resolved_at = resolution.get("resolved_at")
-    if not isinstance(resolved_at, str) or not resolved_at:
-        raise ValueError("checkpoint resolution timestamp is missing")
+    if (
+        not isinstance(resolver, str)
+        or not resolver.strip()
+        or len(resolver) > MAX_RESOLVER_CHARS
+    ):
+        raise ValueError("checkpoint resolution resolver is invalid")
+    _validate_timestamp(
+        resolution.get("resolved_at"),
+        field="checkpoint resolution timestamp",
+    )
 
 
 def activation_digest(record: dict[str, Any]) -> str:
@@ -100,8 +121,7 @@ def validate_activation_shape(record: dict[str, Any]) -> None:
         raise ValueError(
             f"workflow activation schema_version must be {ACTIVATION_SCHEMA_VERSION}"
         )
-    if not isinstance(record.get("workflow_id"), str) or not record["workflow_id"]:
-        raise ValueError("workflow activation workflow_id must be non-empty")
+    _validate_canonical_id(record.get("workflow_id"), field="workflow activation workflow_id")
     if type(record.get("revision")) is not int or record["revision"] < 1:
         raise ValueError("workflow activation revision must be a positive integer")
     for field in (
@@ -111,23 +131,20 @@ def validate_activation_shape(record: dict[str, Any]) -> None:
         "prior_state_digest",
     ):
         value = record.get(field)
-        if (
-            not isinstance(value, str)
-            or not value.startswith("sha256:")
-            or len(value) != 71
-        ):
+        if not isinstance(value, str) or not _DIGEST_RE.fullmatch(value):
             raise ValueError(f"workflow activation {field} must be a sha256 digest")
-    if not isinstance(record.get("checkpoint_node_id"), str) or not record["checkpoint_node_id"]:
-        raise ValueError("workflow activation checkpoint_node_id must be non-empty")
+    _validate_canonical_id(
+        record.get("checkpoint_node_id"),
+        field="workflow activation checkpoint_node_id",
+    )
     new_node_states = record.get("new_node_states")
     if not isinstance(new_node_states, dict) or not new_node_states:
         raise ValueError("workflow activation new_node_states must be a non-empty object")
     for node_id, node_state in new_node_states.items():
-        if not isinstance(node_id, str) or not node_id:
-            raise ValueError("workflow activation new node ids must be non-empty strings")
+        _validate_canonical_id(node_id, field="workflow activation new node id")
         if node_state not in state.NODE_STATES:
             raise ValueError(f"unsupported workflow activation node state: {node_state!r}")
-    _validate_timestamp(record.get("activated_at"))
+    _validate_timestamp(record.get("activated_at"), field="activation timestamp")
     if len(_canonical_bytes(record)) > MAX_ACTIVATION_FILE_BYTES:
         raise ValueError(f"workflow activation exceeds {MAX_ACTIVATION_FILE_BYTES} bytes")
 
@@ -286,15 +303,17 @@ class WorkflowRevisionActivationStore:
             root = target.parent
             root.mkdir(parents=True, exist_ok=True)
             fsync_directory(root.parent)
-            encoded = (json.dumps(record, indent=2, ensure_ascii=False, sort_keys=True) + "\n").encode(
-                "utf-8"
-            )
+            encoded = (
+                json.dumps(record, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+            ).encode("utf-8")
             try:
                 descriptor = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             except FileExistsError:
                 loaded = self.load(workflow_id)
                 if revision_number > len(loaded):
-                    raise ValueError("workflow activation appeared concurrently but ledger is incomplete")
+                    raise ValueError(
+                        "workflow activation appeared concurrently but ledger is incomplete"
+                    )
                 current = loaded[revision_number - 1]
                 if activation_digest(current) != activation_digest(record):
                     raise ValueError(
