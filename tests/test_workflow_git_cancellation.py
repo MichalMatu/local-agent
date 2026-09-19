@@ -10,7 +10,6 @@ from local_agent.workflow.git_cancellation import (
     cancel_control_id,
 )
 from local_agent.workflow.git_control_plane import (
-    GitWorkflowControlPlane,
     WorkflowGitIntegrityError,
     WorkflowGitRepositoryBusyError,
 )
