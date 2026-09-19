@@ -15,7 +15,7 @@ from local_agent.workflow.activation import WorkflowRevisionActivationStore
 from local_agent.workflow.revision_store import WorkflowRevisionStore
 from local_agent.workflow.store import WorkflowStore
 
-EFFECTIVE_STATE_SCHEMA_VERSION = 1
+EFFECTIVE_STATE_SCHEMA_VERSION = 2
 MAX_EFFECTIVE_STATE_BYTES = 1024 * 1024
 MAX_RESOLVER_CHARS = 200
 MAX_NOTE_CHARS = 4096
@@ -33,6 +33,7 @@ _FIELDS = {
     "node_states",
     "gate_decisions",
     "planner_checkpoints",
+    "cancel_requested",
     "created_at",
     "updated_at",
 }
@@ -55,6 +56,16 @@ def _validate_timestamp(value: Any, *, field: str) -> str:
         raise ValueError(f"{field} must be valid RFC3339 UTC") from exc
     if parsed.tzinfo != timezone.utc:
         raise ValueError(f"{field} must use UTC")
+    return value
+
+
+def _validate_resolver(value: Any, *, field: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not value.strip()
+        or len(value) > MAX_RESOLVER_CHARS
+    ):
+        raise ValueError(f"{field} must be a non-empty bounded string")
     return value
 
 
@@ -106,6 +117,8 @@ class WorkflowEffectiveStateStore:
 
             base = self.workflow_store.load_manifest(workflow_id)
             base_state = self.workflow_store.load_state(workflow_id)
+            if base_state["cancel_requested"]:
+                raise ValueError("cannot initialize effective state from a cancelled base workflow")
             revision_chain = self.revision_store.load(workflow_id)
             activations = self.activation_store.load(workflow_id)
             if not revision_chain or not activations:
@@ -150,6 +163,7 @@ class WorkflowEffectiveStateStore:
                 "node_states": node_states,
                 "gate_decisions": dict(base_state["gate_decisions"]),
                 "planner_checkpoints": dict(base_state["planner_checkpoints"]),
+                "cancel_requested": False,
                 "created_at": timestamp,
                 "updated_at": timestamp,
             }
@@ -196,6 +210,68 @@ class WorkflowEffectiveStateStore:
             self._write(workflow_id, updated)
             return updated
 
+    def resolve_user_gate(
+        self,
+        workflow_id: str,
+        node_id: str,
+        decision: str,
+        *,
+        resolver: str,
+        decided_at: str | None = None,
+    ) -> dict[str, Any]:
+        """Resolve one revision user gate exactly once with durable provenance."""
+        _validate_resolver(resolver, field="effective user-gate resolver")
+        timestamp = decided_at or _now_iso()
+        _validate_timestamp(timestamp, field="effective user-gate decision timestamp")
+
+        with self.workflow_store.execution_lock(workflow_id):
+            with self._lock(workflow_id):
+                current = self.load(workflow_id)
+                manifest = self._active_manifest(workflow_id, current)
+                node = self._node(manifest, node_id)
+                if node["kind"] != "user_gate":
+                    raise ValueError(f"effective workflow node {node_id!r} is not a user gate")
+                existing = current["gate_decisions"].get(node_id)
+                if isinstance(existing, dict):
+                    if existing.get("decision") != decision:
+                        raise ValueError(
+                            f"effective user gate {node_id!r} is already resolved as "
+                            f"{existing.get('decision')!r}"
+                        )
+                    return dict(existing)
+                if current["node_states"][node_id] != "waiting_user":
+                    raise ValueError(f"effective user gate {node_id!r} is not waiting")
+                choices = node["choices"]
+                if decision not in choices:
+                    raise ValueError(
+                        f"decision {decision!r} is not an allowed choice for user gate {node_id!r}"
+                    )
+
+                record = {
+                    "schema_version": 1,
+                    "workflow_id": workflow_id,
+                    "lineage_tip_digest": current["lineage_tip_digest"],
+                    "node_id": node_id,
+                    "decision": decision,
+                    "resolver": resolver,
+                    "decided_at": timestamp,
+                }
+                node_states = dict(current["node_states"])
+                node_states[node_id] = state.transition_node_state(
+                    node_states[node_id],
+                    "succeeded",
+                )
+                node_states = state.advance_dependency_states(manifest, node_states)
+                decisions = dict(current["gate_decisions"])
+                decisions[node_id] = record
+                updated = dict(current)
+                updated["node_states"] = node_states
+                updated["gate_decisions"] = decisions
+                updated["workflow_state"] = state.workflow_state(node_states)
+                updated["updated_at"] = _now_iso()
+                self._write(workflow_id, updated)
+                return record
+
     def resolve_planner_checkpoint(
         self,
         workflow_id: str,
@@ -206,109 +282,139 @@ class WorkflowEffectiveStateStore:
         resolved_at: str | None = None,
     ) -> dict[str, Any]:
         """Resolve a checkpoint in the isolated effective graph with durable provenance."""
-        if (
-            not isinstance(resolver, str)
-            or not resolver.strip()
-            or len(resolver) > MAX_RESOLVER_CHARS
-        ):
-            raise ValueError("effective checkpoint resolver must be a non-empty bounded string")
+        _validate_resolver(resolver, field="effective checkpoint resolver")
         if note is not None and (not isinstance(note, str) or len(note) > MAX_NOTE_CHARS):
             raise ValueError("effective checkpoint note must be null or bounded text")
         timestamp = resolved_at or _now_iso()
         _validate_timestamp(timestamp, field="effective checkpoint resolution timestamp")
 
-        with self._lock(workflow_id):
-            current = self.load(workflow_id)
-            manifest = self._active_manifest(workflow_id, current)
-            node = self._node(manifest, node_id)
-            if node["kind"] != "planner_checkpoint":
-                raise ValueError(f"effective workflow node {node_id!r} is not a planner checkpoint")
-            existing = current["planner_checkpoints"].get(node_id)
-            if isinstance(existing, dict):
-                return dict(existing)
-            if current["node_states"][node_id] != "waiting_planner":
-                raise ValueError(f"effective planner checkpoint {node_id!r} is not waiting")
+        with self.workflow_store.execution_lock(workflow_id):
+            with self._lock(workflow_id):
+                current = self.load(workflow_id)
+                manifest = self._active_manifest(workflow_id, current)
+                node = self._node(manifest, node_id)
+                if node["kind"] != "planner_checkpoint":
+                    raise ValueError(
+                        f"effective workflow node {node_id!r} is not a planner checkpoint"
+                    )
+                existing = current["planner_checkpoints"].get(node_id)
+                if isinstance(existing, dict):
+                    return dict(existing)
+                if current["node_states"][node_id] != "waiting_planner":
+                    raise ValueError(f"effective planner checkpoint {node_id!r} is not waiting")
 
-            record = {
-                "schema_version": 1,
-                "workflow_id": workflow_id,
-                "lineage_tip_digest": current["lineage_tip_digest"],
-                "node_id": node_id,
-                "resolver": resolver,
-                "note": note,
-                "resolved_at": timestamp,
-            }
-            node_states = dict(current["node_states"])
-            node_states[node_id] = state.transition_node_state(
-                node_states[node_id],
-                "succeeded",
-            )
-            node_states = state.advance_dependency_states(manifest, node_states)
-            checkpoints = dict(current["planner_checkpoints"])
-            checkpoints[node_id] = record
-            updated = dict(current)
-            updated["node_states"] = node_states
-            updated["planner_checkpoints"] = checkpoints
-            updated["workflow_state"] = state.workflow_state(node_states)
-            updated["updated_at"] = _now_iso()
-            self._write(workflow_id, updated)
-            return record
+                record = {
+                    "schema_version": 1,
+                    "workflow_id": workflow_id,
+                    "lineage_tip_digest": current["lineage_tip_digest"],
+                    "node_id": node_id,
+                    "resolver": resolver,
+                    "note": note,
+                    "resolved_at": timestamp,
+                }
+                node_states = dict(current["node_states"])
+                node_states[node_id] = state.transition_node_state(
+                    node_states[node_id],
+                    "succeeded",
+                )
+                node_states = state.advance_dependency_states(manifest, node_states)
+                checkpoints = dict(current["planner_checkpoints"])
+                checkpoints[node_id] = record
+                updated = dict(current)
+                updated["node_states"] = node_states
+                updated["planner_checkpoints"] = checkpoints
+                updated["workflow_state"] = state.workflow_state(node_states)
+                updated["updated_at"] = _now_iso()
+                self._write(workflow_id, updated)
+                return record
+
+    def cancel(self, workflow_id: str) -> dict[str, Any]:
+        """Request cancellation without pretending an active child has stopped."""
+        with self.workflow_store.execution_lock(workflow_id):
+            with self._lock(workflow_id):
+                current = self.load(workflow_id)
+                if current["cancel_requested"]:
+                    return current
+                node_states = dict(current["node_states"])
+                cancellable = {
+                    "pending",
+                    "blocked_dependency",
+                    "ready",
+                    "waiting_user",
+                    "waiting_planner",
+                }
+                for node_id, node_state in list(node_states.items()):
+                    if node_state in cancellable:
+                        node_states[node_id] = state.transition_node_state(
+                            node_state,
+                            "cancelled",
+                        )
+                updated = dict(current)
+                updated["cancel_requested"] = True
+                updated["node_states"] = node_states
+                updated["workflow_state"] = state.workflow_state(node_states)
+                updated["updated_at"] = _now_iso()
+                self._write(workflow_id, updated)
+                return updated
 
     def activate_next_revision(self, workflow_id: str) -> dict[str, Any]:
         """Apply the next pre-created activation record to isolated effective state."""
-        with self._lock(workflow_id):
-            current = self.load(workflow_id)
-            next_revision = int(current["active_revision"]) + 1
-            revision_chain = self.revision_store.load(workflow_id)
-            activations = self.activation_store.load(workflow_id)
-            if next_revision > len(revision_chain):
-                raise ValueError("no next workflow revision exists")
-            if next_revision > len(activations):
-                raise ValueError("next workflow revision has not been activated")
-            record = activations[next_revision - 1]
-            if record["prior_state_digest"] != activation.canonical_digest(
-                current["node_states"]
-            ):
-                raise ValueError("next activation prior state does not match effective state")
-            checkpoint_resolution = current["planner_checkpoints"].get(
-                record["checkpoint_node_id"]
-            )
-            if not isinstance(checkpoint_resolution, dict):
-                raise ValueError("next activation checkpoint resolution is missing")
-            if record["checkpoint_resolution_digest"] != activation.canonical_digest(
-                checkpoint_resolution
-            ):
-                raise ValueError("next activation checkpoint resolution digest mismatch")
-            if record["parent_tip_digest"] != current["lineage_tip_digest"]:
-                raise ValueError("next activation parent lineage does not match effective state")
+        with self.workflow_store.execution_lock(workflow_id):
+            with self._lock(workflow_id):
+                current = self.load(workflow_id)
+                if current["cancel_requested"]:
+                    raise ValueError("cancelled effective workflow cannot activate a new revision")
+                next_revision = int(current["active_revision"]) + 1
+                revision_chain = self.revision_store.load(workflow_id)
+                activations = self.activation_store.load(workflow_id)
+                if next_revision > len(revision_chain):
+                    raise ValueError("no next workflow revision exists")
+                if next_revision > len(activations):
+                    raise ValueError("next workflow revision has not been activated")
+                record = activations[next_revision - 1]
+                if record["prior_state_digest"] != activation.canonical_digest(
+                    current["node_states"]
+                ):
+                    raise ValueError("next activation prior state does not match effective state")
+                checkpoint_resolution = current["planner_checkpoints"].get(
+                    record["checkpoint_node_id"]
+                )
+                if not isinstance(checkpoint_resolution, dict):
+                    raise ValueError("next activation checkpoint resolution is missing")
+                if record["checkpoint_resolution_digest"] != activation.canonical_digest(
+                    checkpoint_resolution
+                ):
+                    raise ValueError("next activation checkpoint resolution digest mismatch")
+                if record["parent_tip_digest"] != current["lineage_tip_digest"]:
+                    raise ValueError("next activation parent lineage does not match effective state")
 
-            before_states = dict(current["node_states"])
-            node_states = dict(before_states)
-            node_states.update(record["new_node_states"])
-            base = self.workflow_store.load_manifest(workflow_id)
-            manifest = revisions.effective_manifest(
-                base,
-                revision_chain[:next_revision],
-            )
-            normalized = state.advance_dependency_states(manifest, node_states)
-            if normalized != node_states:
-                raise ValueError("next activation new node states are not dependency-normalized")
-            for node_id, old_state in before_states.items():
-                if node_states[node_id] != old_state:
-                    raise ValueError("next activation changed an existing effective node state")
+                before_states = dict(current["node_states"])
+                node_states = dict(before_states)
+                node_states.update(record["new_node_states"])
+                base = self.workflow_store.load_manifest(workflow_id)
+                manifest = revisions.effective_manifest(
+                    base,
+                    revision_chain[:next_revision],
+                )
+                normalized = state.advance_dependency_states(manifest, node_states)
+                if normalized != node_states:
+                    raise ValueError("next activation new node states are not dependency-normalized")
+                for node_id, old_state in before_states.items():
+                    if node_states[node_id] != old_state:
+                        raise ValueError("next activation changed an existing effective node state")
 
-            updated = dict(current)
-            updated["active_revision"] = next_revision
-            updated["lineage_tip_digest"] = revisions.lineage_tip_digest(
-                base,
-                revision_chain[:next_revision],
-            )
-            updated["activation_digest"] = activation.activation_digest(record)
-            updated["node_states"] = node_states
-            updated["workflow_state"] = state.workflow_state(node_states)
-            updated["updated_at"] = _now_iso()
-            self._write(workflow_id, updated)
-            return updated
+                updated = dict(current)
+                updated["active_revision"] = next_revision
+                updated["lineage_tip_digest"] = revisions.lineage_tip_digest(
+                    base,
+                    revision_chain[:next_revision],
+                )
+                updated["activation_digest"] = activation.activation_digest(record)
+                updated["node_states"] = node_states
+                updated["workflow_state"] = state.workflow_state(node_states)
+                updated["updated_at"] = _now_iso()
+                self._write(workflow_id, updated)
+                return updated
 
     def _active_manifest(
         self,
@@ -326,6 +432,41 @@ class WorkflowEffectiveStateStore:
             if node["id"] == node_id:
                 return node
         raise ValueError(f"unknown effective workflow node: {node_id!r}")
+
+    def _validate_gate_decision(
+        self,
+        manifest: dict[str, Any],
+        node_states: dict[str, str],
+        node_id: str,
+        record: Any,
+    ) -> None:
+        if not isinstance(record, dict):
+            raise ValueError(f"invalid effective user-gate decision for {node_id!r}")
+        node = self._node(manifest, node_id)
+        if node["kind"] != "user_gate":
+            raise ValueError(f"effective gate decision node {node_id!r} is not a user gate")
+        if record.get("workflow_id") != manifest["id"]:
+            raise ValueError(f"effective gate decision workflow mismatch for {node_id!r}")
+        if record.get("node_id") != node_id:
+            raise ValueError(f"effective gate decision node mismatch for {node_id!r}")
+        if record.get("decision") not in node["choices"]:
+            raise ValueError(f"effective gate decision choice mismatch for {node_id!r}")
+        _validate_resolver(record.get("resolver"), field="effective gate decision resolver")
+        _validate_timestamp(
+            record.get("decided_at"),
+            field="effective gate decision timestamp",
+        )
+        manifest_digest = record.get("manifest_digest")
+        lineage_tip_digest = record.get("lineage_tip_digest")
+        if manifest_digest is None and lineage_tip_digest is None:
+            raise ValueError(f"effective gate decision provenance is missing for {node_id!r}")
+        for digest in (manifest_digest, lineage_tip_digest):
+            if digest is not None and (
+                not isinstance(digest, str) or not _DIGEST_RE.fullmatch(digest)
+            ):
+                raise ValueError(f"effective gate decision provenance is invalid for {node_id!r}")
+        if node_states.get(node_id) != "succeeded":
+            raise ValueError(f"effective gate decision requires succeeded node {node_id!r}")
 
     def _validate(self, workflow_id: str, payload: Any) -> None:
         if not isinstance(payload, dict) or set(payload) != _FIELDS:
@@ -350,6 +491,8 @@ class WorkflowEffectiveStateStore:
                 raise ValueError(f"effective workflow state {field} must be a sha256 digest")
         if type(payload.get("active_revision")) is not int or payload["active_revision"] < 1:
             raise ValueError("effective workflow state active_revision must be positive")
+        if not isinstance(payload.get("cancel_requested"), bool):
+            raise ValueError("effective workflow cancel_requested must be a boolean")
         if not isinstance(payload.get("gate_decisions"), dict):
             raise ValueError("effective workflow gate_decisions must be an object")
         if not isinstance(payload.get("planner_checkpoints"), dict):
@@ -385,6 +528,12 @@ class WorkflowEffectiveStateStore:
         normalized = state.advance_dependency_states(manifest, node_states)
         if normalized != node_states:
             raise ValueError("effective workflow node states are not dependency-normalized")
+
+        for node_id, record in payload["gate_decisions"].items():
+            if not isinstance(node_id, str):
+                raise ValueError("effective gate decision keys must be strings")
+            self._validate_gate_decision(manifest, node_states, node_id, record)
+
         expected_workflow_state = state.workflow_state(node_states)
         if payload.get("workflow_state") != expected_workflow_state:
             raise ValueError("effective workflow state classification mismatch")
