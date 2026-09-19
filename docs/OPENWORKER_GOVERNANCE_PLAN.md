@@ -1,10 +1,23 @@
 # OpenWorker governance adaptation plan
 
-Status: audit candidate only. No runtime behavior changes are authorized by this document.
+Status: Phase 0 source audit completed. No runtime behavior changes are authorized by this document.
 
 Base: `main` at `224046066b0df92544337db0ee623e372629e726` (`v4.18.22`).
 Candidate branch: `feature/openworker-governance`.
-Reference project: `andrewyng/openworker` (MIT).
+Reference project: `andrewyng/openworker` (MIT), audited at `c79fa9b778867a5a55d28f70c0f6aaa8f11fd7fe`.
+Detailed findings: `docs/OPENWORKER_CODE_AUDIT.md`.
+
+## Audit outcome
+
+The source audit recommends a narrow adaptation, not an OpenWorker-style redesign:
+
+1. **P0:** deterministic project-command self-protection floors in the existing task-contract boundary;
+2. **P0:** a table-driven Local Agent command-admission security corpus with benign controls;
+3. **P1:** compact policy/admission provenance in existing run/result/diagnostic evidence;
+4. **P2 only if needed:** exact-digest, pre-claim operator approval using an idempotent durable wait record;
+5. **do not adopt:** an embedded LLM reviewer, general desktop permission modes, shell standing grants, connector/provider infrastructure, duplicate audit DB, or durable mid-task shell resume.
+
+The first implementation candidate should therefore remain model-free and preserve ChatGPT as planner and Local Agent as deterministic executor.
 
 ## Goal
 
@@ -199,7 +212,7 @@ Do not create a generic `security.py`, `governance.py` or miscellaneous helper u
 
 ### Phase 0 - source audit
 
-Documentation only. Produce concrete OpenWorker code/test references and Local Agent gap analysis. No runtime changes.
+Completed in `docs/OPENWORKER_CODE_AUDIT.md` against OpenWorker commit `c79fa9b778867a5a55d28f70c0f6aaa8f11fd7fe`. No runtime changes.
 
 ### Phase 1 - evidence/provenance only
 
@@ -228,31 +241,21 @@ Add only if current `steps`/`verify_steps` semantics cannot express the necessar
 - downstream documentation audit when task/control/status/planner contracts change;
 - explicit release decision before advancing `main`.
 
-## Open questions to resolve from source
+## Open questions resolved by the source audit
 
-- Are OpenWorker hard floors data-driven or distributed across tool implementations?
-- Can auto-approve ever authorize shell/file/Git writes, and what remains human-only?
-- Is reviewer-model judgment only advisory, or can it directly unlock execution?
-- How are repeated denials counted and scoped for the circuit breaker?
-- What survives application restart: approval requests, standing rules, reviewer state and audit records?
-- How are unattended runs prevented from self-approval?
-- Is approval bound to exact tool arguments/digests or only to tool category?
-- How does OpenWorker prevent TOCTOU between approval and execution?
-- Which checker paths are deterministic versus model-based?
-- What negative tests prove that floors cannot be bypassed?
+- OpenWorker hard floors are explicit code paths, but they are also partly distributed between risk classification and tool/permission handling.
+- Auto-approve cannot clear `hard_deny` or `human_only` decisions; the reviewer sees only reviewer-eligible asks.
+- Reviewer judgment can unlock only the middle `needs_user` class, never a deterministic block.
+- The circuit breaker is five consecutive reviewer denials within one user turn; non-deny/user interaction resets it.
+- Durable wait records survive restart and are idempotent by session + tool-call identity.
+- Unattended sessions do not use the reviewer to self-approve; consequential asks park for a human.
+- OpenWorker one-shot "allow anyway" is bound to exact canonical tool arguments and consumed once.
+- Standing rules are exact target rules and deliberately exclude shell/local-write authority.
+- OpenWorker does not provide complete shell confinement; its own layered security corpus documents unsandboxed-shell gaps.
+- For Local Agent, the existing final full verification stage is already a stronger enforceable execution contract than importing OpenWorker persona instructions.
 
-## Audit output format
+## Audit output
 
-The completed source audit will be appended to this document as a findings table and detailed notes containing:
+The completed classification, source references, concrete gaps, proposed Local Agent owners, migration impact and test requirements are in `docs/OPENWORKER_CODE_AUDIT.md`.
 
-- OpenWorker file/symbol/test;
-- mechanism and enforcement boundary;
-- Local Agent equivalent;
-- concrete gap;
-- decision (`ADOPT` / `ADAPT` / `ALREADY_STRONGER` / `REJECT`);
-- exact proposed Local Agent owner;
-- migration/schema impact;
-- required tests;
-- implementation priority.
-
-No implementation begins until Phase 0 findings identify a concrete gap and the candidate design preserves all Local Agent safety invariants.
+No runtime implementation should begin by copying OpenWorker. The first candidate should implement only the P0 command self-protection floor + security corpus identified by the audit, then pass Local Agent's normal candidate/release gates.
