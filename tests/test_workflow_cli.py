@@ -12,6 +12,9 @@ from local_agent.cli import workflow
 from local_agent.workflow import methods
 
 
+FIXTURE = Path(__file__).parent / "fixtures" / "workflows" / "single_repo.json"
+
+
 class WorkflowCliTests(unittest.TestCase):
     def run_cli(self, *args: str) -> tuple[int, str]:
         output = io.StringIO()
@@ -35,13 +38,7 @@ class WorkflowCliTests(unittest.TestCase):
         self.assertEqual(payload["digest"], methods.method_digest(payload["spec"]))
 
     def test_validate_manifest_reports_digest(self) -> None:
-        fixture = (
-            Path(__file__).parent
-            / "fixtures"
-            / "workflows"
-            / "single_repo.json"
-        )
-        code, output = self.run_cli("validate-manifest", str(fixture))
+        code, output = self.run_cli("validate-manifest", str(FIXTURE))
         self.assertEqual(code, 0)
         payload = json.loads(output)
         self.assertTrue(payload["valid"])
@@ -57,6 +54,44 @@ class WorkflowCliTests(unittest.TestCase):
         payload = json.loads(output)
         self.assertFalse(payload["valid"])
         self.assertIn("workflow id", payload["error"])
+
+    def test_local_submit_list_show_cancel_lifecycle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = ("--state-dir", directory)
+            code, output = self.run_cli(*prefix, "submit", str(FIXTURE))
+            self.assertEqual(code, 0)
+            submitted = json.loads(output)
+            self.assertEqual(submitted["workflow_id"], "single-repo-build")
+            self.assertEqual(submitted["workflow_state"], "running")
+
+            code, output = self.run_cli(*prefix, "list")
+            self.assertEqual(code, 0)
+            listing = json.loads(output)
+            self.assertEqual(listing["workflow_ids"], ["single-repo-build"])
+
+            code, output = self.run_cli(*prefix, "show", "single-repo-build")
+            self.assertEqual(code, 0)
+            shown = json.loads(output)
+            self.assertEqual(shown["manifest"]["id"], "single-repo-build")
+            self.assertEqual(shown["state"]["node_states"], {"build": "ready"})
+
+            code, output = self.run_cli(*prefix, "cancel", "single-repo-build")
+            self.assertEqual(code, 0)
+            cancelled = json.loads(output)
+            self.assertTrue(cancelled["cancel_requested"])
+            self.assertEqual(cancelled["workflow_state"], "cancelled")
+
+    def test_show_unknown_workflow_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            code, output = self.run_cli(
+                "--state-dir",
+                directory,
+                "show",
+                "missing",
+            )
+        self.assertEqual(code, 2)
+        payload = json.loads(output)
+        self.assertIn("unavailable", payload["error"])
 
 
 if __name__ == "__main__":
