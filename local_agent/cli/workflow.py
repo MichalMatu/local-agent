@@ -5,17 +5,18 @@ import argparse
 import json
 from pathlib import Path
 
-from local_agent.workflow import contract, methods, preview, store
+from local_agent.workflow import contract, methods, preview, revisions, store
+from local_agent.workflow.revision_store import WorkflowRevisionStore
 
 
 def _print_json(payload: dict) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True))
 
 
-def _load_manifest(path: Path) -> dict:
+def _load_object(path: Path) -> dict:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
-        raise ValueError("workflow manifest must be an object")
+        raise ValueError("JSON file must contain an object")
     return payload
 
 
@@ -59,6 +60,25 @@ def parse_args() -> argparse.Namespace:
 
     show_parser = subparsers.add_parser("show", help="Show one persisted workflow.")
     show_parser.add_argument("workflow_id")
+
+    append_revision_parser = subparsers.add_parser(
+        "append-revision",
+        help="Append one immutable continuation record without dispatching it.",
+    )
+    append_revision_parser.add_argument("workflow_id")
+    append_revision_parser.add_argument("path", type=Path)
+
+    revisions_parser = subparsers.add_parser(
+        "revisions",
+        help="Show the append-only revision lineage for one workflow.",
+    )
+    revisions_parser.add_argument("workflow_id")
+
+    effective_parser = subparsers.add_parser(
+        "preview-effective",
+        help="Preview the base manifest plus persisted revisions without executing it.",
+    )
+    effective_parser.add_argument("workflow_id")
 
     resolve_parser = subparsers.add_parser(
         "resolve-gate",
@@ -115,7 +135,7 @@ def main() -> int:
 
     if args.command == "validate-manifest":
         try:
-            payload = _load_manifest(args.path)
+            payload = _load_object(args.path)
             contract.validate_workflow_manifest(payload)
             digest = contract.manifest_digest(payload)
         except Exception as exc:
@@ -138,7 +158,7 @@ def main() -> int:
 
     if args.command == "preview-manifest":
         try:
-            payload = _load_manifest(args.path)
+            payload = _load_object(args.path)
             result = preview.preview_workflow(payload)
         except Exception as exc:
             _print_json({"error": f"{type(exc).__name__}: {exc}"})
@@ -157,7 +177,7 @@ def main() -> int:
 
     if args.command == "submit":
         try:
-            payload = _load_manifest(args.path)
+            payload = _load_object(args.path)
             result = workflow_store.submit(payload)
         except Exception as exc:
             _print_json({"error": f"{type(exc).__name__}: {exc}"})
@@ -177,6 +197,76 @@ def main() -> int:
             _print_json({"error": f"{type(exc).__name__}: {exc}"})
             return 2
         _print_json({"manifest": manifest, "state": current_state})
+        return 0
+
+    if args.command in {"append-revision", "revisions", "preview-effective"}:
+        revision_store = WorkflowRevisionStore(workflow_store)
+
+        if args.command == "append-revision":
+            try:
+                record = _load_object(args.path)
+                saved = revision_store.append(args.workflow_id, record)
+                base = workflow_store.load_manifest(args.workflow_id)
+                chain = revision_store.load(args.workflow_id)
+            except Exception as exc:
+                _print_json({"error": f"{type(exc).__name__}: {exc}"})
+                return 2
+            _print_json(
+                {
+                    "revision": saved,
+                    "revision_digest": revisions.revision_digest(saved),
+                    "tip_digest": revisions.lineage_tip_digest(base, chain),
+                    "revision_count": len(chain),
+                }
+            )
+            return 0
+
+        if args.command == "revisions":
+            try:
+                base = workflow_store.load_manifest(args.workflow_id)
+                chain = revision_store.load(args.workflow_id)
+            except Exception as exc:
+                _print_json({"error": f"{type(exc).__name__}: {exc}"})
+                return 2
+            _print_json(
+                {
+                    "workflow_id": args.workflow_id,
+                    "base_manifest_digest": contract.manifest_digest(base),
+                    "tip_digest": revisions.lineage_tip_digest(base, chain),
+                    "revisions": [
+                        {
+                            "revision": record["revision"],
+                            "digest": revisions.revision_digest(record),
+                            "parent_digest": record["parent_digest"],
+                            "checkpoint_node_id": record["checkpoint_node_id"],
+                            "node_ids": [node["id"] for node in record["nodes"]],
+                        }
+                        for record in chain
+                    ],
+                }
+            )
+            return 0
+
+        try:
+            base = workflow_store.load_manifest(args.workflow_id)
+            chain = revision_store.load(args.workflow_id)
+            effective = revision_store.effective_manifest(args.workflow_id)
+            result = preview.preview_workflow(effective)
+        except Exception as exc:
+            _print_json({"error": f"{type(exc).__name__}: {exc}"})
+            return 2
+        _print_json(
+            {
+                "workflow_id": args.workflow_id,
+                "base_manifest_digest": contract.manifest_digest(base),
+                "revision_count": len(chain),
+                "tip_digest": revisions.lineage_tip_digest(base, chain),
+                "node_count": len(effective["nodes"]),
+                "waves": [list(wave) for wave in result.waves],
+                "final_state": result.final_state,
+                "waiting_nodes": list(result.waiting_nodes),
+            }
+        )
         return 0
 
     if args.command == "resolve-gate":
