@@ -29,6 +29,7 @@ WORKFLOW_NODE_KINDS = frozenset(
         "planner_checkpoint",
     }
 )
+WORKFLOW_METHOD_MODES = frozenset({"static", "adaptive"})
 
 _ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _REPOSITORY_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -86,6 +87,17 @@ def _validate_created_at(value: Any) -> str:
     if parsed.tzinfo != timezone.utc:
         raise ValueError("created_at must use UTC")
     return value
+
+
+def _validate_method_mode(manifest: dict[str, Any]) -> str:
+    if "method_mode" in manifest and "method" not in manifest:
+        raise ValueError("workflow method_mode requires a method reference")
+    mode = manifest.get("method_mode", "static")
+    if not isinstance(mode, str) or mode not in WORKFLOW_METHOD_MODES:
+        raise ValueError(
+            f"workflow method_mode must be one of {sorted(WORKFLOW_METHOD_MODES)!r}"
+        )
+    return mode
 
 
 def _validate_dependencies(node: dict[str, Any]) -> tuple[str, ...]:
@@ -239,7 +251,14 @@ def validate_workflow_manifest(manifest: dict[str, Any]) -> None:
     if len(_canonical_bytes(manifest)) > MAX_WORKFLOW_FILE_BYTES:
         raise ValueError(f"workflow manifest exceeds {MAX_WORKFLOW_FILE_BYTES} bytes")
 
-    allowed = {"schema_version", "id", "created_at", "method", "nodes"}
+    allowed = {
+        "schema_version",
+        "id",
+        "created_at",
+        "method",
+        "method_mode",
+        "nodes",
+    }
     extra = set(manifest) - allowed
     if extra:
         raise ValueError(f"workflow manifest contains unsupported fields: {sorted(extra)!r}")
@@ -247,8 +266,17 @@ def validate_workflow_manifest(manifest: dict[str, Any]) -> None:
         raise ValueError(f"workflow schema_version must be {WORKFLOW_SCHEMA_VERSION}")
     validate_workflow_id(manifest.get("id"))
     _validate_created_at(manifest.get("created_at"))
+    method_mode = _validate_method_mode(manifest)
+
+    method_spec: dict[str, Any] | None = None
     if "method" in manifest:
-        methods.validate_method_reference(manifest["method"])
+        reference = manifest["method"]
+        methods.validate_method_reference(reference)
+        method_spec = methods.load_builtin_method(
+            reference["name"],
+            version=reference["version"],
+        )
+        methods.require_method_match(reference, method_spec)
 
     nodes = manifest.get("nodes")
     if not isinstance(nodes, list) or not nodes:
@@ -293,13 +321,29 @@ def validate_workflow_manifest(manifest: dict[str, Any]) -> None:
                 )
 
     _validate_acyclic(nodes)
-    if "method" in manifest:
-        reference = manifest["method"]
-        spec = methods.load_builtin_method(
-            reference["name"],
-            version=reference["version"],
-        )
-        methods.validate_workflow_method(manifest, spec)
+    if method_spec is not None:
+        if method_mode == "adaptive":
+            methods.validate_adaptive_workflow_method(manifest, method_spec)
+        else:
+            methods.validate_workflow_method(manifest, method_spec)
+
+
+def validate_complete_workflow_manifest(manifest: dict[str, Any]) -> None:
+    """Require an admitted manifest to satisfy its complete method contract.
+
+    Static workflows already satisfy this during normal admission. Adaptive workflows
+    call this on the effective base+revision graph before the lineage can be considered
+    method-complete.
+    """
+    validate_workflow_manifest(manifest)
+    if "method" not in manifest:
+        return
+    reference = manifest["method"]
+    spec = methods.load_builtin_method(
+        reference["name"],
+        version=reference["version"],
+    )
+    methods.validate_workflow_method(manifest, spec)
 
 
 def manifest_digest(manifest: dict[str, Any]) -> str:
