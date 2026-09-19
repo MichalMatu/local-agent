@@ -177,17 +177,20 @@ def load_builtin_method(
     directory: Path | None = None,
 ) -> dict[str, Any]:
     requested_name = _canonical_name(name, field="method name")
-    matches = [
+    named = [
         spec
         for spec in list_builtin_methods(directory=directory)
-        if spec["name"] == requested_name and (version is None or spec["version"] == version)
+        if spec["name"] == requested_name
     ]
-    if not matches:
+    if not named:
         suffix = "" if version is None else f" version={version}"
         raise ValueError(f"unknown built-in workflow method: {requested_name!r}{suffix}")
-    if version is None and len(matches) != 1:
+    if version is None:
+        return dict(max(named, key=lambda spec: int(spec["version"])))
+    matches = [spec for spec in named if spec["version"] == version]
+    if not matches:
         raise ValueError(
-            f"built-in workflow method {requested_name!r} requires an explicit version"
+            f"unknown built-in workflow method: {requested_name!r} version={version}"
         )
     return dict(matches[0])
 
