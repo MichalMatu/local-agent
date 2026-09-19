@@ -233,6 +233,10 @@ def main() -> int:
 
     if args.command == "run-cycle":
         try:
+            if args.registry is not None and not args.registry.is_file():
+                raise ValueError(
+                    f"explicit repository registry is unavailable: {args.registry}"
+                )
             repositories = load_repository_registry(path=args.registry)
             revision_store = WorkflowRevisionStore(workflow_store)
             activation_store = WorkflowRevisionActivationStore(
