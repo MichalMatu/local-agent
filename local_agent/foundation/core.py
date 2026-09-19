@@ -8,7 +8,6 @@ import re
 import shutil
 import subprocess
 import sys
-import threading
 import time
 import traceback
 from datetime import datetime, timezone
@@ -17,6 +16,7 @@ from typing import Any, Mapping, Protocol
 
 import local_agent.foundation.storage as storage
 from local_agent.config import TIMEOUTS
+from local_agent.foundation.control_git_lock import DynamicControlGitLock
 from local_agent.foundation.process import (
     BoundedTextBuffer,
     atomic_write_text,
@@ -66,7 +66,7 @@ ENV = os.environ.copy()
 ENV["PATH"] = ":".join(BASE_PATH + [ENV.get("PATH", "")])
 
 _BRANCH_RE = re.compile(r"^[A-Za-z0-9._/-]+$")
-CONTROL_GIT_LOCK = threading.RLock()
+CONTROL_GIT_LOCK = DynamicControlGitLock(lambda: CONTROL)
 
 
 class CommandRunner(Protocol):
