@@ -37,6 +37,7 @@ _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
         {
             "blocked_dependency",
             "ready",
+            "succeeded",
             "waiting_user",
             "waiting_planner",
             "cancelled",
