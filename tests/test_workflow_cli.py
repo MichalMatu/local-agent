@@ -30,6 +30,7 @@ class WorkflowCliTests(unittest.TestCase):
         self.assertIn("deep-refactor\tversion=1\tsha256:", output)
         self.assertIn("cross-repo-api-change\tversion=2\tsha256:", output)
         self.assertIn("release-candidate\tversion=1\tsha256:", output)
+        self.assertNotIn("cross-repo-api-change\tversion=1\t", output)
 
     def test_method_prints_canonical_json(self) -> None:
         code, output = self.run_cli("method", "deep-refactor")
@@ -38,6 +39,27 @@ class WorkflowCliTests(unittest.TestCase):
         self.assertEqual(payload["name"], "deep-refactor")
         self.assertEqual(payload["version"], 1)
         self.assertEqual(payload["digest"], methods.method_digest(payload["spec"]))
+
+    def test_method_can_inspect_historical_version_while_defaulting_to_latest(self) -> None:
+        code, output = self.run_cli("method", "cross-repo-api-change")
+        self.assertEqual(code, 0)
+        latest = json.loads(output)
+        self.assertEqual(latest["version"], 2)
+
+        code, output = self.run_cli(
+            "method",
+            "cross-repo-api-change",
+            "--version",
+            "1",
+        )
+        self.assertEqual(code, 0)
+        historical = json.loads(output)
+        self.assertEqual(historical["version"], 1)
+        self.assertEqual(historical["spec"]["requirements"], {})
+        self.assertEqual(
+            historical["digest"],
+            methods.method_digest(historical["spec"]),
+        )
 
     def test_validate_manifest_reports_digest(self) -> None:
         code, output = self.run_cli("validate-manifest", str(FIXTURE))
