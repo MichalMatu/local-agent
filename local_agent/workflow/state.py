@@ -52,7 +52,19 @@ _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
             "cancelled",
         }
     ),
-    "ready": frozenset({"dispatched", "succeeded", "cancelled"}),
+    # A ready node may discover remote evidence from a publish that completed before
+    # the coordinator process crashed. These recovery transitions avoid replaying the
+    # child merely because the local state update did not happen.
+    "ready": frozenset(
+        {
+            "dispatched",
+            "running",
+            "succeeded",
+            "failed",
+            "cancelled",
+            "blocked_interrupted",
+        }
+    ),
     "dispatched": frozenset(
         {
             "running",
