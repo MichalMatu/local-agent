@@ -89,6 +89,14 @@ class WorkflowStateTests(unittest.TestCase):
         current = state.transition_node_state(current, "succeeded")
         self.assertEqual(current, "succeeded")
 
+    def test_ready_node_accepts_exact_remote_recovery_evidence(self) -> None:
+        for recovered in ("dispatched", "running", "succeeded", "failed", "blocked_interrupted"):
+            with self.subTest(recovered=recovered):
+                self.assertEqual(
+                    state.transition_node_state("ready", recovered),
+                    recovered,
+                )
+
     def test_idempotent_transition_is_allowed(self) -> None:
         self.assertEqual(
             state.transition_node_state("running", "running"),
