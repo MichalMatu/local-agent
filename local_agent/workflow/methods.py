@@ -223,6 +223,44 @@ def _require_full_verification(manifest: dict[str, Any]) -> None:
         )
 
 
+def _observed_phases(manifest: dict[str, Any]) -> set[str]:
+    observed: set[str] = set()
+    for node in manifest.get("nodes", []):
+        phase = node.get("phase")
+        if phase is not None:
+            observed.add(validate_phase_name(phase))
+    return observed
+
+
+def validate_adaptive_workflow_method(
+    manifest: dict[str, Any],
+    spec: dict[str, Any],
+) -> None:
+    """Validate an intentionally incomplete method graph between planner checkpoints.
+
+    Identity remains digest-pinned. Structural requirements are enforced as soon as the
+    relevant phase appears, while missing future phases are allowed until the effective
+    revision lineage is explicitly checked for completion.
+    """
+    reference = manifest.get("method")
+    if not isinstance(reference, dict):
+        raise ValueError("workflow method reference is required")
+    require_method_match(reference, spec)
+
+    observed = _observed_phases(manifest)
+    first_required = str(spec["required_phases"][0])
+    if first_required not in observed:
+        raise ValueError(
+            f"adaptive workflow must contain the first required method phase: {first_required!r}"
+        )
+
+    requirements = spec["requirements"]
+    if requirements.get("planner_checkpoint_after_audit", False) and "audit" in observed:
+        _require_planner_checkpoint_after_audit(manifest)
+    if requirements.get("final_full_verification", False) and "full_verification" in observed:
+        _require_full_verification(manifest)
+
+
 def validate_workflow_method(
     manifest: dict[str, Any],
     spec: dict[str, Any],
@@ -232,11 +270,7 @@ def validate_workflow_method(
         raise ValueError("workflow method reference is required")
     require_method_match(reference, spec)
 
-    observed_phases: set[str] = set()
-    for node in manifest.get("nodes", []):
-        phase = node.get("phase")
-        if phase is not None:
-            observed_phases.add(validate_phase_name(phase))
+    observed_phases = _observed_phases(manifest)
     missing = [
         phase for phase in spec["required_phases"] if phase not in observed_phases
     ]
