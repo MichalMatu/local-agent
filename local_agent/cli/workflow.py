@@ -54,6 +54,15 @@ def parse_args() -> argparse.Namespace:
     show_parser = subparsers.add_parser("show", help="Show one persisted workflow.")
     show_parser.add_argument("workflow_id")
 
+    resolve_parser = subparsers.add_parser(
+        "resolve-gate",
+        help="Resolve one waiting user gate with an exactly-once durable decision.",
+    )
+    resolve_parser.add_argument("workflow_id")
+    resolve_parser.add_argument("node_id")
+    resolve_parser.add_argument("decision")
+    resolve_parser.add_argument("--resolver", default="local-operator")
+
     cancel_parser = subparsers.add_parser(
         "cancel",
         help="Request workflow cancellation without killing unrelated work.",
@@ -136,6 +145,21 @@ def main() -> int:
             _print_json({"error": f"{type(exc).__name__}: {exc}"})
             return 2
         _print_json({"manifest": manifest, "state": current_state})
+        return 0
+
+    if args.command == "resolve-gate":
+        try:
+            decision = workflow_store.resolve_user_gate(
+                args.workflow_id,
+                args.node_id,
+                args.decision,
+                resolver=args.resolver,
+            )
+            current_state = workflow_store.load_state(args.workflow_id)
+        except Exception as exc:
+            _print_json({"error": f"{type(exc).__name__}: {exc}"})
+            return 2
+        _print_json({"decision": decision, "state": current_state})
         return 0
 
     if args.command == "cancel":
