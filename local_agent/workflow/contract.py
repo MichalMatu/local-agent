@@ -110,6 +110,7 @@ def _validate_task_node(node: dict[str, Any]) -> None:
     allowed = {
         "id",
         "kind",
+        "phase",
         "repository_id",
         "agent_binding",
         "depends_on",
@@ -147,7 +148,7 @@ def _validate_task_node(node: dict[str, Any]) -> None:
 
 
 def _validate_barrier_node(node: dict[str, Any]) -> None:
-    allowed = {"id", "kind", "depends_on"}
+    allowed = {"id", "kind", "phase", "depends_on"}
     extra = set(node) - allowed
     if extra:
         raise ValueError(
@@ -156,7 +157,7 @@ def _validate_barrier_node(node: dict[str, Any]) -> None:
 
 
 def _validate_checkpoint_node(node: dict[str, Any]) -> None:
-    allowed = {"id", "kind", "depends_on"}
+    allowed = {"id", "kind", "phase", "depends_on"}
     extra = set(node) - allowed
     if extra:
         raise ValueError(
@@ -166,7 +167,7 @@ def _validate_checkpoint_node(node: dict[str, Any]) -> None:
 
 
 def _validate_user_gate_node(node: dict[str, Any]) -> None:
-    allowed = {"id", "kind", "depends_on", "prompt", "choices"}
+    allowed = {"id", "kind", "phase", "depends_on", "prompt", "choices"}
     extra = set(node) - allowed
     if extra:
         raise ValueError(
@@ -267,6 +268,8 @@ def validate_workflow_manifest(manifest: dict[str, Any]) -> None:
         kind = raw_node.get("kind")
         if not isinstance(kind, str) or kind not in WORKFLOW_NODE_KINDS:
             raise ValueError(f"unsupported workflow node kind: {kind!r}")
+        if "phase" in raw_node:
+            methods.validate_phase_name(raw_node["phase"])
         dependencies_by_id[node_id] = _validate_dependencies(raw_node)
 
         if kind == "task":
@@ -286,6 +289,13 @@ def validate_workflow_manifest(manifest: dict[str, Any]) -> None:
                 )
 
     _validate_acyclic(nodes)
+    if "method" in manifest:
+        reference = manifest["method"]
+        spec = methods.load_builtin_method(
+            reference["name"],
+            version=reference["version"],
+        )
+        methods.validate_workflow_method(manifest, spec)
 
 
 def manifest_digest(manifest: dict[str, Any]) -> str:
