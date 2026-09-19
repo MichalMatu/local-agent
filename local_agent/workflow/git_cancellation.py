@@ -141,6 +141,13 @@ class GitWorkflowCancellationTransport:
         control_id = payload.get("id")
         if not isinstance(control_id, str) or not _CONTROL_ID_RE.fullmatch(control_id):
             raise WorkflowGitIntegrityError("existing repository control request has invalid id")
+        if payload.get("action") == "cancel_task":
+            try:
+                _canonical_task_id(payload.get("task_id"))
+            except ValueError as exc:
+                raise WorkflowGitIntegrityError(
+                    "existing cancel_task control request has invalid task id"
+                ) from exc
         return payload
 
     def _existing_request_is_acknowledged_locked(
@@ -157,6 +164,12 @@ class GitWorkflowCancellationTransport:
             return False
         if ack.get("id") != control_id or ack.get("action") != request.get("action"):
             raise WorkflowGitIntegrityError("existing repository control ACK identity mismatch")
+        if request.get("action") == "cancel_task" and ack.get("task_id") != request.get(
+            "task_id"
+        ):
+            raise WorkflowGitIntegrityError(
+                "existing cancel_task control ACK task id mismatch"
+            )
         if ack.get("status") not in {"accepted", "completed", "rejected"}:
             raise WorkflowGitIntegrityError("existing repository control ACK status is invalid")
         return True
