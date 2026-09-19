@@ -14,10 +14,13 @@ from local_agent.workflow import contract, state
 
 WORKFLOW_STATE_SCHEMA_VERSION = 1
 GATE_DECISION_SCHEMA_VERSION = 1
+PLANNER_CHECKPOINT_SCHEMA_VERSION = 1
 DEFAULT_STATE_DIR = Path.home() / "Library" / "Application Support" / "local-agent"
 MAX_STATE_FILE_BYTES = 1024 * 1024
 MAX_EVENT_LOG_BYTES = 4 * 1024 * 1024
 MAX_GATE_RESOLVER_CHARS = 200
+MAX_CHECKPOINT_RESOLVER_CHARS = 200
+MAX_CHECKPOINT_NOTE_CHARS = 4096
 
 _STATE_FIELDS = {
     "schema_version",
@@ -26,6 +29,7 @@ _STATE_FIELDS = {
     "workflow_state",
     "node_states",
     "gate_decisions",
+    "planner_checkpoints",
     "cancel_requested",
     "created_at",
     "updated_at",
@@ -39,6 +43,16 @@ _GATE_DECISION_FIELDS = {
     "decision",
     "resolver",
     "decided_at",
+}
+
+_PLANNER_CHECKPOINT_FIELDS = {
+    "schema_version",
+    "workflow_id",
+    "manifest_digest",
+    "node_id",
+    "resolver",
+    "note",
+    "resolved_at",
 }
 
 
@@ -137,6 +151,7 @@ class WorkflowStore:
                 "workflow_state": state.workflow_state(node_states),
                 "node_states": node_states,
                 "gate_decisions": {},
+                "planner_checkpoints": {},
                 "cancel_requested": False,
                 "created_at": manifest["created_at"],
                 "updated_at": timestamp,
@@ -320,6 +335,85 @@ class WorkflowStore:
                 )
                 return record
 
+    def load_planner_checkpoint_resolution(
+        self,
+        workflow_id: str,
+        node_id: str,
+    ) -> dict[str, Any] | None:
+        current = self.load_state(workflow_id)
+        resolution = current["planner_checkpoints"].get(node_id)
+        return dict(resolution) if isinstance(resolution, dict) else None
+
+    def resolve_planner_checkpoint(
+        self,
+        workflow_id: str,
+        node_id: str,
+        *,
+        resolver: str,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        if (
+            not isinstance(resolver, str)
+            or not resolver.strip()
+            or len(resolver) > MAX_CHECKPOINT_RESOLVER_CHARS
+        ):
+            raise ValueError("checkpoint resolver must be a non-empty bounded string")
+        if note is not None and (
+            not isinstance(note, str) or len(note) > MAX_CHECKPOINT_NOTE_CHARS
+        ):
+            raise ValueError("checkpoint note must be null or a bounded string")
+
+        with self.execution_lock(workflow_id):
+            with self._mutation_lock(workflow_id):
+                manifest = self.load_manifest(workflow_id)
+                self._planner_checkpoint_node(manifest, node_id)
+                current = self.load_state(workflow_id)
+                existing = current["planner_checkpoints"].get(node_id)
+                if isinstance(existing, dict):
+                    return dict(existing)
+                if current["node_states"][node_id] != "waiting_planner":
+                    raise ValueError(
+                        f"planner checkpoint {node_id!r} is not waiting for planner"
+                    )
+
+                timestamp = now_iso()
+                record = {
+                    "schema_version": PLANNER_CHECKPOINT_SCHEMA_VERSION,
+                    "workflow_id": workflow_id,
+                    "manifest_digest": current["manifest_digest"],
+                    "node_id": node_id,
+                    "resolver": resolver,
+                    "note": note,
+                    "resolved_at": timestamp,
+                }
+                node_states = dict(current["node_states"])
+                node_states[node_id] = state.transition_node_state(
+                    node_states[node_id],
+                    "succeeded",
+                )
+                node_states = state.advance_dependency_states(manifest, node_states)
+                planner_checkpoints = dict(current["planner_checkpoints"])
+                planner_checkpoints[node_id] = record
+
+                updated = dict(current)
+                updated["node_states"] = node_states
+                updated["planner_checkpoints"] = planner_checkpoints
+                updated["workflow_state"] = state.workflow_state(node_states)
+                updated["updated_at"] = timestamp
+                self._write_state(workflow_id, updated)
+                self._record_event(
+                    workflow_id,
+                    {
+                        "event": "planner_checkpoint_resolved",
+                        "workflow_id": workflow_id,
+                        "node_id": node_id,
+                        "resolver": resolver,
+                        "workflow_state": updated["workflow_state"],
+                        "at": timestamp,
+                    },
+                )
+                return record
+
     def cancel(self, workflow_id: str) -> dict[str, Any]:
         with self.execution_lock(workflow_id):
             with self._mutation_lock(workflow_id):
@@ -373,6 +467,21 @@ class WorkflowStore:
             return node
         raise ValueError(f"unknown workflow node id: {node_id!r}")
 
+    def _planner_checkpoint_node(
+        self,
+        manifest: dict[str, Any],
+        node_id: str,
+    ) -> dict[str, Any]:
+        for node in manifest["nodes"]:
+            if node["id"] != node_id:
+                continue
+            if node["kind"] != "planner_checkpoint":
+                raise ValueError(
+                    f"workflow node {node_id!r} is not a planner checkpoint"
+                )
+            return node
+        raise ValueError(f"unknown workflow node id: {node_id!r}")
+
     def _validate_gate_decision(
         self,
         manifest: dict[str, Any],
@@ -408,6 +517,53 @@ class WorkflowStore:
         if node_states.get(node_id) != "succeeded":
             raise ValueError(
                 f"gate decision for {node_id!r} requires the gate node to be succeeded"
+            )
+
+    def _validate_planner_checkpoint_resolution(
+        self,
+        manifest: dict[str, Any],
+        node_states: dict[str, str],
+        node_id: str,
+        payload: Any,
+    ) -> None:
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != _PLANNER_CHECKPOINT_FIELDS
+        ):
+            raise ValueError(f"invalid planner checkpoint record for {node_id!r}")
+        if (
+            type(payload.get("schema_version")) is not int
+            or payload["schema_version"] != PLANNER_CHECKPOINT_SCHEMA_VERSION
+        ):
+            raise ValueError(f"invalid planner checkpoint schema for {node_id!r}")
+        if payload.get("workflow_id") != manifest["id"]:
+            raise ValueError(
+                f"planner checkpoint workflow identity mismatch for {node_id!r}"
+            )
+        if payload.get("manifest_digest") != contract.manifest_digest(manifest):
+            raise ValueError(
+                f"planner checkpoint manifest digest mismatch for {node_id!r}"
+            )
+        if payload.get("node_id") != node_id:
+            raise ValueError(f"planner checkpoint node identity mismatch for {node_id!r}")
+        self._planner_checkpoint_node(manifest, node_id)
+        resolver = payload.get("resolver")
+        if (
+            not isinstance(resolver, str)
+            or not resolver.strip()
+            or len(resolver) > MAX_CHECKPOINT_RESOLVER_CHARS
+        ):
+            raise ValueError(f"invalid planner checkpoint resolver for {node_id!r}")
+        note = payload.get("note")
+        if note is not None and (
+            not isinstance(note, str) or len(note) > MAX_CHECKPOINT_NOTE_CHARS
+        ):
+            raise ValueError(f"invalid planner checkpoint note for {node_id!r}")
+        if not isinstance(payload.get("resolved_at"), str) or not payload["resolved_at"]:
+            raise ValueError(f"invalid planner checkpoint timestamp for {node_id!r}")
+        if node_states.get(node_id) != "succeeded":
+            raise ValueError(
+                f"planner checkpoint record for {node_id!r} requires the node to be succeeded"
             )
 
     def _validate_state_payload(
@@ -456,6 +612,19 @@ class WorkflowStore:
                 node_states,
                 node_id,
                 decision,
+            )
+
+        planner_checkpoints = payload.get("planner_checkpoints")
+        if not isinstance(planner_checkpoints, dict):
+            raise ValueError("planner_checkpoints must be an object")
+        for node_id, resolution in planner_checkpoints.items():
+            if not isinstance(node_id, str):
+                raise ValueError("planner_checkpoints keys must be strings")
+            self._validate_planner_checkpoint_resolution(
+                manifest,
+                node_states,
+                node_id,
+                resolution,
             )
 
         computed = state.workflow_state(node_states)
