@@ -197,11 +197,10 @@ def workflow_state(states: dict[str, str]) -> str:
         return "waiting_user"
     if all(value == "succeeded" for value in values):
         return "completed"
-    if all(value in {"succeeded", "cancelled"} for value in values) and "cancelled" in values:
+    if any(value in {"ready", "dispatched", "running"} for value in values):
+        return "running"
+    if "cancelled" in values:
         return "cancelled"
-    if any(
-        value in {"ready", "dispatched", "running", "succeeded"}
-        for value in values
-    ):
+    if "succeeded" in values:
         return "running"
     return "pending"
