@@ -1,34 +1,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any, Protocol
 
 from local_agent.repository.context import RepositoryContext, validate_repository_set
 from local_agent.runtime.task_contract import task_digest
 from local_agent.workflow import publishing
+from local_agent.workflow.evidence import ChildEvidence, ChildEvidenceKind
 from local_agent.workflow.store import WorkflowStore
 
 
 class WorkflowIntegrityError(RuntimeError):
     """Raised when durable workflow state conflicts with exact repository evidence."""
-
-
-class ChildEvidenceKind(Enum):
-    ABSENT = "absent"
-    PENDING = "pending"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    INTERRUPTED = "interrupted"
-    DIGEST_MISMATCH = "digest_mismatch"
-
-
-@dataclass(frozen=True, slots=True)
-class ChildEvidence:
-    kind: ChildEvidenceKind
-    task_digest: str | None = None
-    failure_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,44 +81,49 @@ def _repository_for_node(
 
 
 def _validated_evidence(
-    evidence: ChildEvidence,
+    child_evidence: ChildEvidence,
     *,
     expected_digest: str,
 ) -> ChildEvidence:
-    if not isinstance(evidence, ChildEvidence):
+    if not isinstance(child_evidence, ChildEvidence):
         raise WorkflowIntegrityError("control plane returned invalid child evidence")
-    if evidence.kind in {ChildEvidenceKind.ABSENT, ChildEvidenceKind.DIGEST_MISMATCH}:
-        return evidence
-    if evidence.task_digest != expected_digest:
+    if child_evidence.kind in {
+        ChildEvidenceKind.ABSENT,
+        ChildEvidenceKind.DIGEST_MISMATCH,
+    }:
+        return child_evidence
+    if child_evidence.task_digest != expected_digest:
         raise WorkflowIntegrityError(
             "control plane evidence did not carry the exact expected task digest"
         )
-    return evidence
+    return child_evidence
 
 
 def _reconciliation_target(
     current: str,
-    evidence: ChildEvidence,
+    child_evidence: ChildEvidence,
     *,
     node_id: str,
 ) -> str | None:
-    if evidence.kind == ChildEvidenceKind.ABSENT:
+    if child_evidence.kind == ChildEvidenceKind.ABSENT:
         if current in {"dispatched", "running"}:
             raise WorkflowIntegrityError(
                 f"workflow child {node_id!r} is missing after dispatch; refusing replay"
             )
         return None
-    if evidence.kind == ChildEvidenceKind.DIGEST_MISMATCH:
+    if child_evidence.kind == ChildEvidenceKind.DIGEST_MISMATCH:
         return "failed"
-    if evidence.kind == ChildEvidenceKind.PENDING:
+    if child_evidence.kind == ChildEvidenceKind.PENDING:
         return "running" if current == "running" else "dispatched"
-    if evidence.kind == ChildEvidenceKind.RUNNING:
+    if child_evidence.kind == ChildEvidenceKind.RUNNING:
         return "running"
-    if evidence.kind == ChildEvidenceKind.SUCCEEDED:
+    if child_evidence.kind == ChildEvidenceKind.SUCCEEDED:
         return "succeeded"
-    if evidence.kind == ChildEvidenceKind.FAILED:
+    if child_evidence.kind == ChildEvidenceKind.FAILED:
         return "failed"
-    if evidence.kind == ChildEvidenceKind.INTERRUPTED:
+    if child_evidence.kind == ChildEvidenceKind.CANCELLED:
+        return "cancelled"
+    if child_evidence.kind == ChildEvidenceKind.INTERRUPTED:
         return "blocked_interrupted"
     raise WorkflowIntegrityError(f"unsupported child evidence for {node_id!r}")
 
@@ -143,27 +131,28 @@ def _reconciliation_target(
 def _reconcile_one(
     store: WorkflowStore,
     workflow_id: str,
+    manifest: dict[str, Any],
     node: dict[str, Any],
     repository: RepositoryContext,
     control_plane: WorkflowControlPlane,
     current_state: str,
 ) -> tuple[dict[str, Any] | None, bool]:
     node_id = str(node["id"])
-    child = publishing.materialize_child_task(store.load_manifest(workflow_id), node_id)
+    child = publishing.materialize_child_task(manifest, node_id)
     expected_digest = task_digest(child)
-    evidence = _validated_evidence(
+    child_evidence = _validated_evidence(
         control_plane.inspect_child(repository, str(child["id"]), expected_digest),
         expected_digest=expected_digest,
     )
     target = _reconciliation_target(
         current_state,
-        evidence,
+        child_evidence,
         node_id=node_id,
     )
     if target is None or target == current_state:
-        return None, evidence.kind == ChildEvidenceKind.DIGEST_MISMATCH
+        return None, child_evidence.kind == ChildEvidenceKind.DIGEST_MISMATCH
     updated = store.set_node_state(workflow_id, node_id, target)
-    return updated, evidence.kind == ChildEvidenceKind.DIGEST_MISMATCH
+    return updated, child_evidence.kind == ChildEvidenceKind.DIGEST_MISMATCH
 
 
 def tick_workflow(
@@ -202,6 +191,7 @@ def tick_workflow(
             updated, integrity_failure = _reconcile_one(
                 store,
                 workflow_id,
+                manifest,
                 node,
                 repository,
                 control_plane,
@@ -252,7 +242,7 @@ def tick_workflow(
 
             child = publishing.materialize_child_task(manifest, node_id)
             expected_digest = task_digest(child)
-            evidence = _validated_evidence(
+            child_evidence = _validated_evidence(
                 control_plane.inspect_child(
                     repository,
                     str(child["id"]),
@@ -262,13 +252,13 @@ def tick_workflow(
             )
             target = _reconciliation_target(
                 "ready",
-                evidence,
+                child_evidence,
                 node_id=node_id,
             )
             if target is not None:
                 updated = store.set_node_state(workflow_id, node_id, target)
                 reconciled.append(node_id)
-                if evidence.kind == ChildEvidenceKind.DIGEST_MISMATCH:
+                if child_evidence.kind == ChildEvidenceKind.DIGEST_MISMATCH:
                     integrity_failures.append(node_id)
                 if updated["node_states"][node_id] in {"dispatched", "running"}:
                     reserved_repositories.add(repository.repository_id)
