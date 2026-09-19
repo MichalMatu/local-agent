@@ -8,11 +8,14 @@ import time
 import unittest
 from pathlib import Path
 
+import local_agent.foundation.core as core
 from local_agent.foundation.control_git_lock import (
     CONTROL_GIT_LOCK_FILENAME,
     DynamicControlGitLock,
     control_git_lock,
 )
+from local_agent.repository.context import RepositoryContext
+from local_agent.workflow.git_control_plane import GitWorkflowControlPlane
 
 
 class ControlGitLockTests(unittest.TestCase):
@@ -59,6 +62,29 @@ class ControlGitLockTests(unittest.TestCase):
 
             with lock:
                 self.assertTrue((second / ".git" / CONTROL_GIT_LOCK_FILENAME).exists())
+
+    def test_runtime_and_workflow_adapter_share_reentrant_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            control = self.make_control(root, "control")
+            repository = RepositoryContext(
+                repository_id="lock-test",
+                repository="example/lock-test",
+                control=control,
+                work=root / "work",
+                checkpoints=root / "checkpoints",
+            )
+            adapter = GitWorkflowControlPlane(
+                origin_url_for=lambda _repository: control.as_uri()
+            )
+            previous_control = core.CONTROL
+            core.CONTROL = control
+            try:
+                with core.CONTROL_GIT_LOCK:
+                    with adapter._repository_lock(repository):
+                        self.assertIs(control_git_lock(control), control_git_lock(core.CONTROL))
+            finally:
+                core.CONTROL = previous_control
 
     def test_lock_serializes_independent_processes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
