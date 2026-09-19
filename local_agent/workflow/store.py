@@ -142,7 +142,7 @@ class WorkflowStore:
                 "updated_at": timestamp,
             }
             self._write_state(workflow_id, state_payload)
-            self._append_event(
+            self._record_event(
                 workflow_id,
                 {
                     "event": "submitted",
@@ -221,7 +221,7 @@ class WorkflowStore:
             updated["workflow_state"] = state.workflow_state(node_states)
             updated["updated_at"] = timestamp
             self._write_state(workflow_id, updated)
-            self._append_event(
+            self._record_event(
                 workflow_id,
                 {
                     "event": "node_state_changed",
@@ -306,7 +306,7 @@ class WorkflowStore:
                 updated["workflow_state"] = state.workflow_state(node_states)
                 updated["updated_at"] = timestamp
                 self._write_state(workflow_id, updated)
-                self._append_event(
+                self._record_event(
                     workflow_id,
                     {
                         "event": "user_gate_resolved",
@@ -349,7 +349,7 @@ class WorkflowStore:
                 updated["workflow_state"] = state.workflow_state(node_states)
                 updated["updated_at"] = timestamp
                 self._write_state(workflow_id, updated)
-                self._append_event(
+                self._record_event(
                     workflow_id,
                     {
                         "event": "cancel_requested",
@@ -471,6 +471,13 @@ class WorkflowStore:
         if len(text.encode("utf-8")) > MAX_STATE_FILE_BYTES:
             raise ValueError(f"workflow state exceeds {MAX_STATE_FILE_BYTES} bytes")
         atomic_write_text(self._state_path(workflow_id), text)
+
+    def _record_event(self, workflow_id: str, event: dict[str, Any]) -> bool:
+        """Best-effort audit only; authoritative workflow state lives in state.json."""
+        try:
+            return self._append_event(workflow_id, event)
+        except OSError:
+            return False
 
     def _append_event(self, workflow_id: str, event: dict[str, Any]) -> bool:
         path = self._events_path(workflow_id)
