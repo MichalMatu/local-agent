@@ -10,9 +10,11 @@ from unittest import mock
 
 from local_agent.cli import workflow
 from local_agent.workflow import methods
+from local_agent.workflow.store import WorkflowStore
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "workflows" / "single_repo.json"
+GATE_FIXTURE = Path(__file__).parent / "fixtures" / "workflows" / "user_gate.json"
 
 
 class WorkflowCliTests(unittest.TestCase):
@@ -80,6 +82,29 @@ class WorkflowCliTests(unittest.TestCase):
             cancelled = json.loads(output)
             self.assertTrue(cancelled["cancel_requested"])
             self.assertEqual(cancelled["workflow_state"], "cancelled")
+
+    def test_resolve_gate_records_exact_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            prefix = ("--state-dir", directory)
+            code, _output = self.run_cli(*prefix, "submit", str(GATE_FIXTURE))
+            self.assertEqual(code, 0)
+            store = WorkflowStore(Path(directory))
+            store.set_node_state("gate-example", "audit", "succeeded")
+
+            code, output = self.run_cli(
+                *prefix,
+                "resolve-gate",
+                "gate-example",
+                "choice",
+                "preserve_compat",
+                "--resolver",
+                "cli-test",
+            )
+            self.assertEqual(code, 0)
+            payload = json.loads(output)
+            self.assertEqual(payload["decision"]["decision"], "preserve_compat")
+            self.assertEqual(payload["decision"]["resolver"], "cli-test")
+            self.assertEqual(payload["state"]["node_states"]["choice"], "succeeded")
 
     def test_show_unknown_workflow_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
