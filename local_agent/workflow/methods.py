@@ -17,6 +17,9 @@ SUPPORTED_METHOD_REQUIREMENTS = frozenset(
     {
         "final_full_verification",
         "planner_checkpoint_after_audit",
+        "multi_repository_implementation",
+        "integration_joins_implementation",
+        "final_review_after_integration",
     }
 )
 
@@ -223,6 +226,89 @@ def _require_full_verification(manifest: dict[str, Any]) -> None:
         )
 
 
+def _phase_task_nodes(manifest: dict[str, Any], phase: str) -> list[dict[str, Any]]:
+    return [
+        node
+        for node in manifest.get("nodes", [])
+        if node.get("kind") == "task" and node.get("phase") == phase
+    ]
+
+
+def _dependency_closure(manifest: dict[str, Any], node_id: str) -> set[str]:
+    nodes = {
+        str(node["id"]): node
+        for node in manifest.get("nodes", [])
+        if isinstance(node, dict) and isinstance(node.get("id"), str)
+    }
+    if node_id not in nodes:
+        raise ValueError(f"unknown workflow node while checking method topology: {node_id!r}")
+    closure: set[str] = set()
+    stack = [str(item) for item in nodes[node_id].get("depends_on", [])]
+    while stack:
+        dependency = stack.pop()
+        if dependency in closure:
+            continue
+        node = nodes.get(dependency)
+        if node is None:
+            raise ValueError(
+                f"unknown workflow dependency while checking method topology: {dependency!r}"
+            )
+        closure.add(dependency)
+        stack.extend(str(item) for item in node.get("depends_on", []))
+    return closure
+
+
+def _require_multi_repository_implementation(manifest: dict[str, Any]) -> None:
+    implementation = _phase_task_nodes(manifest, "implementation")
+    repositories = {
+        str(node.get("repository_id"))
+        for node in implementation
+        if isinstance(node.get("repository_id"), str)
+    }
+    if len(repositories) < 2:
+        raise ValueError(
+            "method requires implementation tasks across at least two repositories"
+        )
+
+
+def _require_integration_joins_implementation(manifest: dict[str, Any]) -> None:
+    implementation_ids = {
+        str(node["id"])
+        for node in _phase_task_nodes(manifest, "implementation")
+    }
+    integration = _phase_task_nodes(manifest, "integration")
+    if not implementation_ids or not integration:
+        raise ValueError(
+            "method requires task-based implementation and integration phases"
+        )
+    if not any(
+        implementation_ids.issubset(_dependency_closure(manifest, str(node["id"])))
+        for node in integration
+    ):
+        raise ValueError(
+            "method integration phase must depend on all implementation tasks"
+        )
+
+
+def _require_final_review_after_integration(manifest: dict[str, Any]) -> None:
+    integration_ids = {
+        str(node["id"])
+        for node in _phase_task_nodes(manifest, "integration")
+    }
+    reviews = [
+        node
+        for node in manifest.get("nodes", [])
+        if node.get("phase") == "final_review"
+    ]
+    if not integration_ids or not reviews:
+        raise ValueError("method requires final review after integration")
+    if not any(
+        integration_ids.issubset(_dependency_closure(manifest, str(node["id"])))
+        for node in reviews
+    ):
+        raise ValueError("method final review must depend on all integration tasks")
+
+
 def _observed_phases(manifest: dict[str, Any]) -> set[str]:
     observed: set[str] = set()
     for node in manifest.get("nodes", []):
@@ -230,6 +316,36 @@ def _observed_phases(manifest: dict[str, Any]) -> set[str]:
         if phase is not None:
             observed.add(validate_phase_name(phase))
     return observed
+
+
+def _validate_requirements(
+    manifest: dict[str, Any],
+    requirements: dict[str, Any],
+    *,
+    observed: set[str] | None = None,
+) -> None:
+    adaptive = observed is not None
+
+    if requirements.get("planner_checkpoint_after_audit", False) and (
+        not adaptive or "audit" in observed
+    ):
+        _require_planner_checkpoint_after_audit(manifest)
+    if requirements.get("final_full_verification", False) and (
+        not adaptive or "full_verification" in observed
+    ):
+        _require_full_verification(manifest)
+    if requirements.get("multi_repository_implementation", False) and (
+        not adaptive or "implementation" in observed
+    ):
+        _require_multi_repository_implementation(manifest)
+    if requirements.get("integration_joins_implementation", False) and (
+        not adaptive or "integration" in observed
+    ):
+        _require_integration_joins_implementation(manifest)
+    if requirements.get("final_review_after_integration", False) and (
+        not adaptive or "final_review" in observed
+    ):
+        _require_final_review_after_integration(manifest)
 
 
 def validate_adaptive_workflow_method(
@@ -254,11 +370,7 @@ def validate_adaptive_workflow_method(
             f"adaptive workflow must contain the first required method phase: {first_required!r}"
         )
 
-    requirements = spec["requirements"]
-    if requirements.get("planner_checkpoint_after_audit", False) and "audit" in observed:
-        _require_planner_checkpoint_after_audit(manifest)
-    if requirements.get("final_full_verification", False) and "full_verification" in observed:
-        _require_full_verification(manifest)
+    _validate_requirements(manifest, spec["requirements"], observed=observed)
 
 
 def validate_workflow_method(
@@ -277,8 +389,4 @@ def validate_workflow_method(
     if missing:
         raise ValueError(f"workflow is missing required method phases: {missing!r}")
 
-    requirements = spec["requirements"]
-    if requirements.get("planner_checkpoint_after_audit", False):
-        _require_planner_checkpoint_after_audit(manifest)
-    if requirements.get("final_full_verification", False):
-        _require_full_verification(manifest)
+    _validate_requirements(manifest, spec["requirements"])
