@@ -215,9 +215,37 @@ class WorkflowEvidenceTests(unittest.TestCase):
                 child_task_id=TASK_ID,
                 status_payload={},
                 task_payloads=[child, other],
-                result_payloads={"standalone-task": {"id": "standalone-task", "status": "done"}},
+                result_payloads={
+                    "standalone-task": {
+                        "id": "standalone-task",
+                        "status": "done",
+                    }
+                },
             )
         )
+
+    def test_malformed_unrelated_result_does_not_clear_queue_block(self) -> None:
+        child = child_task()
+        other = {
+            "id": "standalone-task",
+            "agent_binding": child["agent_binding"],
+            "resources": [],
+            "commands": ["true"],
+        }
+        for bad_result in (
+            {"id": "wrong-task", "status": "done"},
+            {"id": "standalone-task", "status": "running"},
+            {"id": "standalone-task"},
+        ):
+            with self.subTest(bad_result=bad_result):
+                self.assertTrue(
+                    evidence.has_unrelated_work(
+                        child_task_id=TASK_ID,
+                        status_payload={},
+                        task_payloads=[child, other],
+                        result_payloads={"standalone-task": bad_result},
+                    )
+                )
 
 
 if __name__ == "__main__":
