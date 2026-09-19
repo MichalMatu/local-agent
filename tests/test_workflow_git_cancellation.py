@@ -9,10 +9,7 @@ from local_agent.workflow.git_cancellation import (
     GitWorkflowCancellationTransport,
     cancel_control_id,
 )
-from local_agent.workflow.git_control_plane import (
-    WorkflowGitIntegrityError,
-    WorkflowGitRepositoryBusyError,
-)
+from local_agent.workflow.git_control_plane import WorkflowGitIntegrityError
 from tests.test_workflow_git_control_plane import (
     LostPushResponseControlPlane,
     WorkflowGitControlPlaneTests,
@@ -224,7 +221,7 @@ class WorkflowGitCancellationTests(WorkflowGitControlPlaneTests):
                 digest,
             )
 
-    def test_unacknowledged_existing_control_request_blocks_overwrite(self) -> None:
+    def test_unacknowledged_existing_control_request_defers_without_overwrite(self) -> None:
         task, digest = self._queue_child()
         self._sync_seed()
         existing = {
@@ -238,12 +235,12 @@ class WorkflowGitCancellationTests(WorkflowGitControlPlaneTests):
             "Publish unrelated unacknowledged control request",
         )
 
-        with self.assertRaises(WorkflowGitRepositoryBusyError):
-            self.cancellation.request_cancel(
-                self.repo_a,
-                str(task["id"]),
-                digest,
-            )
+        deferred = self.cancellation.request_cancel(
+            self.repo_a,
+            str(task["id"]),
+            digest,
+        )
+        self.assertEqual(deferred.state, CancelRequestState.DEFERRED)
         self.assertEqual(
             remote_json(self.origin_a, "agent-control", ".agent/daemon/control.json"),
             existing,
