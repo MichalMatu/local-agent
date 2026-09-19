@@ -42,6 +42,7 @@ class WorkflowStore:
         self.state_dir = (state_dir or DEFAULT_STATE_DIR).expanduser().resolve()
         self.root = self.state_dir / "workflows"
         self.lock_root = self.state_dir / "locks" / "workflows"
+        self.execution_lock_root = self.state_dir / "locks" / "workflow-execution"
 
     def _workflow_dir(self, workflow_id: str) -> Path:
         canonical = contract.validate_workflow_id(workflow_id)
@@ -61,6 +62,19 @@ class WorkflowStore:
         canonical = contract.validate_workflow_id(workflow_id)
         self.lock_root.mkdir(parents=True, exist_ok=True)
         path = self.lock_root / f"{canonical}.lock"
+        with path.open("a+", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+    @contextlib.contextmanager
+    def execution_lock(self, workflow_id: str) -> Iterator[None]:
+        """Serialize dispatch/reconciliation with operator cancellation for one workflow."""
+        canonical = contract.validate_workflow_id(workflow_id)
+        self.execution_lock_root.mkdir(parents=True, exist_ok=True)
+        path = self.execution_lock_root / f"{canonical}.lock"
         with path.open("a+", encoding="utf-8") as handle:
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             try:
@@ -208,43 +222,44 @@ class WorkflowStore:
             return updated
 
     def cancel(self, workflow_id: str) -> dict[str, Any]:
-        with self._mutation_lock(workflow_id):
-            current = self.load_state(workflow_id)
-            if current["cancel_requested"]:
-                return current
+        with self.execution_lock(workflow_id):
+            with self._mutation_lock(workflow_id):
+                current = self.load_state(workflow_id)
+                if current["cancel_requested"]:
+                    return current
 
-            node_states = dict(current["node_states"])
-            cancellable = {
-                "pending",
-                "blocked_dependency",
-                "ready",
-                "waiting_user",
-                "waiting_planner",
-            }
-            for node_id, node_state in list(node_states.items()):
-                if node_state in cancellable:
-                    node_states[node_id] = state.transition_node_state(
-                        node_state,
-                        "cancelled",
-                    )
+                node_states = dict(current["node_states"])
+                cancellable = {
+                    "pending",
+                    "blocked_dependency",
+                    "ready",
+                    "waiting_user",
+                    "waiting_planner",
+                }
+                for node_id, node_state in list(node_states.items()):
+                    if node_state in cancellable:
+                        node_states[node_id] = state.transition_node_state(
+                            node_state,
+                            "cancelled",
+                        )
 
-            timestamp = now_iso()
-            updated = dict(current)
-            updated["cancel_requested"] = True
-            updated["node_states"] = node_states
-            updated["workflow_state"] = state.workflow_state(node_states)
-            updated["updated_at"] = timestamp
-            self._write_state(workflow_id, updated)
-            self._append_event(
-                workflow_id,
-                {
-                    "event": "cancel_requested",
-                    "workflow_id": workflow_id,
-                    "workflow_state": updated["workflow_state"],
-                    "at": timestamp,
-                },
-            )
-            return updated
+                timestamp = now_iso()
+                updated = dict(current)
+                updated["cancel_requested"] = True
+                updated["node_states"] = node_states
+                updated["workflow_state"] = state.workflow_state(node_states)
+                updated["updated_at"] = timestamp
+                self._write_state(workflow_id, updated)
+                self._append_event(
+                    workflow_id,
+                    {
+                        "event": "cancel_requested",
+                        "workflow_id": workflow_id,
+                        "workflow_state": updated["workflow_state"],
+                        "at": timestamp,
+                    },
+                )
+                return updated
 
     def _validate_state_payload(
         self,
