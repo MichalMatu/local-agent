@@ -103,6 +103,12 @@ class WorkflowContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported workflow node kind"):
             contract.validate_workflow_manifest(manifest)
 
+    def test_invalid_phase_is_rejected(self) -> None:
+        manifest = load_fixture("single_repo.json")
+        manifest["nodes"][0]["phase"] = "Not Canonical"
+        with self.assertRaisesRegex(ValueError, "workflow phase"):
+            contract.validate_workflow_manifest(manifest)
+
     def test_task_template_cannot_override_child_identity(self) -> None:
         manifest = load_fixture("single_repo.json")
         manifest["nodes"][0]["task"]["id"] = "planner-chosen-child"
@@ -130,42 +136,20 @@ class WorkflowContractTests(unittest.TestCase):
             contract.validate_workflow_manifest(manifest)
 
     def test_method_reference_is_exact_and_digest_pinned(self) -> None:
-        spec = {
-            "schema_version": 1,
-            "name": "deep-refactor",
-            "version": 1,
-            "description": "Audit, implement, verify, and review.",
-            "required_phases": ["audit", "implementation", "full_verification"],
-            "requirements": {
-                "final_full_verification": True,
-                "planner_checkpoint_after_audit": True,
-            },
-        }
-        methods.validate_method_spec(spec)
-        reference = {
-            "name": spec["name"],
-            "version": spec["version"],
-            "digest": methods.method_digest(spec),
-        }
+        spec = methods.load_builtin_method("deep-refactor")
+        reference = methods.method_reference(spec)
         methods.validate_method_reference(reference)
-        manifest = load_fixture("single_repo.json")
-        manifest["method"] = reference
-        contract.validate_workflow_manifest(manifest)
+        methods.require_method_match(reference, spec)
 
         bad = copy.deepcopy(reference)
         bad["digest"] = "sha256:" + "0" * 64
         methods.validate_method_reference(bad)
-        self.assertNotEqual(bad["digest"], methods.method_digest(spec))
+        with self.assertRaisesRegex(ValueError, "digest mismatch"):
+            methods.require_method_match(bad, spec)
 
     def test_method_spec_rejects_non_boolean_requirements(self) -> None:
-        spec = {
-            "schema_version": 1,
-            "name": "deep-refactor",
-            "version": 1,
-            "description": "x",
-            "required_phases": ["audit"],
-            "requirements": {"final_full_verification": "yes"},
-        }
+        spec = methods.load_builtin_method("deep-refactor")
+        spec["requirements"]["final_full_verification"] = "yes"
         with self.assertRaisesRegex(ValueError, "requirement values must be booleans"):
             methods.validate_method_spec(spec)
 
