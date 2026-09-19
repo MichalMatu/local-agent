@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.23` and the current production release is `v4.18.22`. The 4.18.23 candidate adds `MichalMatu/host-ops` as a canonical execution-enabled hard-bound repository without changing Chat Bridge protocol, task schema, `work_branch`, resource scheduling, executor or result contracts. Chat Bridge remains `0.5.9` with content protocol `v7`. `v4.18.22` remains the deployed production release and immediate rollback point until the explicit release decision advances `main`.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.23` and the current production release is `v4.18.23`. The 4.18.23 release adds `MichalMatu/host-ops` as a canonical execution-enabled hard-bound repository without changing Chat Bridge protocol, task schema, `work_branch`, resource scheduling, executor or result contracts. Chat Bridge remains `0.5.9` with content protocol `v7`. `v4.18.22` remains the immediate rollback point.
 
 ## Release/runtime invariants
 
