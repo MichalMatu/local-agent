@@ -108,6 +108,10 @@ def read_json(path: Path) -> dict | None:
 class DisposableGitControlPlane:
     """Test-only adapter. It never pushes and only writes supplied temp checkouts."""
 
+    def __init__(self) -> None:
+        self.crash_after_commit = False
+        self.publish_calls = 0
+
     def inspect_child(
         self,
         repository: RepositoryContext,
@@ -128,6 +132,7 @@ class DisposableGitControlPlane:
         repository: RepositoryContext,
         task: dict,
     ) -> None:
+        self.publish_calls += 1
         control = repository.control.resolve()
         target = (control / ".agent" / "tasks" / f"{task['id']}.json").resolve()
         if control not in target.parents:
@@ -141,6 +146,9 @@ class DisposableGitControlPlane:
         relative = target.relative_to(control).as_posix()
         run_git(control, "add", "--", relative)
         run_git(control, "commit", "-m", f"Publish workflow child {task['id']}", "--", relative)
+        if self.crash_after_commit:
+            self.crash_after_commit = False
+            raise RuntimeError("simulated crash after disposable Git commit")
 
     def has_unrelated_work(
         self,
@@ -272,6 +280,92 @@ class WorkflowTemporaryGitIntegrationTests(unittest.TestCase):
             )
             self.assertTrue(
                 (repo_b.control / ".agent" / "tasks" / f"{android['id']}.json").is_file()
+            )
+
+    def test_crash_after_git_commit_recovers_without_second_commit_or_publish(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo_a = repository(root, "repo-a")
+            manifest = {
+                "schema_version": 1,
+                "id": WORKFLOW_ID,
+                "created_at": "2026-09-19T14:02:00Z",
+                "nodes": [task_node("backend", "repo-a")],
+            }
+            store = WorkflowStore(root / "workflow-state")
+            store.submit(manifest)
+            control = DisposableGitControlPlane()
+            control.crash_after_commit = True
+
+            with self.assertRaisesRegex(RuntimeError, "simulated crash"):
+                coordinator.tick_workflow(
+                    store,
+                    WORKFLOW_ID,
+                    [repo_a],
+                    control,
+                )
+            self.assertEqual(
+                store.load_state(WORKFLOW_ID)["node_states"]["backend"],
+                "ready",
+            )
+            self.assertEqual(control.publish_calls, 1)
+            self.assertEqual(int(run_git(repo_a.control, "rev-list", "--count", "HEAD")), 2)
+
+            recovered = coordinator.tick_workflow(
+                store,
+                WORKFLOW_ID,
+                [repo_a],
+                control,
+            )
+            self.assertEqual(recovered.reconciled, ("backend",))
+            self.assertEqual(control.publish_calls, 1)
+            self.assertEqual(int(run_git(repo_a.control, "rev-list", "--count", "HEAD")), 2)
+            self.assertEqual(
+                store.load_state(WORKFLOW_ID)["node_states"]["backend"],
+                "dispatched",
+            )
+
+    def test_existing_same_id_with_different_digest_fails_closed_without_commit(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo_a = repository(root, "repo-a")
+            manifest = {
+                "schema_version": 1,
+                "id": WORKFLOW_ID,
+                "created_at": "2026-09-19T14:03:00Z",
+                "nodes": [task_node("backend", "repo-a")],
+            }
+            store = WorkflowStore(root / "workflow-state")
+            store.submit(manifest)
+            expected = publishing.materialize_child_task(manifest, "backend")
+            conflicting = dict(expected)
+            conflicting["commands"] = ["false"]
+            task_path = repo_a.control / ".agent" / "tasks" / f"{expected['id']}.json"
+            task_path.write_text(
+                json.dumps(conflicting, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            relative = task_path.relative_to(repo_a.control).as_posix()
+            run_git(repo_a.control, "add", "--", relative)
+            run_git(repo_a.control, "commit", "-m", "Seed conflicting child", "--", relative)
+            commits_before = int(run_git(repo_a.control, "rev-list", "--count", "HEAD"))
+            control = DisposableGitControlPlane()
+
+            tick = coordinator.tick_workflow(
+                store,
+                WORKFLOW_ID,
+                [repo_a],
+                control,
+            )
+            self.assertEqual(tick.integrity_failures, ("backend",))
+            self.assertEqual(control.publish_calls, 0)
+            self.assertEqual(
+                int(run_git(repo_a.control, "rev-list", "--count", "HEAD")),
+                commits_before,
+            )
+            self.assertEqual(
+                store.load_state(WORKFLOW_ID)["node_states"]["backend"],
+                "failed",
             )
 
 
