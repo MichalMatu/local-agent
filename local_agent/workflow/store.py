@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import json
 import os
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -38,6 +41,7 @@ class WorkflowStore:
     def __init__(self, state_dir: Path | None = None) -> None:
         self.state_dir = (state_dir or DEFAULT_STATE_DIR).expanduser().resolve()
         self.root = self.state_dir / "workflows"
+        self.lock_root = self.state_dir / "locks" / "workflows"
 
     def _workflow_dir(self, workflow_id: str) -> Path:
         canonical = contract.validate_workflow_id(workflow_id)
@@ -51,6 +55,18 @@ class WorkflowStore:
 
     def _events_path(self, workflow_id: str) -> Path:
         return self._workflow_dir(workflow_id) / "events.ndjson"
+
+    @contextlib.contextmanager
+    def _mutation_lock(self, workflow_id: str) -> Iterator[None]:
+        canonical = contract.validate_workflow_id(workflow_id)
+        self.lock_root.mkdir(parents=True, exist_ok=True)
+        path = self.lock_root / f"{canonical}.lock"
+        with path.open("a+", encoding="utf-8") as handle:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def workflow_ids(self) -> list[str]:
         if not self.root.exists():
@@ -70,46 +86,45 @@ class WorkflowStore:
         contract.validate_workflow_manifest(manifest)
         workflow_id = str(manifest["id"])
         digest = contract.manifest_digest(manifest)
-        workflow_dir = self._workflow_dir(workflow_id)
+        with self._mutation_lock(workflow_id):
+            workflow_dir = self._workflow_dir(workflow_id)
+            if workflow_dir.exists():
+                existing_manifest = self.load_manifest(workflow_id)
+                existing_digest = contract.manifest_digest(existing_manifest)
+                if existing_digest != digest:
+                    raise ValueError(
+                        f"workflow {workflow_id!r} already exists with a different manifest digest"
+                    )
+                return self.load_state(workflow_id)
 
-        if workflow_dir.exists():
-            existing_manifest = self.load_manifest(workflow_id)
-            existing_digest = contract.manifest_digest(existing_manifest)
-            if existing_digest != digest:
-                raise ValueError(
-                    f"workflow {workflow_id!r} already exists with a different manifest digest"
-                )
-            return self.load_state(workflow_id)
+            workflow_dir.mkdir(parents=True, exist_ok=False)
+            fsync_directory(workflow_dir.parent)
+            atomic_write_text(workflow_dir / "manifest.json", _json_text(manifest))
 
-        workflow_dir.mkdir(parents=True, exist_ok=False)
-        fsync_directory(workflow_dir.parent)
-        manifest_path = workflow_dir / "manifest.json"
-        atomic_write_text(manifest_path, _json_text(manifest))
-
-        node_states = state.initial_node_states(manifest)
-        timestamp = now_iso()
-        state_payload = {
-            "schema_version": WORKFLOW_STATE_SCHEMA_VERSION,
-            "workflow_id": workflow_id,
-            "manifest_digest": digest,
-            "workflow_state": state.workflow_state(node_states),
-            "node_states": node_states,
-            "cancel_requested": False,
-            "created_at": manifest["created_at"],
-            "updated_at": timestamp,
-        }
-        self._write_state(workflow_id, state_payload)
-        self._append_event(
-            workflow_id,
-            {
-                "event": "submitted",
+            node_states = state.initial_node_states(manifest)
+            timestamp = now_iso()
+            state_payload = {
+                "schema_version": WORKFLOW_STATE_SCHEMA_VERSION,
                 "workflow_id": workflow_id,
                 "manifest_digest": digest,
-                "workflow_state": state_payload["workflow_state"],
-                "at": timestamp,
-            },
-        )
-        return state_payload
+                "workflow_state": state.workflow_state(node_states),
+                "node_states": node_states,
+                "cancel_requested": False,
+                "created_at": manifest["created_at"],
+                "updated_at": timestamp,
+            }
+            self._write_state(workflow_id, state_payload)
+            self._append_event(
+                workflow_id,
+                {
+                    "event": "submitted",
+                    "workflow_id": workflow_id,
+                    "manifest_digest": digest,
+                    "workflow_state": state_payload["workflow_state"],
+                    "at": timestamp,
+                },
+            )
+            return state_payload
 
     def load_manifest(self, workflow_id: str) -> dict[str, Any]:
         path = self._manifest_path(workflow_id)
@@ -159,72 +174,77 @@ class WorkflowStore:
         node_id: str,
         target: str,
     ) -> dict[str, Any]:
-        manifest = self.load_manifest(workflow_id)
-        current_state = self.load_state(workflow_id)
-        node_states = dict(current_state["node_states"])
-        if node_id not in node_states:
-            raise ValueError(f"unknown workflow node id: {node_id!r}")
+        with self._mutation_lock(workflow_id):
+            manifest = self.load_manifest(workflow_id)
+            current_state = self.load_state(workflow_id)
+            node_states = dict(current_state["node_states"])
+            if node_id not in node_states:
+                raise ValueError(f"unknown workflow node id: {node_id!r}")
 
-        before = dict(node_states)
-        node_states[node_id] = state.transition_node_state(node_states[node_id], target)
-        node_states = state.advance_dependency_states(manifest, node_states)
-        if node_states == before:
-            return current_state
+            before = dict(node_states)
+            node_states[node_id] = state.transition_node_state(node_states[node_id], target)
+            node_states = state.advance_dependency_states(manifest, node_states)
+            if node_states == before:
+                return current_state
 
-        timestamp = now_iso()
-        updated = dict(current_state)
-        updated["node_states"] = node_states
-        updated["workflow_state"] = state.workflow_state(node_states)
-        updated["updated_at"] = timestamp
-        self._write_state(workflow_id, updated)
-        self._append_event(
-            workflow_id,
-            {
-                "event": "node_state_changed",
-                "workflow_id": workflow_id,
-                "node_id": node_id,
-                "from": before[node_id],
-                "to": node_states[node_id],
-                "workflow_state": updated["workflow_state"],
-                "at": timestamp,
-            },
-        )
-        return updated
+            timestamp = now_iso()
+            updated = dict(current_state)
+            updated["node_states"] = node_states
+            updated["workflow_state"] = state.workflow_state(node_states)
+            updated["updated_at"] = timestamp
+            self._write_state(workflow_id, updated)
+            self._append_event(
+                workflow_id,
+                {
+                    "event": "node_state_changed",
+                    "workflow_id": workflow_id,
+                    "node_id": node_id,
+                    "from": before[node_id],
+                    "to": node_states[node_id],
+                    "workflow_state": updated["workflow_state"],
+                    "at": timestamp,
+                },
+            )
+            return updated
 
     def cancel(self, workflow_id: str) -> dict[str, Any]:
-        current = self.load_state(workflow_id)
-        if current["cancel_requested"]:
-            return current
+        with self._mutation_lock(workflow_id):
+            current = self.load_state(workflow_id)
+            if current["cancel_requested"]:
+                return current
 
-        node_states = dict(current["node_states"])
-        cancellable = {
-            "pending",
-            "blocked_dependency",
-            "ready",
-            "waiting_user",
-            "waiting_planner",
-        }
-        for node_id, node_state in list(node_states.items()):
-            if node_state in cancellable:
-                node_states[node_id] = state.transition_node_state(node_state, "cancelled")
+            node_states = dict(current["node_states"])
+            cancellable = {
+                "pending",
+                "blocked_dependency",
+                "ready",
+                "waiting_user",
+                "waiting_planner",
+            }
+            for node_id, node_state in list(node_states.items()):
+                if node_state in cancellable:
+                    node_states[node_id] = state.transition_node_state(
+                        node_state,
+                        "cancelled",
+                    )
 
-        timestamp = now_iso()
-        updated = dict(current)
-        updated["cancel_requested"] = True
-        updated["node_states"] = node_states
-        updated["workflow_state"] = state.workflow_state(node_states)
-        updated["updated_at"] = timestamp
-        self._write_state(workflow_id, updated)
-        self._append_event(
-            workflow_id,
-            {
-                "event": "cancel_requested",
-                "workflow_id": workflow_id,
-                "workflow_state": updated["workflow_state"],
-                "at": timestamp,
-            },
-        )
-        return updated
+            timestamp = now_iso()
+            updated = dict(current)
+            updated["cancel_requested"] = True
+            updated["node_states"] = node_states
+            updated["workflow_state"] = state.workflow_state(node_states)
+            updated["updated_at"] = timestamp
+            self._write_state(workflow_id, updated)
+            self._append_event(
+                workflow_id,
+                {
+                    "event": "cancel_requested",
+                    "workflow_id": workflow_id,
+                    "workflow_state": updated["workflow_state"],
+                    "at": timestamp,
+                },
+            )
+            return updated
 
     def _validate_state_payload(
         self,
@@ -274,7 +294,7 @@ class WorkflowStore:
             raise ValueError(f"workflow state exceeds {MAX_STATE_FILE_BYTES} bytes")
         atomic_write_text(self._state_path(workflow_id), text)
 
-    def _append_event(self, workflow_id: str, event: dict[str, Any]) -> None:
+    def _append_event(self, workflow_id: str, event: dict[str, Any]) -> bool:
         path = self._events_path(workflow_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(
@@ -290,24 +310,10 @@ class WorkflowStore:
         except FileNotFoundError:
             existing_size = 0
         if existing_size + len(encoded) > MAX_EVENT_LOG_BYTES:
-            raise ValueError(
-                f"workflow event log exceeds {MAX_EVENT_LOG_BYTES} bytes: {workflow_id!r}"
-            )
-        descriptor = os.open(
-            path,
-            os.O_WRONLY | os.O_CREAT | os.O_APPEND,
-            0o600,
-        )
-        try:
-            with os.fdopen(descriptor, "ab", closefd=True) as handle:
-                handle.write(encoded)
-                handle.flush()
-                os.fsync(handle.fileno())
-        finally:
-            # fdopen owns and closes the descriptor on the normal path. If fdopen itself
-            # failed, closing a still-open descriptor is harmless and avoids a leak.
-            try:
-                os.close(descriptor)
-            except OSError:
-                pass
+            return False
+        with path.open("ab") as handle:
+            handle.write(encoded)
+            handle.flush()
+            os.fsync(handle.fileno())
         fsync_directory(path.parent)
+        return True
