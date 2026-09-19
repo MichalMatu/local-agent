@@ -15,6 +15,7 @@ from local_agent.workflow.effective_state import WorkflowEffectiveStateStore
 from local_agent.workflow.git_cancellation import GitWorkflowCancellationTransport
 from local_agent.workflow.git_control_plane import GitWorkflowControlPlane
 from local_agent.workflow.lineage_cycle import run_lineage_cycle
+from local_agent.workflow.lineage_operator import activate_next_lineage_revision
 from local_agent.workflow.revision_store import WorkflowRevisionStore
 
 
@@ -27,6 +28,19 @@ def _load_object(path: Path) -> dict:
     if not isinstance(payload, dict):
         raise ValueError("JSON file must contain an object")
     return payload
+
+
+def _effective_store(workflow_store: store.WorkflowStore) -> WorkflowEffectiveStateStore:
+    revision_store = WorkflowRevisionStore(workflow_store)
+    activation_store = WorkflowRevisionActivationStore(
+        workflow_store,
+        revision_store,
+    )
+    return WorkflowEffectiveStateStore(
+        workflow_store,
+        revision_store,
+        activation_store,
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -106,11 +120,44 @@ def parse_args() -> argparse.Namespace:
     )
     effective_state_parser.add_argument("workflow_id")
 
+    activate_next_parser = subparsers.add_parser(
+        "activate-next",
+        help="Explicitly activate exactly one next persisted workflow revision.",
+    )
+    activate_next_parser.add_argument("workflow_id")
+
     run_cycle_parser = subparsers.add_parser(
         "run-cycle",
         help="Run exactly one explicit Git-backed workflow reconciliation cycle.",
     )
     run_cycle_parser.add_argument("workflow_id")
+
+    resolve_effective_gate_parser = subparsers.add_parser(
+        "resolve-effective-gate",
+        help="Resolve one user gate in the active effective revision graph.",
+    )
+    resolve_effective_gate_parser.add_argument("workflow_id")
+    resolve_effective_gate_parser.add_argument("node_id")
+    resolve_effective_gate_parser.add_argument("decision")
+    resolve_effective_gate_parser.add_argument("--resolver", default="local-operator")
+
+    resolve_effective_checkpoint_parser = subparsers.add_parser(
+        "resolve-effective-checkpoint",
+        help="Resolve one planner checkpoint in the active effective revision graph.",
+    )
+    resolve_effective_checkpoint_parser.add_argument("workflow_id")
+    resolve_effective_checkpoint_parser.add_argument("node_id")
+    resolve_effective_checkpoint_parser.add_argument(
+        "--resolver",
+        default="chatgpt-planner",
+    )
+    resolve_effective_checkpoint_parser.add_argument("--note")
+
+    cancel_effective_parser = subparsers.add_parser(
+        "cancel-effective",
+        help="Request cancellation of the active effective revision graph.",
+    )
+    cancel_effective_parser.add_argument("workflow_id")
 
     resolve_parser = subparsers.add_parser(
         "resolve-gate",
@@ -231,6 +278,18 @@ def main() -> int:
         _print_json({"manifest": manifest, "state": current_state})
         return 0
 
+    if args.command == "activate-next":
+        try:
+            result = activate_next_lineage_revision(
+                workflow_store,
+                args.workflow_id,
+            )
+        except Exception as exc:
+            _print_json({"error": f"{type(exc).__name__}: {exc}"})
+            return 2
+        _print_json(result)
+        return 0
+
     if args.command == "run-cycle":
         try:
             if args.registry is not None and not args.registry.is_file():
@@ -238,16 +297,7 @@ def main() -> int:
                     f"explicit repository registry is unavailable: {args.registry}"
                 )
             repositories = load_repository_registry(path=args.registry)
-            revision_store = WorkflowRevisionStore(workflow_store)
-            activation_store = WorkflowRevisionActivationStore(
-                workflow_store,
-                revision_store,
-            )
-            effective_store = WorkflowEffectiveStateStore(
-                workflow_store,
-                revision_store,
-                activation_store,
-            )
+            effective_store = _effective_store(workflow_store)
             control_plane = GitWorkflowControlPlane()
             cancellation_transport = GitWorkflowCancellationTransport(control_plane)
             result = run_lineage_cycle(
@@ -284,6 +334,48 @@ def main() -> int:
                 },
             }
         )
+        return 0
+
+    if args.command == "resolve-effective-gate":
+        try:
+            effective_store = _effective_store(workflow_store)
+            decision = effective_store.resolve_user_gate(
+                args.workflow_id,
+                args.node_id,
+                args.decision,
+                resolver=args.resolver,
+            )
+            current_state = effective_store.load(args.workflow_id)
+        except Exception as exc:
+            _print_json({"error": f"{type(exc).__name__}: {exc}"})
+            return 2
+        _print_json({"decision": decision, "effective_state": current_state})
+        return 0
+
+    if args.command == "resolve-effective-checkpoint":
+        try:
+            effective_store = _effective_store(workflow_store)
+            resolution = effective_store.resolve_planner_checkpoint(
+                args.workflow_id,
+                args.node_id,
+                resolver=args.resolver,
+                note=args.note,
+            )
+            current_state = effective_store.load(args.workflow_id)
+        except Exception as exc:
+            _print_json({"error": f"{type(exc).__name__}: {exc}"})
+            return 2
+        _print_json({"resolution": resolution, "effective_state": current_state})
+        return 0
+
+    if args.command == "cancel-effective":
+        try:
+            effective_store = _effective_store(workflow_store)
+            current_state = effective_store.cancel(args.workflow_id)
+        except Exception as exc:
+            _print_json({"error": f"{type(exc).__name__}: {exc}"})
+            return 2
+        _print_json({"effective_state": current_state})
         return 0
 
     if args.command in {
@@ -372,15 +464,7 @@ def main() -> int:
 
         if args.command == "effective-state":
             try:
-                activation_store = WorkflowRevisionActivationStore(
-                    workflow_store,
-                    revision_store,
-                )
-                effective_store = WorkflowEffectiveStateStore(
-                    workflow_store,
-                    revision_store,
-                    activation_store,
-                )
+                effective_store = _effective_store(workflow_store)
                 current = effective_store.load(args.workflow_id)
             except Exception as exc:
                 _print_json({"error": f"{type(exc).__name__}: {exc}"})
