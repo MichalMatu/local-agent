@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from local_agent.workflow import continuation, contract
+from local_agent.workflow import continuation, contract, revisions
 
 
 BINDING = "00000000-0000-4000-8000-0000000000e1"
@@ -93,6 +93,13 @@ class WorkflowContinuationTests(unittest.TestCase):
                 {"audit": "succeeded"},
             )
 
+    def test_prior_state_must_already_be_dependency_normalized(self) -> None:
+        base = base_manifest()
+        revision = revision_one(base)
+        current = {"audit": "succeeded", "review": "blocked_dependency"}
+        with self.assertRaisesRegex(ValueError, "not dependency-normalized"):
+            continuation.project_next_revision_states(base, [], revision, current)
+
     def test_second_revision_can_activate_after_revision_checkpoint_succeeds(self) -> None:
         base = base_manifest()
         first = revision_one(base)
@@ -109,10 +116,7 @@ class WorkflowContinuationTests(unittest.TestCase):
             "workflow_id": base["id"],
             "revision": 2,
             "created_at": "2026-09-19T14:12:00Z",
-            "parent_digest": __import__(
-                "local_agent.workflow.revisions",
-                fromlist=["revision_digest"],
-            ).revision_digest(first),
+            "parent_digest": revisions.revision_digest(first),
             "checkpoint_node_id": "implementation-review",
             "nodes": [task_node("verify", ["implementation-review"])],
         }
