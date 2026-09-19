@@ -152,7 +152,12 @@ def require_method_match(reference: dict[str, Any], spec: dict[str, Any]) -> Non
         )
 
 
-def list_builtin_methods(*, directory: Path | None = None) -> list[dict[str, Any]]:
+def list_builtin_method_versions(*, directory: Path | None = None) -> list[dict[str, Any]]:
+    """Return every immutable built-in method version.
+
+    Historical definitions stay loadable because persisted workflow manifests pin both
+    method version and digest. Duplicate name/version identities fail closed.
+    """
     root = directory or BUILTIN_METHODS_DIR
     specs: list[dict[str, Any]] = []
     identities: set[tuple[str, int]] = set()
@@ -170,6 +175,17 @@ def list_builtin_methods(*, directory: Path | None = None) -> list[dict[str, Any
     return sorted(specs, key=lambda item: (str(item["name"]), int(item["version"])))
 
 
+def list_builtin_methods(*, directory: Path | None = None) -> list[dict[str, Any]]:
+    """Return the latest built-in version for each method name."""
+    latest: dict[str, dict[str, Any]] = {}
+    for spec in list_builtin_method_versions(directory=directory):
+        name = str(spec["name"])
+        current = latest.get(name)
+        if current is None or int(spec["version"]) > int(current["version"]):
+            latest[name] = spec
+    return [dict(latest[name]) for name in sorted(latest)]
+
+
 def load_builtin_method(
     name: str,
     *,
@@ -179,7 +195,7 @@ def load_builtin_method(
     requested_name = _canonical_name(name, field="method name")
     named = [
         spec
-        for spec in list_builtin_methods(directory=directory)
+        for spec in list_builtin_method_versions(directory=directory)
         if spec["name"] == requested_name
     ]
     if not named:
