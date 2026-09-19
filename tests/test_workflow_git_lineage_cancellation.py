@@ -5,12 +5,12 @@ import unittest
 from pathlib import Path
 
 from local_agent.runtime.task_contract import task_digest
-from local_agent.workflow import contract, lineage_coordinator, publishing
+from local_agent.workflow import contract, publishing
 from local_agent.workflow.activation import WorkflowRevisionActivationStore
 from local_agent.workflow.effective_state import WorkflowEffectiveStateStore
 from local_agent.workflow.git_cancellation import GitWorkflowCancellationTransport
 from local_agent.workflow.git_control_plane import GitWorkflowControlPlane
-from local_agent.workflow.lineage_cancellation import request_lineage_cancellations
+from local_agent.workflow.lineage_cycle import run_lineage_cycle
 from local_agent.workflow.revision_store import WorkflowRevisionStore
 from local_agent.workflow.store import WorkflowStore
 from tests.test_workflow_git_control_plane import (
@@ -122,20 +122,21 @@ class WorkflowGitLineageCancellationTests(unittest.TestCase):
         )
         self.cancellation = GitWorkflowCancellationTransport(self.control)
 
-    def tick(self):
-        return lineage_coordinator.tick_lineage_workflow(
+    def cycle(self):
+        return run_lineage_cycle(
             self.effective_store,
             WORKFLOW_ID,
             [self.repository],
             self.control,
+            self.cancellation,
         )
 
     def sync_seed(self) -> None:
         run_git(self.seed, "pull", "--rebase", "origin", "agent-control")
 
     def test_running_child_cancel_request_requires_terminal_result_before_graph_cancel(self) -> None:
-        first_tick = self.tick()
-        self.assertEqual(first_tick.published, ("implement",))
+        first_cycle = self.cycle()
+        self.assertEqual(first_cycle.execution.published, ("implement",))
         child = publishing.materialize_lineage_child_task(
             self.base,
             [self.first],
@@ -154,7 +155,9 @@ class WorkflowGitLineageCancellationTests(unittest.TestCase):
             },
             "Mark workflow child running",
         )
-        self.tick()
+        running_cycle = self.cycle()
+        self.assertEqual(running_cycle.execution.reconciled, ("implement",))
+        self.assertEqual(running_cycle.cancellation.requested, ())
         self.assertEqual(
             self.effective_store.load(WORKFLOW_ID)["node_states"]["implement"],
             "running",
@@ -164,13 +167,9 @@ class WorkflowGitLineageCancellationTests(unittest.TestCase):
         self.assertTrue(cancelled["cancel_requested"])
         self.assertEqual(cancelled["node_states"]["implement"], "running")
 
-        requested = request_lineage_cancellations(
-            self.effective_store,
-            WORKFLOW_ID,
-            [self.repository],
-            self.cancellation,
-        )
-        self.assertEqual(requested.requested, ("implement",))
+        requested = self.cycle()
+        self.assertEqual(requested.execution.published, ())
+        self.assertEqual(requested.cancellation.requested, ("implement",))
         request = remote_json(
             self.origin,
             "agent-control",
@@ -198,13 +197,8 @@ class WorkflowGitLineageCancellationTests(unittest.TestCase):
             },
             "Accept workflow child cancellation",
         )
-        acknowledged = request_lineage_cancellations(
-            self.effective_store,
-            WORKFLOW_ID,
-            [self.repository],
-            self.cancellation,
-        )
-        self.assertEqual(acknowledged.accepted, ("implement",))
+        acknowledged = self.cycle()
+        self.assertEqual(acknowledged.cancellation.accepted, ("implement",))
         self.assertEqual(
             self.effective_store.load(WORKFLOW_ID)["node_states"]["implement"],
             "running",
@@ -222,21 +216,14 @@ class WorkflowGitLineageCancellationTests(unittest.TestCase):
             },
             "Publish terminal workflow child cancellation",
         )
-        terminal_tick = self.tick()
-        self.assertEqual(terminal_tick.reconciled, ("implement",))
+        terminal = self.cycle()
+        self.assertEqual(terminal.execution.reconciled, ("implement",))
+        self.assertEqual(terminal.cancellation.requested, ())
+        self.assertEqual(terminal.cancellation.accepted, ())
         final = self.effective_store.load(WORKFLOW_ID)
         self.assertEqual(final["node_states"]["implement"], "cancelled")
         self.assertEqual(final["node_states"]["review-implementation"], "cancelled")
         self.assertEqual(final["workflow_state"], "cancelled")
-
-        after_terminal = request_lineage_cancellations(
-            self.effective_store,
-            WORKFLOW_ID,
-            [self.repository],
-            self.cancellation,
-        )
-        self.assertEqual(after_terminal.requested, ())
-        self.assertEqual(after_terminal.accepted, ())
 
 
 if __name__ == "__main__":
