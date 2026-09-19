@@ -18,6 +18,13 @@ FORBIDDEN_IMPORT_MARKERS = (
     "from local_agent.workflow",
     "import local_agent.workflow",
 )
+UNWIRED_WORKFLOW_SIDE_EFFECT_MODULES = (
+    "local_agent/workflow/git_control_plane.py",
+    "local_agent/workflow/git_cancellation.py",
+    "local_agent/workflow/lineage_coordinator.py",
+    "local_agent/workflow/lineage_cancellation.py",
+    "local_agent/workflow/lineage_cycle.py",
+)
 
 
 class WorkflowInertBoundaryTests(unittest.TestCase):
@@ -36,13 +43,25 @@ class WorkflowInertBoundaryTests(unittest.TestCase):
             + ", ".join(violations),
         )
 
-    def test_lineage_coordinator_has_no_service_or_supervisor_import(self) -> None:
-        text = (ROOT / "local_agent/workflow/lineage_coordinator.py").read_text(
-            encoding="utf-8"
+    def test_unwired_workflow_side_effect_modules_have_no_runtime_owner_import(self) -> None:
+        forbidden = (
+            "local_agent.daemon",
+            "local_agent.supervisor",
+            "local_agent.repository.worker",
         )
-        self.assertNotIn("local_agent.daemon", text)
-        self.assertNotIn("local_agent.supervisor", text)
-        self.assertNotIn("local_agent.repository.worker", text)
+        violations: list[str] = []
+        for relative in UNWIRED_WORKFLOW_SIDE_EFFECT_MODULES:
+            path = ROOT / relative
+            self.assertTrue(path.is_file(), f"missing workflow boundary file: {relative}")
+            text = path.read_text(encoding="utf-8")
+            if any(marker in text for marker in forbidden):
+                violations.append(relative)
+        self.assertEqual(
+            violations,
+            [],
+            "Unwired workflow side-effect modules must not import runtime owners: "
+            + ", ".join(violations),
+        )
 
 
 if __name__ == "__main__":
