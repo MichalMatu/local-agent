@@ -57,6 +57,14 @@ def _validate_id(value: Any, *, field: str, maximum: int) -> str:
     return value
 
 
+def validate_workflow_id(value: Any) -> str:
+    return _validate_id(
+        value,
+        field="workflow id",
+        maximum=MAX_WORKFLOW_ID_CHARS,
+    )
+
+
 def _validate_repository_id(value: Any) -> str:
     if (
         not isinstance(value, str)
@@ -237,11 +245,7 @@ def validate_workflow_manifest(manifest: dict[str, Any]) -> None:
         raise ValueError(f"workflow manifest contains unsupported fields: {sorted(extra)!r}")
     if type(manifest.get("schema_version")) is not int or manifest["schema_version"] != WORKFLOW_SCHEMA_VERSION:
         raise ValueError(f"workflow schema_version must be {WORKFLOW_SCHEMA_VERSION}")
-    _validate_id(
-        manifest.get("id"),
-        field="workflow id",
-        maximum=MAX_WORKFLOW_ID_CHARS,
-    )
+    validate_workflow_id(manifest.get("id"))
     _validate_created_at(manifest.get("created_at"))
     if "method" in manifest:
         methods.validate_method_reference(manifest["method"])
