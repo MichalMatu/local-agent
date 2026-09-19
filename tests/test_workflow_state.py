@@ -21,6 +21,23 @@ class WorkflowStateTests(unittest.TestCase):
         self.assertEqual(states, {"build": "ready"})
         self.assertEqual(state.workflow_state(states), "running")
 
+    def test_root_barrier_auto_succeeds(self) -> None:
+        manifest = {
+            "schema_version": 1,
+            "id": "root-barrier",
+            "created_at": "2026-09-19T12:05:00Z",
+            "nodes": [
+                {
+                    "id": "start",
+                    "kind": "barrier",
+                    "depends_on": [],
+                }
+            ],
+        }
+        states = state.initial_node_states(manifest)
+        self.assertEqual(states, {"start": "succeeded"})
+        self.assertEqual(state.workflow_state(states), "completed")
+
     def test_parallel_roots_become_ready_and_barrier_waits(self) -> None:
         manifest = load_fixture("parallel_multi_repo.json")
         states = state.initial_node_states(manifest)
