@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from local_agent.cli import workflow
@@ -139,6 +140,92 @@ class WorkflowCliTests(unittest.TestCase):
         self.assertEqual(code, 2)
         payload = json.loads(output)
         self.assertIn("unavailable", payload["error"])
+
+    def test_run_cycle_uses_existing_registry_and_runs_exactly_one_cycle(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            registry = root / "repositories.json"
+            registry.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "repositories": [
+                            {
+                                "id": "project-a",
+                                "repository": "Example/project-a",
+                                "agent_binding": "033327ab-700d-43b4-9b3b-caff1acaa2c7",
+                                "control_dir": str(root / "control"),
+                                "work_dir": str(root / "work"),
+                                "checkpoints_dir": str(root / "checkpoints"),
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            control_plane = object()
+            cancellation_transport = object()
+            cycle_result = SimpleNamespace(
+                execution=SimpleNamespace(
+                    published=("implement",),
+                    reconciled=("audit",),
+                    deferred_same_repository=(),
+                    deferred_unrelated_work=(),
+                    integrity_failures=(),
+                ),
+                cancellation=SimpleNamespace(
+                    requested=("implement",),
+                    deferred=(),
+                    accepted=(),
+                    completed=(),
+                    rejected=(),
+                    not_needed=(),
+                ),
+            )
+
+            with mock.patch.object(
+                workflow,
+                "GitWorkflowControlPlane",
+                return_value=control_plane,
+                create=True,
+            ) as control_class, mock.patch.object(
+                workflow,
+                "GitWorkflowCancellationTransport",
+                return_value=cancellation_transport,
+                create=True,
+            ) as cancel_class, mock.patch.object(
+                workflow,
+                "run_lineage_cycle",
+                return_value=cycle_result,
+                create=True,
+            ) as run_cycle:
+                code, output = self.run_cli(
+                    "--state-dir",
+                    str(root / "state"),
+                    "--registry",
+                    str(registry),
+                    "run-cycle",
+                    "workflow-a",
+                )
+
+        self.assertEqual(code, 0)
+        payload = json.loads(output)
+        self.assertEqual(payload["workflow_id"], "workflow-a")
+        self.assertEqual(payload["execution"]["published"], ["implement"])
+        self.assertEqual(payload["execution"]["reconciled"], ["audit"])
+        self.assertEqual(payload["cancellation"]["requested"], ["implement"])
+        control_class.assert_called_once_with()
+        cancel_class.assert_called_once_with(control_plane)
+        run_cycle.assert_called_once()
+        repositories = run_cycle.call_args.args[2]
+        self.assertEqual(len(repositories), 1)
+        self.assertEqual(repositories[0].repository_id, "project-a")
+        self.assertEqual(
+            repositories[0].agent_binding,
+            "033327ab-700d-43b4-9b3b-caff1acaa2c7",
+        )
+        self.assertIs(run_cycle.call_args.args[3], control_plane)
+        self.assertIs(run_cycle.call_args.args[4], cancellation_transport)
 
 
 if __name__ == "__main__":
