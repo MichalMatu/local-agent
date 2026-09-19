@@ -5,12 +5,16 @@ import argparse
 import json
 from pathlib import Path
 
+from local_agent.repository.context import load_repository_registry
 from local_agent.workflow import contract, methods, preview, revisions, store
 from local_agent.workflow.activation import (
     WorkflowRevisionActivationStore,
     activation_digest,
 )
 from local_agent.workflow.effective_state import WorkflowEffectiveStateStore
+from local_agent.workflow.git_cancellation import GitWorkflowCancellationTransport
+from local_agent.workflow.git_control_plane import GitWorkflowControlPlane
+from local_agent.workflow.lineage_cycle import run_lineage_cycle
 from local_agent.workflow.revision_store import WorkflowRevisionStore
 
 
@@ -31,6 +35,11 @@ def parse_args() -> argparse.Namespace:
         "--state-dir",
         type=Path,
         help="Override the Local Agent application state directory.",
+    )
+    parser.add_argument(
+        "--registry",
+        type=Path,
+        help="Override the existing Local Agent repository registry path.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -96,6 +105,12 @@ def parse_args() -> argparse.Namespace:
         help="Show isolated effective revision state without dispatching or mutating it.",
     )
     effective_state_parser.add_argument("workflow_id")
+
+    run_cycle_parser = subparsers.add_parser(
+        "run-cycle",
+        help="Run exactly one explicit Git-backed workflow reconciliation cycle.",
+    )
+    run_cycle_parser.add_argument("workflow_id")
 
     resolve_parser = subparsers.add_parser(
         "resolve-gate",
@@ -214,6 +229,57 @@ def main() -> int:
             _print_json({"error": f"{type(exc).__name__}: {exc}"})
             return 2
         _print_json({"manifest": manifest, "state": current_state})
+        return 0
+
+    if args.command == "run-cycle":
+        try:
+            repositories = load_repository_registry(path=args.registry)
+            revision_store = WorkflowRevisionStore(workflow_store)
+            activation_store = WorkflowRevisionActivationStore(
+                workflow_store,
+                revision_store,
+            )
+            effective_store = WorkflowEffectiveStateStore(
+                workflow_store,
+                revision_store,
+                activation_store,
+            )
+            control_plane = GitWorkflowControlPlane()
+            cancellation_transport = GitWorkflowCancellationTransport(control_plane)
+            result = run_lineage_cycle(
+                effective_store,
+                args.workflow_id,
+                repositories,
+                control_plane,
+                cancellation_transport,
+            )
+        except Exception as exc:
+            _print_json({"error": f"{type(exc).__name__}: {exc}"})
+            return 2
+        _print_json(
+            {
+                "workflow_id": args.workflow_id,
+                "execution": {
+                    "published": list(result.execution.published),
+                    "reconciled": list(result.execution.reconciled),
+                    "deferred_same_repository": list(
+                        result.execution.deferred_same_repository
+                    ),
+                    "deferred_unrelated_work": list(
+                        result.execution.deferred_unrelated_work
+                    ),
+                    "integrity_failures": list(result.execution.integrity_failures),
+                },
+                "cancellation": {
+                    "requested": list(result.cancellation.requested),
+                    "deferred": list(result.cancellation.deferred),
+                    "accepted": list(result.cancellation.accepted),
+                    "completed": list(result.cancellation.completed),
+                    "rejected": list(result.cancellation.rejected),
+                    "not_needed": list(result.cancellation.not_needed),
+                },
+            }
+        )
         return 0
 
     if args.command in {
