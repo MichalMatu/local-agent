@@ -5,7 +5,7 @@ import argparse
 import json
 from pathlib import Path
 
-from local_agent.workflow import contract, methods, store
+from local_agent.workflow import contract, methods, preview, store
 
 
 def _print_json(payload: dict) -> None:
@@ -42,6 +42,12 @@ def parse_args() -> argparse.Namespace:
         help="Validate a workflow manifest without executing it.",
     )
     validate_parser.add_argument("path", type=Path)
+
+    preview_parser = subparsers.add_parser(
+        "preview-manifest",
+        help="Preview task waves and waits without persisting or executing the workflow.",
+    )
+    preview_parser.add_argument("path", type=Path)
 
     submit_parser = subparsers.add_parser(
         "submit",
@@ -117,6 +123,23 @@ def main() -> int:
                 "workflow_id": payload["id"],
                 "manifest_digest": digest,
                 "node_count": len(payload["nodes"]),
+            }
+        )
+        return 0
+
+    if args.command == "preview-manifest":
+        try:
+            payload = _load_manifest(args.path)
+            result = preview.preview_workflow(payload)
+        except Exception as exc:
+            _print_json({"error": f"{type(exc).__name__}: {exc}"})
+            return 2
+        _print_json(
+            {
+                "workflow_id": payload["id"],
+                "waves": [list(wave) for wave in result.waves],
+                "final_state": result.final_state,
+                "waiting_nodes": list(result.waiting_nodes),
             }
         )
         return 0
