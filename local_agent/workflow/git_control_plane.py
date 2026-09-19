@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import contextlib
-import fcntl
 import json
 import os
 import re
@@ -12,6 +11,7 @@ from urllib.parse import unquote, urlparse
 
 import local_agent.foundation.core as core
 from local_agent.foundation import storage
+from local_agent.foundation.control_git_lock import control_git_lock
 from local_agent.repository import admin
 from local_agent.repository.context import RepositoryContext
 from local_agent.runtime.task_contract import MAX_TASK_FILE_BYTES, task_digest, validate_task
@@ -89,9 +89,8 @@ class GitWorkflowControlPlane:
     on explicitly supplied RepositoryContext control checkouts. The default origin policy
     requires the configured GitHub repository; tests can inject an exact local bare origin.
 
-    The adapter uses an inter-process flock under the control checkout's `.git` directory.
-    The current Local Agent runtime does not yet share this lock, so production runtime
-    wiring must not happen until control-Git locking is unified explicitly.
+    The adapter uses the same reentrant inter-process control-Git lock as the ordinary
+    Local Agent runtime. Production workflow scheduling remains intentionally unwired.
     """
 
     def __init__(
@@ -105,19 +104,11 @@ class GitWorkflowControlPlane:
 
     @contextlib.contextmanager
     def _repository_lock(self, repository: RepositoryContext) -> Iterator[None]:
-        control = repository.control.resolve()
-        git_dir = control / ".git"
-        if not git_dir.is_dir():
-            raise WorkflowGitIntegrityError(
-                f"workflow control checkout is not a normal Git clone: {control}"
-            )
-        lock_path = git_dir / "local-agent-workflow-control.lock"
-        with lock_path.open("a+", encoding="utf-8") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
+        try:
+            with control_git_lock(repository.control):
                 yield
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        except RuntimeError as exc:
+            raise WorkflowGitIntegrityError(str(exc)) from exc
 
     def _git(
         self,
