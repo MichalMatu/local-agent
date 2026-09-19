@@ -104,11 +104,15 @@ class GitWorkflowControlPlane:
 
     @contextlib.contextmanager
     def _repository_lock(self, repository: RepositoryContext) -> Iterator[None]:
+        lock = control_git_lock(repository.control)
         try:
-            with control_git_lock(repository.control):
-                yield
+            lock.__enter__()
         except RuntimeError as exc:
             raise WorkflowGitIntegrityError(str(exc)) from exc
+        try:
+            yield
+        finally:
+            lock.__exit__(None, None, None)
 
     def _git(
         self,
