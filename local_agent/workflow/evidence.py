@@ -134,6 +134,18 @@ def classify_child_evidence(
     )
 
 
+def _has_exact_terminal_result(
+    task_id: str,
+    result_payloads: dict[str, dict[str, Any]],
+) -> bool:
+    result = result_payloads.get(task_id)
+    return (
+        isinstance(result, dict)
+        and result.get("id") == task_id
+        and result.get("status") in {"done", "failed"}
+    )
+
+
 def has_unrelated_work(
     *,
     child_task_id: str,
@@ -161,6 +173,6 @@ def has_unrelated_work(
         task_id = payload.get("id")
         if not isinstance(task_id, str) or not task_id or task_id == child_task_id:
             continue
-        if task_id not in result_payloads:
+        if not _has_exact_terminal_result(task_id, result_payloads):
             return True
     return False
