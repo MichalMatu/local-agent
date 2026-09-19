@@ -121,6 +121,14 @@ class WorkflowStateTests(unittest.TestCase):
         states = {"a": "succeeded", "b": "cancelled", "c": "cancelled"}
         self.assertEqual(state.workflow_state(states), "cancelled")
 
+    def test_cancelled_parent_with_blocked_dependents_is_terminal_cancelled(self) -> None:
+        states = {"a": "cancelled", "b": "blocked_dependency"}
+        self.assertEqual(state.workflow_state(states), "cancelled")
+
+    def test_cancelled_branch_waits_for_other_active_child_to_drain(self) -> None:
+        states = {"a": "cancelled", "b": "running", "c": "blocked_dependency"}
+        self.assertEqual(state.workflow_state(states), "running")
+
     def test_unknown_state_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "unsupported workflow node state"):
             state.workflow_state({"a": "mystery"})
