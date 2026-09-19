@@ -74,26 +74,38 @@ class WorkflowRevisionStore:
         Repeating the identical append is idempotent. A different payload attempting to
         occupy an existing revision number fails closed.
         """
+        if not isinstance(record, dict):
+            raise ValueError("workflow revision must be an object")
+        raw_revision = record.get("revision")
+        if type(raw_revision) is not int or raw_revision < 1:
+            raise ValueError("revision number must be a positive integer")
+        revision_number = raw_revision
+
         with self.workflow_store.execution_lock(workflow_id):
             base = self.workflow_store.load_manifest(workflow_id)
             existing = self.load(workflow_id)
-            candidate = [*existing, record]
-            revisions.validate_revision_sequence(base, candidate)
 
-            revision_number = int(record["revision"])
-            target = self._path(workflow_id, revision_number)
-            root = target.parent
-            root.mkdir(parents=True, exist_ok=True)
-            fsync_directory(root.parent)
-
-            if target.exists():
-                loaded = self.load(workflow_id)
-                current = loaded[revision_number - 1]
+            if revision_number <= len(existing):
+                current = existing[revision_number - 1]
                 if revisions.revision_digest(current) != revisions.revision_digest(record):
                     raise ValueError(
                         f"workflow revision {revision_number} already exists with a different digest"
                     )
                 return current
+
+            expected_revision = len(existing) + 1
+            if revision_number != expected_revision:
+                raise ValueError(
+                    f"workflow revision number must be contiguous; expected {expected_revision}"
+                )
+
+            candidate = [*existing, record]
+            revisions.validate_revision_sequence(base, candidate)
+
+            target = self._path(workflow_id, revision_number)
+            root = target.parent
+            root.mkdir(parents=True, exist_ok=True)
+            fsync_directory(root.parent)
 
             encoded = _json_text(record).encode("utf-8")
             if len(encoded) > revisions.MAX_REVISION_FILE_BYTES:
@@ -110,6 +122,10 @@ class WorkflowRevisionStore:
                 # Another writer won the create race. Re-read the authoritative chain
                 # and accept only the exact same record.
                 loaded = self.load(workflow_id)
+                if revision_number > len(loaded):
+                    raise ValueError(
+                        f"workflow revision {revision_number} appeared concurrently but lineage is incomplete"
+                    )
                 current = loaded[revision_number - 1]
                 if revisions.revision_digest(current) != revisions.revision_digest(record):
                     raise ValueError(
