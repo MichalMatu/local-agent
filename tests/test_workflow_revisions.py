@@ -119,11 +119,18 @@ class WorkflowRevisionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "duplicate workflow node id"):
             revisions.validate_revision_sequence(base, [first])
 
-    def test_revision_can_depend_on_historical_node(self) -> None:
+    def test_revision_can_depend_on_historical_node_when_checkpoint_is_ancestor(self) -> None:
         base = base_manifest()
         first = first_revision(base)
         first["nodes"][0]["depends_on"] = ["audit", "review-audit"]
         revisions.validate_revision_sequence(base, [first])
+
+    def test_revision_cannot_add_path_that_bypasses_checkpoint(self) -> None:
+        base = base_manifest()
+        first = first_revision(base)
+        first["nodes"].append(task_node("side-path", depends_on=["audit"]))
+        with self.assertRaisesRegex(ValueError, "must descend from checkpoint"):
+            revisions.validate_revision_sequence(base, [first])
 
     def test_revision_unknown_dependency_is_rejected_by_real_graph_contract(self) -> None:
         base = base_manifest()
@@ -152,6 +159,13 @@ class WorkflowRevisionTests(unittest.TestCase):
         first = first_revision(base)
         first["checkpoint_node_id"] = "audit"
         with self.assertRaisesRegex(ValueError, "is not a planner_checkpoint"):
+            revisions.validate_revision_sequence(base, [first])
+
+    def test_checkpoint_identifier_uses_same_ascii_shape_as_workflow_nodes(self) -> None:
+        base = base_manifest()
+        first = first_revision(base)
+        first["checkpoint_node_id"] = "réview-audit"
+        with self.assertRaisesRegex(ValueError, "canonical node id"):
             revisions.validate_revision_sequence(base, [first])
 
     def test_lineage_digest_changes_if_revision_payload_changes(self) -> None:
