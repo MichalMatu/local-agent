@@ -149,71 +149,485 @@ class AgentDaemonSafetyTests(unittest.TestCase):
 
     def test_oversized_task_file_is_terminally_rejected_before_json_load(self) -> None:
         path = agentd.core.CONTROL / ".agent" / "tasks" / "large-task.json"
-        path.write_bytes(b"{" + b" " * agentd.MAX_TASK_FILE_BYTES + b"}")
-        self.assertEqual(agentd.pending_tasks(), [])
+        path.write_text("{}" * 20, encoding="utf-8")
+        with mock.patch.object(agentd, "MAX_TASK_FILE_BYTES", 8), mock.patch.object(
+            agentd.core, "publish_result"
+        ) as publish_result, mock.patch.object(agentd, "publish_run_state"):
+            agentd.recover_invalid_task_files()
+        self.assertEqual(publish_result.call_count, 1)
+        result = publish_result.call_args.args[1]
+        self.assertEqual(result["failure_reason"], "invalid_task_file")
+        self.assertIn("task file exceeds", result["error"])
 
-    def test_task_symlink_is_terminally_rejected(self) -> None:
-        outside = Path(self.tmp.name) / "outside-task.json"
-        outside.write_text(json.dumps(self.task("linked-task")), encoding="utf-8")
-        link = agentd.core.CONTROL / ".agent" / "tasks" / "linked-task.json"
-        link.symlink_to(outside)
-        self.assertEqual(agentd.pending_tasks(), [])
-
-    def test_claim_state_survives_result_publication_failure_and_retry_does_not_replay(self) -> None:
+    def test_failed_result_publication_is_retried_from_spool_without_reexecution(self) -> None:
         task = self.task("publish-retry")
-        task_path = agentd.core.CONTROL / ".agent" / "tasks" / "publish-retry.json"
-        task_path.write_text(json.dumps(task), encoding="utf-8")
-        with mock.patch.object(agentd, "publish_result", side_effect=RuntimeError("network down")):
-            self.assertEqual(agentd.run_pending_task_once(), 1)
-        claim_path = agentd.CLAIMS_DIR / "publish-retry.json"
-        self.assertTrue(claim_path.exists())
-
-        with mock.patch.object(agentd, "process_task") as execute, mock.patch.object(
-            agentd,
-            "publish_result",
+        completed = {
+            "id": "publish-retry",
+            "status": "done",
+            "finished_at": "2026-08-24T00:00:00+00:00",
+        }
+        with mock.patch.object(
+            agentd.runtime, "process_task", return_value=dict(completed)
+        ) as process_task, mock.patch.object(
+            agentd.core, "publish_result", side_effect=RuntimeError("network down")
+        ), mock.patch.object(agentd, "publish_daemon_status"), mock.patch.object(
+            agentd, "publish_run_state"
         ):
-            self.assertEqual(agentd.run_pending_task_once(), 1)
-        execute.assert_not_called()
+            outcome = agentd.execute_task(task)
 
-    def test_invalid_task_json_is_terminally_rejected(self) -> None:
+        self.assertEqual(outcome, "publication_pending")
+        process_task.assert_called_once()
+        self.assertTrue(agentd.task_claim_path("publish-retry").exists())
+        spooled = agentd.read_result_spool("publish-retry")
+        self.assertIsNotNone(spooled)
+        assert spooled is not None
+        self.assertEqual(spooled["status"], "done")
+
+        with mock.patch.object(agentd.core, "publish_result") as publish_result, mock.patch.object(
+            agentd, "publish_run_state"
+        ):
+            agentd.recover_stale_claims()
+
+        publish_result.assert_called_once()
+        self.assertEqual(publish_result.call_args.args[0], "publish-retry")
+        self.assertFalse(agentd.task_claim_path("publish-retry").exists())
+        self.assertIsNone(agentd.read_result_spool("publish-retry"))
+        process_task.assert_called_once()
+
+    def test_execute_task_can_leave_remote_status_to_repository_worker(self) -> None:
+        task = self.task("local-status-only")
+        completed = {"id": "local-status-only", "status": "done", "finished_at": "now"}
+        with mock.patch.object(agentd.runtime, "process_task", return_value=completed), mock.patch.object(agentd, "flush_remote_progress", return_value=True), mock.patch.object(agentd, "persist_result_spool"), mock.patch.object(agentd, "publish_durable_result"), mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(agentd, "publish_daemon_status") as publish_status, mock.patch.object(agentd, "release_task_claim"), mock.patch.object(agentd, "clear_current_task"):
+            outcome = agentd.execute_task(task, remote_daemon_status=False, remote_result_published=False)
+        self.assertEqual(outcome, "published")
+        self.assertFalse(publish_run.call_args.kwargs["force_remote"])
+        self.assertTrue(publish_status.call_args_list)
+        self.assertTrue(all(call.kwargs.get("remote_enabled") is False for call in publish_status.call_args_list))
+
+    def test_interrupted_attempt_is_terminal_failure(self) -> None:
+        result = agentd.interrupted_result(
+            "task-3",
+            {
+                "started_at": "2026-08-22T00:00:00+00:00",
+                "task_digest": "abc",
+                "attempt_id": "attempt",
+            },
+        )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["failure_reason"], "interrupted_previous_attempt")
+        self.assertEqual(result["task_digest"], "abc")
+        self.assertIn("Automatic replay was blocked", result["error"])
+
+    def test_corrupt_claim_is_terminal_and_never_replayed(self) -> None:
+        task = self.task("task-corrupt")
+        task_path = agentd.core.CONTROL / ".agent" / "tasks" / "task-corrupt.json"
+        task_path.write_text(json.dumps(task), encoding="utf-8")
+        claim_path = agentd.task_claim_path("task-corrupt")
+        claim_path.parent.mkdir(parents=True, exist_ok=True)
+        claim_path.write_text("{broken", encoding="utf-8")
+        published: list[dict] = []
+
+        def fake_publish(task_id, result):
+            published.append(dict(result))
+            result_path = agentd.core.CONTROL / ".agent" / "results" / f"{task_id}.json"
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+
+        with mock.patch.object(agentd.core, "publish_result", side_effect=fake_publish), mock.patch.object(
+            agentd, "publish_run_state"
+        ) as publish_run:
+            agentd.recover_stale_claims()
+
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0]["status"], "failed")
+        self.assertEqual(published[0]["failure_reason"], "corrupt_claim_state")
+        self.assertIn("Automatic replay was blocked", published[0]["error"])
+        self.assertFalse(claim_path.exists())
+        self.assertEqual(len(list(agentd.CORRUPT_CLAIMS_DIR.glob("*.json"))), 1)
+        self.assertEqual(agentd.pending_tasks(), [])
+        self.assertTrue(publish_run.call_args.kwargs["force_remote"])
+
+    def test_self_update_requires_clean_main_checkout(self) -> None:
+        clean = mock.Mock(returncode=0, stdout="")
+        dirty = mock.Mock(returncode=0, stdout="?? stray.py\n")
+        main = mock.Mock(returncode=0, stdout="main\n")
+        staging = mock.Mock(returncode=0, stdout="v4.2-staging\n")
+        with mock.patch.object(agentd, "_git", return_value=clean):
+            self.assertTrue(agentd.tracked_self_repo_clean())
+        with mock.patch.object(agentd, "_git", return_value=dirty):
+            self.assertFalse(agentd.tracked_self_repo_clean())
+        with mock.patch.object(agentd, "_git", return_value=main):
+            self.assertTrue(agentd.self_repo_on_main_branch())
+        with mock.patch.object(agentd, "_git", return_value=staging):
+            self.assertFalse(agentd.self_repo_on_main_branch())
+
+    def test_self_update_validation_uses_isolated_home_and_all_release_modules(self) -> None:
+        calls: list[tuple[list[str], dict]] = []
+
+        def fake_process(command, _cwd, **kwargs):
+            calls.append((list(command), dict(kwargs)))
+            return {"exit_code": 0, "output": "", "elapsed_seconds": 0.1}
+
+        with mock.patch.object(agentd.core, "process", side_effect=fake_process):
+            valid, error = agentd._validate_installed_update()
+
+        self.assertTrue(valid)
+        self.assertEqual(error, "")
+        self.assertEqual(len(calls), 2)
+        compile_command, compile_kwargs = calls[0]
+        self.assertEqual(
+            compile_command, [agentd.sys.executable, "scripts/verify.py", "--only", "compile"]
+        )
+        self.assertEqual(compile_kwargs["timeout"], agentd.SELF_UPDATE_VALIDATION_TIMEOUT_SECONDS)
+        self.assertEqual(calls[1][1]["timeout"], agentd.SELF_UPDATE_VALIDATION_TIMEOUT_SECONDS)
+        self.assertNotEqual(compile_kwargs["environment"]["HOME"], str(agentd.HOME))
+        self.assertEqual(
+            compile_kwargs["environment"]["HOME"],
+            calls[1][1]["environment"]["HOME"],
+        )
+
+    def test_invalid_task_file_becomes_terminal_result(self) -> None:
         path = agentd.core.CONTROL / ".agent" / "tasks" / "broken-task.json"
         path.write_text("{broken", encoding="utf-8")
+        published: list[dict] = []
+
+        def fake_publish(task_id, result):
+            published.append(dict(result))
+            result_path = agentd.core.CONTROL / ".agent" / "results" / f"{task_id}.json"
+            result_path.write_text(json.dumps(result), encoding="utf-8")
+
+        with mock.patch.object(agentd.core, "publish_result", side_effect=fake_publish), mock.patch.object(
+            agentd, "publish_run_state"
+        ) as publish_run:
+            agentd.recover_invalid_task_files()
+
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0]["id"], "broken-task")
+        self.assertEqual(published[0]["failure_reason"], "invalid_task_file")
+        self.assertEqual(agentd.pending_tasks(), [])
+        self.assertTrue(publish_run.call_args.kwargs["force_remote"])
+
+    def test_symlinked_task_file_is_rejected_without_reading_its_target(self) -> None:
+        outside = agentd.STATE_DIR / "outside-task.json"
+        outside.parent.mkdir(parents=True, exist_ok=True)
+        outside.write_text(json.dumps(self.task("outside")), encoding="utf-8")
+        path = agentd.core.CONTROL / ".agent" / "tasks" / "linked-task.json"
+        path.symlink_to(outside)
+        with mock.patch.object(agentd.core, "publish_result") as publish_result, mock.patch.object(
+            agentd, "publish_run_state"
+        ):
+            agentd.recover_invalid_task_files()
+        result = publish_result.call_args.args[1]
+        self.assertEqual(result["failure_reason"], "invalid_task_file")
+        self.assertIn("regular file", result["error"])
+
+    def test_historical_filename_alias_is_valid(self) -> None:
+        task = self.task("payload-id")
+        path = agentd.core.CONTROL / ".agent" / "tasks" / "000-payload-id.json"
+        path.write_text(json.dumps(task), encoding="utf-8")
+
+        with mock.patch.object(agentd.core, "publish_result") as publish_result, mock.patch.object(
+            agentd, "publish_run_state"
+        ):
+            agentd.recover_invalid_task_files()
+        publish_result.assert_not_called()
+
+        pending = agentd.pending_tasks()
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0][1]["id"], "payload-id")
+
+        result_path = agentd.core.CONTROL / ".agent" / "results" / "payload-id.json"
+        result_path.write_text(
+            json.dumps({"id": "payload-id", "status": "done", "task_digest": agentd.task_digest(task)}),
+            encoding="utf-8",
+        )
         self.assertEqual(agentd.pending_tasks(), [])
 
-    def test_result_local_status_stays_durable_when_remote_status_publish_fails(self) -> None:
-        task = self.task("local-status-only")
-        task_path = agentd.core.CONTROL / ".agent" / "tasks" / "local-status-only.json"
-        task_path.write_text(json.dumps(task), encoding="utf-8")
-        with mock.patch.object(agentd, "publish_daemon_status", side_effect=RuntimeError("offline")):
-            claim = agentd.claim_task(task)
-            self.assertIsNotNone(claim)
-            agentd.persist_local_status("running", task=task, claim=claim)
-        payload = json.loads(agentd.LOCAL_STATUS_PATH.read_text(encoding="utf-8"))
-        self.assertEqual(payload["state"], "running")
-        self.assertEqual(payload["task_id"], "local-status-only")
+    def test_progress_callback_persists_local_state(self) -> None:
+        callback = agentd.make_progress_callback("task-4", "attempt", "digest")
+        with mock.patch.object(agentd, "publish_control_json", return_value=True):
+            callback(
+                {
+                    "event": "command_started",
+                    "phase": "commands",
+                    "index": 1,
+                    "total": 2,
+                    "command": "true",
+                }
+            )
+            self.assertTrue(agentd.flush_remote_progress())
+        state = json.loads((agentd.LOCAL_RUNS_DIR / "task-4.json").read_text())
+        self.assertEqual(state["task_id"], "task-4")
+        self.assertEqual(state["attempt_id"], "attempt")
+        self.assertEqual(state["event"], "command_started")
 
-    def test_control_lock_is_reentrant_for_nested_status_publish(self) -> None:
-        with agentd.core.CONTROL_GIT_LOCK:
-            with agentd.core.CONTROL_GIT_LOCK:
-                self.assertTrue(True)
-
-    def test_control_lock_serializes_threads(self) -> None:
-        entered = threading.Event()
+    def test_remote_progress_quiesce_waits_for_active_publish_and_rejects_new_work(
+        self,
+    ) -> None:
+        started = threading.Event()
         release = threading.Event()
 
-        def worker() -> None:
-            with agentd.core.CONTROL_GIT_LOCK:
-                entered.set()
-                release.wait(timeout=1.0)
+        def blocking_publish(*_args, **_kwargs):
+            started.set()
+            self.assertTrue(release.wait(timeout=2))
+            return True
 
-        with agentd.core.CONTROL_GIT_LOCK:
-            thread = threading.Thread(target=worker)
-            thread.start()
-            self.assertFalse(entered.wait(timeout=0.05))
-        self.assertTrue(entered.wait(timeout=0.5))
-        release.set()
-        thread.join(timeout=1.0)
-        self.assertFalse(thread.is_alive())
+        with mock.patch.object(
+            agentd, "publish_control_json", side_effect=blocking_publish
+        ) as publish:
+            publisher = agentd.CoalescingRemotePublisher()
+            publisher.submit(".agent/runs/one.json", {}, "progress one")
+            self.assertTrue(started.wait(timeout=2))
+            self.assertFalse(publisher.quiesce(timeout=0.01))
+            release.set()
+            self.assertTrue(publisher.quiesce(timeout=2))
+            publisher.submit(".agent/runs/two.json", {}, "progress two")
+            self.assertTrue(publisher.flush(timeout=0.1))
+
+        self.assertEqual(publish.call_count, 1)
+
+    def test_shutdown_stops_task_before_quiescing_and_terminating_processes(
+        self,
+    ) -> None:
+        calls: list[str] = []
+        with mock.patch.object(
+            agentd.runtime,
+            "terminate_active_command",
+            side_effect=lambda: calls.append("task"),
+        ), mock.patch.object(
+            agentd,
+            "quiesce_remote_progress",
+            side_effect=lambda: calls.append("progress") or True,
+        ), mock.patch.object(
+            agentd,
+            "terminate_active_processes",
+            side_effect=lambda _log: calls.append("remaining"),
+        ):
+            agentd.shutdown_runtime_processes()
+
+        self.assertEqual(calls, ["task", "progress", "remaining"])
+
+    def test_progress_callback_publishes_boundaries_and_status(self) -> None:
+        callback = agentd.make_progress_callback("task-5", "attempt", "digest")
+        with mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(
+            agentd, "publish_daemon_status"
+        ) as publish_status, mock.patch.object(
+            agentd.time, "monotonic", side_effect=[100.0, 101.0, 102.0, 170.0]
+        ):
+            callback({"event": "task_started"})
+            callback(
+                {
+                    "event": "command_started",
+                    "phase": "commands",
+                    "index": 1,
+                    "total": 3,
+                    "command": "one",
+                    "verification_level": "work",
+                }
+            )
+            callback(
+                {
+                    "event": "command_started",
+                    "phase": "commands",
+                    "index": 2,
+                    "total": 3,
+                    "command": "two",
+                }
+            )
+            callback(
+                {
+                    "event": "command_started",
+                    "phase": "commands",
+                    "index": 3,
+                    "total": 3,
+                    "command": "three",
+                }
+            )
+
+        remote_flags = [call.kwargs["force_remote"] for call in publish_run.call_args_list]
+        self.assertEqual(remote_flags, [True, True, False, True])
+        self.assertEqual(
+            [call.kwargs["force_remote"] for call in publish_status.call_args_list],
+            [False, False, False, False],
+        )
+        self.assertEqual(
+            publish_run.call_args_list[1].args[1]["verification_level"], "work"
+        )
+        self.assertEqual(
+            publish_status.call_args_list[1].kwargs["progress"][
+                "verification_level"
+            ],
+            "work",
+        )
+
+    def test_remote_heartbeat_refreshes_daemon_status_at_sixty_seconds(self) -> None:
+        callback = agentd.make_progress_callback("task-heartbeat", "attempt", "digest")
+        with mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(
+            agentd, "publish_daemon_status"
+        ) as publish_status, mock.patch.object(
+            agentd.time, "monotonic", side_effect=[100.0, 101.0, 162.0]
+        ):
+            callback({"event": "task_started"})
+            callback(
+                {
+                    "event": "command_started",
+                    "stage_name": "stress-run",
+                    "stage_index": 1,
+                    "stage_total": 1,
+                    "stage_phase": "commands",
+                    "command": "long-script",
+                }
+            )
+            callback(
+                {
+                    "event": "command_heartbeat",
+                    "stage_name": "stress-run",
+                    "stage_index": 1,
+                    "stage_total": 1,
+                    "stage_phase": "commands",
+                    "command": "long-script",
+                    "host_load_1m": 1.25,
+                }
+            )
+
+        self.assertTrue(publish_run.call_args_list[-1].kwargs["force_remote"])
+        self.assertFalse(publish_status.call_args_list[-1].kwargs["force_remote"])
+        self.assertEqual(
+            publish_status.call_args_list[-1].kwargs["progress"]["host_load_1m"], 1.25
+        )
+
+    def test_marker_stage_change_publishes_remote_progress_immediately(self) -> None:
+        callback = agentd.make_progress_callback("task-marker", "attempt", "digest")
+        with mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(
+            agentd, "publish_daemon_status"
+        ) as publish_status, mock.patch.object(
+            agentd.time, "monotonic", side_effect=[100.0, 101.0, 102.0]
+        ):
+            callback({"event": "task_started"})
+            callback(
+                {
+                    "event": "command_started",
+                    "stage_name": "script",
+                    "stage_index": 1,
+                    "stage_total": 1,
+                    "stage_phase": "commands",
+                }
+            )
+            callback(
+                {
+                    "event": "stage_progress",
+                    "stage_name": "case-2",
+                    "stage_phase": "commands",
+                    "last_progress_at": "2026-08-23T17:00:00+00:00",
+                    "last_progress_message": "case 2",
+                }
+            )
+
+        self.assertTrue(publish_run.call_args_list[-1].kwargs["force_remote"])
+        self.assertEqual(
+            publish_status.call_args_list[-1].kwargs["last_progress_message"], "case 2"
+        )
+
+    def test_failed_command_is_published_immediately(self) -> None:
+        callback = agentd.make_progress_callback("task-6", "attempt", "digest")
+        with mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(
+            agentd, "publish_daemon_status"
+        ), mock.patch.object(agentd.time, "monotonic", side_effect=[100.0, 101.0]):
+            callback({"event": "task_started"})
+            callback(
+                {
+                    "event": "command_finished",
+                    "phase": "commands",
+                    "index": 1,
+                    "total": 1,
+                    "command": "false",
+                    "exit_code": 1,
+                    "elapsed_seconds": 0.1,
+                }
+            )
+
+        self.assertTrue(publish_run.call_args_list[-1].kwargs["force_remote"])
+
+    def test_long_successful_command_finish_is_published_immediately(self) -> None:
+        callback = agentd.make_progress_callback("task-7", "attempt", "digest")
+        with mock.patch.object(agentd, "publish_run_state") as publish_run, mock.patch.object(
+            agentd, "publish_daemon_status"
+        ), mock.patch.object(agentd.time, "monotonic", side_effect=[100.0, 101.0]):
+            callback({"event": "task_started"})
+            callback(
+                {
+                    "event": "command_finished",
+                    "phase": "commands",
+                    "index": 1,
+                    "total": 1,
+                    "command": "slow-success",
+                    "exit_code": 0,
+                    "elapsed_seconds": agentd.RUN_PROGRESS_SECONDS,
+                }
+            )
+
+        self.assertTrue(publish_run.call_args_list[-1].kwargs["force_remote"])
+
+    def test_control_ack_published_checks_remote_tracking_branch(self) -> None:
+        relative = f"{agentd.REMOTE_CONTROL_ACK_DIR}/ack-1.json"
+        with mock.patch.object(
+            agentd.core,
+            "process",
+            return_value={"exit_code": 0, "output": relative + "\n"},
+        ) as process:
+            self.assertTrue(agentd.control_ack_published("ack-1"))
+        self.assertEqual(
+            process.call_args.args[0],
+            [
+                "git",
+                "ls-tree",
+                "--name-only",
+                f"origin/{agentd.core.CONTROL_BRANCH}",
+                "--",
+                relative,
+            ],
+        )
+        self.assertFalse(process.call_args.kwargs["log_commands"])
+
+    def test_control_ack_local_only_is_not_considered_published(self) -> None:
+        ack = agentd._control_ack_path("local-only")
+        ack.parent.mkdir(parents=True, exist_ok=True)
+        ack.write_text("{}\n", encoding="utf-8")
+        with mock.patch.object(
+            agentd.core,
+            "process",
+            return_value={"exit_code": 0, "output": ""},
+        ):
+            self.assertFalse(agentd.control_ack_published("local-only"))
+
+    def test_remote_restart_control_is_acknowledged_before_restart(self) -> None:
+        request_path = agentd.core.CONTROL / agentd.REMOTE_CONTROL_REQUEST
+        request_path.parent.mkdir(parents=True, exist_ok=True)
+        request_path.write_text(
+            json.dumps({"id": "restart-1", "action": "restart"}),
+            encoding="utf-8",
+        )
+        calls: list[str] = []
+
+        def fake_publish(relative, payload, *, commit_message):
+            calls.append(relative)
+            ack = agentd.core.CONTROL / relative
+            ack.parent.mkdir(parents=True, exist_ok=True)
+            ack.write_text(json.dumps(payload), encoding="utf-8")
+            return True
+
+        with mock.patch.object(agentd, "control_ack_published", return_value=False), mock.patch.object(
+            agentd, "publish_control_json", side_effect=fake_publish
+        ), mock.patch.object(
+            agentd, "restart_self", side_effect=RuntimeError("restart called")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "restart called"):
+                agentd.handle_control_request()
+        self.assertIn(".agent/daemon/acks/restart-1.json", calls)
+
+    def test_timeout_policy_uses_startup_configuration(self) -> None:
+        self.assertEqual(agentd.core.COMMAND_TIMEOUT, agentd.TIMEOUTS.command_default)
+        self.assertEqual(agentd.core.MAX_COMMAND_TIMEOUT, agentd.TIMEOUTS.command_max)
+        self.assertEqual(agentd.runtime._idle_timeout, agentd.TIMEOUTS.idle_default)
 
 
 if __name__ == "__main__":
