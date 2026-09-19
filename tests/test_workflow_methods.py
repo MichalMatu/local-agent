@@ -77,15 +77,37 @@ def deep_refactor_manifest() -> dict:
 
 
 class WorkflowMethodTests(unittest.TestCase):
-    def test_builtin_catalog_has_initial_methods(self) -> None:
+    def test_builtin_catalog_lists_latest_version_per_method(self) -> None:
         specs = methods.list_builtin_methods()
         self.assertEqual(
-            [spec["name"] for spec in specs],
-            ["cross-repo-api-change", "deep-refactor", "release-candidate"],
+            [(spec["name"], spec["version"]) for spec in specs],
+            [
+                ("cross-repo-api-change", 2),
+                ("deep-refactor", 1),
+                ("release-candidate", 1),
+            ],
         )
         for spec in specs:
             methods.validate_method_spec(spec)
             self.assertRegex(methods.method_digest(spec), r"^sha256:[0-9a-f]{64}$")
+
+    def test_builtin_version_archive_keeps_historical_method_definitions(self) -> None:
+        specs = methods.list_builtin_method_versions()
+        self.assertEqual(
+            [(spec["name"], spec["version"]) for spec in specs],
+            [
+                ("cross-repo-api-change", 1),
+                ("cross-repo-api-change", 2),
+                ("deep-refactor", 1),
+                ("release-candidate", 1),
+            ],
+        )
+        legacy = methods.load_builtin_method("cross-repo-api-change", version=1)
+        latest = methods.load_builtin_method("cross-repo-api-change")
+        self.assertEqual(legacy["version"], 1)
+        self.assertEqual(legacy["requirements"], {})
+        self.assertEqual(latest["version"], 2)
+        self.assertNotEqual(methods.method_digest(legacy), methods.method_digest(latest))
 
     def test_builtin_reference_is_digest_pinned(self) -> None:
         spec = methods.load_builtin_method("deep-refactor")
@@ -99,6 +121,8 @@ class WorkflowMethodTests(unittest.TestCase):
     def test_unknown_method_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown built-in workflow method"):
             methods.load_builtin_method("missing")
+        with self.assertRaisesRegex(ValueError, "version=99"):
+            methods.load_builtin_method("deep-refactor", version=99)
 
     def test_unknown_requirement_is_rejected(self) -> None:
         spec = methods.load_builtin_method("deep-refactor")
