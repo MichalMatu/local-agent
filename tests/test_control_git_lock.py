@@ -24,6 +24,15 @@ class ControlGitLockTests(unittest.TestCase):
         (control / ".git").mkdir(parents=True)
         return control
 
+    def make_repository(self, root: Path, control: Path) -> RepositoryContext:
+        return RepositoryContext(
+            repository_id="lock-test",
+            repository="example/lock-test",
+            control=control,
+            work=root / "work",
+            checkpoints=root / "checkpoints",
+        )
+
     def test_same_checkout_returns_same_reentrant_lock(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             control = self.make_control(Path(directory), "control")
@@ -67,13 +76,7 @@ class ControlGitLockTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             control = self.make_control(root, "control")
-            repository = RepositoryContext(
-                repository_id="lock-test",
-                repository="example/lock-test",
-                control=control,
-                work=root / "work",
-                checkpoints=root / "checkpoints",
-            )
+            repository = self.make_repository(root, control)
             adapter = GitWorkflowControlPlane(
                 origin_url_for=lambda _repository: control.as_uri()
             )
@@ -85,6 +88,22 @@ class ControlGitLockTests(unittest.TestCase):
                         self.assertIs(control_git_lock(control), control_git_lock(core.CONTROL))
             finally:
                 core.CONTROL = previous_control
+
+    def test_workflow_lock_does_not_reclassify_operation_runtime_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            control = self.make_control(root, "control")
+            repository = self.make_repository(root, control)
+            adapter = GitWorkflowControlPlane(
+                origin_url_for=lambda _repository: control.as_uri()
+            )
+
+            with self.assertRaises(RuntimeError) as raised:
+                with adapter._repository_lock(repository):
+                    raise RuntimeError("operation-sentinel")
+
+            self.assertIs(type(raised.exception), RuntimeError)
+            self.assertEqual(str(raised.exception), "operation-sentinel")
 
     def test_lock_serializes_independent_processes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
