@@ -3,304 +3,214 @@
 Branch: `feature/openworker-governance`
 Production base: `main@224046066b0df92544337db0ee623e372629e726` (`v4.18.22`)
 Design: `docs/EXECUTION_FABRIC_IMPLEMENTATION_PLAN.md`
+Latest fully verified code SHA: `b5c5b447ea6d7a414d17f85b4aad745e72a14de5`
+Validation PR: `#81` (`Execution Fabric validation (DO NOT MERGE)`)
 
-Status: implementation in progress. The current branch adds workflow contracts, methods, durable local state, deterministic child-task materialization, an isolated coordinator, pure repository-evidence classification, durable user gates and a side-effect-free execution preview. It does **not** dispatch workflow child tasks to real repository control branches and does not change or call the production supervisor/worker execution path.
+## Current boundary
 
-## Safety boundary of the current branch
+Execution Fabric is now a real, Git-backed workflow engine on this feature branch, but it is still **not automatically wired into the installed/running Local Agent**.
 
-Current workflow code is deliberately inert with respect to the installed/running Local Agent:
+Implemented branch capabilities include:
 
-- no workflow coordinator is called from `local_agent/supervisor/orchestrator.py` or the serial supervisor;
-- no production `WorkflowControlPlane` adapter exists;
-- no workflow code writes to a real project `.agent/tasks/` directory;
-- no workflow code commits or pushes an `agent-control` branch;
-- no workflow code starts/restarts/stops the Local Agent service;
-- no workflow code reads or mutates the installed machine registry unless a future caller explicitly supplies repository contexts;
-- coordinator tests use injected in-memory/fake control planes only;
-- CLI workflow state can be redirected with `--state-dir` and has no command that performs repository dispatch;
-- `preview-manifest` is pure and performs no workflow persistence or task execution.
+- immutable workflow manifests and deterministic graph state;
+- reusable versioned methods with historical-version compatibility;
+- adaptive planner-checkpoint continuations and append-only revision lineage;
+- durable effective state across revisions;
+- user gates, planner checkpoints and cancellation semantics;
+- deterministic child-task identity and existing Local Agent task-contract reuse;
+- Git-backed child publication, exact evidence reconciliation and push-ambiguity recovery;
+- Git-backed exact `cancel_task` transport;
+- one combined lineage execution/cancellation cycle;
+- a shared reentrant inter-process control-Git lock used by both normal runtime control writes and workflow transport;
+- disposable real-Git/bare-remote integration, race and recovery tests.
 
-This boundary must remain in place until the exact branch SHA has been verified and real temporary-Git integration tests prove publication/recovery semantics.
+Still deliberately absent:
 
-## Implemented
+- no supervisor/daemon/worker imports or automatic workflow ticks;
+- no launchd/service startup integration for workflow scheduling;
+- no background workflow scheduler;
+- no Chat Bridge automatic workflow orchestration transport;
+- no automatic planner decisions;
+- no merge/release integration into `main`.
 
-### Phase 0 — workflow contract and state machine
+The distinction is important: **the transport exists; production scheduling does not**.
 
-Implemented under `local_agent/workflow/`:
+## Safety invariants retained
 
-- `contract.py`
-  - workflow schema v1;
-  - canonical SHA-256 manifest identity;
-  - bounded workflow/node/dependency sizes;
-  - strict node kinds;
-  - canonical repository binding validation;
-  - cycle, duplicate and unknown-dependency rejection;
-  - task nodes reuse the existing Local Agent task contract;
-  - coordinator-owned task id/binding/provenance fields cannot be supplied by a task template;
-  - optional method references are exact name/version/digest identities.
-- `state.py`
-  - explicit node-state transition table;
-  - dependency readiness;
-  - barrier completion;
-  - `waiting_user` and `waiting_planner` states;
-  - terminal-state non-regression;
-  - exact-evidence recovery transitions from local `ready` after a crash that occurred after child publication;
-  - interrupted child state maps to planner intervention rather than replay;
-  - cancelled workflows remain `running` only while another child is active, then become terminal `cancelled` even when dependent nodes are blocked.
+Execution Fabric reuses rather than bypasses Local Agent's existing execution model:
 
-Fixtures cover:
+- exact repository id and immutable `agent_binding` remain mandatory at dispatch boundaries;
+- child tasks are ordinary validated Local Agent tasks with ordinary `task_digest` identities;
+- ambiguous/interrupted execution is never automatically replayed;
+- exact result/status evidence drives reconciliation;
+- cancellation ACK evidence never pretends a task has terminated;
+- unrelated standalone repository work makes workflow dispatch yield;
+- at most one workflow-owned pending/active child is admitted per repository;
+- workflow state/gates/cancellation use durable locks and fail closed on incompatible evidence;
+- cross-repository work is represented as separately bound nodes, not one repository task mutating another repository's control state.
 
-- single-repository task;
-- parallel multi-repository graph;
-- failed dependency;
-- user gate;
-- planner checkpoint.
+## Methods
 
-### Phase 1 — built-in methods
+Built-in methods are immutable by `(name, version, digest)`.
 
-Implemented:
+`local_agent/workflow/methods.py` now exposes two different views intentionally:
 
-- `local_agent/workflow/methods.py`
-- `local_agent/workflow/method_specs/deep-refactor.json`
-- `local_agent/workflow/method_specs/cross-repo-api-change.json`
-- `local_agent/workflow/method_specs/release-candidate.json`
+- `list_builtin_methods()` returns only the latest version for each method name for the normal catalog/CLI;
+- `list_builtin_method_versions()` retains the complete immutable version archive;
+- `load_builtin_method(name, version=...)` can resolve historical definitions required by persisted manifests;
+- omitting `version` resolves the latest definition;
+- duplicate name/version identities fail closed.
 
-Properties:
+This permits method evolution without invalidating old workflow manifests pinned to an older digest.
 
-- method specs are versioned and digest-pinned;
-- changing a method without changing its pinned identity is detected;
-- method references are checked at workflow manifest admission;
-- required phases must be present;
-- `deep-refactor` requires a planner checkpoint after the audit phase;
-- methods that require full verification reuse the existing `efficient-verification-v1` task policy rather than inventing a second verifier.
+Method validation has both complete and adaptive modes. Adaptive workflows may stop at planner checkpoints before future phases exist, while structural requirements are enforced as soon as their relevant phase appears. Final workflow validation still requires the complete method contract.
 
-Local inspection CLI:
+Current method-oriented tests include `test_workflow_methods.py`, `test_workflow_adaptive_methods.py` and `test_workflow_cross_repo_method.py`.
 
-```bash
-python -m local_agent.cli.workflow methods
-python -m local_agent.cli.workflow method deep-refactor
-python -m local_agent.cli.workflow validate-manifest <manifest.json>
-```
+## Workflow and revision model
 
-### Phase 2 slice A — durable local workflow lifecycle
+The branch implements:
 
-Implemented in `local_agent/workflow/store.py`:
+- workflow schema and DAG validation;
+- deterministic manifest SHA-256 identity;
+- durable `manifest.json`, authoritative atomic state and append-only audit events;
+- deterministic child ids derived from workflow/node identity;
+- user gates and planner checkpoints;
+- append-only revision records and lineage digests;
+- explicit revision activation records;
+- isolated durable effective state across activated revisions;
+- cancellation that leaves already-running children active until exact terminal evidence arrives;
+- no-replay handling for interrupted children;
+- recovery when publication succeeded before a local state write.
 
-- local state root under `~/Library/Application Support/local-agent/workflows/` by default;
-- immutable `manifest.json`;
-- atomic authoritative `state.json`;
-- bounded append-only `events.ndjson` audit stream;
-- audit events are explicitly best-effort after the authoritative state commit, so an audit write/fsync failure cannot report a false workflow mutation failure;
-- exact manifest-digest idempotency on submit;
-- same workflow id with different manifest is rejected;
-- per-workflow mutation lock prevents lost local updates;
-- a separate workflow execution lock serializes coordinator dispatch/reconciliation with operator cancellation/gate resolution;
-- corruption is isolated to the affected workflow;
-- `cancel_requested` does not pretend an already dispatched/running child has stopped;
-- active child state must later be reconciled from exact terminal repository evidence.
-
-Local lifecycle CLI:
-
-```bash
-python -m local_agent.cli.workflow submit <manifest.json>
-python -m local_agent.cli.workflow list
-python -m local_agent.cli.workflow show <workflow-id>
-python -m local_agent.cli.workflow cancel <workflow-id>
-```
-
-`--state-dir <path>` is available for isolated tests/diagnostics.
-
-### Phase 2 slice B — deterministic child-task materialization
-
-Implemented in `local_agent/workflow/publishing.py`:
-
-- one task node deterministically materializes to one existing Local Agent task payload;
-- child task id is `wf-<sha256>` derived from exact workflow id, node id and manifest digest;
-- exact node `agent_binding` is injected by the coordinator boundary;
-- child workflow provenance contains workflow id, node id and manifest digest;
-- the materialized payload is revalidated by the existing task contract;
-- ordinary runtime `task_digest` remains the child execution identity.
-
-No Git publication exists yet. `publishing.py` currently owns only pure materialization helpers.
-
-### Phase 2 slice C — isolated coordinator semantics
-
-Implemented in `local_agent/workflow/coordinator.py` behind an injected `WorkflowControlPlane` protocol.
-
-The coordinator currently proves policy without a production transport:
-
-- exact repository id and exact `agent_binding` are required before inspection/dispatch;
-- different ready repositories may be selected in one tick;
-- at most one workflow-owned pending/active child is selected per repository;
-- unrelated active/pending standalone work makes workflow dispatch yield;
-- exact existing child evidence is reconciled before any new publication attempt;
-- a local `ready` node can recover from exact remote pending/running/terminal evidence after a crash;
-- local `dispatched`/`running` with a remotely absent child is an integrity error and is never replayed;
-- child digest mismatch fails closed;
-- terminal success/failure/interruption/cancellation transition the graph deterministically;
-- publication is defined to happen before the local `dispatched` state write, so a crash in that window is recovered by deterministic child id/digest instead of duplicate publication;
-- workflow cancellation is serialized against the dispatch critical section by the workflow execution lock.
-
-The only coordinator control planes currently used are fakes inside tests. No Git-backed implementation exists or is wired.
-
-### Phase 2 slice D — pure evidence classification
-
-Implemented in `local_agent/workflow/evidence.py` with no I/O.
-
-It classifies existing repository payloads as:
+`local_agent/workflow/lineage_cycle.py` provides one explicit cycle:
 
 ```text
-absent
-pending
-running
-succeeded
-failed
-cancelled
-interrupted
-digest_mismatch
+exact evidence reconciliation / possible dispatch
+-> exact workflow cancellation transport
 ```
 
-Important mappings reuse current Local Agent semantics:
+The cycle is intentionally a library façade only. Nothing in daemon/supervisor/worker invokes it automatically.
 
-- result `status=done` -> succeeded;
-- `cancelled_by_operator` -> cancelled;
-- `interrupted_previous_attempt` / `corrupt_claim_state` -> interrupted/no replay;
-- exact daemon `current_task_id` + `current_task_digest` -> running;
-- any available child digest mismatch -> fail closed.
+## Git-backed workflow control plane
 
-Repository-yield classification requires exact terminal evidence for unrelated queued work. A malformed/non-terminal result file does not make an unrelated task disappear.
+`local_agent/workflow/git_control_plane.py` is implemented and remains explicitly unwired from production scheduling.
 
-### Phase 2 slice E — side-effect-free graph preview
+For an explicitly supplied `RepositoryContext` it can:
 
-Implemented in `local_agent/workflow/preview.py`.
+- validate the expected Git origin;
+- require a normal clean control checkout;
+- synchronize the configured control branch;
+- require local HEAD to match exact remote state before mutation;
+- read bounded regular JSON task/result/status evidence;
+- classify child state through the shared workflow evidence model;
+- detect unrelated repository work;
+- create child tasks with create-only filesystem semantics;
+- stage exactly the expected path;
+- commit and push workflow child publication;
+- reconcile failed/ambiguous pushes against freshly fetched remote evidence;
+- fail closed on digest, origin, checkout or publication conflicts.
 
-The preview:
+Temporary-Git tests exercise real commits and real local bare remotes rather than mocked publication only.
 
-- validates the real workflow manifest;
-- simulates successful task completion only in memory;
-- groups different repositories into parallel execution waves;
-- keeps at most one task per repository in a wave;
-- preserves automatic barrier semantics;
-- stops at `user_gate` or `planner_checkpoint` instead of auto-approving them;
-- does not persist workflow state and cannot dispatch a child task.
+## Git-backed cancellation transport
 
-CLI:
+`local_agent/workflow/git_cancellation.py` publishes the existing repository `cancel_task` protocol for the exact workflow child identity.
 
-```bash
-python -m local_agent.cli.workflow preview-manifest <manifest.json>
+Properties include:
+
+- deterministic cancellation control id derived from repository id, child task id and expected task digest;
+- exact child evidence required before cancellation;
+- digest mismatch or absent child fails closed;
+- an unrelated outstanding control request causes deferral rather than overwrite;
+- repeated exact requests are idempotent;
+- accepted/completed/rejected ACK identity is validated;
+- ACKs do not directly transition workflow task state;
+- push-failure recovery distinguishes proven remote publication, conflict and ambiguity.
+
+The lineage cancellation layer requests cancellation only for exact active workflow children after `cancel_requested` becomes durable.
+
+## Shared control-Git ownership
+
+The ordinary Local Agent runtime and workflow Git transport now use the same locking primitive from `local_agent/foundation/control_git_lock.py`.
+
+The lock provides:
+
+- process-local reentrancy with `threading.RLock`;
+- cross-process serialization with `fcntl.flock`;
+- one canonical process-local lock object per control checkout;
+- a lock file under the checkout's `.git/` directory;
+- fail-closed rejection when the target is not a normal Git checkout;
+- `DynamicControlGitLock` for legacy runtime code whose `core.CONTROL` changes when a short-lived repository worker is bound;
+- nested acquisitions remain attached to the same underlying checkout lock.
+
+This is separate from the long-lived repository execution lease. That separation is required because cancellation must be able to mutate the control branch while the repository worker still owns its execution lease for an active task.
+
+The parallel supervisor runs repository workers as separate processes, so the filesystem lock serializes those independent control-Git writers correctly.
+
+## Current CLI surface
+
+Current workflow CLI is still local/operator-oriented and contains no automatic scheduler.
+
+Available commands include:
+
+```text
+methods
+method
+validate-manifest
+preview-manifest
+submit
+list
+show
+append-revision
+revisions
+preview-effective
+activations
+effective-state
+resolve-gate
+resolve-checkpoint
+cancel
 ```
 
-Output includes execution waves, final simulated state and waiting node ids.
+There is not yet a CLI command that executes one real Git-backed lineage cycle. That is the next narrow capability slice after this verified baseline.
 
-### Phase 4 local slice — durable user gates
+## Verification
 
-The local persistence portion of user gates was implemented early because it is independent from remote transport.
+Exact code SHA `b5c5b447ea6d7a414d17f85b4aad745e72a14de5` was validated through draft PR `#81` using the repository's normal PR matrix.
 
-`WorkflowStore.resolve_user_gate(...)` provides:
+All jobs completed successfully:
 
-- allowed-choice validation from the immutable manifest;
-- exact workflow/manifest/node provenance;
-- resolver identity and timestamp;
-- first resolver wins;
-- repeated identical decision is idempotent;
-- conflicting second decision is rejected;
-- decision provenance and `waiting_user -> succeeded` transition are persisted in the same atomic `state.json` replacement;
-- execution lock serializes resolution against coordinator activity and cancellation.
+- `test` — compile, lint, Chat Bridge validation, unit/integration suite: **success**;
+- `coverage`: **success**;
+- `python-314`: **success**;
+- `macos-smoke`: **success**;
+- `bridge-browser`: **success**.
 
-CLI:
+The preceding fixture regression is closed. `tests/test_agentd.py` was restored from the complete pre-regression blob and the net change relative to `ddaf8fe237fdd54295cd6cf99c03335a59089ec2` is exactly one added setup line creating a normal `.git/` directory for the mocked control checkout, with zero deletions.
 
-```bash
-python -m local_agent.cli.workflow resolve-gate \
-  <workflow-id> <node-id> <decision> --resolver <identity>
+No installed/running Local Agent was used to execute this validation.
+
+## Next implementation slice
+
+The next narrow feature should be an **explicit operator-driven single workflow cycle**, not an automatic scheduler.
+
+Target behavior:
+
+```text
+python -m local_agent.cli.workflow run-cycle <workflow-id>
 ```
 
-There is still no remote/Chat Bridge gate transport.
+The command should:
 
-## Tests added
+1. load the existing repository registry and preserve its exact bindings;
+2. construct the existing `WorkflowStore` / revision / activation / effective-state stores;
+3. construct `GitWorkflowControlPlane` and `GitWorkflowCancellationTransport`;
+4. invoke exactly one `run_lineage_cycle(...)`;
+5. print a bounded structured result;
+6. exit.
 
-- `tests/test_workflow_contract.py`
-- `tests/test_workflow_state.py`
-- `tests/test_workflow_methods.py`
-- `tests/test_workflow_store.py`
-- `tests/test_workflow_store_audit.py`
-- `tests/test_workflow_publishing.py`
-- `tests/test_workflow_coordinator.py`
-- `tests/test_workflow_coordinator_cancel.py`
-- `tests/test_workflow_evidence.py`
-- `tests/test_workflow_gates.py`
-- `tests/test_workflow_preview.py`
-- `tests/test_workflow_cli.py`
-- `tests/test_workflow_preview_cli.py`
-- `tests/fixtures/workflows/*.json`
+It must not loop, daemonize, change launchd, import itself into the supervisor, or create a second repository configuration system.
 
-Coverage includes contract bounds, cycles, bindings, method digests/structure, state transitions, barriers, wait states, terminal non-regression, crash-after-publication recovery policy, no-replay interruption, digest mismatch, same-repository serialization, unrelated-work yielding, cancellation reconciliation, durable-store idempotency/corruption/cancellation, non-authoritative audit failures, atomic gate resolution, pure graph preview, CLI lifecycle and deterministic child-task materialization.
+Implementation should be TDD-first and preserve `tests/test_workflow_inert_boundary.py`: production daemon/supervisor/worker modules must still not import workflow scheduling code.
 
-These test files have been authored on the branch; this document does **not** claim they have executed successfully because this branch does not receive automatic push CI.
-
-## Deliberately not implemented or wired yet
-
-The following remain outside the current safe/inert boundary:
-
-- a production/Git-backed `WorkflowControlPlane` adapter;
-- writing child tasks into a real target repository `.agent/tasks/` path;
-- Git commit/push of workflow-owned child tasks;
-- live target repository control checkout synchronization;
-- real result/run/status reads from project control branches by the workflow engine;
-- exact `cancel_task` publication for active workflow children;
-- supervisor integration/tick scheduling;
-- service startup/restart integration;
-- remote workflow transport;
-- Chat Bridge orchestration identity;
-- planner-checkpoint continuation/revision transport;
-- append-only workflow revisions/continuations;
-- remote user-gate resolution transport.
-
-This boundary is intentional. Git publication is the first part of the feature that can cause real repository execution side effects and must not be enabled until isolated verification is complete.
-
-## Validation status
-
-No production claim is made for this branch.
-
-Repository CI currently runs on pushes to `main`, `v*-staging`, `work/**`, and on pull requests. Direct pushes to `feature/openworker-governance` therefore do not automatically produce the normal CI matrix.
-
-An attempt to clone the public branch into the assistant sandbox for isolated execution was blocked by the sandbox network/DNS boundary. No Local Agent runtime was used as a fallback, because the current work explicitly must not touch the running installation. Therefore no executed-test claim is made yet.
-
-Before adding any production Git adapter or wiring coordinator ticks, run on the exact branch SHA at minimum:
-
-```bash
-python scripts/verify.py --only compile
-python scripts/verify.py --only lint
-python -m unittest \
-  tests.test_workflow_contract \
-  tests.test_workflow_state \
-  tests.test_workflow_methods \
-  tests.test_workflow_store \
-  tests.test_workflow_store_audit \
-  tests.test_workflow_publishing \
-  tests.test_workflow_coordinator \
-  tests.test_workflow_coordinator_cancel \
-  tests.test_workflow_evidence \
-  tests.test_workflow_gates \
-  tests.test_workflow_preview \
-  tests.test_workflow_cli \
-  tests.test_workflow_preview_cli
-```
-
-Then run the normal full repository verification before release integration:
-
-```bash
-python scripts/verify.py
-```
-
-The eventual release candidate still requires the repository's normal full CI matrix and exact-SHA macOS smoke.
-
-## Next safe implementation slices without touching the running agent
-
-The next work can remain completely isolated from production:
-
-1. add planner-checkpoint durable metadata and explicit local continuation contracts without dispatch transport;
-2. add a fake/in-memory end-to-end three-repository graph fixture that exercises audit -> parallel nodes -> barrier -> user/planner wait;
-3. design, but do not wire, the Git control-plane adapter interface and temporary-Git integration harness;
-4. only after exact-SHA verification, implement the adapter against disposable temporary repositories before considering any supervisor integration.
-
-Do not modify the production supervisor loop and do not point workflow code at the installed Local Agent state/control checkouts while this safety boundary is active.
+Only after an explicit single-cycle path is independently verified should automatic scheduling even be considered.
