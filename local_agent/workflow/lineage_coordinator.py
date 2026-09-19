@@ -53,6 +53,8 @@ def tick_lineage_workflow(
 
     This coordinator is intentionally separate from the production/static path. It has
     no supervisor wiring and requires an explicitly supplied control-plane adapter.
+    Cancellation only stops new publication here; active-child cancellation transport
+    remains deliberately outside this isolated coordinator.
     """
     published: list[str] = []
     reconciled: list[str] = []
@@ -60,15 +62,18 @@ def tick_lineage_workflow(
     deferred_unrelated_work: list[str] = []
     integrity_failures: list[str] = []
 
-    # Reuse the workflow-wide execution lock so local cancellation/checkpoint/revision
-    # activation cannot race a future dispatch integration. The effective-state store
-    # also serializes its own file mutations independently.
+    # Reuse the workflow-wide execution lock so operator cancellation/checkpoint/
+    # revision activation cannot race a dispatch decision. Effective state uses a
+    # separate file lock for the local mutation itself.
     with store.workflow_store.execution_lock(workflow_id):
         current = store.load(workflow_id)
         manifest, chain = _active_graph(store, workflow_id, current)
         repositories_by_id = _repository_map(repositories)
         nodes = _task_nodes(manifest)
 
+        # Always reconcile potentially published children first, including after a
+        # cancellation request. Cancellation must not make exact terminal evidence
+        # disappear or pretend a running process has already stopped.
         for node in nodes:
             node_id = str(node["id"])
             node_state = str(current["node_states"][node_id])
@@ -97,7 +102,10 @@ def tick_lineage_workflow(
                 reconciled.append(node_id)
 
         current = store.load(workflow_id)
-        if current["workflow_state"] not in {"pending", "running"}:
+        if current["cancel_requested"] or current["workflow_state"] not in {
+            "pending",
+            "running",
+        }:
             return TickResult(
                 published=tuple(published),
                 reconciled=tuple(reconciled),
@@ -115,7 +123,10 @@ def tick_lineage_workflow(
         for node in nodes:
             node_id = str(node["id"])
             current = store.load(workflow_id)
-            if current["workflow_state"] not in {"pending", "running"}:
+            if current["cancel_requested"] or current["workflow_state"] not in {
+                "pending",
+                "running",
+            }:
                 break
             if current["node_states"][node_id] != "ready":
                 continue
