@@ -76,6 +76,21 @@ def deep_refactor_manifest() -> dict:
     }
 
 
+def historical_cross_repo_v1_manifest() -> dict:
+    spec = methods.load_builtin_method("cross-repo-api-change", version=1)
+    contract_node = task_node("contract", "contract", [])
+    implementation = task_node("implementation", "implementation", ["contract"])
+    integration = task_node("integration", "integration", ["implementation"])
+    review = task_node("review", "final_review", ["integration"])
+    return {
+        "schema_version": 1,
+        "id": "historical-cross-repo-v1",
+        "created_at": "2026-09-19T12:07:00Z",
+        "method": methods.method_reference(spec),
+        "nodes": [contract_node, implementation, integration, review],
+    }
+
+
 class WorkflowMethodTests(unittest.TestCase):
     def test_builtin_catalog_lists_latest_version_per_method(self) -> None:
         specs = methods.list_builtin_methods()
@@ -108,6 +123,12 @@ class WorkflowMethodTests(unittest.TestCase):
         self.assertEqual(legacy["requirements"], {})
         self.assertEqual(latest["version"], 2)
         self.assertNotEqual(methods.method_digest(legacy), methods.method_digest(latest))
+
+    def test_historical_v1_manifest_remains_admissible_after_v2_is_latest(self) -> None:
+        manifest = historical_cross_repo_v1_manifest()
+        contract.validate_workflow_manifest(manifest)
+        self.assertEqual(manifest["method"]["version"], 1)
+        self.assertEqual(methods.load_builtin_method("cross-repo-api-change")["version"], 2)
 
     def test_builtin_reference_is_digest_pinned(self) -> None:
         spec = methods.load_builtin_method("deep-refactor")
