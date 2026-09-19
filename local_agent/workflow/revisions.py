@@ -211,3 +211,13 @@ def effective_manifest(
     sequence = list(revisions)
     validate_revision_sequence(base_manifest, sequence)
     return _effective_manifest_unvalidated(base_manifest, sequence)
+
+
+def validate_effective_method_complete(
+    base_manifest: dict[str, Any],
+    revisions: Iterable[dict[str, Any]],
+) -> dict[str, Any]:
+    """Require the effective lineage to satisfy the full pinned Method contract."""
+    effective = effective_manifest(base_manifest, revisions)
+    contract.validate_complete_workflow_manifest(effective)
+    return effective
