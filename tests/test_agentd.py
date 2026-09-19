@@ -35,6 +35,7 @@ class AgentDaemonSafetyTests(unittest.TestCase):
         agentd.LOCAL_RUNS_DIR = agentd.STATE_DIR / "runs"
         agentd.RESULT_SPOOL_DIR = agentd.STATE_DIR / "result-spool"
         agentd.core.CONTROL = root / "control"
+        (agentd.core.CONTROL / ".git").mkdir(parents=True)
         (agentd.core.CONTROL / ".agent" / "tasks").mkdir(parents=True)
         (agentd.core.CONTROL / ".agent" / "results").mkdir(parents=True)
 
