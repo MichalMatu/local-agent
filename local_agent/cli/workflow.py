@@ -69,6 +69,15 @@ def parse_args() -> argparse.Namespace:
     resolve_parser.add_argument("decision")
     resolve_parser.add_argument("--resolver", default="local-operator")
 
+    checkpoint_parser = subparsers.add_parser(
+        "resolve-checkpoint",
+        help="Resolve one planner checkpoint after explicit evidence review.",
+    )
+    checkpoint_parser.add_argument("workflow_id")
+    checkpoint_parser.add_argument("node_id")
+    checkpoint_parser.add_argument("--resolver", default="chatgpt-planner")
+    checkpoint_parser.add_argument("--note")
+
     cancel_parser = subparsers.add_parser(
         "cancel",
         help="Request workflow cancellation without killing unrelated work.",
@@ -183,6 +192,21 @@ def main() -> int:
             _print_json({"error": f"{type(exc).__name__}: {exc}"})
             return 2
         _print_json({"decision": decision, "state": current_state})
+        return 0
+
+    if args.command == "resolve-checkpoint":
+        try:
+            resolution = workflow_store.resolve_planner_checkpoint(
+                args.workflow_id,
+                args.node_id,
+                resolver=args.resolver,
+                note=args.note,
+            )
+            current_state = workflow_store.load_state(args.workflow_id)
+        except Exception as exc:
+            _print_json({"error": f"{type(exc).__name__}: {exc}"})
+            return 2
+        _print_json({"resolution": resolution, "state": current_state})
         return 0
 
     if args.command == "cancel":
