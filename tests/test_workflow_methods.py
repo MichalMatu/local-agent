@@ -112,15 +112,13 @@ class WorkflowMethodTests(unittest.TestCase):
         spec = methods.load_builtin_method("deep-refactor")
         methods.validate_workflow_method(manifest, spec)
 
-    def test_missing_required_phase_is_rejected(self) -> None:
+    def test_missing_required_phase_is_rejected_at_manifest_admission(self) -> None:
         manifest = deep_refactor_manifest()
         manifest["nodes"] = [
             node for node in manifest["nodes"] if node.get("phase") != "final_review"
         ]
-        contract.validate_workflow_manifest(manifest)
-        spec = methods.load_builtin_method("deep-refactor")
         with self.assertRaisesRegex(ValueError, "missing required method phases"):
-            methods.validate_workflow_method(manifest, spec)
+            contract.validate_workflow_manifest(manifest)
 
     def test_checkpoint_requirement_is_structural(self) -> None:
         manifest = deep_refactor_manifest()
@@ -139,10 +137,8 @@ class WorkflowMethodTests(unittest.TestCase):
             node for node in manifest["nodes"] if node["id"] == "implementation"
         )
         implementation["depends_on"] = ["audit"]
-        contract.validate_workflow_manifest(manifest)
-        spec = methods.load_builtin_method("deep-refactor")
         with self.assertRaisesRegex(ValueError, "planner checkpoint after audit"):
-            methods.validate_workflow_method(manifest, spec)
+            contract.validate_workflow_manifest(manifest)
 
     def test_full_verification_requirement_uses_existing_policy(self) -> None:
         manifest = deep_refactor_manifest()
@@ -155,10 +151,8 @@ class WorkflowMethodTests(unittest.TestCase):
             "resources": [],
             "commands": ["true"],
         }
-        contract.validate_workflow_manifest(manifest)
-        spec = methods.load_builtin_method("deep-refactor")
         with self.assertRaisesRegex(ValueError, "efficient-verification-v1"):
-            methods.validate_workflow_method(manifest, spec)
+            contract.validate_workflow_manifest(manifest)
 
 
 if __name__ == "__main__":
