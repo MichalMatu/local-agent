@@ -6,6 +6,11 @@ import json
 from pathlib import Path
 
 from local_agent.workflow import contract, methods, preview, revisions, store
+from local_agent.workflow.activation import (
+    WorkflowRevisionActivationStore,
+    activation_digest,
+)
+from local_agent.workflow.effective_state import WorkflowEffectiveStateStore
 from local_agent.workflow.revision_store import WorkflowRevisionStore
 
 
@@ -79,6 +84,18 @@ def parse_args() -> argparse.Namespace:
         help="Preview the base manifest plus persisted revisions without executing it.",
     )
     effective_parser.add_argument("workflow_id")
+
+    activations_parser = subparsers.add_parser(
+        "activations",
+        help="Show persisted revision activation records without mutating workflow state.",
+    )
+    activations_parser.add_argument("workflow_id")
+
+    effective_state_parser = subparsers.add_parser(
+        "effective-state",
+        help="Show isolated effective revision state without dispatching or mutating it.",
+    )
+    effective_state_parser.add_argument("workflow_id")
 
     resolve_parser = subparsers.add_parser(
         "resolve-gate",
@@ -199,7 +216,13 @@ def main() -> int:
         _print_json({"manifest": manifest, "state": current_state})
         return 0
 
-    if args.command in {"append-revision", "revisions", "preview-effective"}:
+    if args.command in {
+        "append-revision",
+        "revisions",
+        "preview-effective",
+        "activations",
+        "effective-state",
+    }:
         revision_store = WorkflowRevisionStore(workflow_store)
 
         if args.command == "append-revision":
@@ -243,6 +266,59 @@ def main() -> int:
                         }
                         for record in chain
                     ],
+                }
+            )
+            return 0
+
+        if args.command == "activations":
+            try:
+                activation_store = WorkflowRevisionActivationStore(
+                    workflow_store,
+                    revision_store,
+                )
+                records = activation_store.load(args.workflow_id)
+            except Exception as exc:
+                _print_json({"error": f"{type(exc).__name__}: {exc}"})
+                return 2
+            _print_json(
+                {
+                    "workflow_id": args.workflow_id,
+                    "activation_count": len(records),
+                    "activations": [
+                        {
+                            "revision": record["revision"],
+                            "digest": activation_digest(record),
+                            "revision_digest": record["revision_digest"],
+                            "parent_tip_digest": record["parent_tip_digest"],
+                            "checkpoint_node_id": record["checkpoint_node_id"],
+                            "new_node_states": record["new_node_states"],
+                            "activated_at": record["activated_at"],
+                        }
+                        for record in records
+                    ],
+                }
+            )
+            return 0
+
+        if args.command == "effective-state":
+            try:
+                activation_store = WorkflowRevisionActivationStore(
+                    workflow_store,
+                    revision_store,
+                )
+                effective_store = WorkflowEffectiveStateStore(
+                    workflow_store,
+                    revision_store,
+                    activation_store,
+                )
+                current = effective_store.load(args.workflow_id)
+            except Exception as exc:
+                _print_json({"error": f"{type(exc).__name__}: {exc}"})
+                return 2
+            _print_json(
+                {
+                    "workflow_id": args.workflow_id,
+                    "effective_state": current,
                 }
             )
             return 0
