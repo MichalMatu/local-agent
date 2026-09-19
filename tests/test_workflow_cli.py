@@ -28,7 +28,7 @@ class WorkflowCliTests(unittest.TestCase):
         code, output = self.run_cli("methods")
         self.assertEqual(code, 0)
         self.assertIn("deep-refactor\tversion=1\tsha256:", output)
-        self.assertIn("cross-repo-api-change\tversion=1\tsha256:", output)
+        self.assertIn("cross-repo-api-change\tversion=2\tsha256:", output)
         self.assertIn("release-candidate\tversion=1\tsha256:", output)
 
     def test_method_prints_canonical_json(self) -> None:
