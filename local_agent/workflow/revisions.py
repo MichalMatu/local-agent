@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from typing import Any, Iterable
 
@@ -22,6 +23,7 @@ _REVISION_FIELDS = {
     "checkpoint_node_id",
     "nodes",
 }
+_NODE_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def _canonical_bytes(payload: Any) -> bytes:
@@ -55,7 +57,7 @@ def _validate_checkpoint_id(value: Any) -> str:
         not isinstance(value, str)
         or not value
         or len(value) > MAX_CHECKPOINT_NODE_ID_CHARS
-        or not value.replace("-", "_").replace(".", "_").isalnum()
+        or not _NODE_ID_RE.fullmatch(value)
     ):
         raise ValueError("checkpoint_node_id must be a bounded canonical node id")
     return value
@@ -96,6 +98,37 @@ def _effective_manifest_unvalidated(
         nodes.extend(copy.deepcopy(revision["nodes"]))
     effective["nodes"] = nodes
     return effective
+
+
+def _require_new_nodes_descend_from_checkpoint(
+    candidate: dict[str, Any],
+    *,
+    new_node_ids: set[str],
+    checkpoint_id: str,
+) -> None:
+    dependencies = {
+        str(node["id"]): tuple(str(item) for item in node["depends_on"])
+        for node in candidate["nodes"]
+    }
+    memo: dict[str, bool] = {checkpoint_id: True}
+
+    def descends(node_id: str) -> bool:
+        cached = memo.get(node_id)
+        if cached is not None:
+            return cached
+        result = any(
+            dependency == checkpoint_id or descends(dependency)
+            for dependency in dependencies[node_id]
+        )
+        memo[node_id] = result
+        return result
+
+    bypassing = sorted(node_id for node_id in new_node_ids if not descends(node_id))
+    if bypassing:
+        raise ValueError(
+            "workflow revision nodes must descend from checkpoint "
+            f"{checkpoint_id!r}: {bypassing!r}"
+        )
 
 
 def validate_revision_sequence(
@@ -159,6 +192,12 @@ def validate_revision_sequence(
         # Reuse the real workflow contract for new node schemas, global id uniqueness,
         # dependency validity, graph acyclicity, task bounds and method structure.
         contract.validate_workflow_manifest(candidate)
+        new_node_ids = {str(node["id"]) for node in nodes}
+        _require_new_nodes_descend_from_checkpoint(
+            candidate,
+            new_node_ids=new_node_ids,
+            checkpoint_id=checkpoint_id,
+        )
 
         prior.append(record)
         expected_parent = revision_digest(record)
