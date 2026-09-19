@@ -76,7 +76,7 @@ class WorkflowGateTests(unittest.TestCase):
                 resolver="operator-b",
             )
 
-    def test_invalid_choice_is_rejected_without_decision_file(self) -> None:
+    def test_invalid_choice_is_rejected_without_persistent_decision(self) -> None:
         with self.assertRaisesRegex(ValueError, "not an allowed choice"):
             self.store.resolve_user_gate(
                 self.workflow["id"],
@@ -88,13 +88,13 @@ class WorkflowGateTests(unittest.TestCase):
         state = self.store.load_state(self.workflow["id"])
         self.assertEqual(state["node_states"]["choice"], "waiting_user")
 
-    def test_decision_record_survives_crash_before_state_transition(self) -> None:
-        with mock.patch.object(
-            self.store,
-            "set_node_state",
-            side_effect=RuntimeError("simulated crash after decision write"),
+    def test_decision_and_node_transition_are_one_atomic_state_write(self) -> None:
+        original = self.store.load_state(self.workflow["id"])
+        with mock.patch(
+            "local_agent.workflow.store.atomic_write_text",
+            side_effect=RuntimeError("simulated atomic write failure"),
         ):
-            with self.assertRaisesRegex(RuntimeError, "simulated crash"):
+            with self.assertRaisesRegex(RuntimeError, "simulated atomic write failure"):
                 self.store.resolve_user_gate(
                     self.workflow["id"],
                     "choice",
@@ -103,22 +103,20 @@ class WorkflowGateTests(unittest.TestCase):
                 )
 
         restarted = WorkflowStore(self.state_dir)
-        recorded = restarted.load_gate_decision(self.workflow["id"], "choice")
-        self.assertIsNotNone(recorded)
-        state = restarted.load_state(self.workflow["id"])
-        self.assertEqual(state["node_states"]["choice"], "waiting_user")
+        after_failure = restarted.load_state(self.workflow["id"])
+        self.assertEqual(after_failure, original)
+        self.assertIsNone(restarted.load_gate_decision(self.workflow["id"], "choice"))
 
         recovered = restarted.resolve_user_gate(
             self.workflow["id"],
             "choice",
             "preserve_compat",
-            resolver="different-resolver",
+            resolver="operator",
         )
-        self.assertEqual(recovered, recorded)
-        self.assertEqual(
-            restarted.load_state(self.workflow["id"])["node_states"]["choice"],
-            "succeeded",
-        )
+        self.assertEqual(recovered["decision"], "preserve_compat")
+        final_state = restarted.load_state(self.workflow["id"])
+        self.assertEqual(final_state["node_states"]["choice"], "succeeded")
+        self.assertEqual(final_state["gate_decisions"]["choice"], recovered)
 
     def test_gate_resolution_after_workflow_cancel_is_rejected(self) -> None:
         self.store.cancel(self.workflow["id"])
