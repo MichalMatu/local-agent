@@ -89,12 +89,12 @@ class WorkflowCliTests(unittest.TestCase):
             code, _output = self.run_cli(*prefix, "submit", str(GATE_FIXTURE))
             self.assertEqual(code, 0)
             store = WorkflowStore(Path(directory))
-            store.set_node_state("gate-example", "audit", "succeeded")
+            store.set_node_state("user-gate", "audit", "succeeded")
 
             code, output = self.run_cli(
                 *prefix,
                 "resolve-gate",
-                "gate-example",
+                "user-gate",
                 "choice",
                 "preserve_compat",
                 "--resolver",
