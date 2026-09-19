@@ -4,7 +4,7 @@ Branch: `feature/openworker-governance`
 Production base: `main@224046066b0df92544337db0ee623e372629e726` (`v4.18.22`)
 Design: `docs/EXECUTION_FABRIC_IMPLEMENTATION_PLAN.md`
 
-Status: implementation in progress. The current branch adds workflow contracts, methods, durable local state, deterministic child-task materialization, an isolated coordinator, pure repository-evidence classification and durable user gates. It does **not** dispatch workflow child tasks to real repository control branches and does not change or call the production supervisor/worker execution path.
+Status: implementation in progress. The current branch adds workflow contracts, methods, durable local state, deterministic child-task materialization, an isolated coordinator, pure repository-evidence classification, durable user gates and a side-effect-free execution preview. It does **not** dispatch workflow child tasks to real repository control branches and does not change or call the production supervisor/worker execution path.
 
 ## Safety boundary of the current branch
 
@@ -17,7 +17,8 @@ Current workflow code is deliberately inert with respect to the installed/runnin
 - no workflow code starts/restarts/stops the Local Agent service;
 - no workflow code reads or mutates the installed machine registry unless a future caller explicitly supplies repository contexts;
 - coordinator tests use injected in-memory/fake control planes only;
-- CLI workflow state can be redirected with `--state-dir` and has no command that performs repository dispatch.
+- CLI workflow state can be redirected with `--state-dir` and has no command that performs repository dispatch;
+- `preview-manifest` is pure and performs no workflow persistence or task execution.
 
 This boundary must remain in place until the exact branch SHA has been verified and real temporary-Git integration tests prove publication/recovery semantics.
 
@@ -89,6 +90,7 @@ Implemented in `local_agent/workflow/store.py`:
 - immutable `manifest.json`;
 - atomic authoritative `state.json`;
 - bounded append-only `events.ndjson` audit stream;
+- audit events are explicitly best-effort after the authoritative state commit, so an audit write/fsync failure cannot report a false workflow mutation failure;
 - exact manifest-digest idempotency on submit;
 - same workflow id with different manifest is rejected;
 - per-workflow mutation lock prevents lost local updates;
@@ -168,6 +170,28 @@ Important mappings reuse current Local Agent semantics:
 
 Repository-yield classification requires exact terminal evidence for unrelated queued work. A malformed/non-terminal result file does not make an unrelated task disappear.
 
+### Phase 2 slice E — side-effect-free graph preview
+
+Implemented in `local_agent/workflow/preview.py`.
+
+The preview:
+
+- validates the real workflow manifest;
+- simulates successful task completion only in memory;
+- groups different repositories into parallel execution waves;
+- keeps at most one task per repository in a wave;
+- preserves automatic barrier semantics;
+- stops at `user_gate` or `planner_checkpoint` instead of auto-approving them;
+- does not persist workflow state and cannot dispatch a child task.
+
+CLI:
+
+```bash
+python -m local_agent.cli.workflow preview-manifest <manifest.json>
+```
+
+Output includes execution waves, final simulated state and waiting node ids.
+
 ### Phase 4 local slice — durable user gates
 
 The local persistence portion of user gates was implemented early because it is independent from remote transport.
@@ -198,15 +222,18 @@ There is still no remote/Chat Bridge gate transport.
 - `tests/test_workflow_state.py`
 - `tests/test_workflow_methods.py`
 - `tests/test_workflow_store.py`
+- `tests/test_workflow_store_audit.py`
 - `tests/test_workflow_publishing.py`
 - `tests/test_workflow_coordinator.py`
 - `tests/test_workflow_coordinator_cancel.py`
 - `tests/test_workflow_evidence.py`
 - `tests/test_workflow_gates.py`
+- `tests/test_workflow_preview.py`
 - `tests/test_workflow_cli.py`
+- `tests/test_workflow_preview_cli.py`
 - `tests/fixtures/workflows/*.json`
 
-Coverage includes contract bounds, cycles, bindings, method digests/structure, state transitions, barriers, wait states, terminal non-regression, crash-after-publication recovery policy, no-replay interruption, digest mismatch, same-repository serialization, unrelated-work yielding, cancellation reconciliation, durable-store idempotency/corruption/cancellation, atomic gate resolution, CLI lifecycle and deterministic child-task materialization.
+Coverage includes contract bounds, cycles, bindings, method digests/structure, state transitions, barriers, wait states, terminal non-regression, crash-after-publication recovery policy, no-replay interruption, digest mismatch, same-repository serialization, unrelated-work yielding, cancellation reconciliation, durable-store idempotency/corruption/cancellation, non-authoritative audit failures, atomic gate resolution, pure graph preview, CLI lifecycle and deterministic child-task materialization.
 
 These test files have been authored on the branch; this document does **not** claim they have executed successfully because this branch does not receive automatic push CI.
 
@@ -236,6 +263,8 @@ No production claim is made for this branch.
 
 Repository CI currently runs on pushes to `main`, `v*-staging`, `work/**`, and on pull requests. Direct pushes to `feature/openworker-governance` therefore do not automatically produce the normal CI matrix.
 
+An attempt to clone the public branch into the assistant sandbox for isolated execution was blocked by the sandbox network/DNS boundary. No Local Agent runtime was used as a fallback, because the current work explicitly must not touch the running installation. Therefore no executed-test claim is made yet.
+
 Before adding any production Git adapter or wiring coordinator ticks, run on the exact branch SHA at minimum:
 
 ```bash
@@ -246,12 +275,15 @@ python -m unittest \
   tests.test_workflow_state \
   tests.test_workflow_methods \
   tests.test_workflow_store \
+  tests.test_workflow_store_audit \
   tests.test_workflow_publishing \
   tests.test_workflow_coordinator \
   tests.test_workflow_coordinator_cancel \
   tests.test_workflow_evidence \
   tests.test_workflow_gates \
-  tests.test_workflow_cli
+  tests.test_workflow_preview \
+  tests.test_workflow_cli \
+  tests.test_workflow_preview_cli
 ```
 
 Then run the normal full repository verification before release integration:
@@ -266,10 +298,9 @@ The eventual release candidate still requires the repository's normal full CI ma
 
 The next work can remain completely isolated from production:
 
-1. make the workflow audit event stream explicitly best-effort so an audit-write failure cannot report a false mutation failure after authoritative `state.json` already committed;
-2. add planner-checkpoint durable metadata and explicit local continuation contracts without dispatch transport;
-3. add a fake/in-memory end-to-end three-repository graph fixture that exercises audit -> parallel nodes -> barrier -> user/planner wait;
-4. design, but do not wire, the Git control-plane adapter interface and temporary-Git integration harness;
-5. only after exact-SHA verification, implement the adapter against disposable temporary repositories before considering any supervisor integration.
+1. add planner-checkpoint durable metadata and explicit local continuation contracts without dispatch transport;
+2. add a fake/in-memory end-to-end three-repository graph fixture that exercises audit -> parallel nodes -> barrier -> user/planner wait;
+3. design, but do not wire, the Git control-plane adapter interface and temporary-Git integration harness;
+4. only after exact-SHA verification, implement the adapter against disposable temporary repositories before considering any supervisor integration.
 
 Do not modify the production supervisor loop and do not point workflow code at the installed Local Agent state/control checkouts while this safety boundary is active.
