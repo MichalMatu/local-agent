@@ -12,7 +12,7 @@ MAX_METHOD_NAME_CHARS = 100
 MAX_METHOD_DESCRIPTION_CHARS = 4096
 MAX_METHOD_PHASES = 32
 MAX_METHOD_REQUIREMENTS = 64
-BUILTIN_METHODS_DIR = Path(__file__).resolve().parent / "methods"
+BUILTIN_METHODS_DIR = Path(__file__).resolve().parent / "method_specs"
 SUPPORTED_METHOD_REQUIREMENTS = frozenset(
     {
         "final_full_verification",
