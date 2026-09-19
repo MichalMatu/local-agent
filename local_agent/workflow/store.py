@@ -13,9 +13,11 @@ from local_agent.foundation.process import atomic_write_text, fsync_directory
 from local_agent.workflow import contract, state
 
 WORKFLOW_STATE_SCHEMA_VERSION = 1
+GATE_DECISION_SCHEMA_VERSION = 1
 DEFAULT_STATE_DIR = Path.home() / "Library" / "Application Support" / "local-agent"
 MAX_STATE_FILE_BYTES = 1024 * 1024
 MAX_EVENT_LOG_BYTES = 4 * 1024 * 1024
+MAX_GATE_RESOLVER_CHARS = 200
 
 _STATE_FIELDS = {
     "schema_version",
@@ -23,9 +25,20 @@ _STATE_FIELDS = {
     "manifest_digest",
     "workflow_state",
     "node_states",
+    "gate_decisions",
     "cancel_requested",
     "created_at",
     "updated_at",
+}
+
+_GATE_DECISION_FIELDS = {
+    "schema_version",
+    "workflow_id",
+    "manifest_digest",
+    "node_id",
+    "decision",
+    "resolver",
+    "decided_at",
 }
 
 
@@ -71,7 +84,7 @@ class WorkflowStore:
 
     @contextlib.contextmanager
     def execution_lock(self, workflow_id: str) -> Iterator[None]:
-        """Serialize dispatch/reconciliation with operator cancellation for one workflow."""
+        """Serialize dispatch/reconciliation with operator mutations for one workflow."""
         canonical = contract.validate_workflow_id(workflow_id)
         self.execution_lock_root.mkdir(parents=True, exist_ok=True)
         path = self.execution_lock_root / f"{canonical}.lock"
@@ -123,6 +136,7 @@ class WorkflowStore:
                 "manifest_digest": digest,
                 "workflow_state": state.workflow_state(node_states),
                 "node_states": node_states,
+                "gate_decisions": {},
                 "cancel_requested": False,
                 "created_at": manifest["created_at"],
                 "updated_at": timestamp,
@@ -221,6 +235,91 @@ class WorkflowStore:
             )
             return updated
 
+    def load_gate_decision(
+        self,
+        workflow_id: str,
+        node_id: str,
+    ) -> dict[str, Any] | None:
+        current = self.load_state(workflow_id)
+        decision = current["gate_decisions"].get(node_id)
+        return dict(decision) if isinstance(decision, dict) else None
+
+    def resolve_user_gate(
+        self,
+        workflow_id: str,
+        node_id: str,
+        decision: str,
+        *,
+        resolver: str,
+    ) -> dict[str, Any]:
+        if (
+            not isinstance(resolver, str)
+            or not resolver.strip()
+            or len(resolver) > MAX_GATE_RESOLVER_CHARS
+        ):
+            raise ValueError("gate resolver must be a non-empty bounded string")
+
+        with self.execution_lock(workflow_id):
+            with self._mutation_lock(workflow_id):
+                manifest = self.load_manifest(workflow_id)
+                gate = self._user_gate_node(manifest, node_id)
+                current = self.load_state(workflow_id)
+                existing = current["gate_decisions"].get(node_id)
+                if isinstance(existing, dict):
+                    if existing["decision"] != decision:
+                        raise ValueError(
+                            f"user gate {node_id!r} is already resolved as "
+                            f"{existing['decision']!r}"
+                        )
+                    return dict(existing)
+
+                if current["node_states"][node_id] != "waiting_user":
+                    raise ValueError(f"user gate {node_id!r} is not waiting for user")
+                choices = gate["choices"]
+                if decision not in choices:
+                    raise ValueError(
+                        f"decision {decision!r} is not an allowed choice for user gate {node_id!r}"
+                    )
+
+                timestamp = now_iso()
+                record = {
+                    "schema_version": GATE_DECISION_SCHEMA_VERSION,
+                    "workflow_id": workflow_id,
+                    "manifest_digest": current["manifest_digest"],
+                    "node_id": node_id,
+                    "decision": decision,
+                    "resolver": resolver,
+                    "decided_at": timestamp,
+                }
+                node_states = dict(current["node_states"])
+                node_states[node_id] = state.transition_node_state(
+                    node_states[node_id],
+                    "succeeded",
+                )
+                node_states = state.advance_dependency_states(manifest, node_states)
+                gate_decisions = dict(current["gate_decisions"])
+                gate_decisions[node_id] = record
+
+                updated = dict(current)
+                updated["node_states"] = node_states
+                updated["gate_decisions"] = gate_decisions
+                updated["workflow_state"] = state.workflow_state(node_states)
+                updated["updated_at"] = timestamp
+                self._write_state(workflow_id, updated)
+                self._append_event(
+                    workflow_id,
+                    {
+                        "event": "user_gate_resolved",
+                        "workflow_id": workflow_id,
+                        "node_id": node_id,
+                        "decision": decision,
+                        "resolver": resolver,
+                        "workflow_state": updated["workflow_state"],
+                        "at": timestamp,
+                    },
+                )
+                return record
+
     def cancel(self, workflow_id: str) -> dict[str, Any]:
         with self.execution_lock(workflow_id):
             with self._mutation_lock(workflow_id):
@@ -261,6 +360,56 @@ class WorkflowStore:
                 )
                 return updated
 
+    def _user_gate_node(
+        self,
+        manifest: dict[str, Any],
+        node_id: str,
+    ) -> dict[str, Any]:
+        for node in manifest["nodes"]:
+            if node["id"] != node_id:
+                continue
+            if node["kind"] != "user_gate":
+                raise ValueError(f"workflow node {node_id!r} is not a user gate")
+            return node
+        raise ValueError(f"unknown workflow node id: {node_id!r}")
+
+    def _validate_gate_decision(
+        self,
+        manifest: dict[str, Any],
+        node_states: dict[str, str],
+        node_id: str,
+        payload: Any,
+    ) -> None:
+        if not isinstance(payload, dict) or set(payload) != _GATE_DECISION_FIELDS:
+            raise ValueError(f"invalid gate decision record for {node_id!r}")
+        if (
+            type(payload.get("schema_version")) is not int
+            or payload["schema_version"] != GATE_DECISION_SCHEMA_VERSION
+        ):
+            raise ValueError(f"invalid gate decision schema for {node_id!r}")
+        if payload.get("workflow_id") != manifest["id"]:
+            raise ValueError(f"gate decision workflow identity mismatch for {node_id!r}")
+        if payload.get("manifest_digest") != contract.manifest_digest(manifest):
+            raise ValueError(f"gate decision manifest digest mismatch for {node_id!r}")
+        if payload.get("node_id") != node_id:
+            raise ValueError(f"gate decision node identity mismatch for {node_id!r}")
+        gate = self._user_gate_node(manifest, node_id)
+        if payload.get("decision") not in gate["choices"]:
+            raise ValueError(f"invalid gate decision choice for {node_id!r}")
+        resolver = payload.get("resolver")
+        if (
+            not isinstance(resolver, str)
+            or not resolver.strip()
+            or len(resolver) > MAX_GATE_RESOLVER_CHARS
+        ):
+            raise ValueError(f"invalid gate decision resolver for {node_id!r}")
+        if not isinstance(payload.get("decided_at"), str) or not payload["decided_at"]:
+            raise ValueError(f"invalid gate decision timestamp for {node_id!r}")
+        if node_states.get(node_id) != "succeeded":
+            raise ValueError(
+                f"gate decision for {node_id!r} requires the gate node to be succeeded"
+            )
+
     def _validate_state_payload(
         self,
         manifest: dict[str, Any],
@@ -295,6 +444,20 @@ class WorkflowStore:
         normalized = state.advance_dependency_states(manifest, node_states)
         if normalized != node_states:
             raise ValueError("node_states are not dependency-normalized")
+
+        gate_decisions = payload.get("gate_decisions")
+        if not isinstance(gate_decisions, dict):
+            raise ValueError("gate_decisions must be an object")
+        for node_id, decision in gate_decisions.items():
+            if not isinstance(node_id, str):
+                raise ValueError("gate_decisions keys must be strings")
+            self._validate_gate_decision(
+                manifest,
+                node_states,
+                node_id,
+                decision,
+            )
+
         computed = state.workflow_state(node_states)
         if payload.get("workflow_state") != computed:
             raise ValueError(
