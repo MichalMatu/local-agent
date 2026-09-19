@@ -187,17 +187,14 @@ class WorkflowCliTests(unittest.TestCase):
                 workflow,
                 "GitWorkflowControlPlane",
                 return_value=control_plane,
-                create=True,
             ) as control_class, mock.patch.object(
                 workflow,
                 "GitWorkflowCancellationTransport",
                 return_value=cancellation_transport,
-                create=True,
             ) as cancel_class, mock.patch.object(
                 workflow,
                 "run_lineage_cycle",
                 return_value=cycle_result,
-                create=True,
             ) as run_cycle:
                 code, output = self.run_cli(
                     "--state-dir",
@@ -226,6 +223,25 @@ class WorkflowCliTests(unittest.TestCase):
         )
         self.assertIs(run_cycle.call_args.args[3], control_plane)
         self.assertIs(run_cycle.call_args.args[4], cancellation_transport)
+
+    def test_run_cycle_missing_explicit_registry_fails_before_git_transport(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            missing = root / "missing-repositories.json"
+            with mock.patch.object(workflow, "GitWorkflowControlPlane") as control_class:
+                code, output = self.run_cli(
+                    "--state-dir",
+                    str(root / "state"),
+                    "--registry",
+                    str(missing),
+                    "run-cycle",
+                    "workflow-a",
+                )
+
+        self.assertEqual(code, 2)
+        payload = json.loads(output)
+        self.assertIn("explicit repository registry is unavailable", payload["error"])
+        control_class.assert_not_called()
 
 
 if __name__ == "__main__":
