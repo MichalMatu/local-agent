@@ -16,7 +16,6 @@ from local_agent.workflow.git_control_plane import (
     WorkflowGitIntegrityError,
     WorkflowGitPublicationAmbiguous,
     WorkflowGitPublicationConflict,
-    WorkflowGitRepositoryBusyError,
     _canonical_json_text,
     _canonical_task_id,
     _require_success,
@@ -29,6 +28,7 @@ _CANCEL_ACK_DIR = ".agent/daemon/acks"
 
 class CancelRequestState(Enum):
     NOT_NEEDED = "not_needed"
+    DEFERRED = "deferred"
     REQUESTED = "requested"
     ACCEPTED = "accepted"
     COMPLETED = "completed"
@@ -214,6 +214,15 @@ class GitWorkflowCancellationTransport:
                     control_id=control_id,
                     task_id=task_id,
                 )
+            if request is not None and not self._existing_request_is_acknowledged_locked(
+                repository,
+                request,
+            ):
+                return CancelRequestEvidence(
+                    state=CancelRequestState.DEFERRED,
+                    control_id=control_id,
+                    task_id=task_id,
+                )
             return CancelRequestEvidence(
                 state=CancelRequestState.NOT_NEEDED,
                 control_id=control_id,
@@ -329,8 +338,10 @@ class GitWorkflowCancellationTransport:
                 repository,
                 existing,
             ):
-                raise WorkflowGitRepositoryBusyError(
-                    "repository already has an unacknowledged control request"
+                return CancelRequestEvidence(
+                    state=CancelRequestState.DEFERRED,
+                    control_id=control_id,
+                    task_id=task_id,
                 )
 
             head = _require_success(
