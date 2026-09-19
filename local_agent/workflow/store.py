@@ -1,0 +1,313 @@
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from local_agent.foundation.process import atomic_write_text, fsync_directory
+from local_agent.workflow import contract, state
+
+WORKFLOW_STATE_SCHEMA_VERSION = 1
+DEFAULT_STATE_DIR = Path.home() / "Library" / "Application Support" / "local-agent"
+MAX_STATE_FILE_BYTES = 1024 * 1024
+MAX_EVENT_LOG_BYTES = 4 * 1024 * 1024
+
+_STATE_FIELDS = {
+    "schema_version",
+    "workflow_id",
+    "manifest_digest",
+    "workflow_state",
+    "node_states",
+    "cancel_requested",
+    "created_at",
+    "updated_at",
+}
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _json_text(payload: Any) -> str:
+    return json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n"
+
+
+class WorkflowStore:
+    def __init__(self, state_dir: Path | None = None) -> None:
+        self.state_dir = (state_dir or DEFAULT_STATE_DIR).expanduser().resolve()
+        self.root = self.state_dir / "workflows"
+
+    def _workflow_dir(self, workflow_id: str) -> Path:
+        canonical = contract.validate_workflow_id(workflow_id)
+        return self.root / canonical
+
+    def _manifest_path(self, workflow_id: str) -> Path:
+        return self._workflow_dir(workflow_id) / "manifest.json"
+
+    def _state_path(self, workflow_id: str) -> Path:
+        return self._workflow_dir(workflow_id) / "state.json"
+
+    def _events_path(self, workflow_id: str) -> Path:
+        return self._workflow_dir(workflow_id) / "events.ndjson"
+
+    def workflow_ids(self) -> list[str]:
+        if not self.root.exists():
+            return []
+        ids: list[str] = []
+        for item in self.root.iterdir():
+            if not item.is_dir():
+                continue
+            try:
+                workflow_id = contract.validate_workflow_id(item.name)
+            except ValueError:
+                continue
+            ids.append(workflow_id)
+        return sorted(ids)
+
+    def submit(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        contract.validate_workflow_manifest(manifest)
+        workflow_id = str(manifest["id"])
+        digest = contract.manifest_digest(manifest)
+        workflow_dir = self._workflow_dir(workflow_id)
+
+        if workflow_dir.exists():
+            existing_manifest = self.load_manifest(workflow_id)
+            existing_digest = contract.manifest_digest(existing_manifest)
+            if existing_digest != digest:
+                raise ValueError(
+                    f"workflow {workflow_id!r} already exists with a different manifest digest"
+                )
+            return self.load_state(workflow_id)
+
+        workflow_dir.mkdir(parents=True, exist_ok=False)
+        fsync_directory(workflow_dir.parent)
+        manifest_path = workflow_dir / "manifest.json"
+        atomic_write_text(manifest_path, _json_text(manifest))
+
+        node_states = state.initial_node_states(manifest)
+        timestamp = now_iso()
+        state_payload = {
+            "schema_version": WORKFLOW_STATE_SCHEMA_VERSION,
+            "workflow_id": workflow_id,
+            "manifest_digest": digest,
+            "workflow_state": state.workflow_state(node_states),
+            "node_states": node_states,
+            "cancel_requested": False,
+            "created_at": manifest["created_at"],
+            "updated_at": timestamp,
+        }
+        self._write_state(workflow_id, state_payload)
+        self._append_event(
+            workflow_id,
+            {
+                "event": "submitted",
+                "workflow_id": workflow_id,
+                "manifest_digest": digest,
+                "workflow_state": state_payload["workflow_state"],
+                "at": timestamp,
+            },
+        )
+        return state_payload
+
+    def load_manifest(self, workflow_id: str) -> dict[str, Any]:
+        path = self._manifest_path(workflow_id)
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise ValueError(f"workflow manifest is unavailable: {workflow_id!r}") from exc
+        if len(raw) > contract.MAX_WORKFLOW_FILE_BYTES:
+            raise ValueError(f"workflow manifest exceeds bounds: {workflow_id!r}")
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid workflow manifest: {workflow_id!r}") from exc
+        try:
+            contract.validate_workflow_manifest(payload)
+        except ValueError as exc:
+            raise ValueError(f"invalid workflow manifest: {workflow_id!r}: {exc}") from exc
+        if payload["id"] != workflow_id:
+            raise ValueError(
+                f"workflow manifest identity mismatch: expected {workflow_id!r}, got {payload['id']!r}"
+            )
+        return payload
+
+    def load_state(self, workflow_id: str) -> dict[str, Any]:
+        canonical_id = contract.validate_workflow_id(workflow_id)
+        manifest = self.load_manifest(canonical_id)
+        path = self._state_path(canonical_id)
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise ValueError(f"workflow state is unavailable: {canonical_id!r}") from exc
+        if len(raw) > MAX_STATE_FILE_BYTES:
+            raise ValueError(f"invalid workflow state: {canonical_id!r}: file exceeds bounds")
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid workflow state: {canonical_id!r}") from exc
+        try:
+            self._validate_state_payload(manifest, payload)
+        except ValueError as exc:
+            raise ValueError(f"invalid workflow state: {canonical_id!r}: {exc}") from exc
+        return payload
+
+    def set_node_state(
+        self,
+        workflow_id: str,
+        node_id: str,
+        target: str,
+    ) -> dict[str, Any]:
+        manifest = self.load_manifest(workflow_id)
+        current_state = self.load_state(workflow_id)
+        node_states = dict(current_state["node_states"])
+        if node_id not in node_states:
+            raise ValueError(f"unknown workflow node id: {node_id!r}")
+
+        before = dict(node_states)
+        node_states[node_id] = state.transition_node_state(node_states[node_id], target)
+        node_states = state.advance_dependency_states(manifest, node_states)
+        if node_states == before:
+            return current_state
+
+        timestamp = now_iso()
+        updated = dict(current_state)
+        updated["node_states"] = node_states
+        updated["workflow_state"] = state.workflow_state(node_states)
+        updated["updated_at"] = timestamp
+        self._write_state(workflow_id, updated)
+        self._append_event(
+            workflow_id,
+            {
+                "event": "node_state_changed",
+                "workflow_id": workflow_id,
+                "node_id": node_id,
+                "from": before[node_id],
+                "to": node_states[node_id],
+                "workflow_state": updated["workflow_state"],
+                "at": timestamp,
+            },
+        )
+        return updated
+
+    def cancel(self, workflow_id: str) -> dict[str, Any]:
+        current = self.load_state(workflow_id)
+        if current["cancel_requested"]:
+            return current
+
+        node_states = dict(current["node_states"])
+        cancellable = {
+            "pending",
+            "blocked_dependency",
+            "ready",
+            "waiting_user",
+            "waiting_planner",
+        }
+        for node_id, node_state in list(node_states.items()):
+            if node_state in cancellable:
+                node_states[node_id] = state.transition_node_state(node_state, "cancelled")
+
+        timestamp = now_iso()
+        updated = dict(current)
+        updated["cancel_requested"] = True
+        updated["node_states"] = node_states
+        updated["workflow_state"] = state.workflow_state(node_states)
+        updated["updated_at"] = timestamp
+        self._write_state(workflow_id, updated)
+        self._append_event(
+            workflow_id,
+            {
+                "event": "cancel_requested",
+                "workflow_id": workflow_id,
+                "workflow_state": updated["workflow_state"],
+                "at": timestamp,
+            },
+        )
+        return updated
+
+    def _validate_state_payload(
+        self,
+        manifest: dict[str, Any],
+        payload: Any,
+    ) -> None:
+        if not isinstance(payload, dict):
+            raise ValueError("state must be an object")
+        if set(payload) != _STATE_FIELDS:
+            raise ValueError("state fields do not match schema")
+        if (
+            type(payload.get("schema_version")) is not int
+            or payload["schema_version"] != WORKFLOW_STATE_SCHEMA_VERSION
+        ):
+            raise ValueError(
+                f"state schema_version must be {WORKFLOW_STATE_SCHEMA_VERSION}"
+            )
+        workflow_id = contract.validate_workflow_id(payload.get("workflow_id"))
+        if workflow_id != manifest["id"]:
+            raise ValueError("state workflow_id does not match manifest")
+        digest = contract.manifest_digest(manifest)
+        if payload.get("manifest_digest") != digest:
+            raise ValueError("state manifest_digest does not match manifest")
+        if not isinstance(payload.get("cancel_requested"), bool):
+            raise ValueError("cancel_requested must be a boolean")
+        for field in ("created_at", "updated_at"):
+            if not isinstance(payload.get(field), str) or not payload[field]:
+                raise ValueError(f"{field} must be a non-empty timestamp string")
+
+        node_states = payload.get("node_states")
+        if not isinstance(node_states, dict):
+            raise ValueError("node_states must be an object")
+        normalized = state.advance_dependency_states(manifest, node_states)
+        if normalized != node_states:
+            raise ValueError("node_states are not dependency-normalized")
+        computed = state.workflow_state(node_states)
+        if payload.get("workflow_state") != computed:
+            raise ValueError(
+                f"workflow_state mismatch: expected {computed!r}, got {payload.get('workflow_state')!r}"
+            )
+
+    def _write_state(self, workflow_id: str, payload: dict[str, Any]) -> None:
+        manifest = self.load_manifest(workflow_id)
+        self._validate_state_payload(manifest, payload)
+        text = _json_text(payload)
+        if len(text.encode("utf-8")) > MAX_STATE_FILE_BYTES:
+            raise ValueError(f"workflow state exceeds {MAX_STATE_FILE_BYTES} bytes")
+        atomic_write_text(self._state_path(workflow_id), text)
+
+    def _append_event(self, workflow_id: str, event: dict[str, Any]) -> None:
+        path = self._events_path(workflow_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(
+            event,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ) + "\n"
+        encoded = line.encode("utf-8")
+        try:
+            existing_size = path.stat().st_size
+        except FileNotFoundError:
+            existing_size = 0
+        if existing_size + len(encoded) > MAX_EVENT_LOG_BYTES:
+            raise ValueError(
+                f"workflow event log exceeds {MAX_EVENT_LOG_BYTES} bytes: {workflow_id!r}"
+            )
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+            0o600,
+        )
+        try:
+            with os.fdopen(descriptor, "ab", closefd=True) as handle:
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+        finally:
+            # fdopen owns and closes the descriptor on the normal path. If fdopen itself
+            # failed, closing a still-open descriptor is harmless and avoids a leak.
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+        fsync_directory(path.parent)
