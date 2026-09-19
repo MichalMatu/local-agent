@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import unittest
 
 from local_agent.runtime.task_contract import task_digest
