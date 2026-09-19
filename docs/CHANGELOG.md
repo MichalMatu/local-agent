@@ -2,6 +2,13 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.23
+
+- Onboarded `MichalMatu/host-ops` as a canonical execution-enabled hard-bound repository with immutable binding `16d688b6-b0ef-4905-a5bd-24e59c99cfb4`.
+- Added the same identity to the canonical binding catalog and Chat Bridge runtime example, with dedicated regression coverage, without changing executor, scheduler, task schema, resource semantics or Bridge protocol.
+- Prepared the repository's remote `agent-control` branch with the matching `.agent/binding.json`; machine-local registry/provisioning and live Bridge activation remain explicit fail-closed deployment steps.
+- Preserved `resources: []` as the default for host-ops tasks unless a concrete operation genuinely requires a shared named or whole-machine resource. See `RELEASE_NOTES_V4.18.23.md`.
+
 ## v4.18.22
 
 - Added explicit assistant-controlled Chat Bridge `ADD=<repository-id>`, `REBIND=<repository-id>` and `REMOVE` controls using exact runtime-catalog repository ids; repository identity is never inferred from prose.
@@ -54,7 +61,7 @@ This changelog records operationally relevant Local Agent releases. The release 
 - Hardened Chat Bridge delivery with content protocol v4 / extension 0.5.5: stale reachable content scripts are reinjected automatically, unconfirmed Bridge-owned prompts remain visible, and exact retained prompts can be reused only when untouched by the operator.
 - Replaced the assistant-control scanner's fixed three-failure give-up with a pure bounded 5-30 second retry policy that never terminally exhausts for unchanged assistant content.
 - Preserved explicit `NEXT=30s` protocol compatibility while changing autonomous healthy-task pacing to no sooner than about two minutes for early liveness checks and normally 5-10 minutes for multi-minute builds/tests.
-- Directed the planner to use existing repository-scoped `cancel_task` when exact run/status evidence already proves an active task cannot succeed; executor ownership and Browser Bridge authority remain unchanged.
+- Directed the planner to use existing repository-scoped `cancel_task` when exact run/status evidence already proves the active task cannot succeed; executor ownership and Browser Bridge authority remain unchanged.
 - Added protocol/injection, retry, pacing and isolated Chromium regressions, including direct proof that an unconfirmed Bridge prompt stays visible and operator edits block automatic reuse. See `RELEASE_NOTES_V4.18.16.md`.
 
 ## v4.18.15
