@@ -31,8 +31,11 @@ def project_next_revision_states(
             f"continuation current states do not match prior graph: missing={missing!r} extra={extra!r}"
         )
 
-    # Validate all existing state values using the real state machine before projecting.
-    state.advance_dependency_states(before, dict(current_states))
+    # Prior authoritative state must already be normalized. Continuation activation is
+    # not allowed to repair or reinterpret an inconsistent earlier graph.
+    normalized_before = state.advance_dependency_states(before, dict(current_states))
+    if normalized_before != current_states:
+        raise ValueError("continuation current states are not dependency-normalized")
 
     checkpoint_id = str(next_revision["checkpoint_node_id"])
     if current_states.get(checkpoint_id) != "succeeded":
