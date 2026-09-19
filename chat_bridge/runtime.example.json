@@ -52,6 +52,12 @@
       "repository": "MichalMatu/android-ai-call-bridge",
       "agent_binding": "c25f88c0-4682-414c-8062-c47fa4034cb0",
       "execution_enabled": true
+    },
+    {
+      "repository_id": "host-ops",
+      "repository": "MichalMatu/host-ops",
+      "agent_binding": "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
+      "execution_enabled": true
     }
   ]
 }
