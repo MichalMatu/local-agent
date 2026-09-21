@@ -71,4 +71,65 @@ const unrelatedErrorRoot = {
 assert.equal(dom.findConversationExhaustion(unrelatedErrorRoot), null);
 assert.equal(dom.normalizedText("  Start\n new   chat "), "Start new chat");
 
+const retryButton = element({
+  text: "Retry",
+  attrs: { "data-testid": "regenerate-thread-error-button" }
+});
+const timeoutError = element({
+  text: "Message delivery timed out. Please try again. Retry",
+  query: {
+    'button[data-testid="regenerate-thread-error-button"]': retryButton
+  },
+  queryAll: { button: [retryButton] }
+});
+const timeoutMessage = element({
+  attrs: {
+    "data-message-id": "51eb8ef7-78e7-4143-8971-eec2b5b593c8"
+  },
+  query: { ".text-token-text-error": timeoutError }
+});
+const timeoutRoot = {
+  querySelectorAll(selector) {
+    assert.equal(selector, '[data-message-author-role="assistant"]');
+    return [message, timeoutMessage];
+  }
+};
+
+found = dom.findRecoverableAssistantError(timeoutRoot);
+assert.ok(found);
+assert.equal(found.kind, "message_delivery_timeout");
+assert.equal(found.button, retryButton);
+assert.equal(found.assistantIdentity, "51eb8ef7-78e7-4143-8971-eec2b5b593c8");
+assert.match(found.errorText, /Message delivery timed out/);
+
+const timeoutWithoutRetryRoot = {
+  querySelectorAll() {
+    return [element({
+      query: {
+        ".text-token-text-error": element({
+          text: "Message delivery timed out. Please try again."
+        })
+      }
+    })];
+  }
+};
+assert.equal(dom.findRecoverableAssistantError(timeoutWithoutRetryRoot), null);
+
+const unrelatedRetryRoot = {
+  querySelectorAll() {
+    return [element({
+      query: {
+        ".text-token-text-error": element({
+          text: "Something went wrong. Retry",
+          query: {
+            'button[data-testid="regenerate-thread-error-button"]': retryButton
+          },
+          queryAll: { button: [retryButton] }
+        })
+      }
+    })];
+  }
+};
+assert.equal(dom.findRecoverableAssistantError(unrelatedRetryRoot), null);
+
 console.log("Chat Bridge DOM contract tests passed.");
