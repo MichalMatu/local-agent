@@ -69,6 +69,14 @@ function mutateAssistantErrorRecovery(mutator) {
   return next;
 }
 
+function clearAssistantErrorRecovery(chatId) {
+  return mutateAssistantErrorRecovery((recovery) => {
+    const existed = Object.hasOwn(recovery.entries, chatId);
+    delete recovery.entries[chatId];
+    return { state: recovery, value: existed };
+  });
+}
+
 async function assistantErrorAttemptSnapshot(conversation, payload) {
   const recovery = await readAssistantErrorRecovery();
   const entry = recovery.entries[conversation.id];
