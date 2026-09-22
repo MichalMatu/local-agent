@@ -14,9 +14,13 @@ function normalizeAssistantTransientRecovery(raw) {
   for (const [chatId, value] of Object.entries(source).slice(0, 64)) {
     if (!/^chat-[0-9a-f]{8}$/.test(chatId)) continue;
     const key = String(value?.key || "").slice(0, 120);
-    if (!key) continue;
+    const kind = String(value?.kind || "").slice(0, 64);
+    const signature = String(value?.signature || "").slice(0, 120);
+    if (!key || !kind || !signature) continue;
     entries[chatId] = {
       key,
+      kind,
+      signature,
       firstSeenAt: String(value?.firstSeenAt || "").slice(0, 64),
       continueSentAt: String(value?.continueSentAt || "").slice(0, 64),
       reloadReservedAt: String(value?.reloadReservedAt || "").slice(0, 64)
@@ -51,9 +55,9 @@ function clearAssistantTransientRecovery(chatId) {
   });
 }
 
-function assistantTransientRecoveryKey(conversation, kind) {
+function assistantTransientRecoveryKey(conversation, kind, signature) {
   return protocol.fnv1a32(
-    `${conversation.url}\n${conversation.bindingRevision}\n${conversation.generation}\n${kind}`
+    `${conversation.url}\n${conversation.bindingRevision}\n${conversation.generation}\n${kind}\n${signature}`
   );
 }
 
@@ -77,21 +81,37 @@ function bridgeOwnsAssistantTransient(conversation, contentReady, entry) {
   return Boolean(entry?.continueSentAt && userText === ASSISTANT_TRANSIENT_CONTINUE_PROMPT);
 }
 
-function observeAssistantTransient(conversation, kind) {
-  const key = assistantTransientRecoveryKey(conversation, kind);
+function observeAssistantTransient(conversation, contentReady) {
+  const kind = String(contentReady.assistantTransientState || "");
+  const signature = String(contentReady.assistantTransientSignature || "").slice(0, 120);
+  const key = assistantTransientRecoveryKey(conversation, kind, signature);
+  const userText = normalizedAssistantTransientText(contentReady.assistantTransientUserText);
   return mutateAssistantTransientRecovery((recovery) => {
     const previous = recovery.entries[conversation.id];
-    const isNew = !previous || previous.key !== key;
+    const sameKey = previous?.key === key;
+    const continuationOfPrevious = Boolean(
+      previous &&
+      previous.kind === "connection_interrupted" &&
+      kind === "connection_interrupted" &&
+      previous.continueSentAt &&
+      userText === ASSISTANT_TRANSIENT_CONTINUE_PROMPT
+    );
+    const reservedReloadEpisode = Boolean(
+      previous && previous.kind === kind && previous.reloadReservedAt
+    );
+    const isNew = !previous || (!sameKey && !continuationOfPrevious && !reservedReloadEpisode);
     const entry = isNew
       ? {
           key,
+          kind,
+          signature,
           firstSeenAt: new Date().toISOString(),
           continueSentAt: "",
           reloadReservedAt: ""
         }
       : previous;
     recovery.entries[conversation.id] = entry;
-    return { state: recovery, value: { key, isNew, entry: { ...entry } } };
+    return { state: recovery, value: { key: entry.key, isNew, entry: { ...entry } } };
   });
 }
 
@@ -206,8 +226,11 @@ async function reloadAssistantTabAtomic(conversation, tab, key, kind) {
 async function recoverAssistantTransient(conversation, tab, contentReady) {
   const kind = String(contentReady.assistantTransientState || "");
   if (!["connection_interrupted", "stalled"].includes(kind)) return null;
+  if (!contentReady.assistantTransientSignature) {
+    return { ok: false, reason: "assistant_transient_invalid", action: "none" };
+  }
 
-  const observation = await observeAssistantTransient(conversation, kind);
+  const observation = await observeAssistantTransient(conversation, contentReady);
   const { key, entry } = observation;
 
   if (contentReady.composerOccupied) {
