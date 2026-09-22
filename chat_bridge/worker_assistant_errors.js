@@ -30,7 +30,9 @@ function bridgeOwnsAssistantError(conversation, payload) {
 }
 
 function assistantErrorRecoveryKey(conversation, payload) {
-  return protocol.fnv1a32(`${conversation.url}\n${payload.userIdentity}\n${payload.kind}`);
+  return protocol.fnv1a32(
+    `${conversation.url}\n${conversation.bindingRevision}\n${payload.userIdentity}\n${payload.kind}`
+  );
 }
 
 function normalizeAssistantErrorRecovery(raw) {
