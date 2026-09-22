@@ -126,11 +126,13 @@ Transient assistant-control failures are retried for unchanged assistant content
 
 ## Delivery model
 
-Bridge intentionally does **not** keep a durable ambiguous-delivery journal.
+Bridge intentionally does **not** keep a durable ambiguous-delivery journal for the normal user-message submission path.
 
-Content protocol v5 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available and the LAB operator-control baseline. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value. Chat Bridge 0.5.6 deliberately advances protocol v4 -> v5 so a 0.5.6 worker can distinguish and replace an already-open 0.5.5 content script.
+Content protocol v7 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available and the LAB operator-control baseline. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
 
-Popup and scheduled-wake paths share worker-owned content activation. Popup does not maintain a second protocol version or `chrome.scripting.executeScript` implementation. When a tab must be refreshed, the worker disposes current Bridge/guard listeners, injects `control_protocol.js`, `content_retry.js`, `content.js`, `dom_contract.js` and `exhaustion_guard.js`, then probes readiness again. A reachable older content script therefore must not require a normal manual ChatGPT page reload.
+Chat Bridge 0.5.10 keeps content protocol v7 because the ordinary submission protocol is unchanged. Assistant terminal-error observation has an independent guard protocol, currently v3. Worker activation probes both the content protocol and the assistant guard; a reachable stale guard is replaced even when `content.js` itself is already current.
+
+Popup and scheduled-wake paths share worker-owned content activation. Popup does not maintain a second protocol version or `chrome.scripting.executeScript` implementation. When a tab must be refreshed, the worker disposes current Bridge/guard listeners, injects the required scripts, then probes readiness again. A reachable older content script or assistant guard therefore must not require a normal manual ChatGPT page reload.
 
 After insertion/submission:
 
@@ -143,11 +145,33 @@ A later run may reuse a non-empty composer only when the previous Bridge state i
 
 `delivery_unconfirmed` is diagnostic only. It does not disable the conversation, create `pendingDelivery`, clear the schedule, block controls, require a manual resolution decision or prevent removal.
 
+## Assistant timeout recovery
+
+`Message delivery timed out. Please try again.` is a different failure class: the Bridge user message has already been accepted, and ChatGPT later renders an assistant error card with Retry. Recovery therefore observes the assistant side instead of resubmitting the user prompt.
+
+The detector fails closed and acts only when the timeout card is the latest rendered conversation turn. A retained older timeout behind any newer user or assistant turn is ignored. Automatic recovery is authorized only for the exact preferred tab and only when the triggering user message begins with the configured conversation's hard-binding Bridge envelope/policy. A normal operator-authored message may be diagnosed as `assistant_delivery_timeout_unowned`, but Bridge never clicks Retry for it.
+
+Before each automatic click, the worker revalidates the exact tab, conversation URL, binding revision, conversation generation, Master switch, enabled state and Bridge ownership. The guard then revalidates the live timeout snapshot and Retry button immediately before clicking. Duplicate tabs cannot independently consume the same retry budget.
+
+The retry budget is durable in Chrome local storage and scoped to the conversation, binding revision, triggering user identity and error kind. It is reset on rebind, remove and re-add lifecycle boundaries. The bounded policy is:
+
+```text
+attempt 1: 1.5 s
+attempt 2: 5 s
+attempt 3: 15 s
+```
+
+If ChatGPT keeps the same timeout DOM node while Retry is generating, the guard waits through generation rather than assuming an 8-second completion deadline. After the third unsuccessful Retry, the worker records `assistant_retry_exhausted`, disables only that conversation and clears its alarm.
+
+Normal wake delivery also probes the live assistant guard first. While a recoverable timeout remains unresolved, `Run now` and scheduled wakes return `assistant_recovery_pending` instead of placing another user message on top of the failed turn. The preflight also re-arms a recoverable timeout after a previous retry was cancelled by a lifecycle/Master transition. Once the timeout card is no longer the current live DOM state, normal wake delivery can continue.
+
+The authoritative DOM contract is documented in `docs/CHATGPT_DOM_CONTRACT.md`.
+
 ## Active Local Agent task cancellation
 
 The executor already supports repository-scoped `cancel_task` for an exact task id. The ChatGPT planner should use it when current run/status evidence already proves that a long-running task cannot achieve the intended outcome, rather than waiting for the task timeout. See `docs/AUTONOMOUS_CHAT_LOOP.md` and `docs/EMERGENCY_CONTROLS.md`.
 
-This is deliberately not a direct Bridge command in 0.5.6. The extension has no repository-write credential/native executor channel. A future direct cancel command needs a separate trusted operator transport.
+This is deliberately not a direct Bridge command. The extension has no repository-write credential/native executor channel. A future direct cancel command needs a separate trusted operator transport.
 
 ## Popup
 
@@ -171,10 +195,11 @@ The global Master switch suspends scheduled alarms without deleting per-conversa
 - `worker_runtime.js` — runtime fetch/cache/validation;
 - `worker_binding.js` — catalog binding lookup and prompt policy;
 - `worker_schedule.js` — Chrome alarms and schedule reconciliation;
-- `worker_transport.js` — tab discovery, content preflight and delivery authorization;
+- `worker_transport.js` — tab discovery, content/assistant-guard preflight and delivery authorization;
 - `worker_controls.js` — assistant scheduling/maintenance control validation;
-- `worker_delivery.js` — one normal feedback delivery lifecycle;
-- `worker_conversations.js` — popup/operator conversation/global-setting mutations;
+- `worker_delivery.js` — one normal feedback delivery lifecycle plus unresolved-timeout wake gate;
+- `worker_assistant_errors.js` — exact-tab assistant-timeout ownership, durable retry accounting and fail-closed exhaustion;
+- `worker_conversations.js` — popup/operator conversation/global-setting mutations and timeout-recovery lifecycle reset;
 - `worker_lab_commands.js` — LAB diagnostics, command feedback, operator command dedupe/mutations and force content refresh;
 - `worker_events.js` — Chrome event/message routing only.
 
@@ -203,7 +228,7 @@ The parallel worker and serial fallback enforce the same contract before task ex
 5. Open the extension, select the exact repository binding and click **Add current chat**, or type an explicit user operator command such as `[LAB:OP:ADD=local-agent]`.
 6. Use a chat control or `Run now` for an end-to-end test.
 
-After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to replace a reachable older protocol automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Bridge 0.5.6 requires Chrome 120 or newer.
+After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to replace a reachable older content protocol **and** a reachable older assistant guard automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Chat Bridge 0.5.10 requires Chrome 120 or newer.
 
 ## Development validation
 
@@ -214,4 +239,4 @@ npx playwright install chromium
 python scripts/verify.py --profile bridge-browser
 ```
 
-Browser smoke uses a disposable offline Chromium profile and the actual unpacked extension. It covers confirmed submission, composer replacement, draft preservation, SPA navigation, overlapping sends, retained/non-blocking `delivery_unconfirmed` recovery, popup behavior, service-worker restart, operator-control replay baselining and protocol-refresh regressions without contacting the operator's real ChatGPT session.
+Browser smoke uses a disposable offline Chromium profile and the actual unpacked extension. It covers confirmed submission, composer replacement, draft preservation, SPA navigation, overlapping sends, retained/non-blocking `delivery_unconfirmed` recovery, popup behavior, service-worker restart, operator-control replay baselining, stale protocol/guard refresh, the captured assistant-timeout DOM, stale-timeout rejection and same-node long-generation three-attempt fail-closed recovery without contacting the operator's real ChatGPT session.
