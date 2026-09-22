@@ -1,5 +1,5 @@
 (() => {
-  const GUARD_VERSION = 3;
+  const GUARD_VERSION = 4;
   const RETRY_RECHECK_GRACE_MS = 8000;
   const existingGuard = globalThis.__localAgentChatExhaustionGuard;
   if (existingGuard?.version === GUARD_VERSION) return;
@@ -239,7 +239,7 @@
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ["class", "hidden", "style", "data-testid", "data-message-author-role", "data-message-id"]
+      attributeFilter: ["class", "hidden", "style", "data-testid", "data-message-author-role", "data-message-id", "data-turn", "data-turn-id", "data-streaming-response-status"]
     });
   }
   scheduleScan();
@@ -255,6 +255,7 @@
     const currentUrl = normalizeConversationUrl(location.href);
     const ready = Boolean(expectedUrl && expectedUrl === currentUrl);
     const snapshot = ready ? recoverableSnapshot(currentUrl) : null;
+    const transientState = ready ? dom.findAssistantTransientState(document) : null;
     if (message.type === "bridge:assistant-recovery-kick" && ready && snapshot &&
         retryTimer === null && retryAwaiting === null && !assistantErrorInFlight) {
       lastRecoverableSignature = "";
@@ -265,7 +266,8 @@
       reason: ready ? "ready" : "wrong_conversation",
       guardVersion: GUARD_VERSION,
       recoverableAssistantError: Boolean(snapshot),
-      assistantGenerating: ready ? assistantIsGenerating() : false
+      assistantGenerating: ready ? assistantIsGenerating() : false,
+      assistantTransientState: transientState?.kind || ""
     });
     return false;
   };
