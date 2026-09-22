@@ -98,7 +98,7 @@
     }, RETRY_RECHECK_GRACE_MS);
   }
 
-  async function authorizeAndRetry(snapshot) {
+  async function authorizeAndRetry(snapshot, retryContext) {
     retryTimer = null;
     let current = snapshotStillCurrent(snapshot);
     if (!current || assistantIsGenerating() || !buttonIsUsable(current.found.button)) return;
@@ -112,7 +112,9 @@
         assistantIdentity: current.found.assistantIdentity,
         userIdentity: current.user.identity,
         userText: current.user.text.slice(0, 12000),
-        signature: current.signature
+        signature: current.signature,
+        bindingRevision: retryContext.bindingRevision,
+        generation: retryContext.generation
       });
     } catch (error) {
       console.warn("Local Agent Chat Bridge assistant retry authorization failed:", error);
@@ -136,11 +138,11 @@
     armRetryRecheck(snapshot);
   }
 
-  function scheduleAssistantRetry(snapshot, delayMs) {
+  function scheduleAssistantRetry(snapshot, delayMs, retryContext) {
     if (retryTimer !== null) return;
     const boundedDelay = Math.max(500, Math.min(30000, Number(delayMs) || 1500));
     retryTimer = setTimeout(() => {
-      authorizeAndRetry(snapshot).catch((error) => console.warn(error));
+      authorizeAndRetry(snapshot, retryContext).catch((error) => console.warn(error));
     }, boundedDelay);
   }
 
@@ -194,9 +196,19 @@
         userText: snapshot.user.text.slice(0, 12000),
         signature: snapshot.signature
       });
-      if (!response?.ok) return;
+      if (!response?.ok) {
+        if (response?.reason === "assistant_error_wrong_tab") {
+          lastRecoverableSignature = snapshot.signature;
+        }
+        return;
+      }
       lastRecoverableSignature = snapshot.signature;
-      if (response.retryEligible) scheduleAssistantRetry(snapshot, response.retryAfterMs);
+      if (response.retryEligible) {
+        scheduleAssistantRetry(snapshot, response.retryAfterMs, {
+          bindingRevision: response.bindingRevision,
+          generation: response.generation
+        });
+      }
     } catch (error) {
       console.warn("Local Agent Chat Bridge assistant error report failed:", error);
     } finally {
@@ -236,13 +248,24 @@
   }, 5000);
 
   const messageListener = (message, _sender, sendResponse) => {
-    if (message?.type !== "bridge:exhaustion-capabilities") return false;
+    if (!message || !["bridge:exhaustion-capabilities", "bridge:assistant-recovery-kick"].includes(message.type)) {
+      return false;
+    }
     const expectedUrl = normalizeConversationUrl(String(message.expectedUrl || ""));
     const currentUrl = normalizeConversationUrl(location.href);
+    const ready = Boolean(expectedUrl && expectedUrl === currentUrl);
+    const snapshot = ready ? recoverableSnapshot(currentUrl) : null;
+    if (message.type === "bridge:assistant-recovery-kick" && ready && snapshot &&
+        retryTimer === null && retryAwaiting === null && !assistantErrorInFlight) {
+      lastRecoverableSignature = "";
+      scheduleScan();
+    }
     sendResponse({
-      ok: Boolean(expectedUrl && expectedUrl === currentUrl),
-      reason: expectedUrl && expectedUrl === currentUrl ? "ready" : "wrong_conversation",
-      guardVersion: GUARD_VERSION
+      ok: ready,
+      reason: ready ? "ready" : "wrong_conversation",
+      guardVersion: GUARD_VERSION,
+      recoverableAssistantError: Boolean(snapshot),
+      assistantGenerating: ready ? assistantIsGenerating() : false
     });
     return false;
   };
