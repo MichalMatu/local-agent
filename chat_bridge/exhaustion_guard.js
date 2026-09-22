@@ -3,6 +3,8 @@
   const RETRY_RECHECK_GRACE_MS = 8000;
   const ASSISTANT_STALL_MS = 180000;
   const TRANSIENT_REPORT_INTERVAL_MS = 5000;
+  const TRANSIENT_CLEAR_AFTER_SEEN_MS = 10000;
+  const TRANSIENT_CLEAR_AFTER_START_MS = 30000;
   const existingGuard = globalThis.__localAgentChatExhaustionGuard;
   if (existingGuard?.version === GUARD_VERSION) return;
   try {
@@ -28,6 +30,8 @@
   let lastTransientReportAt = 0;
   let terminalTransientSignature = "";
   let transientClearReported = false;
+  let transientSeenInThisGuard = false;
+  let healthySince = 0;
   const assistantStallTracker = dom.createProgressStallTracker(ASSISTANT_STALL_MS);
 
   function latestMessage(role) {
@@ -165,12 +169,22 @@
   async function scanAssistantTransientState(conversationUrl) {
     const snapshot = assistantTransientSnapshot(conversationUrl);
     if (!snapshot) {
-      await reportTransientClear(conversationUrl);
+      const now = Date.now();
+      if (!healthySince) healthySince = now;
+      const clearAfterMs = transientSeenInThisGuard
+        ? TRANSIENT_CLEAR_AFTER_SEEN_MS
+        : TRANSIENT_CLEAR_AFTER_START_MS;
+      if (now - healthySince >= clearAfterMs) {
+        await reportTransientClear(conversationUrl);
+      }
       lastTransientReportSignature = "";
       lastTransientReportAt = 0;
       terminalTransientSignature = "";
       return;
     }
+
+    transientSeenInThisGuard = true;
+    healthySince = 0;
     transientClearReported = false;
     if (snapshot.signature === terminalTransientSignature || transientReportInFlight) return;
 
