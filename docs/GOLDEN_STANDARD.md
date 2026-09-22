@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.23` and the current production release is `v4.18.23`. The 4.18.23 release adds `MichalMatu/host-ops` as a canonical execution-enabled hard-bound repository without changing Chat Bridge protocol, task schema, `work_branch`, resource scheduling, executor or result contracts. Chat Bridge remains `0.5.9` with content protocol `v7`. `v4.18.22` remains the immediate rollback point.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.24` and the current production release is `v4.18.24`. The 4.18.24 release advances Chat Bridge to `0.5.10` with bounded assistant delivery-timeout recovery through ChatGPT's native Retry control, while leaving Local Agent executor, repository admission, task schema, hard-binding schema, resource scheduling, supervisor process lifecycle and daemon behavior unchanged. Ordinary content protocol remains `v7`; assistant timeout/exhaustion observation uses guard protocol `v3`. `v4.18.23` remains the immediate rollback point.
 
 ## Release/runtime invariants
 
@@ -164,7 +164,7 @@ Historical design notes remain references only and are not runtime contracts.
 ## Retry and logging invariants
 
 - Unexpected worker exits use bounded 2-300 s exponential retry and reset after normal outcomes.
-- Deferred global-control work uses bounded 2-15 s retry.
+- Deferred global-control work uses bounded 2-15 second retry.
 - Only six **consecutive** control-repository `LEASE_BUSY` outcomes trigger lease-busy starvation protection; degraded probe outcomes break that streak.
 - Known-active-worker contention pauses only new control-repository admission; unexplained contention retains bounded global drain.
 - Repeated outer supervisor failure/deferral notices are limited to one per 60 s for a continuing condition.
