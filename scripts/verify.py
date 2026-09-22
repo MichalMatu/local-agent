@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Run deterministic Local Agent verification stages."""
+"""Repository verification entrypoint.
+
+Keep command discovery and focused smoke-test selection in one place so CI,
+operator docs and local development do not maintain diverging file lists.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
@@ -13,46 +16,77 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-PYTHON_SOURCES = [
-    "agentd.py",
-    "agent_entrypoint.py",
-    "agent_multirepo.py",
-    "agent_parallel.py",
-    "local_agent",
-    "scripts",
-    "tests",
-]
-
-MACOS_SMOKE_TESTS = [
-    "tests.test_foundation_process",
-    "tests.test_process_tree_cleanup",
-    "tests.test_process_tree_escape_cleanup",
-    "tests.test_stale_claims",
-    "tests.test_multi_repository",
-    "tests.test_repository_identity",
-    "tests.test_agent_binding",
+MACOS_SMOKE_TESTS = (
+    "tests.test_package_layout",
+    "tests.test_release_hardening",
+    "tests.test_guard_process",
+    "tests.test_lease_recovery",
+    "tests.test_agent_multirepo_restart",
+    "tests.test_agentd_dispatch",
+    "tests.test_self_update_environment",
+    "tests.test_macos_launchd",
     "tests.test_remote_operator",
-    "tests.test_operator_control",
-]
+    "tests.test_agent_process",
+    "tests.test_agent_core",
+    "tests.test_agent_runtime",
+    "tests.test_agent_storage",
+    "tests.test_agent_binding",
+    "tests.test_serial_agent_binding",
+    "tests.test_agent_repo_worker",
+    "tests.test_agent_parallel",
+    "tests.test_agent_parallel_worker",
+    "tests.test_parallel_control",
+    "tests.test_parallel_process",
+    "tests.test_multirepo_integration",
+    "tests.test_parallel_integration",
+    "tests.test_control_admission_policy",
+    "tests.test_control_probe_parallel_admission",
+    "tests.test_stale_cancel_self_update",
+    "tests.test_current_documentation_contract",
+    "tests.test_supervisor_architecture_contract",
+    "tests.test_parallel_resource_wait",
+    "tests.test_control_hardening",
+    "tests.test_supervisor_modules",
+    "tests.test_emergency_controls",
+    "tests.test_entrypoint_guard",
+)
 
 
-def _require(command: str) -> str:
-    found = shutil.which(command)
-    if not found:
-        raise SystemExit(f"required command not found: {command}")
-    return found
+def _run(label: str, command: list[str]) -> None:
+    printable = " ".join(command)
+    print(f"\n==> {label}\n$ {printable}", flush=True)
+    subprocess.run(command, cwd=ROOT, check=True)
 
 
-def _run(label: str, argv: list[str]) -> None:
-    print(f"\n==> {label}")
-    subprocess.run(argv, cwd=ROOT, check=True)
+def _require(executable: str) -> str:
+    resolved = shutil.which(executable)
+    if resolved is None:
+        raise SystemExit(f"required executable not found on PATH: {executable}")
+    return resolved
+
+
+def _python_sources() -> list[str]:
+    roots = sorted(
+        path.relative_to(ROOT).as_posix()
+        for path in ROOT.glob("*.py")
+        if path.name.startswith("agent")
+    )
+    package = sorted(
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "local_agent").rglob("*.py")
+    )
+    scripts = sorted(
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "scripts").rglob("*.py")
+    )
+    return roots + package + scripts
 
 
 def compile_sources() -> None:
-    _run(
-        "Python compile",
-        [sys.executable, "-m", "compileall", "-q", *PYTHON_SOURCES],
-    )
+    sources = _python_sources()
+    if not sources:
+        raise SystemExit("no Python sources discovered for compile verification")
+    _run("Compile Python sources", [sys.executable, "-m", "py_compile", *sources])
 
 
 def lint_sources() -> None:
