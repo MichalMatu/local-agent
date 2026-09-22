@@ -14,7 +14,7 @@ const bindingFor = (repositoryId) => {
 const MATRIX_BINDING = bindingFor("matrixhub");
 const TRACKER_BINDING = bindingFor("tracker");
 const LOCAL_AGENT_BINDING = bindingFor("local-agent");
-const EXHAUSTION_GUARD_VERSION = 2;
+const EXHAUSTION_GUARD_VERSION = 3;
 
 const storage = options.storage || {};
 const alarms = new Map();
@@ -110,7 +110,7 @@ const chrome = {
   runtime: {
     id: "test-bridge",
     getURL: (path) => `chrome-extension://test-bridge/${path}`,
-    getManifest: () => ({ version: "0.5.6" }),
+    getManifest: () => ({ version: "0.5.10" }),
     reload: () => { runtimeReloads.push(Date.now()); },
     onInstalled: { addListener(listener) { installedListeners.push(listener); } },
     onStartup: { addListener(listener) { startupListeners.push(listener); } },
