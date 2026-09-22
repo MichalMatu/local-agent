@@ -43,6 +43,7 @@ async function upsertConversation(patch) {
     }
     return { state: upserted.state, conversation: upserted.conversation };
   });
+  if (!existing) await clearAssistantErrorRecovery(result.conversation.id);
   if (result.conversation?.enabled) {
     await scheduleDefault(result.conversation.id, true, result.conversation.generation);
   }
@@ -78,6 +79,7 @@ async function rebindConversation(chatId, patch) {
     });
     return { state: updated.state, conversation: updated.conversation };
   });
+  await clearAssistantErrorRecovery(chatId);
   await scheduleDefault(chatId, true, result.conversation.generation);
   return result.conversation;
 }
@@ -129,5 +131,6 @@ async function deleteConversation(chatId) {
     await chrome.alarms.clear(alarmName(chatId));
     return stateModel.removeConversation(state, chatId);
   });
+  await clearAssistantErrorRecovery(chatId);
   return result.state;
 }
