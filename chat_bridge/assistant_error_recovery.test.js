@@ -34,15 +34,21 @@ const { createHarness } = require("./worker_test_harness.js");
     userText,
     signature: "timeout-signature"
   }, sender);
-  const authorize = (userText = bridgePrompt, userIdentity = "bridge-user-1") => sendRuntimeMessage({
-    type: "bridge:authorize-assistant-retry",
-    conversationUrl: "https://chatgpt.com/c/a",
-    kind: "message_delivery_timeout",
-    assistantIdentity: "timeout-answer",
-    userIdentity,
-    userText,
-    signature: "timeout-signature"
-  }, sender);
+  const authorize = (userText = bridgePrompt, userIdentity = "bridge-user-1", contextPatch = {}) => {
+    const conversation = storage.bridgeState.conversations[chatId];
+    return sendRuntimeMessage({
+      type: "bridge:authorize-assistant-retry",
+      conversationUrl: "https://chatgpt.com/c/a",
+      kind: "message_delivery_timeout",
+      assistantIdentity: "timeout-answer",
+      userIdentity,
+      userText,
+      signature: "timeout-signature",
+      bindingRevision: conversation.bindingRevision,
+      generation: conversation.generation,
+      ...contextPatch
+    }, sender);
+  };
 
   response = await report();
   assert.equal(response.ok, true);
@@ -51,7 +57,17 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(response.retryEligible, true);
   assert.equal(response.attempts, 0);
   assert.equal(response.retryAfterMs, 1500);
+  assert.equal(response.bindingRevision, storage.bridgeState.conversations[chatId].bindingRevision);
+  assert.equal(response.generation, storage.bridgeState.conversations[chatId].generation);
   assert.equal(storage.bridgeState.conversations[chatId].lastStatus, "assistant_delivery_timeout");
+
+  response = await authorize(bridgePrompt, "bridge-user-1", {
+    generation: storage.bridgeState.conversations[chatId].generation + 1
+  });
+  assert.equal(response.ok, false);
+  assert.equal(response.reason, "assistant_retry_stale_context");
+  assert.equal(storage.bridgeAssistantErrorRecovery?.entries?.[chatId], undefined,
+    "stale authorization must not consume retry budget");
 
   response = await authorize();
   assert.equal(response.ok, true);
@@ -97,9 +113,21 @@ const { createHarness } = require("./worker_test_harness.js");
     conversationUrl: "https://chatgpt.com/c/a",
     kind: "message_delivery_timeout",
     assistantIdentity: "timeout-answer",
+    userIdentity: "bridge-user-duplicate-tab",
+    userText: bridgePrompt,
+    signature: "duplicate-tab"
+  }, { tab: { id: 44, url: "https://chatgpt.com/c/a" } });
+  assert.equal(response.ok, false);
+  assert.equal(response.reason, "assistant_error_wrong_tab");
+
+  response = await sendRuntimeMessage({
+    type: "bridge:assistant-error",
+    conversationUrl: "https://chatgpt.com/c/a",
+    kind: "message_delivery_timeout",
+    assistantIdentity: "timeout-answer",
     userIdentity: "bridge-user-2",
     userText: bridgePrompt,
-    signature: "wrong-tab"
+    signature: "wrong-url"
   }, { tab: { id: 22, url: "https://chatgpt.com/c/b" } });
   assert.equal(response.ok, false);
   assert.equal(response.reason, "conversation_not_found");
