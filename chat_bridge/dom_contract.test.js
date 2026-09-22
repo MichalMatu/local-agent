@@ -26,6 +26,7 @@ const error = element({
 });
 const message = element({
   attrs: {
+    "data-message-author-role": "assistant",
     "data-message-id": "23ce695f-ebce-4b62-ae56-7eed597d913f"
   },
   query: { ".text-token-text-error": error }
@@ -84,14 +85,22 @@ const timeoutError = element({
 });
 const timeoutMessage = element({
   attrs: {
+    "data-message-author-role": "assistant",
     "data-message-id": "51eb8ef7-78e7-4143-8971-eec2b5b593c8"
   },
   query: { ".text-token-text-error": timeoutError }
 });
+const triggeringUser = element({
+  text: "Bridge wake",
+  attrs: {
+    "data-message-author-role": "user",
+    "data-message-id": "bridge-user"
+  }
+});
 const timeoutRoot = {
   querySelectorAll(selector) {
-    assert.equal(selector, '[data-message-author-role="assistant"]');
-    return [message, timeoutMessage];
+    assert.equal(selector, "[data-message-author-role]");
+    return [triggeringUser, timeoutMessage];
   }
 };
 
@@ -102,32 +111,68 @@ assert.equal(found.button, retryButton);
 assert.equal(found.assistantIdentity, "51eb8ef7-78e7-4143-8971-eec2b5b593c8");
 assert.match(found.errorText, /Message delivery timed out/);
 
+const newerUser = element({
+  text: "A later operator message",
+  attrs: {
+    "data-message-author-role": "user",
+    "data-message-id": "later-user"
+  }
+});
+const staleAfterUserRoot = {
+  querySelectorAll(selector) {
+    assert.equal(selector, "[data-message-author-role]");
+    return [triggeringUser, timeoutMessage, newerUser];
+  }
+};
+assert.equal(dom.findRecoverableAssistantError(staleAfterUserRoot), null);
+
+const newerAssistant = element({
+  text: "Later successful response",
+  attrs: {
+    "data-message-author-role": "assistant",
+    "data-message-id": "later-assistant"
+  }
+});
+const staleAfterAssistantRoot = {
+  querySelectorAll(selector) {
+    assert.equal(selector, "[data-message-author-role]");
+    return [triggeringUser, timeoutMessage, newerAssistant];
+  }
+};
+assert.equal(dom.findRecoverableAssistantError(staleAfterAssistantRoot), null);
+
+const timeoutWithoutRetryMessage = element({
+  attrs: { "data-message-author-role": "assistant" },
+  query: {
+    ".text-token-text-error": element({
+      text: "Message delivery timed out. Please try again."
+    })
+  }
+});
 const timeoutWithoutRetryRoot = {
-  querySelectorAll() {
-    return [element({
-      query: {
-        ".text-token-text-error": element({
-          text: "Message delivery timed out. Please try again."
-        })
-      }
-    })];
+  querySelectorAll(selector) {
+    assert.equal(selector, "[data-message-author-role]");
+    return [triggeringUser, timeoutWithoutRetryMessage];
   }
 };
 assert.equal(dom.findRecoverableAssistantError(timeoutWithoutRetryRoot), null);
 
-const unrelatedRetryRoot = {
-  querySelectorAll() {
-    return [element({
+const unrelatedRetryMessage = element({
+  attrs: { "data-message-author-role": "assistant" },
+  query: {
+    ".text-token-text-error": element({
+      text: "Something went wrong. Retry",
       query: {
-        ".text-token-text-error": element({
-          text: "Something went wrong. Retry",
-          query: {
-            'button[data-testid="regenerate-thread-error-button"]': retryButton
-          },
-          queryAll: { button: [retryButton] }
-        })
-      }
-    })];
+        'button[data-testid="regenerate-thread-error-button"]': retryButton
+      },
+      queryAll: { button: [retryButton] }
+    })
+  }
+});
+const unrelatedRetryRoot = {
+  querySelectorAll(selector) {
+    assert.equal(selector, "[data-message-author-role]");
+    return [triggeringUser, unrelatedRetryMessage];
   }
 };
 assert.equal(dom.findRecoverableAssistantError(unrelatedRetryRoot), null);
