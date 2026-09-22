@@ -66,7 +66,11 @@ async function probeExhaustionGuard(tabId, expectedUrl) {
           guardVersion: EXHAUSTION_GUARD_VERSION,
           recoverableAssistantError: Boolean(response.recoverableAssistantError),
           assistantGenerating: Boolean(response.assistantGenerating),
-          assistantTransientState: String(response.assistantTransientState || "")
+          assistantTransientState: String(response.assistantTransientState || ""),
+          assistantTransientSignature: String(response.assistantTransientSignature || ""),
+          assistantTransientUserIdentity: String(response.assistantTransientUserIdentity || ""),
+          assistantTransientUserText: String(response.assistantTransientUserText || ""),
+          composerOccupied: Boolean(response.composerOccupied)
         }
       : { ok: false, reason: String(response?.reason || "exhaustion_guard_unavailable") };
   } catch (_error) {
@@ -145,7 +149,11 @@ async function ensureContentScript(tab, expectedUrl) {
     exhaustionGuardVersion: guard.guardVersion,
     recoverableAssistantError: guard.recoverableAssistantError,
     assistantGenerating: guard.assistantGenerating,
-    assistantTransientState: guard.assistantTransientState
+    assistantTransientState: guard.assistantTransientState,
+    assistantTransientSignature: guard.assistantTransientSignature,
+    assistantTransientUserIdentity: guard.assistantTransientUserIdentity,
+    assistantTransientUserText: guard.assistantTransientUserText,
+    composerOccupied: guard.composerOccupied
   };
 }
 
