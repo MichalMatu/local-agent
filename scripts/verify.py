@@ -142,6 +142,10 @@ def run_bridge_browser() -> None:
         "Chromium operator timeout fail-closed smoke",
         [node, "scripts/bridge_assistant_error_unowned_smoke.cjs"],
     )
+    _run(
+        "Chromium assistant timeout page-reload smoke",
+        [node, "scripts/bridge_assistant_error_reload_smoke.cjs"],
+    )
 
 
 def parse_args() -> argparse.Namespace:
