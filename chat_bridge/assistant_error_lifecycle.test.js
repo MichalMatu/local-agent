@@ -33,12 +33,18 @@ const { createHarness } = require("./worker_test_harness.js");
     userText,
     signature: "timeout-lifecycle-signature"
   });
+  const authorize = (userText) => {
+    const conversation = h.storage.bridgeState.conversations[chatId];
+    return h.sendRuntimeMessage({
+      type: "bridge:authorize-assistant-retry",
+      ...payload(userText),
+      bindingRevision: conversation.bindingRevision,
+      generation: conversation.generation
+    }, sender);
+  };
 
   const firstPrompt = await latestPrompt();
-  response = await h.sendRuntimeMessage({
-    type: "bridge:authorize-assistant-retry",
-    ...payload(firstPrompt)
-  }, sender);
+  response = await authorize(firstPrompt);
   assert.equal(response.ok, true);
   assert.equal(response.attempt, 1);
   assert.equal(h.storage.bridgeAssistantErrorRecovery.entries[chatId].attempts, 1);
@@ -54,10 +60,7 @@ const { createHarness } = require("./worker_test_harness.js");
     "rebind must clear timeout retry history from the previous binding lifecycle");
 
   const reboundPrompt = await latestPrompt();
-  response = await h.sendRuntimeMessage({
-    type: "bridge:authorize-assistant-retry",
-    ...payload(reboundPrompt)
-  }, sender);
+  response = await authorize(reboundPrompt);
   assert.equal(response.ok, true);
   assert.equal(response.attempt, 1, "new binding revision must start a fresh retry budget");
   assert.equal(h.storage.bridgeAssistantErrorRecovery.entries[chatId].attempts, 1);
