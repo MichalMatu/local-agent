@@ -177,4 +177,67 @@ const unrelatedRetryRoot = {
 };
 assert.equal(dom.findRecoverableAssistantError(unrelatedRetryRoot), null);
 
+const interruptedStatus = element({
+  text: "Connection interrupted. Waiting for the complete answer"
+});
+const interruptedTurn = element({
+  attrs: {
+    "data-turn": "assistant",
+    "data-turn-id": "request-connection-interrupted"
+  },
+  query: { ".mask-shimmer-muted": interruptedStatus }
+});
+const interruptedRoot = {
+  querySelectorAll(selector) {
+    if (selector === '[data-turn="assistant"]') return [interruptedTurn];
+    if (selector === '[data-message-author-role="assistant"]') return [];
+    if (selector === "[data-message-author-role]") return [];
+    return [];
+  }
+};
+found = dom.findAssistantTransientState(interruptedRoot);
+assert.ok(found);
+assert.equal(found.kind, "connection_interrupted");
+assert.equal(found.assistantIdentity, "request-connection-interrupted");
+assert.match(found.statusText, /Waiting for the complete answer/);
+assert.equal(dom.findRecoverableAssistantError(interruptedRoot), null);
+
+const extendedThinkingStatus = element({
+  text: "Our systems are thinking a bit more about this request before responding. You can retry with a faster model for a quicker response. Learn more"
+});
+const extendedThinkingTurn = element({
+  attrs: {
+    "data-turn": "assistant",
+    "data-turn-id": "request-extended-thinking"
+  },
+  query: { "[data-streaming-response-status]": extendedThinkingStatus }
+});
+const extendedThinkingRoot = {
+  querySelectorAll(selector) {
+    if (selector === '[data-turn="assistant"]') return [extendedThinkingTurn];
+    if (selector === '[data-message-author-role="assistant"]') return [];
+    if (selector === "[data-message-author-role]") return [];
+    return [];
+  }
+};
+found = dom.findAssistantTransientState(extendedThinkingRoot);
+assert.ok(found);
+assert.equal(found.kind, "extended_thinking");
+assert.equal(found.assistantIdentity, "request-extended-thinking");
+assert.match(found.statusText, /retry with a faster model/);
+assert.equal(dom.findRecoverableAssistantError(extendedThinkingRoot), null,
+  "the faster-model action is informational and must never enter native Retry recovery");
+
+const quotedStatusTurn = element({
+  text: `${dom.CONNECTION_INTERRUPTED_TEXT} ${dom.EXTENDED_THINKING_TEXT}`,
+  attrs: { "data-turn": "assistant", "data-turn-id": "quoted-status" }
+});
+const quotedStatusRoot = {
+  querySelectorAll(selector) {
+    return selector === '[data-turn="assistant"]' ? [quotedStatusTurn] : [];
+  }
+};
+assert.equal(dom.findAssistantTransientState(quotedStatusRoot), null,
+  "status text without the captured structural container must not classify a normal answer");
+
 console.log("Chat Bridge DOM contract tests passed.");
