@@ -15,11 +15,13 @@ const {
 const LEGACY_ALARM_NAME = "local-agent-chat-bridge";
 const ALARM_PREFIX = "local-agent-chat:";
 const RUNTIME_CACHE_MS = 30_000;
-const EXHAUSTION_GUARD_VERSION = 3;
+const EXHAUSTION_GUARD_VERSION = 4;
 const CONTENT_PREFLIGHT_TIMEOUT_MS = 1500;
 const DELIVERY_TIMEOUT_MS = 12000;
 const RETRY_REASONS = new Set([
   "assistant_busy",
+  "assistant_connection_interrupted",
+  "assistant_extended_thinking",
   "composer_not_empty",
   "composer_not_found",
   "content_script_unavailable",
