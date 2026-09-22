@@ -81,8 +81,10 @@ GitHub Actions run `35672263362` for candidate `10fa71c9a274e30cb390221f6f2bac52
 PASS: assistant delivery timeout is detected and recovered with one bounded Retry click
 ```
 
-The watchdog hardening that follows that candidate is intentionally branch-only and must receive the same CI/browser verification before any release decision.
+The later watchdog hardening remains branch-only and requires the same exact-head CI/browser verification before any release decision.
 
 ## Release boundary
 
 This branch is a candidate, not production. Advancing `main` should still require an explicit release decision, current release metadata/version synchronization and a final exact-head CI/browser pass. No Local Agent daemon restart is required to develop or review this branch.
+
+The final branch head after watchdog hardening and this validation note is the exact candidate that must be accepted by CI; no production update is implied by that validation.
