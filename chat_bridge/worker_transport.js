@@ -60,7 +60,45 @@ async function probeExhaustionGuard(tabId, expectedUrl) {
       return { ok: false, reason: "exhaustion_guard_unavailable" };
     }
     return response?.ok
-      ? { ok: true, reason: "ready", guardVersion: EXHAUSTION_GUARD_VERSION }
+      ? {
+          ok: true,
+          reason: "ready",
+          guardVersion: EXHAUSTION_GUARD_VERSION,
+          recoverableAssistantError: Boolean(response.recoverableAssistantError),
+          assistantGenerating: Boolean(response.assistantGenerating)
+        }
+      : { ok: false, reason: String(response?.reason || "exhaustion_guard_unavailable") };
+  } catch (_error) {
+    return { ok: false, reason: "exhaustion_guard_unavailable" };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function kickAssistantRecovery(tabId, expectedUrl) {
+  let timeout;
+  const timeoutMarker = Symbol("assistant-recovery-kick-timeout");
+  try {
+    const response = await Promise.race([
+      chrome.tabs.sendMessage(tabId, {
+        type: "bridge:assistant-recovery-kick",
+        expectedUrl,
+        guardVersion: EXHAUSTION_GUARD_VERSION
+      }, { frameId: 0 }),
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve(timeoutMarker), CONTENT_PREFLIGHT_TIMEOUT_MS);
+      })
+    ]);
+    if (response === timeoutMarker || response?.guardVersion !== EXHAUSTION_GUARD_VERSION) {
+      return { ok: false, reason: "exhaustion_guard_unavailable" };
+    }
+    return response?.ok
+      ? {
+          ok: true,
+          reason: "ready",
+          recoverableAssistantError: Boolean(response.recoverableAssistantError),
+          assistantGenerating: Boolean(response.assistantGenerating)
+        }
       : { ok: false, reason: String(response?.reason || "exhaustion_guard_unavailable") };
   } catch (_error) {
     return { ok: false, reason: "exhaustion_guard_unavailable" };
@@ -100,7 +138,12 @@ async function ensureContentScript(tab, expectedUrl) {
     guard = await probeExhaustionGuard(tab.id, expectedUrl);
   }
   if (!guard.ok) return guard;
-  return { ...content, exhaustionGuardVersion: guard.guardVersion };
+  return {
+    ...content,
+    exhaustionGuardVersion: guard.guardVersion,
+    recoverableAssistantError: guard.recoverableAssistantError,
+    assistantGenerating: guard.assistantGenerating
+  };
 }
 
 function contentProbeReason(result) {
