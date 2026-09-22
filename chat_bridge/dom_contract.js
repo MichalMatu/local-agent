@@ -12,6 +12,8 @@
   const MESSAGE_DELIVERY_TIMEOUT_TEXT = "Message delivery timed out. Please try again.";
   const RETRY_BUTTON_TEXT = "Retry";
   const RETRY_BUTTON_TEST_ID = "regenerate-thread-error-button";
+  const CONNECTION_INTERRUPTED_TEXT = "Connection interrupted. Waiting for the complete answer";
+  const EXTENDED_THINKING_TEXT = "Our systems are thinking a bit more about this request before responding.";
 
   function normalizedText(value) {
     return String(value || "").trim().replace(/\s+/g, " ");
@@ -20,10 +22,50 @@
   function assistantIdentity(message) {
     return String(
       message?.getAttribute?.("data-message-id") ||
+      message?.getAttribute?.("data-turn-id") ||
       message?.getAttribute?.("data-testid") ||
       message?.id ||
       ""
     );
+  }
+
+  function latestTurn(root, role) {
+    if (!root || typeof root.querySelectorAll !== "function") return null;
+    const modern = Array.from(root.querySelectorAll(`[data-turn="${role}"]`));
+    if (modern.length) return modern[modern.length - 1];
+    const legacy = Array.from(root.querySelectorAll(`[data-message-author-role="${role}"]`));
+    return legacy.length ? legacy[legacy.length - 1] : null;
+  }
+
+  function findAssistantTransientState(root) {
+    const message = latestTurn(root, "assistant");
+    if (!message) return null;
+
+    const interrupted = message.querySelector?.(".mask-shimmer-muted");
+    const interruptedText = normalizedText(interrupted?.innerText || interrupted?.textContent);
+    if (interrupted && interruptedText.includes(CONNECTION_INTERRUPTED_TEXT)) {
+      return {
+        kind: "connection_interrupted",
+        message,
+        status: interrupted,
+        statusText: interruptedText,
+        assistantIdentity: assistantIdentity(message)
+      };
+    }
+
+    const streaming = message.querySelector?.("[data-streaming-response-status]");
+    const streamingText = normalizedText(streaming?.innerText || streaming?.textContent);
+    if (streaming && streamingText.includes(EXTENDED_THINKING_TEXT)) {
+      return {
+        kind: "extended_thinking",
+        message,
+        status: streaming,
+        statusText: streamingText,
+        assistantIdentity: assistantIdentity(message)
+      };
+    }
+
+    return null;
   }
 
   function findConversationExhaustion(root) {
@@ -83,7 +125,11 @@
     MESSAGE_DELIVERY_TIMEOUT_TEXT,
     RETRY_BUTTON_TEXT,
     RETRY_BUTTON_TEST_ID,
+    CONNECTION_INTERRUPTED_TEXT,
+    EXTENDED_THINKING_TEXT,
     normalizedText,
+    latestTurn,
+    findAssistantTransientState,
     findConversationExhaustion,
     findRecoverableAssistantError
   });
