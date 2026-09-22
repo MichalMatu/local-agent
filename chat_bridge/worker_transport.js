@@ -137,11 +137,24 @@ async function refreshConfiguredContentScripts() {
     if (!tab?.id) continue;
 
     checked += 1;
-    const before = contentProbeReason(await probeContentScript(tab.id, conversation.url));
-    if (before === "ready") {
-      ready += 1;
+    const content = await probeContentScript(tab.id, conversation.url);
+    if (content.ok) {
+      const guard = await probeExhaustionGuard(tab.id, conversation.url);
+      if (guard.ok) {
+        ready += 1;
+        continue;
+      }
+      if (guard.reason !== "exhaustion_guard_unavailable") {
+        failed += 1;
+        continue;
+      }
+      const result = await ensureContentScript(tab, conversation.url);
+      if (result.ok) refreshed += 1;
+      else failed += 1;
       continue;
     }
+
+    const before = contentProbeReason(content);
     if (!["content_script_unavailable", "content_script_protocol_mismatch"].includes(before)) {
       failed += 1;
       continue;
