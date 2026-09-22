@@ -22,8 +22,7 @@
   let retryTimer = null;
   let retryRecheckTimer = null;
   let retryAwaiting = null;
-  let assistantStallSignature = "";
-  let assistantStallSince = 0;
+  const assistantStallTracker = dom.createProgressStallTracker(ASSISTANT_STALL_MS);
 
   function latestMessage(role) {
     const messages = document.querySelectorAll(`[data-message-author-role="${role}"]`);
@@ -90,24 +89,12 @@
     return fnv1a32(`${identity}\n${text}`);
   }
 
-  function resetAssistantStall() {
-    assistantStallSignature = "";
-    assistantStallSince = 0;
-  }
-
   function assistantIsStalled({ blocked = false, generating = assistantIsGenerating() } = {}) {
-    const progressSignature = currentAssistantProgressSignature();
-    if (!generating || blocked || !progressSignature) {
-      resetAssistantStall();
-      return false;
-    }
-    const now = Date.now();
-    if (progressSignature !== assistantStallSignature) {
-      assistantStallSignature = progressSignature;
-      assistantStallSince = now;
-      return false;
-    }
-    return assistantStallSince > 0 && now - assistantStallSince >= ASSISTANT_STALL_MS;
+    return assistantStallTracker.observe(currentAssistantProgressSignature(), {
+      generating,
+      blocked,
+      now: Date.now()
+    });
   }
 
   function buttonIsUsable(button) {
@@ -364,7 +351,7 @@
       if (scanTimer !== null) clearTimeout(scanTimer);
       clearInterval(retryInterval);
       clearRetryTimers();
-      resetAssistantStall();
+      assistantStallTracker.reset();
     }
   };
 })();
