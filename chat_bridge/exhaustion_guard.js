@@ -1,5 +1,6 @@
 (() => {
-  const GUARD_VERSION = 2;
+  const GUARD_VERSION = 3;
+  const RETRY_RECHECK_GRACE_MS = 8000;
   const existingGuard = globalThis.__localAgentChatExhaustionGuard;
   if (existingGuard?.version === GUARD_VERSION) return;
   try {
@@ -18,15 +19,20 @@
   let lastRecoverableSignature = "";
   let assistantErrorInFlight = false;
   let retryTimer = null;
-  let retryWatchdog = null;
+  let retryRecheckTimer = null;
+  let retryAwaiting = null;
 
   function latestMessage(role) {
     const messages = document.querySelectorAll(`[data-message-author-role="${role}"]`);
     if (!messages.length) return null;
     const latest = messages[messages.length - 1];
     const text = latest.innerText || latest.textContent || "";
-    const stableId = latest.getAttribute("data-message-id") || latest.getAttribute("data-testid") || latest.id || "";
-    return { text, identity: stableId || `${role}:${messages.length}:${fnv1a32(text)}` };
+    // Use transcript position plus content rather than ChatGPT's DOM message id. The DOM id
+    // may be regenerated when the page is rehydrated, while the same transcript turn keeps
+    // the same ordinal and text. This keeps the worker's durable retry budget stable across
+    // a page/content-script restart without allowing a later turn to inherit that budget.
+    const identity = `${role}:${messages.length}:${fnv1a32(text)}`;
+    return { text, identity };
   }
 
   function assistantIsGenerating() {
@@ -49,11 +55,16 @@
     return !button.hidden;
   }
 
+  function clearRetryRecheck() {
+    if (retryRecheckTimer !== null) clearTimeout(retryRecheckTimer);
+    retryRecheckTimer = null;
+    retryAwaiting = null;
+  }
+
   function clearRetryTimers() {
     if (retryTimer !== null) clearTimeout(retryTimer);
-    if (retryWatchdog !== null) clearTimeout(retryWatchdog);
     retryTimer = null;
-    retryWatchdog = null;
+    clearRetryRecheck();
   }
 
   function recoverableSnapshot(conversationUrl) {
@@ -75,22 +86,16 @@
     return current;
   }
 
-  function armRetryWatchdog(snapshot, remainingChecks = 8) {
-    if (retryWatchdog !== null) clearTimeout(retryWatchdog);
-    retryWatchdog = setTimeout(() => {
-      retryWatchdog = null;
-      const unchanged = snapshotStillCurrent(snapshot);
-      if (!unchanged) return;
-      if (assistantIsGenerating()) {
-        if (remainingChecks > 1) armRetryWatchdog(snapshot, remainingChecks - 1);
-        return;
-      }
-      // ChatGPT may reuse the same assistant error node after Retry. Once generation has
-      // stopped, allow the unchanged error to be reported again so durable attempt
-      // accounting can advance to the hard cap instead of stalling on DOM identity reuse.
-      lastRecoverableSignature = "";
+  function armRetryRecheck(snapshot) {
+    if (retryRecheckTimer !== null) clearTimeout(retryRecheckTimer);
+    retryAwaiting = {
+      signature: snapshot.signature,
+      notBefore: Date.now() + RETRY_RECHECK_GRACE_MS
+    };
+    retryRecheckTimer = setTimeout(() => {
+      retryRecheckTimer = null;
       scheduleScan();
-    }, 8000);
+    }, RETRY_RECHECK_GRACE_MS);
   }
 
   async function authorizeAndRetry(snapshot) {
@@ -124,7 +129,11 @@
       return;
     }
 
-    armRetryWatchdog(snapshot);
+    // ChatGPT sometimes reuses the exact timeout card while Retry is generating. Do not
+    // rely on a fixed number of watchdog checks: after an initial grace period the normal
+    // mutation/5-second scan loop keeps waiting until generation actually stops. That
+    // makes long responses recoverable without permitting a rapid duplicate Retry click.
+    armRetryRecheck(snapshot);
   }
 
   function scheduleAssistantRetry(snapshot, delayMs) {
@@ -162,6 +171,16 @@
       clearRetryTimers();
       return;
     }
+
+    if (retryAwaiting && retryAwaiting.signature !== snapshot.signature) {
+      clearRetryRecheck();
+    }
+    if (retryAwaiting?.signature === snapshot.signature) {
+      if (Date.now() < retryAwaiting.notBefore || assistantIsGenerating()) return;
+      clearRetryRecheck();
+      lastRecoverableSignature = "";
+    }
+
     if (snapshot.signature === lastRecoverableSignature || assistantErrorInFlight) return;
 
     assistantErrorInFlight = true;
