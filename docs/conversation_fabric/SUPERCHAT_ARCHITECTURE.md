@@ -3,12 +3,13 @@
 Status: design baseline on `feature/conversation-fabric-superchat`. No production runtime behavior is changed by this document.
 
 Production base: `main@474000b5d4b015958fe92be491968dc4625b4a84` (`v4.18.24`).
+Canonical reality audit: `docs/conversation_fabric/PREIMPLEMENTATION_REAUDIT.md`.
 
 ## 1. Product goal
 
-The missing product layer is a **Superchat** that can decompose one development goal into several deep, isolated ChatGPT work contexts, run independent parts in parallel, collect durable evidence, integrate the results, and retire child chats when their responsibility is complete.
+The missing product layer is a **Superchat** that can decompose one development goal into several bounded ChatGPT work contexts, let independent reasoning proceed in parallel, collect durable evidence, integrate exact outputs and retire child chats when their responsibility is complete.
 
-The target experience is:
+Target experience:
 
 ```text
 user
@@ -16,218 +17,230 @@ user
   v
 Superchat
   |
-  +--> architecture/research child
-  +--> implementation child A ----+
-  +--> implementation child B ----+--> integration/review child
-  +--> verification child --------+
+  +--> research / architecture child
+  +--> implementation child A -----+
+  +--> implementation child B -----+--> integration child --> verification child
+  |                                |
+  +------------------------------- evidence
   |
   v
 final integrated result
 ```
 
-The objective is not merely more parallelism. The objective is **higher reasoning quality through smaller contexts and explicit module ownership**.
+The objective is not raw tab count. The objective is better reasoning quality from smaller contexts and explicit module ownership without losing whole-system consistency.
 
-A child chat should spend most of its context and reasoning budget on one bounded problem instead of carrying every unrelated design decision, test log, repository subsystem and historical conversation turn.
+The quality benefit is a hypothesis to measure, not a guaranteed property of multiple chats.
 
-## 2. One architecture, five layers
-
-The target system has five distinct layers.
+## 2. Five layers with strict authority boundaries
 
 ### Conversation Fabric
 
 Owns ChatGPT conversation topology:
 
-- one Superchat per active workflow;
-- bounded child chats with explicit roles;
-- parent/child ownership;
-- chat lifecycle and routing;
-- child bootstrap and terminal handoff;
+- one Superchat per workflow;
+- bounded one-level child chats;
+- child roles;
+- child request/registration/lifecycle;
+- browser mapping and logical retirement;
 - no hidden child-to-child communication.
+
+It does not execute project commands.
 
 ### Execution Fabric
 
 Owns durable work topology:
 
 - workflow DAG;
-- node dependencies;
+- dependencies;
 - methods;
-- planner checkpoints;
-- user gates;
-- append-only workflow revisions;
-- exact repository child tasks;
+- planner/user gates;
+- append-only revisions;
+- exact project child tasks;
 - evidence reconciliation.
+
+It coordinates existing Local Agent tasks rather than replacing them.
 
 ### Attention Fabric
 
-Owns low-latency wake hints:
+Owns low-latency hints:
 
-- task terminal-result events;
-- later workflow/checkpoint attention events;
+- project task terminal-result events;
+- later workflow/child/checkpoint attention events;
 - durable outbox/replay;
 - bounded dedupe;
-- restart-safe notification delivery.
+- restart-safe wake delivery.
 
-An attention event is never authoritative evidence. It means only that new durable evidence is available.
+An attention event never proves success. It says durable evidence should be inspected.
 
 ### Chat Bridge
 
 Owns browser actuation:
 
-- exact conversation/tab activation;
-- creation of a new ChatGPT conversation from a durable child request;
-- bootstrap prompt injection;
-- current-page delivery/recovery;
-- exact parent/child browser mapping;
-- logical child retirement and optional tab close;
-- no repository planning and no shell authority.
+- exact existing-conversation wake delivery;
+- lab child spawn transactions;
+- bootstrap injection;
+- conversation URL discovery;
+- current-tab routing cache;
+- logical retirement and optional tab close.
+
+It does not plan repositories and does not get shell/task/rebind authority from child creation.
 
 ### Local Agent
 
-Remains the deterministic execution substrate:
+Remains deterministic/model-free:
 
-- existing immutable task contract;
-- repository binding;
+- immutable task contract;
+- hard repository binding for Local Agent execution;
 - claims/results;
 - watchdogs/resource leases;
 - exact cancellation;
 - self-update/rollback;
 - workflow coordination using existing repository workers.
 
-ChatGPT remains the planner. Local Agent remains model-free.
+## 3. Durable memory rule
 
-## 3. GitHub is the durable coordination spine
+Core rule:
 
-ChatGPT tabs and browser state are ephemeral. GitHub-backed evidence is durable.
+> Conversations reason. Durable records remember.
 
-The core rule is:
+No correctness may depend on retaining:
 
-> Conversations reason. GitHub-backed state remembers.
+- one browser tab;
+- full transcript access;
+- one MV3 service-worker lifetime;
+- one in-memory parent context;
+- one Chrome tab id.
 
-No workflow correctness may depend on retaining a browser tab, a full chat transcript, a Chrome service-worker instance, or one in-memory parent context.
+GitHub-backed control/evidence is planner-visible durable coordination. Local Agent may keep local durable materializations for restart-efficient execution, but each record type has one authority owner.
 
-The control/evidence model is split deliberately.
+## 4. Authority by record type
 
-### Project-owned evidence
+### 4.1 Orchestration inputs — Git authoritative
 
-A child chat working on repository `R` may write only to `R`'s permitted project/control surfaces. It must not gain permission to inspect or mutate unrelated project control planes merely because it belongs to a multi-repository workflow.
+A dedicated orchestration control branch/repository should own immutable planner-authored inputs:
 
-Child progress/checkpoint evidence should therefore be repository-scoped and exact, for example conceptually:
+- workflow/base request;
+- append-only workflow revisions;
+- child requests;
+- planner continuation decisions;
+- explicit user decisions submitted remotely.
+
+Local Agent validates/ingests them and may materialize local state.
+
+### 4.2 Workflow runtime state — derived locally
+
+Effective node states, scheduler/backoff state and reconciliation state are derived from immutable inputs plus exact project evidence.
+
+Local durable state is a materialization/cache. A central Git status projection is planner-visible but should not become a second independently mutable truth.
+
+### 4.3 Project execution evidence — project control plane authoritative
+
+Keep existing authority:
+
+- task payload/digest;
+- claim/run/status;
+- terminal result;
+- cancellation evidence.
+
+Central workflow state references this evidence rather than copying raw logs.
+
+### 4.4 Conversation registration — centrally durable after validation
+
+The durable record resolves:
 
 ```text
-<project control branch>/.agent/workflows/<workflow-id>/nodes/<node-id>/
-    progress/<sequence>.json
-    terminal.json
+child request id/digest -> exact ChatGPT conversation URL/id
 ```
 
-The exact path/schema is a contract decision, not fixed by this document.
+Chrome storage/tab id are routing caches only.
 
-### Central orchestration evidence
+## 5. Superchat authority
 
-Execution Fabric owns a central workflow view containing:
-
-- immutable workflow/revision identity;
-- node definitions and dependencies;
-- child conversation requests and registrations;
-- current effective state;
-- references to exact repository-owned task/progress/result evidence;
-- planner/user decisions;
-- integration readiness.
-
-A dedicated orchestration control branch/repository is preferred over mixing these records into production source `main` or operator-control state.
-
-The workflow contract must not depend on one specific Git transport so the control branch can be changed later without changing workflow meaning.
-
-## 4. Superchat authority
-
-The Superchat is a planner, dispatcher and reviewer. It is not a generic cross-repository shell.
+Superchat is planner/dispatcher/reviewer, not a generic cross-repository shell.
 
 It may:
 
 - inspect workflow-level evidence;
-- define or revise a workflow graph;
-- create bounded child-chat requests;
-- decide which independent nodes may run in parallel;
-- inspect child checkpoints and terminal summaries;
+- create/append workflow graph revisions;
+- create bounded child requests;
+- decide independent work topology;
+- inspect child checkpoints/terminal records;
 - resolve planner checkpoints;
-- create integration/review nodes;
-- ask for explicit user decisions at durable gates;
-- finalize the integrated workflow.
+- create integration/verification nodes;
+- request explicit user gates;
+- finalize integrated workflow.
 
 It may not:
 
-- silently convert an ordinary project chat into a cross-repository chat;
-- bypass repository bindings;
-- directly grant a child broader scope than its node contract;
-- treat child prose as authoritative execution evidence;
-- merge results simply because every child says "done".
+- convert an ordinary project conversation into cross-repository execution authority;
+- bypass Local Agent repository bindings;
+- treat child prose as execution proof;
+- silently broaden a child node;
+- merge results merely because children say "done".
 
-The final integration step must inspect exact commits/results/tests and reconcile shared contracts.
+### Connector capability caveat
 
-## 5. Child chat roles
+Local Agent hard binding constrains Local Agent tasks. It does **not** turn a broad account-level GitHub connector into a technical per-chat sandbox.
 
-Version 1 supports one parent level and a small role set.
+Conversation repository restrictions for direct GitHub tool calls remain policy unless narrower connector credentials/scopes are introduced. The design must not claim stronger enforcement than exists.
+
+## 6. Child roles
+
+v1 supports one parent level only.
 
 ### `research`
 
-Purpose:
-
-- architecture audit;
-- code-path tracing;
-- API/contract analysis;
-- risk analysis;
-- no implementation unless explicitly promoted by a new node/revision.
+- architecture/code-path/API/risk analysis;
+- no implementation unless a new node/revision explicitly authorizes it.
 
 ### `implementation`
 
-Purpose:
-
-- one bounded module/component;
+- one bounded component;
 - exact repository;
-- exact work branch/worktree;
-- focused implementation plus focused verification;
-- no merge to the workflow integration branch.
+- exact branch ownership;
+- implementation + focused verification;
+- no merge to integration/main.
 
 ### `verification`
 
-Purpose:
-
-- inspect a candidate implementation independently;
-- run/check focused or full verification;
-- audit diff/contract behavior;
-- avoid silently repairing implementation unless a new implementation node is created.
+- independent candidate review;
+- focused/full checks;
+- rejects or reports issues rather than silently becoming an implementation chat.
 
 ### `integration`
 
-Purpose:
+- consumes exact predecessor commits/results/checkpoints;
+- reconciles interfaces/conflicts;
+- creates one integrated candidate;
+- runs integration/full verification.
 
-- consume exact outputs of predecessor nodes;
-- reconcile overlapping files/interfaces;
-- combine branches/commits into one integration branch;
-- run integration/full verification;
-- report conflicts or architecture drift back to Superchat.
+Children do not spawn children in v1.
 
-Version 1 does not allow child chats to recursively spawn their own child chats. One central planner keeps the topology understandable and auditable.
+## 7. Child request contract
 
-## 6. Child node contract
+Every child originates from one immutable bounded request with canonical digest.
 
-Every child is created from an immutable, digest-pinned node specification. A conceptual shape is:
+Conceptual shape:
 
 ```json
 {
   "schema_version": 1,
+  "request_id": "child-...",
   "workflow_id": "litegraph-refactor-017",
   "workflow_revision": 3,
   "node_id": "mqtt-api",
   "role": "implementation",
-  "parent_chat_id": "...",
+  "parent_conversation_url": "https://chatgpt.com/c/...",
   "repository_id": "litegraph",
   "repository": "MichalMatu/esp32s3_LiteGraph",
   "agent_binding": "...",
   "work_branch": "wf/litegraph-refactor-017/mqtt-api",
   "depends_on": ["mqtt-audit"],
   "goal": "Refactor only the MQTT catalog API boundary.",
-  "allowed_scope": ["src/mqtt/**", "tests/mqtt/**"],
-  "forbidden_scope": ["frontend/**", "storage/**"],
+  "scope": {
+    "allowed": ["src/mqtt/**", "tests/mqtt/**"],
+    "forbidden": ["frontend/**", "storage/**"]
+  },
   "required_outputs": [
     "implementation_commit",
     "focused_verification",
@@ -237,302 +250,303 @@ Every child is created from an immutable, digest-pinned node specification. A co
 }
 ```
 
-The schema must be bounded. Large free-form context should be referenced by exact durable artifacts/commits rather than copied repeatedly into every child bootstrap.
+The request id/digest exists before any browser tab is opened.
 
-## 7. Bootstrap prompt
+Large context is referenced by exact durable artifacts/commits instead of copied into every bootstrap.
 
-The browser bootstrap is generated from the durable child spec, not improvised from parent-chat prose after the tab opens.
+## 8. Identity model
 
-It must include:
+Do not use one identifier for all layers.
 
-- workflow id/revision;
-- node id and role;
-- parent identity;
-- exact repository/binding;
-- exact work branch;
-- bounded goal;
-- dependencies/inputs;
-- allowed and forbidden scope;
-- required outputs/checkpoints;
-- instruction to read repository `AGENTS.md` / relevant handoff docs;
-- instruction to publish structured progress at meaningful stage boundaries;
-- instruction not to merge/finalize outside the node contract.
-
-The child may reason freely inside this boundary. It may not silently broaden it.
-
-## 8. Progress is structured evidence, not transcript synchronization
-
-The parent should not need the full child transcript.
-
-At meaningful stage boundaries the child publishes a bounded progress record, conceptually:
-
-```json
-{
-  "schema_version": 1,
-  "workflow_id": "litegraph-refactor-017",
-  "workflow_revision": 3,
-  "node_id": "mqtt-api",
-  "sequence": 4,
-  "stage": "implementation_complete",
-  "status": "waiting_verification",
-  "source_revision": "abc123...",
-  "summary": "Refactored MQTT catalog API behind one adapter.",
-  "findings": ["Legacy caller X still assumes old enum values."],
-  "contract_changes": [],
-  "verification": {
-    "focused": "pending"
-  },
-  "next_action": "Run focused MQTT host tests."
-}
-```
-
-Properties:
-
-- append-only sequence per node;
-- deterministic workflow/node identity;
-- bounded text/array sizes;
-- exact commit/result references where applicable;
-- no raw chat transcript;
-- no secrets/log dumps;
-- progress cannot rewrite earlier records.
-
-Superchat reads the newest valid checkpoint plus exact referenced evidence when it needs to make a decision.
-
-## 9. Same-repository parallelism requires branch/worktree isolation
-
-Two implementation children must never concurrently edit the same checkout/branch.
-
-For parallel nodes in one repository:
+### Durable workflow identity
 
 ```text
-workflow
-  +-- node A -> branch wf/<workflow>/A -> isolated worktree
-  +-- node B -> branch wf/<workflow>/B -> isolated worktree
-  +-- node C -> branch wf/<workflow>/C -> isolated worktree
+workflow_id + revision + child_request_id + request_digest
 ```
 
-The integration node owns the deliberate combination step.
+### Durable browser conversation identity after registration
 
-The system must detect overlapping intended file/contract scope before dispatch where possible, but overlap is not automatically forbidden: sometimes two branches legitimately change a shared interface. In that case the graph must make the integration/reconciliation responsibility explicit.
+Exact canonical ChatGPT conversation URL/id.
 
-## 10. Browser child creation protocol
+### Ephemeral routing identity
 
-Creating a ChatGPT conversation is the most UI-sensitive part of the design, so desired state must exist before UI actuation.
+Chrome tab id / preferred tab id.
 
-Recommended sequence:
+### Existing Bridge `chat-xxxxxxxx`
 
-```text
-Superchat creates durable child request
-        |
-        v
-request receives immutable id + digest
-        |
-        v
-Bridge receives SPAWN_CHILD(request-id, digest)
-        |
-        v
-Bridge validates exact parent conversation + request
-        |
-        v
-open new ChatGPT tab/conversation
-        |
-        v
-wait for composer readiness
-        |
-        v
-inject deterministic bootstrap
-        |
-        v
-confirm accepted user message / conversation identity
-        |
-        v
-persist browser mapping
-        |
-        v
-register child conversation against the pre-existing request
-```
+May remain a local/UI map key, but its 32-bit hash is not a durable security/workflow identity.
 
-Bridge must never create an unbound generic child and decide later what it belongs to.
+## 9. Two child state machines
 
-### Registration durability
+### 9.1 Logical workflow lifecycle
 
-A browser mapping should include at least:
-
-- workflow id/revision;
-- node id;
-- child-request id/digest;
-- parent conversation id;
-- child conversation id and exact URL;
-- repository/binding identity;
-- lifecycle generation;
-- created timestamp.
-
-Chrome storage is useful for immediate recovery but is not sufficient as the sole workflow record.
-
-A future bounded Native Messaging conversation-registration protocol may let Bridge register the mapping through Local Agent into the orchestration control plane. Such a protocol may only acknowledge/register a pre-existing exact child request. It must not grant the browser generic Git write, task creation, shell or rebind authority.
-
-## 11. Child lifecycle
-
-Canonical v1 lifecycle:
+Conceptual v1:
 
 ```text
 requested
-  -> creating
-  -> bootstrapping
-  -> active
-  -> waiting_dependency | waiting_evidence | active
-  -> terminal_ready
-  -> terminal_recorded
-  -> retired
+-> registration_pending
+-> active
+-> terminal_pending_evidence
+-> terminal_recorded
+-> retired
 ```
 
-Failure substates must distinguish at least:
+This survives browser loss.
 
-- browser creation failed before a child identity existed;
-- bootstrap delivery uncertain;
-- child conversation exists but registration is incomplete;
-- child work failed;
-- child completed but terminal evidence is not durable;
-- browser tab disappeared after durable registration.
+### 9.2 Browser spawn transaction
 
-Idempotency is required. Replaying a child request must discover/reuse the exact registered child or fail closed; it must not silently create duplicate active children.
-
-## 12. Logical retirement before physical tab close
-
-A finished child must first become logically inert:
+Conceptual:
 
 ```text
-node terminal evidence durable
--> child accepts no further workflow wake
--> lifecycle generation closed
--> parent/integration ownership advances
+pending
+-> tab_created
+-> bootstrap_submitting
+-> identity_discovered
+-> registration_submitting
+-> done
 ```
 
-Only then may Bridge optionally close the browser tab.
+with explicit `failed` and `ambiguous` outcomes.
 
-Correctness must not depend on ChatGPT conversation archive/delete UI.
+A browser failure cannot resurrect retired workflow work.
 
-The conversation may remain in ChatGPT history as audit/debug context, but it is no longer an active workflow participant.
+## 10. Browser child creation protocol
 
-## 13. Integration is a first-class node
+Current Bridge wake delivery requires a known `/c/<id>` URL. New-chat creation therefore uses a separate pre-registration protocol.
 
-Parallel children are not merged merely because they all succeeded locally.
-
-An integration node receives exact predecessor evidence:
+Preferred sequence:
 
 ```text
-node A -> commit/digest/tests
-node B -> commit/digest/tests
-node C -> commit/digest/tests
+pre-existing exact child request
+-> persist spawn transaction
+-> open ChatGPT origin directly in a new tab
+-> wait for generic composer readiness
+-> inject deterministic bootstrap + request marker/digest
+-> submit exactly once
+-> confirm first user turn
+-> observe route transition to one concrete /c/<id>
+-> capture exact canonical URL
+-> persist provisional mapping
+-> durably register request -> child URL
+-> convert to ordinary bound Bridge conversation
 ```
 
-It must inspect:
+Do not automate a visible "New chat" navigation button unless unavoidable.
 
-- merge/rebase conflicts;
+### Uncertain first delivery
+
+On timeout/worker restart, reconcile the original tab before any retry:
+
+- exact request marker present + `/c/<id>` => recover registration;
+- exact tab still empty => retry same spawn transaction;
+- unrelated content or ambiguous state => fail closed/manual attach;
+- never create a replacement child solely because delivery confirmation timed out.
+
+### Manual attach
+
+v1 must allow the operator to open a fresh ChatGPT conversation and attach one exact pending child request. UI automation is a convenience layer, not the only recovery path.
+
+### Spawn concurrency
+
+Serialize child creation transactions in v1. Registered child work may continue concurrently.
+
+## 11. Bootstrap prompt
+
+Generated from durable request, not improvised from parent transcript.
+
+Must include:
+
+- machine-readable child request id/digest;
+- workflow/revision/node/role;
+- parent identity;
+- repository/binding;
+- work branch;
+- bounded goal/scope;
+- exact dependency/input references;
+- required outputs/checkpoints;
+- repository instruction discovery (`AGENTS.md`, handoff docs);
+- no merge/finalization outside node contract.
+
+Keep prompt bounded; reference large context instead of embedding it.
+
+## 12. Durable child registration
+
+The donor result-event Native Messaging host remains notification-only.
+
+Conversation registration should use a **separate bounded native protocol/host** rather than silently broadening the event host.
+
+Allowed conceptual messages:
+
+```text
+register_child
+query_registration
+retire_child
+```
+
+Browser supplies only identity discovered in UI plus exact request id/digest/generation. Local side loads repository/binding/role/branch from the pre-existing request.
+
+No generic shell/Git/task/rebind API is exposed.
+
+## 13. Planner progress is structured evidence, not transcript sync
+
+Do not reuse command `[AGENT_PROGRESS]` as child-chat reasoning progress.
+
+Conversation Fabric records:
+
+```text
+child_checkpoint
+child_terminal
+```
+
+A checkpoint is append-only and bounded, with:
+
+- request/workflow/node identity;
+- sequence/stage;
+- summary/findings;
+- exact commit/task/result/CI references;
+- contract changes/integration notes.
+
+No full transcript or raw log dump.
+
+Parent reads exact referenced authoritative evidence before consequential decisions.
+
+## 14. Same-repository parallelism: important v1 limitation
+
+Current Local Agent guarantees one active worker/task per registered repository. Different `work_branch` values do not create independent scheduler lanes.
+
+Therefore v1 distinguishes:
+
+### Conversation parallelism
+
+Two same-repository child chats may reason simultaneously and may own separate GitHub source branches.
+
+### Local Agent execution parallelism
+
+Still serialized inside that repository.
+
+### Existing true execution parallelism
+
+Available across different registered repositories under current `max_workers`/resource policy.
+
+True same-repository Local Agent concurrency is a future separately-audited **workspace lane** project, not a hidden requirement of Conversation Fabric v1.
+
+## 15. Integration is first-class
+
+Children are not merged because they all succeeded locally.
+
+Integration consumes exact predecessor evidence and checks:
+
+- conflicts;
 - shared APIs/contracts;
-- duplicate or contradictory abstractions;
-- cross-module error handling;
-- tests that passed only in isolation;
-- architecture drift from the parent decision;
-- final diff size/ownership.
+- contradictory abstractions;
+- error handling;
+- isolated-test assumptions;
+- architecture drift;
+- final diff ownership.
 
-The integration node produces its own exact commit and verification evidence. A later independent verification node may review that integrated candidate before Superchat declares completion.
+It produces its own exact integrated commit/result. Optional verification then audits the integrated candidate from a fresh context.
 
-## 14. Attention routing
+## 16. Attention routing
 
-The same notification substrate should eventually carry two families of bounded events.
+Two bounded event families eventually share one notification substrate.
 
-### Project task attention
-
-Example:
+Project task:
 
 ```text
-task_result_ready(repository, binding, task_id)
+task_result_ready(repository, binding, task_id, digest)
 ```
 
-Routes to the exact project child conversation that owns the watch.
+routes to exact project conversation/watch.
 
-### Workflow attention
-
-Examples:
+Workflow/Conversation Fabric:
 
 ```text
-workflow_waiting_planner(workflow_id, revision, node_id)
+child_terminal_recorded(workflow, node, request)
+workflow_waiting_planner(...)
 workflow_waiting_user(...)
 workflow_failed(...)
 workflow_completed(...)
-child_terminal_recorded(workflow_id, node_id)
 ```
 
-Routes to the exact Superchat/workflow owner.
+routes to exact Superchat/workflow owner.
 
-Neither event family contains authoritative result bodies. They identify durable evidence that must then be read.
+Events carry identifiers, not result bodies.
 
-## 15. Failure and restart model
+## 17. Restart/failure model
 
-### Chrome or Chat Bridge restart
+### Chrome/service-worker restart
 
-- durable workflow/child requests remain in GitHub-backed state;
-- browser mappings are restored from bounded extension state and reconciled against durable registrations;
-- pending child creation or wake operations are idempotently resumed/reclassified;
-- no new child is created solely because the service worker forgot an in-memory flag.
+- spawn transactions persist separately from existing Bridge state;
+- exact registered URLs survive through durable registration;
+- provisional tab ids are revalidated or discarded;
+- ambiguous pre-registration operations fail closed;
+- no duplicate child is created because memory was lost.
 
 ### Local Agent restart
 
-- existing project tasks remain governed by current no-replay rules;
-- Execution Fabric reconstructs from workflow state plus exact project evidence;
-- child conversation identity is not execution authority;
-- missed attention events replay from durable outbox/reconciliation.
+- current no-replay task rule remains;
+- workflow state reconstructs from admitted inputs + exact project evidence;
+- conversation identity is not execution authority;
+- attention events replay/reconcile.
 
-### ChatGPT child tab closed manually
+### Child tab manually closed
 
-- durable child/node state survives;
-- if work is terminal, nothing is reopened;
-- if active and policy permits recovery, Bridge may require explicit Superchat/operator decision before recreating a UI context;
-- do not silently create a replacement reasoning context that could duplicate work.
+- durable child record survives;
+- terminal/retired child is not reopened;
+- active missing child requires explicit recovery policy/manual attach rather than silent duplicate reasoning.
 
-## 16. Security/authority rules
+## 18. Runtime orchestration capability
 
-1. A child cannot alter its own workflow id, parent, repository binding or node role.
-2. A child cannot create a sibling in v1.
-3. A browser/native registration message can only satisfy a pre-existing exact child request.
-4. Project children keep exact repository hard binding.
-5. Cross-repository orchestration authority exists only at the infrastructure workflow layer.
-6. Native Messaging does not expose generic shell/filesystem/Git commands.
-7. Progress/evidence is bounded and schema-validated.
-8. Integration uses exact commits/digests/results, not child self-assertion.
-9. Global Local Agent disable remains authoritative over execution.
-10. Interrupted claimed project tasks are never automatically replayed.
+Current runtime schema v3 has `execution_enabled` only. Superchat needs an explicit later schema migration, e.g. conceptually:
 
-## 17. Explicit v1 non-goals
+```text
+execution_enabled = false
+orchestration_enabled = true
+```
 
-Do not mix into the first Conversation Fabric implementation:
+Do not add the JSON field before code defines and tests its authorization semantics.
 
-- recursive child-of-child delegation;
-- arbitrary numbers of child chats without workflow bounds;
-- streaming whole transcripts between chats;
-- hidden model-to-model messaging outside durable evidence;
-- automatic merging without integration/review;
-- generic desktop/browser automation beyond exact ChatGPT conversation lifecycle;
-- arbitrary browser-to-Local-Agent commands;
-- automatic cross-repository authority for ordinary project chats;
-- distributed remote runners;
+An ordinary project chat must never become orchestration-enabled because it emitted a control marker.
+
+## 19. Security invariants
+
+1. Child cannot change workflow/request/parent/repository binding/role.
+2. Child cannot create siblings in v1.
+3. Browser registration can only satisfy a pre-existing exact request/digest.
+4. Project Local Agent tasks keep existing hard binding.
+5. Superchat orchestration does not become generic project shell authority.
+6. Event Native Messaging remains notification-only.
+7. Conversation registration native protocol remains narrow and separate.
+8. Planner checkpoints are bounded/schema-validated.
+9. Integration trusts exact commits/results, not child self-assertion.
+10. Global Local Agent disable remains authoritative.
+11. Interrupted claimed tasks are never automatically replayed.
+12. Current repository execution lease is not weakened by Conversation Fabric v1.
+13. Do not claim broad GitHub connector writes are technically sandboxed by chat binding.
+
+## 20. v1 non-goals
+
+- recursive child delegation;
+- unbounded child counts;
+- whole-transcript streaming;
+- hidden model-to-model channels;
+- automatic merge without integration/review;
+- true concurrent Local Agent tasks in one repository;
+- generic desktop/browser automation outside exact ChatGPT lifecycle;
+- generic browser-to-Local-Agent command API;
+- distributed runners;
 - automatic deletion of ChatGPT history.
 
-## 18. V1 success criteria
+## 21. Product validation
 
-A successful first end-to-end demonstration is:
+Two first slices are deliberately different:
 
-1. one Superchat creates a workflow with two independent implementation nodes and one integration node;
-2. two exact child requests are durably recorded before browser actuation;
-3. Bridge opens two new ChatGPT conversations and injects different bounded bootstrap prompts;
-4. each child is hard-bound to its exact repository/branch/node;
-5. each child publishes at least one structured progress checkpoint and one terminal record;
-6. both may run concurrently without sharing a checkout/branch;
-7. Superchat wakes only on meaningful child/workflow transitions, not polling spam;
-8. integration child receives exact predecessor commits/evidence and produces one integrated candidate;
-9. independent verification checks the integrated result;
-10. completed children become logically retired and can have their tabs closed without losing workflow state;
-11. Chrome or Local Agent restart during a controlled test does not create duplicate child work or lose durable workflow evidence.
+### Same-repository modularity slice
 
-That demonstration proves the product direction: a durable team of specialized ChatGPT contexts coordinated by one Superchat, with GitHub-backed evidence and Local Agent as the deterministic execution substrate.
+Two child chats + separate source branches + integration; local Local Agent tasks remain serialized. Measures reasoning/integration quality.
+
+### Multi-repository execution slice
+
+Two child chats in different registered repositories; Local Agent tasks may genuinely overlap using the existing scheduler. Measures end-to-end parallel orchestration.
+
+Success is measured through integration conflicts, rework, tests, unrelated churn, recovery interventions and context overhead — not tab count.
