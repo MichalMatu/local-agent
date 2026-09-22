@@ -36,7 +36,7 @@ const { createHarness } = require("./worker_test_harness.js");
       composerOccupied: false
     }, contentSender);
 
-  response = await report("connection_interrupted", bridgePrompt);
+  response = await report("connection_interrupted", bridgePrompt, "sig-first-interruption");
   assert.equal(response.ok, true);
   assert.equal(response.reason, "assistant_connection_interrupted");
   assert.equal(response.action, "wait");
@@ -44,7 +44,16 @@ const { createHarness } = require("./worker_test_harness.js");
 
   h.storage.bridgeAssistantTransientRecovery.entries[chatId].firstSeenAt =
     new Date(Date.now() - 60_000).toISOString();
-  response = await report("connection_interrupted", bridgePrompt);
+  response = await report("connection_interrupted", bridgePrompt, "sig-new-turn");
+  assert.equal(response.reason, "assistant_connection_interrupted");
+  assert.equal(response.action, "wait");
+  assert.equal(h.storage.bridgeAssistantTransientRecovery.entries[chatId].signature, "sig-new-turn");
+  assert.equal(h.sentMessages.length, 1,
+    "a changed interruption fingerprint must start a fresh wait instead of inheriting an old timer");
+
+  h.storage.bridgeAssistantTransientRecovery.entries[chatId].firstSeenAt =
+    new Date(Date.now() - 60_000).toISOString();
+  response = await report("connection_interrupted", bridgePrompt, "sig-new-turn");
   assert.equal(response.ok, true);
   assert.equal(response.reason, "assistant_connection_continue_sent");
   assert.equal(response.action, "continue");
@@ -71,9 +80,9 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(response.ok, true);
   assert.equal(response.reason, "assistant_transient_cleared");
   assert.equal(h.storage.bridgeAssistantTransientRecovery.entries[chatId], undefined,
-    "resolved state must retire its durable reload reservation immediately");
+    "worker clear must retire its durable reload reservation once the guard proves stable health");
 
-  response = await report("connection_interrupted", bridgePrompt, "sig-new-interruption");
+  response = await report("connection_interrupted", bridgePrompt, "sig-later-interruption");
   assert.equal(response.reason, "assistant_connection_interrupted");
   assert.equal(response.action, "wait");
   assert.deepEqual(h.tabReloads, [11], "a later interruption must start with a fresh bounded wait");
@@ -101,7 +110,7 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(response.reason, "assistant_tab_reloaded");
   assert.deepEqual(h.tabReloads, [11, 11], "owned generic stall reloads immediately after detector proof");
 
-  console.log("Chat Bridge proactively escalates and retires owned transient recovery episodes.");
+  console.log("Chat Bridge fingerprints, escalates and retires owned transient recovery episodes.");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;
