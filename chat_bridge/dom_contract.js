@@ -52,29 +52,29 @@
 
   function findRecoverableAssistantError(root) {
     if (!root || typeof root.querySelectorAll !== "function") return null;
-    const messages = Array.from(root.querySelectorAll('[data-message-author-role="assistant"]'));
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      const error = message?.querySelector?.(".text-token-text-error");
-      if (!error) continue;
-      const errorText = normalizedText(error.innerText || error.textContent);
-      if (!errorText.includes(MESSAGE_DELIVERY_TIMEOUT_TEXT)) continue;
-      const button =
-        error.querySelector?.(`button[data-testid="${RETRY_BUTTON_TEST_ID}"]`) ||
-        Array.from(error.querySelectorAll?.("button") || []).find(
-          (candidate) => normalizedText(candidate.innerText || candidate.textContent) === RETRY_BUTTON_TEXT
-        );
-      if (!button) continue;
-      return {
-        kind: "message_delivery_timeout",
-        message,
-        error,
-        button,
-        errorText,
-        assistantIdentity: assistantIdentity(message)
-      };
-    }
-    return null;
+    const turns = Array.from(root.querySelectorAll("[data-message-author-role]"));
+    if (!turns.length) return null;
+    const message = turns[turns.length - 1];
+    if (message?.getAttribute?.("data-message-author-role") !== "assistant") return null;
+
+    const error = message?.querySelector?.(".text-token-text-error");
+    if (!error) return null;
+    const errorText = normalizedText(error.innerText || error.textContent);
+    if (!errorText.includes(MESSAGE_DELIVERY_TIMEOUT_TEXT)) return null;
+    const button =
+      error.querySelector?.(`button[data-testid="${RETRY_BUTTON_TEST_ID}"]`) ||
+      Array.from(error.querySelectorAll?.("button") || []).find(
+        (candidate) => normalizedText(candidate.innerText || candidate.textContent) === RETRY_BUTTON_TEXT
+      );
+    if (!button) return null;
+    return {
+      kind: "message_delivery_timeout",
+      message,
+      error,
+      button,
+      errorText,
+      assistantIdentity: assistantIdentity(message)
+    };
   }
 
   return Object.freeze({
