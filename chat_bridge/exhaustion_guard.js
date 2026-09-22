@@ -2,6 +2,7 @@
   const GUARD_VERSION = 5;
   const RETRY_RECHECK_GRACE_MS = 8000;
   const ASSISTANT_STALL_MS = 180000;
+  const TRANSIENT_REPORT_INTERVAL_MS = 5000;
   const existingGuard = globalThis.__localAgentChatExhaustionGuard;
   if (existingGuard?.version === GUARD_VERSION) return;
   try {
@@ -22,6 +23,10 @@
   let retryTimer = null;
   let retryRecheckTimer = null;
   let retryAwaiting = null;
+  let transientReportInFlight = false;
+  let lastTransientReportSignature = "";
+  let lastTransientReportAt = 0;
+  let terminalTransientSignature = "";
   const assistantStallTracker = dom.createProgressStallTracker(ASSISTANT_STALL_MS);
 
   function latestMessage(role) {
@@ -141,6 +146,49 @@
       `${conversationUrl}\n${user?.identity || ""}\n${kind}\n${assistantIdentity}`
     );
     return { kind, user, assistantIdentity, signature };
+  }
+
+  async function scanAssistantTransientState(conversationUrl) {
+    const snapshot = assistantTransientSnapshot(conversationUrl);
+    if (!snapshot) {
+      lastTransientReportSignature = "";
+      lastTransientReportAt = 0;
+      terminalTransientSignature = "";
+      return;
+    }
+    if (snapshot.signature === terminalTransientSignature || transientReportInFlight) return;
+
+    const now = Date.now();
+    if (
+      snapshot.signature === lastTransientReportSignature &&
+      now - lastTransientReportAt < TRANSIENT_REPORT_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    transientReportInFlight = true;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "bridge:assistant-transient-state",
+        conversationUrl,
+        kind: snapshot.kind,
+        assistantIdentity: snapshot.assistantIdentity,
+        userIdentity: snapshot.user?.identity || "",
+        userText: String(snapshot.user?.text || "").slice(0, 12000),
+        signature: snapshot.signature,
+        assistantGenerating: assistantIsGenerating(),
+        composerOccupied: composerIsOccupied()
+      });
+      lastTransientReportSignature = snapshot.signature;
+      lastTransientReportAt = Date.now();
+      if (response?.terminal) terminalTransientSignature = snapshot.signature;
+    } catch (error) {
+      console.warn("Local Agent Chat Bridge transient-state report failed:", error);
+      lastTransientReportSignature = snapshot.signature;
+      lastTransientReportAt = Date.now();
+    } finally {
+      transientReportInFlight = false;
+    }
   }
 
   function snapshotStillCurrent(snapshot) {
@@ -284,7 +332,7 @@
   async function scan() {
     const conversationUrl = normalizeConversationUrl(location.href);
     if (!conversationUrl) return;
-    assistantTransientSnapshot(conversationUrl);
+    await scanAssistantTransientState(conversationUrl);
     await scanConversationExhaustion(conversationUrl);
     await scanRecoverableAssistantError(conversationUrl);
   }
@@ -311,7 +359,7 @@
   scheduleScan();
   const retryInterval = setInterval(() => {
     scan().catch((error) => console.warn(error));
-  }, 5000);
+  }, TRANSIENT_REPORT_INTERVAL_MS);
 
   const messageListener = (message, _sender, sendResponse) => {
     if (!message || !["bridge:exhaustion-capabilities", "bridge:assistant-recovery-kick"].includes(message.type)) {
