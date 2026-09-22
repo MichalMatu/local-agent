@@ -105,9 +105,15 @@ async function assistantErrorAttemptSnapshot(conversation, payload) {
 
 async function markAssistantRetryExhausted(conversation) {
   const bindingRevision = conversation.bindingRevision;
+  const generation = conversation.generation;
   const result = await mutateState((current) => {
     const latest = current.conversations[conversation.id];
-    if (!latest || latest.url !== conversation.url || latest.bindingRevision !== bindingRevision) {
+    if (
+      !latest ||
+      latest.url !== conversation.url ||
+      latest.bindingRevision !== bindingRevision ||
+      latest.generation !== generation
+    ) {
       return { state: current, value: null };
     }
     if (!latest.enabled && latest.lastStatus === "assistant_retry_exhausted") {
@@ -124,7 +130,9 @@ async function markAssistantRetryExhausted(conversation) {
       value: disabledGeneration
     };
   });
-  if (result.value !== null) await clearConversationAlarm(conversation.id, result.value);
+  if (result.value === null) return false;
+  await clearConversationAlarm(conversation.id, result.value);
+  return true;
 }
 
 async function reportAssistantError(message, sender) {
@@ -138,7 +146,9 @@ async function reportAssistantError(message, sender) {
   const bridgeOwned = bridgeOwnsAssistantError(conversation, payload);
   const attempts = bridgeOwned ? await assistantErrorAttemptSnapshot(conversation, payload) : 0;
   if (bridgeOwned && attempts >= ASSISTANT_ERROR_RETRY_LIMIT) {
-    await markAssistantRetryExhausted(conversation);
+    if (!await markAssistantRetryExhausted(conversation)) {
+      return { ok: false, reason: "assistant_retry_stale_context" };
+    }
     return {
       ok: true,
       reason: "assistant_retry_exhausted",
@@ -206,7 +216,9 @@ async function authorizeAssistantRetry(message, sender) {
   });
 
   if (attempt === null) {
-    await markAssistantRetryExhausted(conversation);
+    if (!await markAssistantRetryExhausted(conversation)) {
+      return { ok: false, reason: "assistant_retry_stale_context" };
+    }
     return { ok: false, reason: "assistant_retry_exhausted", retryLimit: ASSISTANT_ERROR_RETRY_LIMIT };
   }
 
