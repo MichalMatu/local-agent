@@ -2,11 +2,11 @@
 
 Status: donor-branch inventory for `feature/conversation-fabric-superchat`.
 
-Rule: current `main` is authoritative. Old development branches are **donor branches**, not merge targets.
+Rule: current `main` is authoritative. Historical development branches are donor/evidence branches, not merge targets.
 
-## 1. Production baseline to keep intact
+Canonical preimplementation audit: `docs/conversation_fabric/PREIMPLEMENTATION_REAUDIT.md`.
 
-Current production base:
+## 1. Production baseline that wins every conflict
 
 ```text
 main@474000b5d4b015958fe92be491968dc4625b4a84
@@ -14,25 +14,24 @@ Local Agent 4.18.24
 Chat Bridge 0.5.10
 ```
 
-Keep current-main behavior as the starting point, especially:
+Preserve especially:
 
-- exact hard binding;
+- current hard binding behavior;
 - current content/delivery path;
 - v4.18.24 assistant delivery-timeout recovery;
-- preferred-tab and generation/binding revalidation;
-- scheduled/manual wake semantics;
+- preferred-tab + generation/binding revalidation;
+- current repository execution lease semantics;
+- one active Local Agent task per registered repository;
 - self-update/restart guarantees;
-- current repository/supervisor execution model.
+- current operator/global disable controls.
 
-Do not replace central current-main Chat Bridge files with older feature-branch copies.
+Do not replace central current-main files with older feature-branch copies.
 
 ## 2. Donor: `feature/chat-bridge-event-wake`
 
-Purpose of donor branch: low-latency exact conversation wake after authoritative Local Agent result publication.
+Purpose: low-latency exact wake after authoritative Local Agent result publication.
 
-### High-value isolated modules to port/adapt
-
-Local Agent:
+### High-value isolated Local Agent modules
 
 ```text
 local_agent/foundation/result_events.py
@@ -40,7 +39,7 @@ local_agent/platform/chrome_native_host.py
 scripts/chat_bridge_native_host.py
 ```
 
-Chat Bridge:
+### High-value isolated Bridge modules
 
 ```text
 chat_bridge/event_wake_state.js
@@ -49,7 +48,7 @@ chat_bridge/worker_event_wake.js
 chat_bridge/worker_event_diagnostics.js
 ```
 
-Supporting tests:
+### Tests worth transplanting/adapting
 
 ```text
 tests/test_result_events.py
@@ -58,7 +57,7 @@ tests/test_chat_bridge_native_host_installer.py
 chat_bridge/event_wake*.test.js
 ```
 
-Useful design/evidence docs:
+### Useful design/evidence docs
 
 ```text
 docs/chat_bridge/EVENT_WAKE_ARCHITECTURE.md
@@ -68,23 +67,27 @@ docs/chat_bridge/LIVE_EVIDENCE_2026-09-16.md
 docs/chat_bridge/TODO.md
 ```
 
-### Behaviors to preserve conceptually
+### Preserve conceptually
 
-- event is emitted only after authoritative terminal-result publication;
-- event payload is bounded metadata, never command/result body;
-- durable outbox + replay + ACK;
-- Native Messaging is notification transport, not generic host authority;
-- exact repository/binding/task ownership;
-- event-before-watch race closure;
+- event only after authoritative result push;
+- bounded metadata only;
+- durable outbox/replay/ACK;
+- exact repository/binding/task matching;
+- event-before-watch recovery;
 - MV3 restart persistence;
-- pending wake survives transient delivery failure;
+- pending wake survives transient send failure;
 - scheduled reconciliation remains fallback;
-- real Mac installer/transport evidence;
-- prompt compaction and event-driven pacing.
+- compact planner pacing.
+
+### Critical donor limitation
+
+`chrome_native_host.py` is intentionally notification-only. Inbound authority is handshake + ACK for events already emitted by Local Agent.
+
+Do **not** reuse it as if it already supported browser-to-Local-Agent child registration. Conversation Fabric should preserve this host and later add a separate narrowly-scoped registration protocol/host.
 
 ### Do not port blindly
 
-These files overlap heavily with current main and must be reimplemented/merged behaviorally rather than copied wholesale:
+These overlap current main and must be behaviorally reimplemented/adapted:
 
 ```text
 chat_bridge/content.js
@@ -104,186 +107,175 @@ chat_bridge/worker_test_harness.js
 local_agent/foundation/core.py
 ```
 
-Current-main timeout recovery wins where behavior conflicts.
+Current-main timeout recovery wins on conflict.
 
-### Additional defects/evidence worth carrying forward
-
-The branch records three useful Bridge reliability items:
+### Reliability findings to carry forward
 
 - stale historical conversation-limit detection;
-- ordinary interval wake failure in inactive ChatGPT tab;
-- some reload/content transitions requiring manual `Ctrl+R`.
+- inactive-tab interval wake defect;
+- manual `Ctrl+R` recovery cases.
 
-Those are inputs to current-main reliability work, not reasons to merge the old branch.
+These are reliability prerequisites, not reasons to merge the old branch.
 
 ## 3. Donor: `feature/openworker-governance`
 
-This branch contains two separate donor tracks.
+This branch contains two independent donor tracks.
 
-### 3A. Execution Fabric donor
+### 3.1 Execution Fabric donor
 
-Verified isolated workflow implementation baseline recorded by that branch:
-
-```text
-09210f66972158a13da8646cce4db11f35d341c8
-```
-
-High-value package:
+High-value package/modules:
 
 ```text
-local_agent/workflow/
-```
-
-including:
-
-- immutable workflow contracts;
-- DAG/state machine;
-- methods and method identity;
-- durable store;
-- evidence reconciliation;
-- planner checkpoints;
-- user gates;
-- append-only revisions;
-- activation/effective state;
-- Git child publication;
-- exact cancellation;
-- lineage coordinator/cycle;
-- manual operator controls.
-
-Also preserve/adapt:
-
-```text
+local_agent/workflow/contract.py
+local_agent/workflow/state.py
+local_agent/workflow/store.py
+local_agent/workflow/revisions.py
+local_agent/workflow/revision_store.py
+local_agent/workflow/effective_state.py
+local_agent/workflow/activation.py
+local_agent/workflow/continuation.py
+local_agent/workflow/evidence.py
+local_agent/workflow/coordinator.py
+local_agent/workflow/lineage_*.py
+local_agent/workflow/git_control_plane.py
+local_agent/workflow/git_cancellation.py
+local_agent/workflow/publishing.py
+local_agent/workflow/methods.py
+local_agent/workflow/method_specs/
 local_agent/cli/workflow.py
 local_agent/foundation/control_git_lock.py
-tests/test_workflow_*.py
-tests/fixtures/workflows/
 ```
 
-Important architecture property:
+Bring the donor tests with the corresponding modules rather than rewriting coverage from scratch.
 
-> Execution Fabric coordinates existing Local Agent tasks. It does not become a second executor.
+### Strong behaviors to preserve
 
-The donor deliberately contains no automatic supervisor/daemon/launchd/Chat Bridge scheduling integration. Keep that separation when transplanting the core.
+- bounded schemas;
+- canonical deterministic digests;
+- explicit DAG validation;
+- explicit waiting/failure/interrupted states;
+- append-only revisions;
+- fsync/locking discipline;
+- exact child task id/digest evidence matching;
+- create-only publication;
+- ambiguous push recovery/fail-closed behavior;
+- exact cancellation;
+- temporary-Git integration tests.
 
-### 3B. OpenWorker-inspired governance donor
+### Critical donor limitations
 
-Docs:
+1. Workflow state/revisions are primarily stored under Local Agent application state; they are not already a central GitHub workflow database.
+2. Git control code publishes/inspects project tasks; it does not solve Conversation Fabric registration.
+3. Coordinator policy intentionally avoids concurrent coordinator-owned children in the same repository.
+4. Production Local Agent repository execution leases also prevent two simultaneous tasks in one registered repository.
+5. The workflow package is deliberately not wired into supervisor/daemon/launchd/Chat Bridge.
+
+Therefore transplant the semantics, but add the corrected orchestration-input/status-projection layer and keep same-repository executor concurrency out of v1.
+
+### 3.2 OpenWorker/governance donor
+
+Useful ideas:
+
+- narrow deterministic self-protection floors;
+- command/admission security corpus methodology;
+- exact-action/digest-bound approval patterns where a real user gate needs them;
+- compact authorization provenance.
+
+Do not import:
+
+- generic permission engine;
+- embedded/reviewer model;
+- broad standing shell grants;
+- connector/desktop automation framework.
+
+## 4. Current-main Bridge owners to extend carefully
+
+### `bridge_state.js` / `worker_state.js`
+
+Current schema v3 is production-critical. Do not put spawn/workflow truth directly into the existing conversation record during the first implementation.
+
+Preferred new namespace:
 
 ```text
-docs/OPENWORKER_CODE_AUDIT.md
-docs/OPENWORKER_GOVERNANCE_PLAN.md
+conversationFabricState
 ```
 
-High-value ideas:
+with independent schema/version/migration.
 
-- deterministic project-command self-protection floors;
-- table-driven command/admission security corpus;
-- compact policy/admission provenance;
-- exact-digest/idempotent approval ideas for later consequential gates.
+### `control_protocol.js`
 
-Explicitly reject as product direction:
+Current controls assume concrete `/c/<id>` conversation identity. New `SPAWN_CHILD`/attach commands require explicit semantics and may only actuate an already-existing child request.
 
-- embedded reviewer LLM;
-- generic permission engine copied from OpenWorker;
-- broad desktop-agent permissions;
-- standing shell grants;
-- connector/provider framework;
-- duplicate audit database;
-- durable mid-command shell resume.
+Do not use existing `chat-<fnv32>` as durable child identity.
 
-## 4. Already consumed donor: `work/chat-delivery-timeout-detection`
+### `worker_delivery.js`
 
-The functional code is already in production `main`/v4.18.24.
+Reuse only after registration. It correctly requires an exact known conversation URL and should not be weakened to accommodate new-chat creation.
 
-Do not re-import it from the branch. Treat current main as the only source of truth for:
+### `worker_transport.js`
 
-- assistant timeout recognition;
-- native Retry click;
-- bounded durable retry budget;
-- latest-turn checks;
-- preferred-tab authorization;
-- binding revision/generation checks;
-- wake overlap protection;
-- reload/restart recovery.
+Existing exact URL/content authorization is a feature. New-chat bootstrap needs a separate spawn capability rather than weakening `conversationForSender`/delivery authorization.
 
-## 5. Stale/non-development branches
+### `content.js`
 
-These are not product directions:
+Current sender verifies exact known URL before ordinary Bridge delivery. Add a separate pre-registration message type/state for spawn only; do not make normal delivery accept generic ChatGPT pages.
 
-```text
-audit/pre-restart-contract-hardening
-docs/pre-restart-drift-cleanup
-release/4.18.23-host-ops-onboarding
-```
+### `manifest.json`
 
-They are old bookmarks/bases with no unique future subsystem to port.
+Current permissions already include `tabs` and `scripting`, but `nativeMessaging` is not present on production 0.5.10. Attention Fabric/registration work must add permissions deliberately and preserve install/update behavior.
 
-Operational branches are also not source-development donors:
+## 5. Current Local Agent owners that constrain same-repository parallelism
 
-```text
-chat-bridge-state
-operator-control
-```
+### `docs/MULTI_REPOSITORY.md` + supervisor/repository worker model
 
-## 6. New code ownership map
+Repository execution leases guarantee that two tasks for the same configured repository do not execute concurrently.
 
-Conversation Fabric should introduce new narrowly-owned modules instead of growing existing monoliths.
+### `work_branch`
 
-Candidate Local Agent/workflow owners:
+Task-scoped branch selection does not create a second repository scheduler identity.
+
+### Implication
+
+Conversation Fabric v1 may create parallel same-repository reasoning contexts, but Local Agent execution for those contexts remains serialized unless a future separately-audited workspace-lane feature changes the repository model.
+
+## 6. Current `runtime/progress.py` is not a donor for planner reasoning checkpoints
+
+`[AGENT_PROGRESS]` is executor-command progress with bounded queueing. It should remain that.
+
+Conversation Fabric needs separate bounded `child_checkpoint` / `child_terminal` records referencing exact commits/task/results.
+
+## 7. Current runtime catalog limitation
+
+Current runtime/catalog entries carry `execution_enabled` only. `local-agent` is execution-disabled infrastructure, but no `orchestration_enabled` field exists.
+
+Superchat capability therefore requires a later runtime schema/protocol migration. Do not treat it as config-only work.
+
+## 8. New code that should be authored fresh
+
+Do not search donor branches for these as if they already exist:
 
 ```text
 local_agent/conversation/contract.py
 local_agent/conversation/state.py
+local_agent/conversation/identity.py
 local_agent/conversation/store.py
-local_agent/conversation/registration.py
+chat_bridge/conversation_fabric_state.js        # provisional naming
+chat_bridge/worker_child_spawn.js               # provisional naming
+chat_bridge/child_spawn_contract.js             # pure helpers if useful
+conversation registration native host/protocol
+synthetic new-chat browser fixture/smoke
 ```
 
-Candidate Chat Bridge owners:
+Names remain provisional until Phase 0A freezes ownership.
 
-```text
-chat_bridge/child_chat_state.js
-chat_bridge/worker_child_chats.js
-chat_bridge/worker_child_diagnostics.js
-```
+## 9. Donor import rule
 
-The exact names are provisional. Responsibilities are not:
+For every transplanted unit:
 
-- pure schema/state separate from browser side effects;
-- browser creation separate from workflow planning;
-- Git/workflow publication separate from ChatGPT DOM handling;
-- exact registration/dedup separate from prompt construction.
-
-## 7. Porting rule
-
-For every donor slice:
-
-1. start from fresh current `main`;
-2. write/port the focused tests first;
-3. port the smallest isolated module;
-4. adapt integration points to current owners;
-5. prove no regression of v4.18.24 behavior;
-6. record exact donor commit/path for traceability;
-7. run focused tests, then full CI;
-8. merge one coherent slice before beginning the next.
-
-Do not solve historical divergence by rebasing 100+ old commits into one giant conflict resolution.
-
-## 8. Initial reuse order
-
-Recommended order:
-
-```text
-1. current-main reliability fixes
-2. event outbox
-3. native notification transport
-4. exact task watch/event wake
-5. Conversation Fabric contracts/state only
-6. browser child creation in lab mode
-7. durable child registration/progress
-8. Execution Fabric core transplant
-9. shared attention events for task + workflow transitions
-10. bounded automatic workflow scheduler
-11. Superchat production orchestration
-```
-
-This keeps each old branch valuable without inheriting its obsolete base state.
+1. identify current-main owner/invariant;
+2. copy/adapt the smallest coherent donor module;
+3. port its focused tests first;
+4. re-run against exact current-main-derived head;
+5. preserve current timeout/binding/repository lease behavior;
+6. document any authority expansion;
+7. never use old donor CI as release proof for the new head.
