@@ -31,6 +31,17 @@ async function poll(label, callback, timeoutMs = 10_000) {
   })(), timeoutMs);
 }
 
+async function nudgeTransientScan(page) {
+  // The guard intentionally throttles identical signatures to five seconds. Wait beyond
+  // that boundary, then mutate an observed attribute without changing the turn text or
+  // identity so the fixture deterministically exercises the next proactive scan.
+  await new Promise((resolve) => setTimeout(resolve, 5500));
+  await page.evaluate(() => {
+    const status = document.querySelector('.mask-shimmer-muted');
+    if (status) status.classList.toggle('fixture-recheck');
+  });
+}
+
 const fixture = `<!doctype html><html><body>
 <div data-message-author-role="assistant" data-message-id="old-answer">Previous answer</div>
 <form id="composer-form">
@@ -158,10 +169,11 @@ document.querySelector('form').onsubmit = (event) => {
         chrome.storage.local.set({ bridgeAssistantTransientRecovery: state }, resolve);
       });
     }), added.conversation.id);
+    await nudgeTransientScan(page);
 
-    await page.waitForFunction(() => Number(localStorage.getItem('submitCount') || '0') === 2, null, {
-      timeout: 8000
-    });
+    await poll("proactive Continue submission", () => page.evaluate(() =>
+      Number(localStorage.getItem('submitCount') || '0') === 2
+    ), 5000);
     assert.equal(await page.evaluate(() => {
       const users = JSON.parse(localStorage.getItem('users') || '[]');
       return users.at(-1);
@@ -179,10 +191,11 @@ document.querySelector('form').onsubmit = (event) => {
         chrome.storage.local.set({ bridgeAssistantTransientRecovery: state }, resolve);
       });
     }), added.conversation.id);
+    await nudgeTransientScan(page);
 
-    await page.waitForFunction(() => Number(localStorage.getItem('loadCount') || '0') === 2, null, {
-      timeout: 8000
-    });
+    await poll("single whole-tab reload", () => page.evaluate(() =>
+      Number(localStorage.getItem('loadCount') || '0') === 2
+    ), 5000);
     await new Promise((resolve) => setTimeout(resolve, 6000));
     assert.equal(await page.evaluate(() => Number(localStorage.getItem('loadCount') || '0')), 2,
       "durable recovery reservation must prevent a reload loop");
