@@ -115,6 +115,17 @@ document.querySelector('form').onsubmit = (event) => {
       popup.evaluate((value) => chrome.runtime.sendMessage(value), message),
       timeoutMs
     );
+    const waitForConversation = async (chatId, predicate, timeoutMs = 25_000) => {
+      const deadline = Date.now() + timeoutMs;
+      while (Date.now() < deadline) {
+        const state = (await request({ type: "bridge:get-state" })).state;
+        const conversation = state.conversations?.[chatId] || null;
+        if (predicate(conversation)) return conversation;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      throw new Error(`conversation ${chatId} did not reach expected state within ${timeoutMs} ms`);
+    };
+
     await request({
       type: "bridge:save-global-settings",
       settings: { runtimeUrl: `chrome-extension://${extensionId}/runtime.example.json` }
@@ -160,13 +171,11 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(delivery.ok, true);
 
     await sameNodePage.waitForFunction(() => window.retries === 3, null, { timeout: 55_000 });
-    await bounded("assistant retry exhaustion state", sameNodePage.waitForFunction(async (chatId) => {
-      const state = await chrome.runtime.sendMessage({ type: "bridge:get-state" }).catch(() => null);
-      const conversation = state?.state?.conversations?.[chatId];
-      return conversation?.lastStatus === "assistant_retry_exhausted" && conversation.enabled === false;
-    }, added.conversation.id, { timeout: 20_000 }), 25_000);
-
-    const finalState = (await request({ type: "bridge:get-state" })).state.conversations[added.conversation.id];
+    const finalState = await waitForConversation(
+      added.conversation.id,
+      (conversation) => conversation?.lastStatus === "assistant_retry_exhausted" && conversation.enabled === false,
+      20_000
+    );
     assert.equal(finalState.lastStatus, "assistant_retry_exhausted");
     assert.equal(finalState.enabled, false);
     assert.equal(await sameNodePage.evaluate(() => window.submits), 1,
