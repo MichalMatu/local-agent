@@ -213,15 +213,11 @@ async function recoverAssistantTransient(conversation, tab, contentReady) {
   if (contentReady.composerOccupied) {
     return { ok: false, reason: "composer_not_empty", action: "wait" };
   }
-  if (!bridgeOwnsAssistantTransient(conversation, contentReady, entry)) {
-    return {
-      ok: false,
-      reason: kind === "stalled" ? "assistant_stalled_unowned" : "assistant_connection_interrupted_unowned",
-      action: "none"
-    };
-  }
 
   if (kind === "stalled") {
+    if (!bridgeOwnsAssistantTransient(conversation, contentReady, entry)) {
+      return { ok: false, reason: "assistant_stalled_unowned", action: "none" };
+    }
     if (entry.reloadReservedAt) {
       return { ok: false, reason: "assistant_stalled_after_reload", action: "none" };
     }
@@ -233,11 +229,15 @@ async function recoverAssistantTransient(conversation, tab, contentReady) {
   }
 
   const firstSeenAgeMs = assistantTransientAgeMs(entry, "firstSeenAt");
-  if (!entry.continueSentAt) {
-    if (firstSeenAgeMs < ASSISTANT_CONNECTION_CONTINUE_AFTER_MS) {
-      return { ok: false, reason: "assistant_connection_interrupted", action: "wait" };
-    }
+  if (!entry.continueSentAt && firstSeenAgeMs < ASSISTANT_CONNECTION_CONTINUE_AFTER_MS) {
+    return { ok: false, reason: "assistant_connection_interrupted", action: "wait" };
+  }
 
+  if (!bridgeOwnsAssistantTransient(conversation, contentReady, entry)) {
+    return { ok: false, reason: "assistant_connection_interrupted_unowned", action: "none" };
+  }
+
+  if (!entry.continueSentAt) {
     if (!contentReady.assistantGenerating) {
       const continuation = await sendAssistantTransientContinue(conversation, tab);
       if (continuation?.ok || continuation?.reason === "delivery_unconfirmed") {
