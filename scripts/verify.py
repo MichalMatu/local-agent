@@ -131,7 +131,9 @@ def run_macos_smoke() -> None:
 
 
 def run_bridge_browser() -> None:
-    _run("Chromium extension smoke", [_require("node"), "scripts/bridge_browser_smoke.cjs"])
+    node = _require("node")
+    _run("Chromium extension smoke", [node, "scripts/bridge_browser_smoke.cjs"])
+    _run("Chromium assistant timeout recovery smoke", [node, "scripts/bridge_assistant_error_smoke.cjs"])
 
 
 def parse_args() -> argparse.Namespace:
