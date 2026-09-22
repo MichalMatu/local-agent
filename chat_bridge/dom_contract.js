@@ -37,6 +37,34 @@
     return legacy.length ? legacy[legacy.length - 1] : null;
   }
 
+  function createProgressStallTracker(stallMs = 180000) {
+    const thresholdMs = Math.max(1000, Number(stallMs) || 180000);
+    let signature = "";
+    let since = 0;
+
+    function reset() {
+      signature = "";
+      since = 0;
+    }
+
+    function observe(currentSignature, { generating = false, blocked = false, now = Date.now() } = {}) {
+      const current = String(currentSignature || "");
+      const timestamp = Number(now);
+      if (!generating || blocked || !current || !Number.isFinite(timestamp)) {
+        reset();
+        return false;
+      }
+      if (current !== signature) {
+        signature = current;
+        since = timestamp;
+        return false;
+      }
+      return since > 0 && timestamp - since >= thresholdMs;
+    }
+
+    return Object.freeze({ observe, reset });
+  }
+
   function findAssistantTransientState(root) {
     const message = latestTurn(root, "assistant");
     if (!message) return null;
@@ -129,6 +157,7 @@
     EXTENDED_THINKING_TEXT,
     normalizedText,
     latestTurn,
+    createProgressStallTracker,
     findAssistantTransientState,
     findConversationExhaustion,
     findRecoverableAssistantError
