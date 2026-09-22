@@ -27,6 +27,7 @@
   let lastTransientReportSignature = "";
   let lastTransientReportAt = 0;
   let terminalTransientSignature = "";
+  let transientClearReported = false;
   const assistantStallTracker = dom.createProgressStallTracker(ASSISTANT_STALL_MS);
 
   function latestMessage(role) {
@@ -148,14 +149,29 @@
     return { kind, user, assistantIdentity, signature };
   }
 
+  async function reportTransientClear(conversationUrl) {
+    if (transientClearReported) return;
+    transientClearReported = true;
+    try {
+      await chrome.runtime.sendMessage({
+        type: "bridge:assistant-transient-clear",
+        conversationUrl
+      });
+    } catch (error) {
+      console.warn("Local Agent Chat Bridge transient-state clear failed:", error);
+    }
+  }
+
   async function scanAssistantTransientState(conversationUrl) {
     const snapshot = assistantTransientSnapshot(conversationUrl);
     if (!snapshot) {
+      await reportTransientClear(conversationUrl);
       lastTransientReportSignature = "";
       lastTransientReportAt = 0;
       terminalTransientSignature = "";
       return;
     }
+    transientClearReported = false;
     if (snapshot.signature === terminalTransientSignature || transientReportInFlight) return;
 
     const now = Date.now();
