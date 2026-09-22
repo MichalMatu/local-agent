@@ -15,7 +15,7 @@ const {
 const LEGACY_ALARM_NAME = "local-agent-chat-bridge";
 const ALARM_PREFIX = "local-agent-chat:";
 const RUNTIME_CACHE_MS = 30_000;
-const EXHAUSTION_GUARD_VERSION = 2;
+const EXHAUSTION_GUARD_VERSION = 3;
 const CONTENT_PREFLIGHT_TIMEOUT_MS = 1500;
 const DELIVERY_TIMEOUT_MS = 12000;
 const RETRY_REASONS = new Set([
