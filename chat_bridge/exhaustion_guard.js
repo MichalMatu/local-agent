@@ -1,6 +1,7 @@
 (() => {
-  const GUARD_VERSION = 4;
+  const GUARD_VERSION = 5;
   const RETRY_RECHECK_GRACE_MS = 8000;
+  const ASSISTANT_STALL_MS = 180000;
   const existingGuard = globalThis.__localAgentChatExhaustionGuard;
   if (existingGuard?.version === GUARD_VERSION) return;
   try {
@@ -21,6 +22,8 @@
   let retryTimer = null;
   let retryRecheckTimer = null;
   let retryAwaiting = null;
+  let assistantStallSignature = "";
+  let assistantStallSince = 0;
 
   function latestMessage(role) {
     const messages = document.querySelectorAll(`[data-message-author-role="${role}"]`);
@@ -35,6 +38,20 @@
     return { text, identity };
   }
 
+  function latestTurnSnapshot(role) {
+    const turn = dom.latestTurn(document, role);
+    if (!turn) return null;
+    const text = turn.innerText || turn.textContent || "";
+    const identity = String(
+      turn.getAttribute?.("data-message-id") ||
+      turn.getAttribute?.("data-turn-id") ||
+      turn.getAttribute?.("data-testid") ||
+      turn.id ||
+      `${role}:${fnv1a32(text)}`
+    );
+    return { text, identity };
+  }
+
   function assistantIsGenerating() {
     const buttons = document.querySelectorAll(
       'button[data-testid="stop-button"], button[data-testid="composer-stop-button"]'
@@ -45,6 +62,52 @@
       }
       return !button.hidden;
     });
+  }
+
+  function composerIsOccupied() {
+    const composer =
+      document.querySelector("#prompt-textarea") ||
+      document.querySelector('form [contenteditable="true"][data-lexical-editor="true"]') ||
+      document.querySelector('form [contenteditable="true"]') ||
+      document.querySelector("form textarea");
+    if (!composer) return false;
+    const text = "value" in composer ? composer.value : composer.innerText || composer.textContent || "";
+    return Boolean(String(text || "").trim());
+  }
+
+  function currentAssistantProgressSignature() {
+    const turn = dom.latestTurn(document, "assistant");
+    if (!turn) return "";
+    const text = dom.normalizedText(turn.innerText || turn.textContent || "").slice(-8000);
+    const identity = String(
+      turn.getAttribute?.("data-message-id") ||
+      turn.getAttribute?.("data-turn-id") ||
+      turn.getAttribute?.("data-testid") ||
+      turn.id ||
+      ""
+    );
+    if (!identity && !text) return "";
+    return fnv1a32(`${identity}\n${text}`);
+  }
+
+  function resetAssistantStall() {
+    assistantStallSignature = "";
+    assistantStallSince = 0;
+  }
+
+  function assistantIsStalled({ blocked = false, generating = assistantIsGenerating() } = {}) {
+    const progressSignature = currentAssistantProgressSignature();
+    if (!generating || blocked || !progressSignature) {
+      resetAssistantStall();
+      return false;
+    }
+    const now = Date.now();
+    if (progressSignature !== assistantStallSignature) {
+      assistantStallSignature = progressSignature;
+      assistantStallSince = now;
+      return false;
+    }
+    return assistantStallSince > 0 && now - assistantStallSince >= ASSISTANT_STALL_MS;
   }
 
   function buttonIsUsable(button) {
@@ -76,6 +139,21 @@
       `${conversationUrl}\n${user.identity}\n${found.kind}\n${found.assistantIdentity}`
     );
     return { conversationUrl, found, user, signature };
+  }
+
+  function assistantTransientSnapshot(conversationUrl) {
+    const found = dom.findAssistantTransientState(document);
+    const generating = assistantIsGenerating();
+    const recoverable = dom.findRecoverableAssistantError(document);
+    const stalled = assistantIsStalled({ blocked: Boolean(found || recoverable), generating });
+    const kind = found?.kind || (stalled ? "stalled" : "");
+    if (!kind) return null;
+    const user = latestTurnSnapshot("user") || latestMessage("user");
+    const assistantIdentity = found?.assistantIdentity || currentAssistantProgressSignature();
+    const signature = fnv1a32(
+      `${conversationUrl}\n${user?.identity || ""}\n${kind}\n${assistantIdentity}`
+    );
+    return { kind, user, assistantIdentity, signature };
   }
 
   function snapshotStillCurrent(snapshot) {
@@ -219,6 +297,7 @@
   async function scan() {
     const conversationUrl = normalizeConversationUrl(location.href);
     if (!conversationUrl) return;
+    assistantTransientSnapshot(conversationUrl);
     await scanConversationExhaustion(conversationUrl);
     await scanRecoverableAssistantError(conversationUrl);
   }
@@ -255,7 +334,7 @@
     const currentUrl = normalizeConversationUrl(location.href);
     const ready = Boolean(expectedUrl && expectedUrl === currentUrl);
     const snapshot = ready ? recoverableSnapshot(currentUrl) : null;
-    const transientState = ready ? dom.findAssistantTransientState(document) : null;
+    const transientSnapshot = ready ? assistantTransientSnapshot(currentUrl) : null;
     if (message.type === "bridge:assistant-recovery-kick" && ready && snapshot &&
         retryTimer === null && retryAwaiting === null && !assistantErrorInFlight) {
       lastRecoverableSignature = "";
@@ -267,7 +346,11 @@
       guardVersion: GUARD_VERSION,
       recoverableAssistantError: Boolean(snapshot),
       assistantGenerating: ready ? assistantIsGenerating() : false,
-      assistantTransientState: transientState?.kind || ""
+      assistantTransientState: transientSnapshot?.kind || "",
+      assistantTransientSignature: transientSnapshot?.signature || "",
+      assistantTransientUserIdentity: transientSnapshot?.user?.identity || "",
+      assistantTransientUserText: String(transientSnapshot?.user?.text || "").slice(0, 12000),
+      composerOccupied: ready ? composerIsOccupied() : false
     });
     return false;
   };
@@ -281,6 +364,7 @@
       if (scanTimer !== null) clearTimeout(scanTimer);
       clearInterval(retryInterval);
       clearRetryTimers();
+      resetAssistantStall();
     }
   };
 })();
