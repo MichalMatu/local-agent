@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Local Agent Chat Bridge",
-  "version": "0.5.9",
+  "version": "0.5.10",
   "description": "Schedules hard-bound Local Agent wake-ups with explicit assistant-controlled repository binding.",
   "permissions": [
     "alarms",
