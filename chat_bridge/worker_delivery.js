@@ -89,14 +89,19 @@ async function deliverConversation(chatId, manual) {
     };
   }
 
-  const transientStatus = {
-    connection_interrupted: "assistant_connection_interrupted",
-    extended_thinking: "assistant_extended_thinking"
-  }[contentReady.assistantTransientState];
-  if (transientStatus) {
+  const transientKind = String(contentReady.assistantTransientState || "");
+  if (transientKind) {
+    let transientResult;
+    if (["connection_interrupted", "stalled"].includes(transientKind)) {
+      transientResult = await recoverAssistantTransient(conversation, tab, contentReady);
+    } else {
+      await clearAssistantTransientRecovery(chatId);
+      transientResult = { ok: false, reason: "assistant_extended_thinking", action: "wait" };
+    }
+    const status = String(transientResult?.reason || "assistant_busy");
     await updateConversationStatus(chatId, {
       lastRunAt: runAt,
-      lastStatus: transientStatus,
+      lastStatus: status,
       lastRuntimeSource: runtime.source
     }, conversation.generation);
     if (!manual) {
@@ -104,9 +109,10 @@ async function deliverConversation(chatId, manual) {
     }
     return {
       ...contentReady,
+      ...transientResult,
       ok: false,
-      reason: transientStatus,
-      status: transientStatus,
+      reason: status,
+      status,
       runtime,
       conversationId: chatId,
       agentBinding: conversation.agentBinding,
@@ -115,6 +121,8 @@ async function deliverConversation(chatId, manual) {
       bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
     };
   }
+
+  await clearAssistantTransientRecovery(chatId);
 
   if (contentReady.recoverableAssistantError) {
     const recovery = await kickAssistantRecovery(tab.id, conversation.url);
