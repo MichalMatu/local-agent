@@ -25,15 +25,21 @@ const { createHarness } = require("./worker_test_harness.js");
     conversationUrl: "https://chatgpt.com/c/a",
     kind: "message_delivery_timeout",
     assistantIdentity: "timeout-answer",
-    userIdentity: "bridge-user-restart",
+    userIdentity: "timeout-user:1:stable",
     userText: bridgePrompt,
     signature: "timeout-restart-signature"
   };
+  const authorize = (harness) => {
+    const conversation = harness.storage.bridgeState.conversations[chatId];
+    return harness.sendRuntimeMessage({
+      type: "bridge:authorize-assistant-retry",
+      ...payload,
+      bindingRevision: conversation.bindingRevision,
+      generation: conversation.generation
+    }, sender);
+  };
 
-  response = await first.sendRuntimeMessage({
-    type: "bridge:authorize-assistant-retry",
-    ...payload
-  }, sender);
+  response = await authorize(first);
   assert.equal(response.ok, true);
   assert.equal(response.attempt, 1);
   assert.equal(first.storage.bridgeAssistantErrorRecovery.entries[chatId].attempts, 1);
@@ -44,10 +50,7 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(response.attempts, 1);
   assert.equal(response.retryAfterMs, 5000);
 
-  response = await restarted.sendRuntimeMessage({
-    type: "bridge:authorize-assistant-retry",
-    ...payload
-  }, sender);
+  response = await authorize(restarted);
   assert.equal(response.ok, true);
   assert.equal(response.attempt, 2);
   assert.equal(restarted.storage.bridgeAssistantErrorRecovery.entries[chatId].attempts, 2);
