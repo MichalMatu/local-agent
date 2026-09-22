@@ -9,5 +9,6 @@ importScripts(
   "worker_delivery.js",
   "worker_conversations.js",
   "worker_lab_commands.js",
+  "worker_assistant_errors.js",
   "worker_events.js"
 );

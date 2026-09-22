@@ -1,5 +1,5 @@
 (() => {
-  const GUARD_VERSION = 1;
+  const GUARD_VERSION = 2;
   const existingGuard = globalThis.__localAgentChatExhaustionGuard;
   if (existingGuard?.version === GUARD_VERSION) return;
   try {
@@ -14,17 +14,122 @@
   const { normalizeConversationUrl, fnv1a32 } = protocol;
 
   let scanTimer = null;
-  let lastReportedSignature = "";
+  let lastReportedExhaustionSignature = "";
+  let lastRecoverableSignature = "";
+  let assistantErrorInFlight = false;
+  let retryTimer = null;
+  let retryWatchdog = null;
 
-  async function scan() {
-    const conversationUrl = normalizeConversationUrl(location.href);
-    if (!conversationUrl) return;
+  function latestMessage(role) {
+    const messages = document.querySelectorAll(`[data-message-author-role="${role}"]`);
+    if (!messages.length) return null;
+    const latest = messages[messages.length - 1];
+    const text = latest.innerText || latest.textContent || "";
+    const stableId = latest.getAttribute("data-message-id") || latest.getAttribute("data-testid") || latest.id || "";
+    return { text, identity: stableId || `${role}:${messages.length}:${fnv1a32(text)}` };
+  }
+
+  function assistantIsGenerating() {
+    const buttons = document.querySelectorAll(
+      'button[data-testid="stop-button"], button[data-testid="composer-stop-button"]'
+    );
+    return Array.from(buttons).some((button) => {
+      if (typeof button.checkVisibility === "function") {
+        return button.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true });
+      }
+      return !button.hidden;
+    });
+  }
+
+  function buttonIsUsable(button) {
+    if (!(button instanceof HTMLButtonElement) || !button.isConnected || button.disabled) return false;
+    if (typeof button.checkVisibility === "function") {
+      return button.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true });
+    }
+    return !button.hidden;
+  }
+
+  function clearRetryTimers() {
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    if (retryWatchdog !== null) clearTimeout(retryWatchdog);
+    retryTimer = null;
+    retryWatchdog = null;
+  }
+
+  function recoverableSnapshot(conversationUrl) {
+    const found = dom.findRecoverableAssistantError(document);
+    if (!found) return null;
+    const user = latestMessage("user");
+    if (!user) return null;
+    const signature = fnv1a32(
+      `${conversationUrl}\n${user.identity}\n${found.kind}\n${found.assistantIdentity}`
+    );
+    return { conversationUrl, found, user, signature };
+  }
+
+  function snapshotStillCurrent(snapshot) {
+    const currentUrl = normalizeConversationUrl(location.href);
+    if (!currentUrl || currentUrl !== snapshot.conversationUrl) return null;
+    const current = recoverableSnapshot(currentUrl);
+    if (!current || current.signature !== snapshot.signature || current.user.identity !== snapshot.user.identity) return null;
+    return current;
+  }
+
+  async function authorizeAndRetry(snapshot) {
+    retryTimer = null;
+    let current = snapshotStillCurrent(snapshot);
+    if (!current || assistantIsGenerating() || !buttonIsUsable(current.found.button)) return;
+
+    let response;
+    try {
+      response = await chrome.runtime.sendMessage({
+        type: "bridge:authorize-assistant-retry",
+        conversationUrl: current.conversationUrl,
+        kind: current.found.kind,
+        assistantIdentity: current.found.assistantIdentity,
+        userIdentity: current.user.identity,
+        userText: current.user.text.slice(0, 12000),
+        signature: current.signature
+      });
+    } catch (error) {
+      console.warn("Local Agent Chat Bridge assistant retry authorization failed:", error);
+      return;
+    }
+    if (!response?.ok) return;
+
+    current = snapshotStillCurrent(snapshot);
+    if (!current || assistantIsGenerating() || !buttonIsUsable(current.found.button)) return;
+    try {
+      current.found.button.click();
+    } catch (error) {
+      console.warn("Local Agent Chat Bridge assistant retry click failed:", error);
+      return;
+    }
+
+    retryWatchdog = setTimeout(() => {
+      retryWatchdog = null;
+      const unchanged = snapshotStillCurrent(snapshot);
+      if (!unchanged || assistantIsGenerating()) return;
+      lastRecoverableSignature = "";
+      scheduleScan();
+    }, 8000);
+  }
+
+  function scheduleAssistantRetry(snapshot, delayMs) {
+    if (retryTimer !== null) return;
+    const boundedDelay = Math.max(500, Math.min(30000, Number(delayMs) || 1500));
+    retryTimer = setTimeout(() => {
+      authorizeAndRetry(snapshot).catch((error) => console.warn(error));
+    }, boundedDelay);
+  }
+
+  async function scanConversationExhaustion(conversationUrl) {
     const found = dom.findConversationExhaustion(document);
     if (!found) return;
     const signature = fnv1a32(
       `${conversationUrl}\n${found.assistantIdentity}\n${dom.CONVERSATION_LIMIT_TEXT}`
     );
-    if (signature === lastReportedSignature) return;
+    if (signature === lastReportedExhaustionSignature) return;
     try {
       const response = await chrome.runtime.sendMessage({
         type: "bridge:conversation-exhausted",
@@ -32,10 +137,47 @@
         assistantIdentity: found.assistantIdentity,
         signature
       });
-      if (response?.ok) lastReportedSignature = signature;
+      if (response?.ok) lastReportedExhaustionSignature = signature;
     } catch (error) {
       console.warn("Local Agent Chat Bridge exhaustion report failed:", error);
     }
+  }
+
+  async function scanRecoverableAssistantError(conversationUrl) {
+    const snapshot = recoverableSnapshot(conversationUrl);
+    if (!snapshot) {
+      lastRecoverableSignature = "";
+      clearRetryTimers();
+      return;
+    }
+    if (snapshot.signature === lastRecoverableSignature || assistantErrorInFlight) return;
+
+    assistantErrorInFlight = true;
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: "bridge:assistant-error",
+        conversationUrl,
+        kind: snapshot.found.kind,
+        assistantIdentity: snapshot.found.assistantIdentity,
+        userIdentity: snapshot.user.identity,
+        userText: snapshot.user.text.slice(0, 12000),
+        signature: snapshot.signature
+      });
+      if (!response?.ok) return;
+      lastRecoverableSignature = snapshot.signature;
+      if (response.retryEligible) scheduleAssistantRetry(snapshot, response.retryAfterMs);
+    } catch (error) {
+      console.warn("Local Agent Chat Bridge assistant error report failed:", error);
+    } finally {
+      assistantErrorInFlight = false;
+    }
+  }
+
+  async function scan() {
+    const conversationUrl = normalizeConversationUrl(location.href);
+    if (!conversationUrl) return;
+    await scanConversationExhaustion(conversationUrl);
+    await scanRecoverableAssistantError(conversationUrl);
   }
 
   function scheduleScan() {
@@ -54,7 +196,7 @@
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ["class", "data-message-author-role", "data-message-id"]
+      attributeFilter: ["class", "hidden", "style", "data-testid", "data-message-author-role", "data-message-id"]
     });
   }
   scheduleScan();
@@ -82,6 +224,7 @@
       try { observer?.disconnect(); } catch (_error) {}
       if (scanTimer !== null) clearTimeout(scanTimer);
       clearInterval(retryInterval);
+      clearRetryTimers();
     }
   };
 })();

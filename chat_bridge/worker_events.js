@@ -48,7 +48,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     "bridge:control-context": controlContext,
     "bridge:assistant-control": applyAssistantControl,
     "bridge:operator-control": applyOperatorLabControl,
-    "bridge:conversation-exhausted": reportConversationExhausted
+    "bridge:conversation-exhausted": reportConversationExhausted,
+    "bridge:assistant-error": reportAssistantError,
+    "bridge:authorize-assistant-retry": authorizeAssistantRetry
   };
   if (Object.hasOwn(contentHandlers, message.type)) {
     contentHandlers[message.type](message, sender).then(sendResponse)
