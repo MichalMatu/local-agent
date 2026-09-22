@@ -6,6 +6,7 @@ importScripts(
   "worker_schedule.js",
   "worker_transport.js",
   "worker_controls.js",
+  "worker_transient_recovery.js",
   "worker_delivery.js",
   "worker_assistant_errors.js",
   "worker_conversations.js",
