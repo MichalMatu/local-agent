@@ -12,7 +12,11 @@ const { createHarness } = require("./worker_test_harness.js");
       guardVersion: h.EXHAUSTION_GUARD_VERSION,
       recoverableAssistantError: false,
       assistantGenerating: Boolean(transientState),
-      assistantTransientState: transientState
+      assistantTransientState: transientState,
+      assistantTransientSignature: transientState ? `sig-${transientState}` : "",
+      assistantTransientUserIdentity: transientState ? "user-current" : "",
+      assistantTransientUserText: "",
+      composerOccupied: false
     })
   });
 
