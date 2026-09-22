@@ -1,6 +1,6 @@
 "use strict";
 
-// Isolated Chromium fixture: verifies bounded connection interruption recovery through
+// Isolated Chromium fixture: verifies proactive connection interruption recovery through
 // the real unpacked extension, including one Continue. submission and one whole-tab reload.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
@@ -19,6 +19,16 @@ async function bounded(label, promise, timeoutMs = 20_000) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function poll(label, callback, timeoutMs = 10_000) {
+  return bounded(label, (async () => {
+    while (true) {
+      const value = await callback();
+      if (value) return value;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  })(), timeoutMs);
 }
 
 const fixture = `<!doctype html><html><body>
@@ -121,8 +131,7 @@ document.querySelector('form').onsubmit = (event) => {
         url,
         label: "transient recovery fixture",
         agentBinding: matrix.agent_binding,
-        enabled: true,
-        preferredTabId: (await page.evaluate(() => null))
+        enabled: true
       }
     });
     assert.equal(added.ok, true, added.error);
@@ -134,9 +143,13 @@ document.querySelector('form').onsubmit = (event) => {
       timeout: 5000
     });
 
-    let recovery = await request({ type: "bridge:run-now", conversationId: added.conversation.id });
-    assert.equal(recovery.reason, "assistant_connection_interrupted");
-    assert.equal(await page.evaluate(() => Number(localStorage.getItem('submitCount') || '0')), 1);
+    await poll("initial proactive transient report", () => popup.evaluate((chatId) =>
+      new Promise((resolve) => chrome.storage.local.get('bridgeAssistantTransientRecovery', (stored) =>
+        resolve(stored.bridgeAssistantTransientRecovery?.entries?.[chatId] || null)
+      )), added.conversation.id
+    ));
+    assert.equal(await page.evaluate(() => Number(localStorage.getItem('submitCount') || '0')), 1,
+      "first proactive observation must only wait");
 
     await popup.evaluate((chatId) => new Promise((resolve) => {
       chrome.storage.local.get('bridgeAssistantTransientRecovery', (stored) => {
@@ -146,16 +159,19 @@ document.querySelector('form').onsubmit = (event) => {
       });
     }), added.conversation.id);
 
-    recovery = await request({ type: "bridge:run-now", conversationId: added.conversation.id });
-    assert.equal(recovery.reason, "assistant_connection_continue_sent");
     await page.waitForFunction(() => Number(localStorage.getItem('submitCount') || '0') === 2, null, {
-      timeout: 5000
+      timeout: 8000
     });
     assert.equal(await page.evaluate(() => {
       const users = JSON.parse(localStorage.getItem('users') || '[]');
       return users.at(-1);
     }), "Continue.");
 
+    await poll("Continue recovery accounting", () => popup.evaluate((chatId) =>
+      new Promise((resolve) => chrome.storage.local.get('bridgeAssistantTransientRecovery', (stored) =>
+        resolve(stored.bridgeAssistantTransientRecovery?.entries?.[chatId]?.continueSentAt || '')
+      )), added.conversation.id
+    ));
     await popup.evaluate((chatId) => new Promise((resolve) => {
       chrome.storage.local.get('bridgeAssistantTransientRecovery', (stored) => {
         const state = stored.bridgeAssistantTransientRecovery;
@@ -164,21 +180,23 @@ document.querySelector('form').onsubmit = (event) => {
       });
     }), added.conversation.id);
 
-    recovery = await request({ type: "bridge:run-now", conversationId: added.conversation.id });
-    assert.equal(recovery.reason, "assistant_tab_reloaded");
     await page.waitForFunction(() => Number(localStorage.getItem('loadCount') || '0') === 2, null, {
-      timeout: 5000
+      timeout: 8000
     });
-
-    recovery = await request({ type: "bridge:run-now", conversationId: added.conversation.id });
-    assert.equal(recovery.reason, "assistant_connection_reload_exhausted");
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 6000));
     assert.equal(await page.evaluate(() => Number(localStorage.getItem('loadCount') || '0')), 2,
       "durable recovery reservation must prevent a reload loop");
     assert.equal(await page.evaluate(() => Number(localStorage.getItem('submitCount') || '0')), 2,
       "recovery must submit only the original Bridge wake and one Continue.");
 
-    console.log("PASS: real extension performs wait -> Continue. -> one whole-tab reload without replay loops");
+    const state = (await request({ type: "bridge:get-state" })).state;
+    const conversation = state.conversations[added.conversation.id];
+    assert.ok([
+      "assistant_tab_reloaded",
+      "assistant_connection_reload_exhausted"
+    ].includes(conversation.lastStatus));
+
+    console.log("PASS: real extension proactively performs wait -> Continue. -> one whole-tab reload without replay loops");
   } finally {
     await context?.close();
     await fs.rm(profile, { recursive: true, force: true });
