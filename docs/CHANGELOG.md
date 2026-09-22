@@ -68,7 +68,7 @@ This changelog records operationally relevant Local Agent releases. The release 
 
 - Hardened Chat Bridge delivery with content protocol v4 / extension 0.5.5: stale reachable content scripts are reinjected automatically, unconfirmed Bridge-owned prompts remain visible, and exact retained prompts can be reused only when untouched by the operator.
 - Replaced the assistant-control scanner's fixed three-failure give-up with a pure bounded 5-30 second retry policy that never terminally exhausts for unchanged assistant content.
-- Preserved explicit `NEXT=30s` protocol compatibility while changing autonomous healthy-task pacing to no sooner than about two minutes for early liveness checks and normally 5-10 minute `NEXT` pacing unless exact evidence supports a nearer completion.
+- Preserved explicit `NEXT=30s` protocol compatibility while changing autonomous healthy-task pacing to no sooner than about two minutes for early liveness checks and normally 5-10 minutes for multi-minute builds/tests.
 - Directed the planner to use existing repository-scoped `cancel_task` when exact run/status evidence already proves the active task cannot succeed; executor ownership and Browser Bridge authority remain unchanged.
 - Added protocol/injection, retry, pacing and isolated Chromium regressions, including direct proof that an unconfirmed Bridge prompt stays visible and operator edits block automatic reuse. See `RELEASE_NOTES_V4.18.16.md`.
 
