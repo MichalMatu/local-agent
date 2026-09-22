@@ -21,6 +21,23 @@ function normalizeAssistantErrorPayload(message) {
   return { kind, userIdentity, assistantIdentity, userText, signature };
 }
 
+function normalizeAssistantRetryContext(message) {
+  const bindingRevision = Number(message?.bindingRevision);
+  const generation = Number(message?.generation);
+  if (!Number.isInteger(bindingRevision) || bindingRevision < 1) return null;
+  if (!Number.isInteger(generation) || generation < 0) return null;
+  return { bindingRevision, generation };
+}
+
+function assistantErrorConversationForSender(state, message, sender) {
+  const conversation = conversationForSender(state, message, sender);
+  if (!conversation) return { conversation: null, reason: "conversation_not_found" };
+  if (!Number.isInteger(conversation.preferredTabId) || conversation.preferredTabId !== sender?.tab?.id) {
+    return { conversation: null, reason: "assistant_error_wrong_tab" };
+  }
+  return { conversation, reason: null };
+}
+
 function bridgeOwnsAssistantError(conversation, payload) {
   if (!stateModel.isBoundConversation(conversation)) return false;
   const expected = normalizedAssistantErrorText(
@@ -114,8 +131,9 @@ async function reportAssistantError(message, sender) {
   const payload = normalizeAssistantErrorPayload(message);
   if (!payload) return { ok: false, reason: "assistant_error_invalid" };
   const state = await getBridgeState();
-  const conversation = conversationForSender(state, message, sender);
-  if (!conversation) return { ok: false, reason: "conversation_not_found" };
+  const resolved = assistantErrorConversationForSender(state, message, sender);
+  if (!resolved.conversation) return { ok: false, reason: resolved.reason };
+  const conversation = resolved.conversation;
 
   const bridgeOwned = bridgeOwnsAssistantError(conversation, payload);
   const attempts = bridgeOwned ? await assistantErrorAttemptSnapshot(conversation, payload) : 0;
@@ -127,7 +145,9 @@ async function reportAssistantError(message, sender) {
       bridgeOwned: true,
       retryEligible: false,
       attempts,
-      retryLimit: ASSISTANT_ERROR_RETRY_LIMIT
+      retryLimit: ASSISTANT_ERROR_RETRY_LIMIT,
+      bindingRevision: conversation.bindingRevision,
+      generation: conversation.generation
     };
   }
 
@@ -141,16 +161,27 @@ async function reportAssistantError(message, sender) {
     retryEligible,
     attempts,
     retryLimit: ASSISTANT_ERROR_RETRY_LIMIT,
-    retryAfterMs: retryEligible ? ASSISTANT_ERROR_RETRY_DELAYS_MS[attempts] : null
+    retryAfterMs: retryEligible ? ASSISTANT_ERROR_RETRY_DELAYS_MS[attempts] : null,
+    bindingRevision: conversation.bindingRevision,
+    generation: conversation.generation
   };
 }
 
 async function authorizeAssistantRetry(message, sender) {
   const payload = normalizeAssistantErrorPayload(message);
   if (!payload) return { ok: false, reason: "assistant_error_invalid" };
+  const retryContext = normalizeAssistantRetryContext(message);
+  if (!retryContext) return { ok: false, reason: "assistant_retry_context_invalid" };
   const state = await getBridgeState();
-  const conversation = conversationForSender(state, message, sender);
-  if (!conversation) return { ok: false, reason: "conversation_not_found" };
+  const resolved = assistantErrorConversationForSender(state, message, sender);
+  if (!resolved.conversation) return { ok: false, reason: resolved.reason };
+  const conversation = resolved.conversation;
+  if (
+    conversation.bindingRevision !== retryContext.bindingRevision ||
+    conversation.generation !== retryContext.generation
+  ) {
+    return { ok: false, reason: "assistant_retry_stale_context" };
+  }
   if (!state.settings.masterEnabled || !conversation.enabled) {
     return { ok: false, reason: "assistant_retry_cancelled" };
   }
