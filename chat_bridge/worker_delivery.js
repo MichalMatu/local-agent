@@ -89,6 +89,33 @@ async function deliverConversation(chatId, manual) {
     };
   }
 
+  if (contentReady.recoverableAssistantError) {
+    const recovery = await kickAssistantRecovery(tab.id, conversation.url);
+    if (!recovery.ok || recovery.recoverableAssistantError) {
+      const status = "assistant_recovery_pending";
+      await updateConversationStatus(chatId, {
+        lastRunAt: runAt,
+        lastStatus: status,
+        lastRuntimeSource: runtime.source
+      }, conversation.generation);
+      if (!manual) {
+        await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes, conversation.generation);
+      }
+      return {
+        ok: false,
+        reason: status,
+        status,
+        recovery,
+        runtime,
+        conversationId: chatId,
+        agentBinding: conversation.agentBinding,
+        repositoryId: conversation.repositoryId,
+        repository: conversation.repository,
+        bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
+      };
+    }
+  }
+
   const prompt = conversation.bootstrapPending
     ? buildBootstrapPrompt(runtime, conversation)
     : buildWakePrompt(runtime, conversation);
