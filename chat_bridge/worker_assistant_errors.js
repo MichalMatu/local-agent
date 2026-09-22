@@ -39,7 +39,7 @@ function assistantErrorConversationForSender(state, message, sender) {
 }
 
 function bridgeOwnsAssistantError(conversation, payload) {
-  if (!stateModel.isBoundConversation(conversation)) return false;
+  if (!stateModel.isBoundConversation(conversation) || conversation.bootstrapPending) return false;
   const expected = normalizedAssistantErrorText(
     `${bindingEnvelope(conversation)} Hard binding is immutable for this wake.`
   );
