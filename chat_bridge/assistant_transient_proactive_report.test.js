@@ -5,6 +5,7 @@ const { createHarness } = require("./worker_test_harness.js");
 (async () => {
   const h = createHarness();
   const url = "https://chatgpt.com/c/a";
+  const contentSender = { tab: { id: 11, url } };
 
   let response = await h.sendRuntimeMessage({
     type: "bridge:upsert-conversation",
@@ -33,7 +34,7 @@ const { createHarness } = require("./worker_test_harness.js");
       userText,
       assistantGenerating,
       composerOccupied: false
-    }, { tab: { id: 11, url } });
+    }, contentSender);
 
   response = await report("connection_interrupted", bridgePrompt);
   assert.equal(response.ok, true);
@@ -63,7 +64,26 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(response.terminal, true);
   assert.deepEqual(h.tabReloads, [11], "proactive reports must not create a reload loop");
 
-  await h.evaluate(`clearAssistantTransientRecovery(${JSON.stringify(chatId)})`);
+  response = await h.sendRuntimeMessage({
+    type: "bridge:assistant-transient-clear",
+    conversationUrl: url
+  }, contentSender);
+  assert.equal(response.ok, true);
+  assert.equal(response.reason, "assistant_transient_cleared");
+  assert.equal(h.storage.bridgeAssistantTransientRecovery.entries[chatId], undefined,
+    "resolved state must retire its durable reload reservation immediately");
+
+  response = await report("connection_interrupted", bridgePrompt, "sig-new-interruption");
+  assert.equal(response.reason, "assistant_connection_interrupted");
+  assert.equal(response.action, "wait");
+  assert.deepEqual(h.tabReloads, [11], "a later interruption must start with a fresh bounded wait");
+
+  response = await h.sendRuntimeMessage({
+    type: "bridge:assistant-transient-clear",
+    conversationUrl: url
+  }, contentSender);
+  assert.equal(response.ok, true);
+
   response = await report("extended_thinking", bridgePrompt, "sig-thinking", true);
   assert.equal(response.ok, true);
   assert.equal(response.reason, "assistant_extended_thinking");
@@ -81,7 +101,7 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(response.reason, "assistant_tab_reloaded");
   assert.deepEqual(h.tabReloads, [11, 11], "owned generic stall reloads immediately after detector proof");
 
-  console.log("Chat Bridge proactively escalates owned transient states without waiting for scheduler wake.");
+  console.log("Chat Bridge proactively escalates and retires owned transient recovery episodes.");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;
