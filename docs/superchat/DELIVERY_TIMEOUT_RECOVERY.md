@@ -1,6 +1,6 @@
-# ChatGPT delivery-timeout recovery research
+# ChatGPT delivery-timeout recovery
 
-Status: branch-only investigation. No production runtime, Local Agent daemon, or installed Chat Bridge restart is required by this work.
+Status: implemented and validated on `work/chat-delivery-timeout-detection`. Production `main`, the installed Local Agent daemon and the installed Chat Bridge were not changed or restarted during this work.
 
 ## Captured evidence
 
@@ -15,67 +15,74 @@ A saved ChatGPT page from 2026-09-22 contains a terminal assistant-side failure 
 </div>
 ```
 
-Observed stable signals, ordered by usefulness:
+Stable signals used by the detector are the assistant message boundary, `.text-token-text-error`, the exact timeout text, the explicit `regenerate-thread-error-button`, fallback `Retry` button text and assistant message identity.
 
-1. assistant message boundary: `[data-message-author-role="assistant"]`;
-2. error surface: `.text-token-text-error`;
-3. exact recoverable error text: `Message delivery timed out. Please try again.`;
-4. explicit retry control: `button[data-testid="regenerate-thread-error-button"]`;
-5. fallback button text: `Retry`;
-6. assistant message identity from `data-message-id`.
+The capture proves that this failure occurs after the user message has already been accepted. It is therefore not the existing `delivery_unconfirmed` transport case.
 
-The saved page proves that the timeout is represented as an assistant message, not as a missing DOM message or a composer-send failure.
+## Why the previous Bridge missed it
 
-## Why current Bridge misses it
+Normal delivery is considered `sent` once the exact submitted user message appears in the DOM. That is intentionally transport confirmation only. A later ChatGPT response-generation failure occurs after `worker_delivery.js` has finished.
 
-The current delivery lifecycle considers a wake `sent` as soon as the submitted user message appears in the DOM. That is intentionally only transport confirmation. A later ChatGPT response failure is outside `worker_delivery.js` delivery confirmation.
+The assistant-control scanner then sees the timeout message, but because it contains no LAB command it records the assistant content as scanned and takes no recovery action.
 
-`content.js` then sees the timeout element through `latestAssistantMessage()`. Because the text is not a LAB control, `scanLatestAssistantControl()` records the assistant signature as scanned and takes no recovery action.
+## Implemented recovery path
 
-This means the existing `delivery_unconfirmed` state does not cover this failure. The user message was confirmed; assistant generation failed afterwards.
+The branch keeps DOM recognition, authorization and action separate:
 
-## Existing architecture that should be reused
+- `dom_contract.js` recognizes only the captured recoverable timeout shape;
+- `exhaustion_guard.js` observes the DOM, reports a typed assistant error and never invents a replacement user message;
+- `worker_assistant_errors.js` validates the sender through the existing exact-tab/exact-conversation trust boundary;
+- automatic recovery is allowed only when the triggering user message begins with the exact Bridge hard-binding envelope and policy for the configured conversation;
+- immediately before each click the guard asks the worker for authorization again, then revalidates URL, user identity, error identity, generation state and Retry-button usability;
+- the recovery action is ChatGPT's existing `Retry` button, so the original user message is retried instead of duplicated.
 
-The repository already has the correct pattern for DOM-level terminal state detection:
+The worker stores retry accounting separately in bounded Chrome local storage. Attempts are keyed by conversation plus triggering user-message identity plus error kind, so a recreated assistant error node does not reset the budget.
 
-- `dom_contract.js` owns stable ChatGPT DOM recognition;
-- `exhaustion_guard.js` observes the document with bounded deduplication;
-- `worker_transport.js` validates content-script reports against extension id, top frame, exact normalized conversation URL, and stored conversation state;
-- `worker_events.js` routes content-originated reports;
-- browser smoke tests use an offline ChatGPT fixture and the real unpacked extension.
+## Retry policy
 
-The first branch slice adds only a pure DOM contract for this captured recoverable timeout. It deliberately does not click Retry yet.
-
-## Recommended recovery design
-
-Detection and action should remain separate.
-
-The detector should emit a typed result such as:
+The current candidate uses three attempts with increasing delays:
 
 ```text
-kind = message_delivery_timeout
-conversation URL
-assistant message identity
-stable signature
-retry control present
+attempt 1: 1.5 s
+attempt 2: 5 s
+attempt 3: 15 s
 ```
 
-The recovery path should be bounded and fail closed:
+After the third failed Retry, the next observation marks `assistant_retry_exhausted`, disables that conversation and clears its alarm. This is fail-closed: Bridge does not send a fresh wake on top of the failed user message.
 
-- act only on an exact recognized error plus an explicit Retry control;
-- never synthesize another wake/user message for this case, because that would duplicate the prompt rather than retry the failed assistant generation;
-- prefer the existing ChatGPT Retry control for recovery;
-- deduplicate by conversation plus triggering user-message identity/error kind, not only assistant error message id, because a retry may replace the error node;
-- use bounded exponential delay and a hard retry cap;
-- stop immediately if the conversation URL changes, generation starts, a new user message appears, the Retry control disappears, or operator/Bridge state disables the chat;
-- expose a distinct status such as `assistant_delivery_timeout` / `assistant_retry_exhausted` instead of reusing `delivery_unconfirmed`;
-- add unit coverage, worker sender-validation/race coverage, and an offline Chromium case before considering release.
+If the error belongs to a normal operator-authored message rather than a Bridge hard-binding prompt, it is still detected as `assistant_delivery_timeout_unowned`, but Bridge does not click Retry automatically.
 
-## Open implementation question
+If ChatGPT reuses the same error DOM node during a Retry, a bounded watchdog waits for generation to stop and then permits the unchanged error to be reported again. This prevents DOM identity reuse from bypassing the durable three-attempt cap or stalling recovery indefinitely.
 
-There are two safe milestones:
+## Statuses
 
-1. detection/reporting only, which makes the failure visible to Bridge diagnostics without mutating the ChatGPT page;
-2. bounded automatic Retry clicking after worker authorization.
+The candidate exposes distinct diagnostics instead of overloading `delivery_unconfirmed`:
 
-Milestone 1 is lower risk and is the current branch starting point. Milestone 2 should be implemented only with explicit attempt accounting and browser-level evidence that a retry does not create duplicate user messages.
+```text
+assistant_delivery_timeout
+assistant_delivery_timeout_unowned
+assistant_retry_1
+assistant_retry_2
+assistant_retry_3
+assistant_retry_exhausted
+```
+
+Existing conversation-length exhaustion remains a separate terminal path.
+
+## Verification evidence
+
+Unit coverage includes exact DOM matching, sender/conversation rejection, Bridge-owned versus operator-owned messages, retry delay progression, durable attempt accounting and fail-closed exhaustion.
+
+The browser smoke uses an isolated offline Chromium profile with the real unpacked extension. Its fixture submits one Bridge wake, renders the captured timeout structure, lets Bridge click Retry and asserts that there is still exactly one user submission. The recovered assistant response is then observed.
+
+GitHub Actions run `35672263362` for candidate `10fa71c9a274e30cb390221f6f2bac52ea93b403` passed all five jobs: normal tests, coverage, Python 3.14, macOS smoke and browser smoke. The browser log contains:
+
+```text
+PASS: assistant delivery timeout is detected and recovered with one bounded Retry click
+```
+
+The watchdog hardening that follows that candidate is intentionally branch-only and must receive the same CI/browser verification before any release decision.
+
+## Release boundary
+
+This branch is a candidate, not production. Advancing `main` should still require an explicit release decision, current release metadata/version synchronization and a final exact-head CI/browser pass. No Local Agent daemon restart is required to develop or review this branch.

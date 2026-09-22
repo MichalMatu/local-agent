@@ -75,6 +75,24 @@
     return current;
   }
 
+  function armRetryWatchdog(snapshot, remainingChecks = 8) {
+    if (retryWatchdog !== null) clearTimeout(retryWatchdog);
+    retryWatchdog = setTimeout(() => {
+      retryWatchdog = null;
+      const unchanged = snapshotStillCurrent(snapshot);
+      if (!unchanged) return;
+      if (assistantIsGenerating()) {
+        if (remainingChecks > 1) armRetryWatchdog(snapshot, remainingChecks - 1);
+        return;
+      }
+      // ChatGPT may reuse the same assistant error node after Retry. Once generation has
+      // stopped, allow the unchanged error to be reported again so durable attempt
+      // accounting can advance to the hard cap instead of stalling on DOM identity reuse.
+      lastRecoverableSignature = "";
+      scheduleScan();
+    }, 8000);
+  }
+
   async function authorizeAndRetry(snapshot) {
     retryTimer = null;
     let current = snapshotStillCurrent(snapshot);
@@ -106,13 +124,7 @@
       return;
     }
 
-    retryWatchdog = setTimeout(() => {
-      retryWatchdog = null;
-      const unchanged = snapshotStillCurrent(snapshot);
-      if (!unchanged || assistantIsGenerating()) return;
-      lastRecoverableSignature = "";
-      scheduleScan();
-    }, 8000);
+    armRetryWatchdog(snapshot);
   }
 
   function scheduleAssistantRetry(snapshot, delayMs) {
