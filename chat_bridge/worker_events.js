@@ -51,7 +51,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     "bridge:conversation-exhausted": reportConversationExhausted,
     "bridge:assistant-error": reportAssistantError,
     "bridge:authorize-assistant-retry": authorizeAssistantRetry,
-    "bridge:assistant-transient-state": reportAssistantTransientState
+    "bridge:assistant-transient-state": reportAssistantTransientState,
+    "bridge:assistant-transient-clear": clearAssistantTransientState
   };
   if (Object.hasOwn(contentHandlers, message.type)) {
     contentHandlers[message.type](message, sender).then(sendResponse)
