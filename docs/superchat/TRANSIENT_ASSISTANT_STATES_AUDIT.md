@@ -36,6 +36,8 @@ The candidate recognizes three transient/recovery states:
 
 `connection_interrupted` uses bounded escalation. The first observation only waits. After 45 seconds, if the same Bridge-owned episode is still present and ChatGPT is no longer generating, Chat Bridge submits one `Continue.` through the normal authorized composer delivery path. If the page remains interrupted for another minute after the continuation, or if it never becomes sendable and remains interrupted for two minutes, the worker may reload the preferred ChatGPT tab exactly once.
 
+These recovery thresholds are independent of the normal conversation wake interval. The content guard scans the live conversation and proactively reports a current transient state to the service worker at most once every five seconds per signature. The service worker remains the authority for ownership, durable recovery budget and side effects. A ten-minute normal wake cadence therefore cannot turn a 45-second recovery threshold into a ten-minute delay.
+
 `stalled` is a separate whole-tab recovery path. Once the generic no-progress detector has accumulated three minutes of unchanged assistant progress, a Bridge-owned stalled turn may trigger one whole-tab reload. Known transient states and the existing assistant-delivery-timeout card suppress the generic stall timer, so `extended_thinking`, `connection_interrupted` and native Retry recovery keep their dedicated policies.
 
 The existing `message_delivery_timeout` contract remains separate. Only that exact error shape, with the proven native Retry control, can enter automatic assistant Retry recovery.
@@ -48,7 +50,7 @@ Whole-tab reload is deliberately atomic and bounded:
 2. a non-empty composer blocks automatic recovery so an operator draft is never discarded;
 3. the recovery episode is keyed by conversation URL, binding revision, generation and recovery kind;
 4. the worker persists `reloadReservedAt` before calling `chrome.tabs.reload()`;
-5. a repeated wake or MV3 service-worker restart cannot reserve a second reload for the same episode;
+5. a repeated wake, proactive report or MV3 service-worker restart cannot reserve a second reload for the same episode;
 6. a clean preflight retires the recovery episode, while add/rebind/delete and relevant conversation-setting changes clear stale recovery storage.
 
 Automatic `Continue.` and reload are action-gated by ownership. A manually authored user turn can still be diagnosed as interrupted or stalled, but Chat Bridge does not continue or reload that turn automatically.
@@ -76,6 +78,7 @@ The candidate must prove:
 7. any assistant progress resets the generic stall timer;
 8. a non-empty composer prevents automatic reload;
 9. manual/unowned turns remain diagnostic-only;
-10. reload reservation survives repeated wakes and prevents refresh loops;
-11. normal wake delivery resumes and stale recovery state is retired after the transient state disappears;
-12. existing timeout recovery and browser smoke remain green.
+10. reload reservation survives repeated wakes, proactive reports and service-worker restarts and prevents refresh loops;
+11. recovery thresholds are driven by live proactive reports rather than the normal wake cadence;
+12. normal wake delivery resumes and stale recovery state is retired after the transient state disappears;
+13. existing timeout recovery and browser smoke remain green.
