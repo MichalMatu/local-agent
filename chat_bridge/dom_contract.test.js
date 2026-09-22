@@ -240,4 +240,19 @@ const quotedStatusRoot = {
 assert.equal(dom.findAssistantTransientState(quotedStatusRoot), null,
   "status text without the captured structural container must not classify a normal answer");
 
+const stallTracker = dom.createProgressStallTracker(1000);
+assert.equal(stallTracker.observe("sig-a", { generating: true, now: 1000 }), false);
+assert.equal(stallTracker.observe("sig-a", { generating: true, now: 1999 }), false);
+assert.equal(stallTracker.observe("sig-a", { generating: true, now: 2000 }), true);
+assert.equal(stallTracker.observe("sig-b", { generating: true, now: 2100 }), false,
+  "assistant progress must reset the stall window");
+assert.equal(stallTracker.observe("sig-b", { generating: true, blocked: true, now: 4000 }), false,
+  "known transient states must suppress the generic stall detector");
+assert.equal(stallTracker.observe("sig-b", { generating: true, now: 5000 }), false,
+  "leaving a known transient must start a fresh stall window");
+assert.equal(stallTracker.observe("sig-b", { generating: false, now: 7000 }), false,
+  "generation ending must reset the stall detector");
+assert.equal(stallTracker.observe("sig-b", { generating: true, now: 8000 }), false,
+  "a later generation episode must not inherit the previous stall timer");
+
 console.log("Chat Bridge DOM contract tests passed.");
