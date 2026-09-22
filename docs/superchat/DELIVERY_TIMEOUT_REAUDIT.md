@@ -39,11 +39,18 @@ The durable budget is consumed at worker authorization before the browser click.
 
 The captured error after a normal operator-authored message is detected as `assistant_delivery_timeout_unowned` but is **not** auto-clicked. This preserves the boundary between autonomous Bridge wakes and arbitrary operator prompts. It still blocks a new Bridge wake while the failed turn remains current, preventing a second user turn from being layered on top of the unresolved error.
 
+The second audit found and closed two lifecycle races:
+
+- a retained timeout from before an explicit rebind to the same repository could otherwise still match the same hard-binding text; timeout ownership now requires `bootstrapPending === false`, so a pre-bootstrap error cannot be adopted by the new binding lifecycle;
+- terminal `assistant_retry_exhausted` mutation is now fenced by both binding revision **and conversation generation**, so a stale report cannot disable a newer pause/resume or other generation.
+
 ## Additional verification added during re-audit
 
-The re-audit added two negative-path checks beyond the earlier candidate suite:
+The re-audit added negative-path checks beyond the earlier candidate suite:
 
 - `assistant_error_cancellation.test.js` proves Master-off and disabled-chat authorization cannot consume retry budget;
+- `assistant_error_bootstrap_boundary.test.js` proves a pre-rebind timeout cannot cross into a fresh bootstrap lifecycle, even when rebinding to the same repository;
+- `assistant_error_exhaustion_race.test.js` proves stale-generation exhaustion cannot disable a newer conversation generation;
 - `bridge_assistant_error_unowned_smoke.cjs` loads the real unpacked extension in isolated offline Chromium, renders a timeout after a manual operator message, proves Retry is never auto-clicked, proves `Run now` is blocked as `assistant_recovery_pending`, removes the stale timeout card, and proves normal Bridge wake delivery resumes afterward.
 
 These tests are part of the standard Bridge validation/browser profile before any main advance.
