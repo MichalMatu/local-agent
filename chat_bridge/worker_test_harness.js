@@ -14,7 +14,7 @@ const bindingFor = (repositoryId) => {
 const MATRIX_BINDING = bindingFor("matrixhub");
 const TRACKER_BINDING = bindingFor("tracker");
 const LOCAL_AGENT_BINDING = bindingFor("local-agent");
-const EXHAUSTION_GUARD_VERSION = 1;
+const EXHAUSTION_GUARD_VERSION = 2;
 
 const storage = options.storage || {};
 const alarms = new Map();
