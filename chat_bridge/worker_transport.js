@@ -65,7 +65,8 @@ async function probeExhaustionGuard(tabId, expectedUrl) {
           reason: "ready",
           guardVersion: EXHAUSTION_GUARD_VERSION,
           recoverableAssistantError: Boolean(response.recoverableAssistantError),
-          assistantGenerating: Boolean(response.assistantGenerating)
+          assistantGenerating: Boolean(response.assistantGenerating),
+          assistantTransientState: String(response.assistantTransientState || "")
         }
       : { ok: false, reason: String(response?.reason || "exhaustion_guard_unavailable") };
   } catch (_error) {
@@ -97,7 +98,8 @@ async function kickAssistantRecovery(tabId, expectedUrl) {
           ok: true,
           reason: "ready",
           recoverableAssistantError: Boolean(response.recoverableAssistantError),
-          assistantGenerating: Boolean(response.assistantGenerating)
+          assistantGenerating: Boolean(response.assistantGenerating),
+          assistantTransientState: String(response.assistantTransientState || "")
         }
       : { ok: false, reason: String(response?.reason || "exhaustion_guard_unavailable") };
   } catch (_error) {
@@ -142,7 +144,8 @@ async function ensureContentScript(tab, expectedUrl) {
     ...content,
     exhaustionGuardVersion: guard.guardVersion,
     recoverableAssistantError: guard.recoverableAssistantError,
-    assistantGenerating: guard.assistantGenerating
+    assistantGenerating: guard.assistantGenerating,
+    assistantTransientState: guard.assistantTransientState
   };
 }
 
