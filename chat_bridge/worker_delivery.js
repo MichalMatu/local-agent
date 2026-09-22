@@ -89,6 +89,33 @@ async function deliverConversation(chatId, manual) {
     };
   }
 
+  const transientStatus = {
+    connection_interrupted: "assistant_connection_interrupted",
+    extended_thinking: "assistant_extended_thinking"
+  }[contentReady.assistantTransientState];
+  if (transientStatus) {
+    await updateConversationStatus(chatId, {
+      lastRunAt: runAt,
+      lastStatus: transientStatus,
+      lastRuntimeSource: runtime.source
+    }, conversation.generation);
+    if (!manual) {
+      await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes, conversation.generation);
+    }
+    return {
+      ...contentReady,
+      ok: false,
+      reason: transientStatus,
+      status: transientStatus,
+      runtime,
+      conversationId: chatId,
+      agentBinding: conversation.agentBinding,
+      repositoryId: conversation.repositoryId,
+      repository: conversation.repository,
+      bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
+    };
+  }
+
   if (contentReady.recoverableAssistantError) {
     const recovery = await kickAssistantRecovery(tab.id, conversation.url);
     if (!recovery.ok || recovery.recoverableAssistantError) {
