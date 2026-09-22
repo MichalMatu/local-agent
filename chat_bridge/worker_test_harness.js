@@ -76,11 +76,17 @@ const chrome = {
         }
         return { ok: true, reason: "ready", protocolVersion: CONTENT_PROTOCOL_VERSION, assistantIdentity: "old-assistant" };
       }
-      if (message.type === "bridge:exhaustion-capabilities") {
+      if (["bridge:exhaustion-capabilities", "bridge:assistant-recovery-kick"].includes(message.type)) {
         if (options.exhaustionGuardProbe) {
           return options.exhaustionGuardProbe({ tabId, message, injectedScripts, tabMessages });
         }
-        return { ok: true, reason: "ready", guardVersion: EXHAUSTION_GUARD_VERSION };
+        return {
+          ok: true,
+          reason: "ready",
+          guardVersion: EXHAUSTION_GUARD_VERSION,
+          recoverableAssistantError: false,
+          assistantGenerating: false
+        };
       }
       if (message.type !== "bridge:feedback") {
         throw new Error(`unsupported tabs.sendMessage type in test: ${message.type}`);
