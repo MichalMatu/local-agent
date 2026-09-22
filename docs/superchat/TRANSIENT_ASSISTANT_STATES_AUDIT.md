@@ -48,10 +48,13 @@ Whole-tab reload is deliberately atomic and bounded:
 
 1. the worker verifies that the latest triggering user turn is Bridge-owned;
 2. a non-empty composer blocks automatic recovery so an operator draft is never discarded;
-3. the recovery episode is keyed by conversation URL, binding revision, generation and recovery kind;
-4. the worker persists `reloadReservedAt` before calling `chrome.tabs.reload()`;
-5. a repeated wake, proactive report or MV3 service-worker restart cannot reserve a second reload for the same episode;
-6. a clean preflight retires the recovery episode, while add/rebind/delete and relevant conversation-setting changes clear stale recovery storage.
+3. the recovery episode is keyed by conversation URL, binding revision, generation, recovery kind and the observed transient fingerprint;
+4. a changed fingerprint starts a fresh bounded wait rather than inheriting the timer from a different interrupted turn;
+5. after the Bridge has submitted `Continue.`, the following interrupted turn remains part of the same episode even though the fingerprint/user turn changes;
+6. the worker persists `reloadReservedAt` before calling `chrome.tabs.reload()`;
+7. once a reload is reserved, rehydration with a changed fingerprint remains attached to that reserved episode, so a repeated wake, proactive report or MV3 service-worker restart cannot reserve a second reload;
+8. resolved recovery is retired only after the guard has observed a stable healthy DOM: 10 seconds after a transient seen in the current guard instance, or 30 seconds after a fresh page/content-script start. This prevents the brief empty DOM during ChatGPT rehydration from clearing `reloadReservedAt`;
+9. add/rebind/delete and relevant conversation-setting changes also clear stale recovery storage explicitly.
 
 Automatic `Continue.` and reload are action-gated by ownership. A manually authored user turn can still be diagnosed as interrupted or stalled, but Chat Bridge does not continue or reload that turn automatically.
 
@@ -78,7 +81,9 @@ The candidate must prove:
 7. any assistant progress resets the generic stall timer;
 8. a non-empty composer prevents automatic reload;
 9. manual/unowned turns remain diagnostic-only;
-10. reload reservation survives repeated wakes, proactive reports and service-worker restarts and prevents refresh loops;
-11. recovery thresholds are driven by live proactive reports rather than the normal wake cadence;
-12. normal wake delivery resumes and stale recovery state is retired after the transient state disappears;
-13. existing timeout recovery and browser smoke remain green.
+10. a changed transient fingerprint starts a fresh recovery episode unless it is the continuation or post-reload form of an already-owned episode;
+11. reload reservation survives repeated wakes, proactive reports, page rehydration and service-worker restarts and prevents refresh loops;
+12. recovery thresholds are driven by live proactive reports rather than the normal wake cadence;
+13. stable-health grace prevents a temporary empty post-reload DOM from clearing the reload budget;
+14. normal wake delivery resumes and stale recovery state is retired after the transient state genuinely disappears;
+15. existing timeout recovery and browser smoke remain green.
