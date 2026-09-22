@@ -26,18 +26,38 @@ The long-thinking capture also demonstrates that a streaming assistant turn can 
 
 ## Candidate behavior
 
-The candidate adds recognition-only transient-state classification:
+The candidate recognizes three transient/recovery states:
 
-- `connection_interrupted`
-- `extended_thinking`
+- `connection_interrupted` from the captured interruption status;
+- `extended_thinking` from the captured long-thinking status;
+- `stalled` only after ChatGPT continues to advertise active generation while the latest assistant-turn progress fingerprint remains unchanged for three minutes.
 
-A recognized transient state blocks a fresh Bridge wake and uses the normal busy-retry scheduling cadence. It does not consume the assistant delivery-timeout Retry budget, does not submit a replacement user prompt, and does not click any page action.
+`extended_thinking` is wait-only. It blocks a fresh Bridge wake, uses the normal busy-retry cadence and never clicks the optional faster-model action.
+
+`connection_interrupted` uses bounded escalation. The first observation only waits. After 45 seconds, if the same Bridge-owned episode is still present and ChatGPT is no longer generating, Chat Bridge submits one `Continue.` through the normal authorized composer delivery path. If the page remains interrupted for another minute after the continuation, or if it never becomes sendable and remains interrupted for two minutes, the worker may reload the preferred ChatGPT tab exactly once.
+
+`stalled` is a separate whole-tab recovery path. Once the generic no-progress detector has accumulated three minutes of unchanged assistant progress, a Bridge-owned stalled turn may trigger one whole-tab reload. Known transient states and the existing assistant-delivery-timeout card suppress the generic stall timer, so `extended_thinking`, `connection_interrupted` and native Retry recovery keep their dedicated policies.
 
 The existing `message_delivery_timeout` contract remains separate. Only that exact error shape, with the proven native Retry control, can enter automatic assistant Retry recovery.
 
+## Atomic reload contract
+
+Whole-tab reload is deliberately atomic and bounded:
+
+1. the worker verifies that the latest triggering user turn is Bridge-owned;
+2. a non-empty composer blocks automatic recovery so an operator draft is never discarded;
+3. the recovery episode is keyed by conversation URL, binding revision, generation and recovery kind;
+4. the worker persists `reloadReservedAt` before calling `chrome.tabs.reload()`;
+5. a repeated wake or MV3 service-worker restart cannot reserve a second reload for the same episode;
+6. a clean preflight retires the recovery episode, while add/rebind/delete and relevant conversation-setting changes clear stale recovery storage.
+
+Automatic `Continue.` and reload are action-gated by ownership. A manually authored user turn can still be diagnosed as interrupted or stalled, but Chat Bridge does not continue or reload that turn automatically.
+
 ## Fail-closed rules
 
-Classification requires both the captured text and its captured structural container. Merely quoting either status text in a normal assistant answer must not classify the conversation.
+Classification of the captured states requires both the captured text and its captured structural container. Merely quoting either status text in a normal assistant answer must not classify the conversation.
+
+Generic `stalled` requires all of the following at the same time: a visible active-generation Stop control, a stable latest assistant progress fingerprint for the full stall window, no recognized captured transient status and no recoverable native delivery-timeout card. Any assistant progress, generation end or recognized transient state resets the generic stall timer.
 
 The optional faster-model action is explicitly outside the recovery contract because it changes model/capability rather than retrying the same transport operation.
 
@@ -48,8 +68,14 @@ If ChatGPT changes these structures, the detector should fail closed to the exis
 The candidate must prove:
 
 1. both captured transient states are recognized;
-2. neither state is treated as `message_delivery_timeout`;
-3. no new Bridge wake is submitted while either state is present;
-4. no assistant-recovery Retry kick is issued for either state;
-5. normal wake delivery resumes after the transient state disappears;
-6. existing timeout recovery and browser smoke remain green.
+2. neither captured state is treated as `message_delivery_timeout`;
+3. `extended_thinking` remains wait-only and never clicks the faster-model action;
+4. `connection_interrupted` performs bounded `wait -> Continue. -> single reload` recovery only for Bridge-owned turns;
+5. a connection interruption that never becomes sendable may perform one atomic reload after the hard bound;
+6. a proven generic no-progress stall may perform one atomic reload only for a Bridge-owned turn;
+7. any assistant progress resets the generic stall timer;
+8. a non-empty composer prevents automatic reload;
+9. manual/unowned turns remain diagnostic-only;
+10. reload reservation survives repeated wakes and prevents refresh loops;
+11. normal wake delivery resumes and stale recovery state is retired after the transient state disappears;
+12. existing timeout recovery and browser smoke remain green.
