@@ -20,6 +20,15 @@ async function bounded(label, promise, timeoutMs = 15_000) {
   }
 }
 
+async function waitUntil(label, predicate, timeoutMs = 10_000, intervalMs = 100) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`${label} exceeded ${timeoutMs} ms`);
+}
+
 const fixture = `<!doctype html><html><body>
 <div data-message-author-role="assistant" data-message-id="old-answer">Previous answer</div>
 <div data-message-author-role="user" data-message-id="manual-user">Manual operator request</div>
@@ -106,10 +115,11 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await page.evaluate(() => window.submits), 0,
       "unresolved operator timeout must block a fresh Bridge wake");
 
-    await page.waitForFunction(async (chatId) => {
-      const response = await chrome.runtime.sendMessage({ type: "bridge:get-state" }).catch(() => null);
-      return response?.state?.conversations?.[chatId]?.lastStatus === "assistant_delivery_timeout_unowned";
-    }, added.conversation.id, { timeout: 10_000 });
+    await waitUntil("operator timeout diagnostic state", async () => {
+      const response = await request({ type: "bridge:get-state" });
+      return response?.state?.conversations?.[added.conversation.id]?.lastStatus ===
+        "assistant_delivery_timeout_unowned";
+    });
     await page.waitForTimeout(2500);
     assert.equal(await page.evaluate(() => window.retries), 0,
       "operator-authored timeout must never be clicked automatically");
