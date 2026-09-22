@@ -135,6 +135,34 @@ async function markAssistantRetryExhausted(conversation) {
   return true;
 }
 
+async function finalizeAssistantRetryAuthorization(conversation, payload, retryContext, sender, attempt) {
+  const result = await mutateState((current) => {
+    const latest = current.conversations[conversation.id];
+    if (
+      !latest ||
+      latest.url !== conversation.url ||
+      latest.bindingRevision !== retryContext.bindingRevision ||
+      latest.generation !== retryContext.generation
+    ) {
+      return { state: current, value: { ok: false, reason: "assistant_retry_stale_context" } };
+    }
+    if (!Number.isInteger(latest.preferredTabId) || latest.preferredTabId !== sender?.tab?.id) {
+      return { state: current, value: { ok: false, reason: "assistant_error_wrong_tab" } };
+    }
+    if (!current.settings.masterEnabled || !latest.enabled) {
+      return { state: current, value: { ok: false, reason: "assistant_retry_cancelled" } };
+    }
+    if (!bridgeOwnsAssistantError(latest, payload)) {
+      return { state: current, value: { ok: false, reason: "assistant_retry_not_bridge_owned" } };
+    }
+    const updated = stateModel.patchConversation(current, conversation.id, {
+      lastStatus: `assistant_retry_${attempt}`
+    });
+    return { state: updated.state, value: { ok: true } };
+  });
+  return result.value || { ok: false, reason: "assistant_retry_stale_context" };
+}
+
 async function reportAssistantError(message, sender) {
   const payload = normalizeAssistantErrorPayload(message);
   if (!payload) return { ok: false, reason: "assistant_error_invalid" };
@@ -222,11 +250,16 @@ async function authorizeAssistantRetry(message, sender) {
     return { ok: false, reason: "assistant_retry_exhausted", retryLimit: ASSISTANT_ERROR_RETRY_LIMIT };
   }
 
-  await updateConversationStatus(
-    conversation.id,
-    { lastStatus: `assistant_retry_${attempt}` },
-    conversation.generation
+  const finalized = await finalizeAssistantRetryAuthorization(
+    conversation,
+    payload,
+    retryContext,
+    sender,
+    attempt
   );
+  if (!finalized.ok) {
+    return { ...finalized, attempt, retryLimit: ASSISTANT_ERROR_RETRY_LIMIT };
+  }
   return {
     ok: true,
     reason: "assistant_retry_authorized",
