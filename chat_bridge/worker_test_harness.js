@@ -14,7 +14,7 @@ const bindingFor = (repositoryId) => {
 const MATRIX_BINDING = bindingFor("matrixhub");
 const TRACKER_BINDING = bindingFor("tracker");
 const LOCAL_AGENT_BINDING = bindingFor("local-agent");
-const EXHAUSTION_GUARD_VERSION = 4;
+const EXHAUSTION_GUARD_VERSION = 5;
 
 const storage = options.storage || {};
 const alarms = new Map();
@@ -22,6 +22,7 @@ const sentMessages = [];
 const tabMessages = [];
 const injectedScripts = [];
 const runtimeReloads = [];
+const tabReloads = [];
 const runtimeMessageListeners = [];
 const alarmListeners = [];
 const installedListeners = [];
@@ -68,6 +69,11 @@ const chrome = {
     async query() {
       return clone(tabs);
     },
+    async reload(tabId) {
+      tabReloads.push(tabId);
+      if (options.reloadTab) return options.reloadTab(tabId);
+      return undefined;
+    },
     async sendMessage(tabId, message) {
       tabMessages.push({ tabId, message: clone(message) });
       if (message.type === "bridge:capabilities") {
@@ -86,7 +92,11 @@ const chrome = {
           guardVersion: EXHAUSTION_GUARD_VERSION,
           recoverableAssistantError: false,
           assistantGenerating: false,
-          assistantTransientState: ""
+          assistantTransientState: "",
+          assistantTransientSignature: "",
+          assistantTransientUserIdentity: "",
+          assistantTransientUserText: "",
+          composerOccupied: false
         };
       }
       if (message.type !== "bridge:feedback") {
@@ -203,7 +213,7 @@ async function sendRuntimeMessage(message, sender = { id: chrome.runtime.id, url
   });
 }
 
-return { storage, alarms, sentMessages, tabMessages, injectedScripts, runtimeReloads, tabs, chrome, context, sendRuntimeMessage,
+return { storage, alarms, sentMessages, tabMessages, injectedScripts, runtimeReloads, tabReloads, tabs, chrome, context, sendRuntimeMessage,
   MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING, runtimeAgents, CONTENT_PROTOCOL_VERSION,
   EXHAUSTION_GUARD_VERSION,
   evaluate: (source) => vm.runInContext(source, context),
