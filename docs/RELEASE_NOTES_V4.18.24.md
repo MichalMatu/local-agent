@@ -17,10 +17,11 @@ Chat Bridge 0.5.10 therefore:
 - refuses to adopt a retained pre-bootstrap timeout into a fresh binding lifecycle;
 - requires the reporting tab to be the configured conversation's exact preferred delivery tab;
 - revalidates binding revision and conversation generation between error report and Retry authorization;
+- revalidates lifecycle/tab/Master/enabled/ownership state again after durable attempt reservation and before authorizing the browser click;
 - fences terminal retry exhaustion by both binding revision and conversation generation;
 - clicks ChatGPT's existing Retry control rather than inserting a new user prompt;
 - persists a bounded three-attempt retry budget in Chrome local storage with 1.5 s, 5 s and 15 s delays;
-- survives MV3 service-worker restart without resetting the retry budget;
+- survives MV3 service-worker restart and full ChatGPT page rehydration without resetting the retry budget for the same transcript turn;
 - clears stale retry history across rebind/remove/re-add lifecycle boundaries;
 - disables only the affected conversation and clears its alarm after the third unresolved Retry.
 
@@ -42,7 +43,7 @@ Worker activation now probes both normal content and the assistant guard for alr
 
 ## Verification
 
-Focused tests cover captured-DOM recognition, stale-card rejection, operator-owned negative cases, duplicate-tab rejection, Master/disabled-chat cancellation, binding/generation races, stale-generation exhaustion rejection, fresh-bootstrap lifecycle boundaries, durable retry accounting, worker restart persistence, lifecycle reset, stale-guard refresh, wake gating and fail-closed exhaustion.
+Focused tests cover captured-DOM recognition, stale-card rejection, operator-owned negative cases, duplicate-tab rejection, Master/disabled-chat cancellation, binding/generation races, authorization TOCTOU rejection after durable reservation, stale-generation exhaustion rejection, fresh-bootstrap lifecycle boundaries, durable retry accounting, worker restart persistence, lifecycle reset, stale-guard refresh, wake gating and fail-closed exhaustion.
 
 Isolated Chromium smoke loads the real unpacked extension in an offline disposable profile. It verifies:
 
@@ -51,7 +52,8 @@ Isolated Chromium smoke loads the real unpacked extension in an offline disposab
 - stale timeout cards behind newer turns are ignored;
 - the same timeout node can remain through a generation longer than eight seconds;
 - exactly three bounded Retry clicks occur before fail-closed exhaustion when the error never resolves;
-- a timeout after a normal operator-authored message is diagnostic-only, never auto-clicked, blocks overlapping `Run now`, and allows normal wake delivery again after the stale error card is gone.
+- a timeout after a normal operator-authored message is diagnostic-only, never auto-clicked, blocks overlapping `Run now`, and allows normal wake delivery again after the stale error card is gone;
+- a full page reload after retry attempt one preserves the same transcript-turn retry identity, resumes at attempt two and still submits the original Bridge user message only once.
 
 The full pre-live matrix is recorded in `docs/superchat/DELIVERY_TIMEOUT_PRELIVE_AUDIT.md`; the final second-pass review is recorded in `docs/superchat/DELIVERY_TIMEOUT_REAUDIT.md`.
 
