@@ -2,7 +2,7 @@
 
 ## Summary
 
-Prepare Chat Bridge 0.5.10 to recover a captured ChatGPT assistant-side `Message delivery timed out. Please try again.` failure without duplicating the already-accepted Bridge user message.
+Release Chat Bridge 0.5.10 to recover a captured ChatGPT assistant-side `Message delivery timed out. Please try again.` failure without duplicating the already-accepted Bridge user message.
 
 The recovery path is intentionally browser-only. Local Agent executor, repository admission, task schema, hard-binding schema, resource scheduling, supervisor process lifecycle and daemon behavior are unchanged.
 
@@ -59,6 +59,6 @@ The full pre-live matrix is recorded in `docs/superchat/DELIVERY_TIMEOUT_PRELIVE
 
 ## Release boundary
 
-These notes describe the prepared 4.18.24 candidate. They do not by themselves advance production `main`, change the installed operator extension or restart the Local Agent daemon.
+The operator explicitly opened the Local Agent restart window after the exact candidate recovery suite had passed. Release metadata is therefore finalized as 4.18.24 before advancing `main`.
 
-Release acceptance requires one exact final candidate SHA with all CI jobs green, the isolated browser resilience smoke green, a final `main...candidate` architecture/diff review, and one controlled live ChatGPT browser smoke against the candidate before the explicit production release decision.
+After `main` advances, the installed Local Agent may self-update and restart through its normal validated fast-forward path. Post-update verification must confirm release/revision health, then reload the installed Chat Bridge and perform one controlled live ChatGPT timeout/Retry smoke when practical.
