@@ -21,19 +21,26 @@ function normalizeAssistantTransientReport(message) {
   };
 }
 
+function assistantTransientConversationForSender(state, message, sender) {
+  const conversation = conversationForSender(state, message, sender);
+  if (!conversation) return { conversation: null, reason: "conversation_not_found" };
+  if (
+    Number.isInteger(conversation.preferredTabId) &&
+    conversation.preferredTabId !== sender?.tab?.id
+  ) {
+    return { conversation: null, reason: "assistant_transient_wrong_tab" };
+  }
+  return { conversation, reason: null };
+}
+
 async function reportAssistantTransientState(message, sender) {
   const report = normalizeAssistantTransientReport(message);
   if (!report) return { ok: false, reason: "assistant_transient_invalid" };
 
   const state = await getBridgeState();
-  const conversation = conversationForSender(state, message, sender);
-  if (!conversation) return { ok: false, reason: "conversation_not_found" };
-  if (
-    Number.isInteger(conversation.preferredTabId) &&
-    conversation.preferredTabId !== sender?.tab?.id
-  ) {
-    return { ok: false, reason: "assistant_transient_wrong_tab" };
-  }
+  const resolved = assistantTransientConversationForSender(state, message, sender);
+  if (!resolved.conversation) return { ok: false, reason: resolved.reason };
+  const conversation = resolved.conversation;
   if (!state.settings.masterEnabled || !conversation.enabled || !stateModel.isBoundConversation(conversation)) {
     return { ok: false, reason: "assistant_transient_disabled" };
   }
@@ -73,5 +80,16 @@ async function reportAssistantTransientState(message, sender) {
       "assistant_stalled_after_reload",
       "assistant_tab_reload_failed"
     ].includes(status)
+  };
+}
+
+async function clearAssistantTransientState(message, sender) {
+  const state = await getBridgeState();
+  const resolved = assistantTransientConversationForSender(state, message, sender);
+  if (!resolved.conversation) return { ok: false, reason: resolved.reason };
+  const cleared = await clearAssistantTransientRecovery(resolved.conversation.id);
+  return {
+    ok: true,
+    reason: cleared ? "assistant_transient_cleared" : "assistant_transient_already_clear"
   };
 }
