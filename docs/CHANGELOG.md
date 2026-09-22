@@ -2,6 +2,14 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.24
+
+- Released Chat Bridge 0.5.10 recovery for ChatGPT assistant-side `Message delivery timed out. Please try again.` failures by using the native Retry control instead of resubmitting the accepted user prompt.
+- Restricted automatic recovery to Bridge-owned prompts in the exact preferred tab with unchanged binding/generation, fresh-bootstrap ownership and final post-reservation lifecycle revalidation.
+- Added durable three-attempt recovery accounting, unresolved-timeout wake gating, stale lifecycle cleanup and fail-closed exhaustion while leaving Local Agent daemon/executor/scheduler behavior unchanged.
+- Added isolated real-extension Chromium coverage for one-retry recovery, stale cards, >8 s same-node generation, three-attempt exhaustion, operator-authored timeout non-recovery and full page-reload continuation without duplicate submission.
+- Advanced only the browser extension from 0.5.9 to 0.5.10; ordinary content protocol remains v7 and the assistant error/exhaustion guard uses protocol v3. See `RELEASE_NOTES_V4.18.24.md`.
+
 ## v4.18.23
 
 - Onboarded `MichalMatu/host-ops` as a canonical execution-enabled hard-bound repository with immutable binding `16d688b6-b0ef-4905-a5bd-24e59c99cfb4`.
@@ -60,7 +68,7 @@ This changelog records operationally relevant Local Agent releases. The release 
 
 - Hardened Chat Bridge delivery with content protocol v4 / extension 0.5.5: stale reachable content scripts are reinjected automatically, unconfirmed Bridge-owned prompts remain visible, and exact retained prompts can be reused only when untouched by the operator.
 - Replaced the assistant-control scanner's fixed three-failure give-up with a pure bounded 5-30 second retry policy that never terminally exhausts for unchanged assistant content.
-- Preserved explicit `NEXT=30s` protocol compatibility while changing autonomous healthy-task pacing to no sooner than about two minutes for early liveness checks and normally 5-10 minutes for multi-minute builds/tests.
+- Preserved explicit `NEXT=30s` protocol compatibility while changing autonomous healthy-task pacing to no sooner than about two minutes for early liveness checks and normally 5-10 minute `NEXT` pacing unless exact evidence supports a nearer completion.
 - Directed the planner to use existing repository-scoped `cancel_task` when exact run/status evidence already proves the active task cannot succeed; executor ownership and Browser Bridge authority remain unchanged.
 - Added protocol/injection, retry, pacing and isolated Chromium regressions, including direct proof that an unconfirmed Bridge prompt stays visible and operator edits block automatic reuse. See `RELEASE_NOTES_V4.18.16.md`.
 
