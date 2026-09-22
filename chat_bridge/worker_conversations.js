@@ -5,6 +5,7 @@ async function saveGlobalSettings(patch) {
     for (const conversation of Object.values(state.conversations)) conversation.generation += 1;
     return state;
   });
+  await Promise.all(Object.keys(result.state.conversations || {}).map(clearAssistantTransientRecovery));
   await reconcileSchedules();
   return result.state;
 }
@@ -43,7 +44,10 @@ async function upsertConversation(patch) {
     }
     return { state: upserted.state, conversation: upserted.conversation };
   });
-  if (!existing) await clearAssistantErrorRecovery(result.conversation.id);
+  if (!existing) {
+    await clearAssistantErrorRecovery(result.conversation.id);
+    await clearAssistantTransientRecovery(result.conversation.id);
+  }
   if (result.conversation?.enabled) {
     await scheduleDefault(result.conversation.id, true, result.conversation.generation);
   }
@@ -80,6 +84,7 @@ async function rebindConversation(chatId, patch) {
     return { state: updated.state, conversation: updated.conversation };
   });
   await clearAssistantErrorRecovery(chatId);
+  await clearAssistantTransientRecovery(chatId);
   await scheduleDefault(chatId, true, result.conversation.generation);
   return result.conversation;
 }
@@ -113,6 +118,9 @@ async function updateConversation(chatId, patch) {
     };
   });
 
+  if (result.value?.enabledChanged || result.value?.pacingChanged) {
+    await clearAssistantTransientRecovery(chatId);
+  }
   if (!result.conversation?.enabled) {
     await clearConversationAlarm(chatId, result.conversation?.generation ?? null);
   } else if (result.value?.enabledChanged) {
@@ -132,5 +140,6 @@ async function deleteConversation(chatId) {
     return stateModel.removeConversation(state, chatId);
   });
   await clearAssistantErrorRecovery(chatId);
+  await clearAssistantTransientRecovery(chatId);
   return result.state;
 }
