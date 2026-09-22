@@ -14,7 +14,7 @@ const bindingFor = (repositoryId) => {
 const MATRIX_BINDING = bindingFor("matrixhub");
 const TRACKER_BINDING = bindingFor("tracker");
 const LOCAL_AGENT_BINDING = bindingFor("local-agent");
-const EXHAUSTION_GUARD_VERSION = 3;
+const EXHAUSTION_GUARD_VERSION = 4;
 
 const storage = options.storage || {};
 const alarms = new Map();
@@ -85,7 +85,8 @@ const chrome = {
           reason: "ready",
           guardVersion: EXHAUSTION_GUARD_VERSION,
           recoverableAssistantError: false,
-          assistantGenerating: false
+          assistantGenerating: false,
+          assistantTransientState: ""
         };
       }
       if (message.type !== "bridge:feedback") {
