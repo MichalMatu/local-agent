@@ -1,0 +1,179 @@
+async function controlContext(message, sender) {
+  const state = await getBridgeState();
+  const conversation = conversationForSender(state, message, sender);
+  if (!stateModel.isBoundConversation(conversation)) {
+    return { ok: false, reason: "control_not_ready" };
+  }
+  return {
+    ok: true,
+    bindingRevision: conversation.bindingRevision,
+    assistantBaseline: conversation.assistantBaseline,
+    bootstrapPending: conversation.bootstrapPending
+  };
+}
+
+function validControlFingerprint(message) {
+  const fingerprint = String(message.fingerprint || "");
+  if (!/^[0-9a-f]{8}$/.test(fingerprint)) return "";
+  return fingerprint;
+}
+
+async function rememberMaintenanceControl(message, sender, parsed) {
+  const fingerprint = validControlFingerprint(message);
+  if (!fingerprint) return { ok: false, reason: "control_invalid_fingerprint" };
+  const result = await mutateState((state) => {
+    const conversation = conversationForSender(state, message, sender);
+    if (!conversation || !stateModel.isBoundConversation(conversation)) {
+      return { state, value: { ok: false, reason: "control_unbound_conversation" } };
+    }
+    const freshBindingControlsAllowed = conversation.bootstrapPending && conversation.bindingRevision === 1;
+    if (message.bindingRevision !== conversation.bindingRevision ||
+        (conversation.bootstrapPending && !freshBindingControlsAllowed) ||
+        (conversation.assistantBaseline && message.assistantIdentity === conversation.assistantBaseline)) {
+      return { state, value: { ok: false, reason: "control_stale_binding" } };
+    }
+    if (conversation.lastControlFingerprint === fingerprint) {
+      return { state, value: { ok: true, reason: "control_duplicate", duplicate: true } };
+    }
+    conversation.lastControlFingerprint = fingerprint;
+    conversation.lastControlAction = parsed.marker;
+    conversation.lastControlAt = new Date().toISOString();
+    conversation.lastStatus = `${parsed.command}_by_assistant`;
+    return {
+      state,
+      value: {
+        ok: true,
+        conversationId: conversation.id,
+        bindingRevision: conversation.bindingRevision
+      }
+    };
+  });
+  return result.value;
+}
+
+async function applyAssistantControl(message, sender) {
+  const parsed = parseAssistantControl(String(message.control?.marker || ""));
+  if (!parsed) return { ok: false, reason: "control_invalid_marker" };
+  const fingerprint = validControlFingerprint(message);
+  if (!fingerprint) return { ok: false, reason: "control_invalid_fingerprint" };
+
+  if (parsed.action === "inspect") {
+    return labInspectionFeedback(parsed, message, sender);
+  }
+
+  if (parsed.action === "maintenance") {
+    const remembered = await rememberMaintenanceControl(message, sender, parsed);
+    if (!remembered.ok || remembered.duplicate) return remembered;
+    const result = await labAssistantMaintenance(parsed, message, sender);
+    if (result.reloadBridge) {
+      setTimeout(() => chrome.runtime.reload(), 100);
+    }
+    return result;
+  }
+
+  const result = await mutateState((state) => {
+    const conversation = conversationForSender(state, message, sender);
+    if (!conversation) return { state, value: { ok: false, reason: "control_wrong_conversation" } };
+    if (!stateModel.isBoundConversation(conversation)) {
+      return { state, value: { ok: false, reason: "control_unbound_conversation" } };
+    }
+    const freshBindingControlsAllowed = conversation.bootstrapPending && conversation.bindingRevision === 1;
+    if (message.bindingRevision !== conversation.bindingRevision ||
+        (conversation.bootstrapPending && !freshBindingControlsAllowed) ||
+        (conversation.assistantBaseline && message.assistantIdentity === conversation.assistantBaseline)) {
+      return { state, value: { ok: false, reason: "control_stale_binding" } };
+    }
+    if (conversation.lastControlFingerprint === fingerprint) {
+      return { state, value: { ok: true, reason: "control_duplicate", duplicate: true } };
+    }
+
+    Object.assign(conversation, {
+      lastControlFingerprint: fingerprint,
+      lastControlAction: parsed.marker,
+      lastControlAt: new Date().toISOString(),
+      generation: conversation.generation + 1
+    });
+    const value = { ok: true, conversationId: conversation.id, generation: conversation.generation };
+
+    if (parsed.action === "stop" || parsed.action === "pause") {
+      conversation.enabled = false;
+      conversation.nextRunAt = null;
+      if (parsed.action === "stop") conversation.intervalOverrideMinutes = null;
+      conversation.lastStatus = parsed.action === "stop" ? "stopped_by_assistant" : "paused_by_assistant";
+      value.reason = parsed.action === "stop" ? "stopped" : "paused";
+    } else if (parsed.action === "resume") {
+      conversation.enabled = true;
+      conversation.lastStatus = "resumed_by_assistant";
+      value.reason = "resumed";
+    } else if (parsed.action === "wait_task") {
+      conversation.enabled = true;
+      conversation.lastStatus = `waiting_task:${parsed.taskId}`;
+      value.reason = "waiting_task";
+      value.taskId = parsed.taskId;
+    } else if (parsed.action === "interval") {
+      conversation.intervalOverrideMinutes = parsed.mode === "auto" ? null : parsed.minutes;
+      conversation.lastStatus = parsed.mode === "auto"
+        ? "interval_auto_by_assistant"
+        : `interval_${parsed.minutes}_by_assistant`;
+      value.reason = parsed.mode === "auto" ? "interval_auto" : "interval_fixed";
+      if (parsed.mode === "fixed") value.minutes = parsed.minutes;
+    } else if (parsed.action === "next") {
+      conversation.enabled = true;
+      conversation.lastStatus = `next_${parsed.seconds}s_by_assistant`;
+      value.reason = state.settings.masterEnabled ? "next_scheduled" : "next_armed_master_disabled";
+      value.armed = true;
+      value.seconds = parsed.seconds;
+    }
+    return { state, value };
+  });
+
+  const value = result.value;
+  if (!value.ok || value.duplicate) return value;
+
+  if (parsed.action === "stop") {
+    await clearTaskWatch(value.conversationId);
+    await clearConversationAlarm(value.conversationId, value.generation);
+    await reconcileNativeEventTransport();
+    return value;
+  }
+  if (parsed.action === "pause") {
+    await clearConversationAlarm(value.conversationId, value.generation);
+    await reconcileNativeEventTransport();
+    return value;
+  }
+  if (parsed.action === "wait_task") {
+    const latestState = await getBridgeState();
+    const conversation = latestState.conversations[value.conversationId];
+    const watch = await registerTaskWatch(conversation, parsed.taskId);
+    if (!watch?.ok) {
+      await updateConversationStatus(value.conversationId, {
+        lastStatus: String(watch?.reason || "task_watch_failed")
+      });
+      await scheduleDefault(value.conversationId, false, value.generation);
+      await reconcileNativeEventTransport();
+      return { ...value, ...watch, ok: false, fallbackScheduled: true };
+    }
+    if (watch.matchedRecentEvent) {
+      await scheduleAt(value.conversationId, Date.now() + 1000, value.generation);
+      await reconcileNativeEventTransport();
+      return { ...value, ...watch, reason: "task_result_already_ready" };
+    }
+    await scheduleDefault(value.conversationId, false, value.generation);
+    await reconcileNativeEventTransport();
+    return { ...value, ...watch };
+  }
+  if (parsed.action === "next") {
+    await scheduleAt(value.conversationId, Date.now() + parsed.seconds * 1000, value.generation);
+    await reconcileNativeEventTransport();
+    return value;
+  }
+
+  const pending = await pendingEventWake(value.conversationId);
+  if (pending) {
+    await scheduleAt(value.conversationId, Date.now() + 1000, value.generation);
+  } else {
+    await scheduleDefault(value.conversationId, parsed.action === "resume", value.generation);
+  }
+  await reconcileNativeEventTransport();
+  return value;
+}

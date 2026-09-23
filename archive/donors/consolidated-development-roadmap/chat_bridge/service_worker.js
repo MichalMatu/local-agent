@@ -1,0 +1,14 @@
+importScripts(
+  "worker_base.js",
+  "worker_state.js",
+  "worker_runtime.js",
+  "worker_binding.js",
+  "worker_schedule.js",
+  "worker_transport.js",
+  "worker_controls.js",
+  "worker_delivery.js",
+  "worker_assistant_errors.js",
+  "worker_conversations.js",
+  "worker_lab_commands.js",
+  "worker_events.js"
+);

@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "local-agent",
+      "repository": "MichalMatu/local-agent",
+      "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+      "execution_enabled": false
+    },
+    {
+      "id": "litegraph",
+      "repository": "MichalMatu/esp32s3_LiteGraph",
+      "agent_binding": "2db52048-57ea-4643-bf4b-1ea5c5c3fa86",
+      "execution_enabled": true
+    },
+    {
+      "id": "growbox-ml-controller",
+      "repository": "MichalMatu/growbox-ml-controller",
+      "agent_binding": "815cf40f-8d2a-4e1f-b7cc-c0f4e37b6cb5",
+      "execution_enabled": true
+    },
+    {
+      "id": "matrixhub",
+      "repository": "MichalMatu/MatrixHub",
+      "agent_binding": "033327ab-700d-43b4-9b3b-caff1acaa2c7",
+      "execution_enabled": true
+    },
+    {
+      "id": "tracker",
+      "repository": "MichalMatu/tracker",
+      "agent_binding": "be481b25-9d97-4205-b93f-95f5c5827441",
+      "execution_enabled": true
+    },
+    {
+      "id": "local-climate-link-starter",
+      "repository": "MichalMatu/local-climate-link-starter",
+      "agent_binding": "e75c77cb-7589-4452-94b2-decc97ff85a1",
+      "execution_enabled": true
+    },
+    {
+      "id": "photomaps",
+      "repository": "MichalMatu/PhotoMaps",
+      "agent_binding": "2e5d59f8-f6e4-4d75-8d1a-dce7b6bf6607",
+      "execution_enabled": true
+    },
+    {
+      "id": "android-ai-call-bridge",
+      "repository": "MichalMatu/android-ai-call-bridge",
+      "agent_binding": "c25f88c0-4682-414c-8062-c47fa4034cb0",
+      "execution_enabled": true
+    }
+  ]
+}
