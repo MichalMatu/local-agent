@@ -6,6 +6,7 @@ on:
       - main
       - 'v*-staging'
       - 'work/**'
+      - 'develop/**'
   pull_request:
 
 permissions:
