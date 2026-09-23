@@ -41,4 +41,6 @@ A campaign may contain 44 logical child requests, but v1 must use bounded active
 
 The parent keeps a compact ledger and global finding index. Each child receives only its bounded scope plus declared/relevant dependencies and returns a bounded structured terminal record with exact evidence references.
 
+The transplanted workflow contract currently bounds a workflow to 64 nodes and direct `depends_on` fan-in to 16. A 44-step campaign therefore must not build one naive 44-way dependency edge. Use the parent ledger for campaign-wide synthesis or bounded hierarchical barriers. Keep the verified fan-in bound unless profiling or a concrete workflow requirement justifies changing it.
+
 Same-repository Local Agent execution remains serialized. Different registered repositories may execute concurrently under the existing scheduler invariants.
