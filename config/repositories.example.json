@@ -13,8 +13,8 @@
       "agent_binding": "033327ab-700d-43b4-9b3b-caff1acaa2c7"
     },
     {
-      "id": "android-ai-call-bridge",
-      "repository": "MichalMatu/android-ai-call-bridge",
+      "id": "ai-calls",
+      "repository": "MichalMatu/ai-calls",
       "agent_binding": "c25f88c0-4682-414c-8062-c47fa4034cb0"
     }
   ]
