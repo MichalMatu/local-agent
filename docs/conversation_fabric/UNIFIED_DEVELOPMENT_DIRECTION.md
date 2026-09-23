@@ -1,288 +1,288 @@
 # Unified development direction — Conversation Fabric
 
-Status: canonical development direction for `develop/conversation-fabric`.
+Status: canonical architecture for `develop/conversation-fabric` after branch consolidation and re-audit on 2026-09-23.
 
-Production remains `main`. Operational branches `chat-bridge-state` and `operator-control` remain separate because they are runtime/control state, not source-development lines.
+Production remains `main@474000b5d4b015958fe92be491968dc4625b4a84` until an explicit release decision. Operational state/control branches remain `chat-bridge-state` and `operator-control`.
 
-The seven former development branches are now donors only. No new product work should start on them. They must not be deleted until the assets listed below are transplanted and verified on this branch.
+## 1. Verdict
 
-## 1. Product problem
+The direction is coherent and technically feasible.
 
-The concrete motivating workload is a long campaign such as a **44-node code audit**.
+The product should not become another autonomous executor. ChatGPT remains the reasoning/planning layer. Local Agent remains deterministic execution/control infrastructure. Conversation Fabric adds durable parent/child reasoning orchestration and bounded context composition on top of the existing execution model.
 
-Today one ChatGPT conversation performs node #1, appends a long report, then #2, #3, ... #44. The parent conversation accumulates every prior detailed result, tool trace and discussion even though node #27 normally needs only:
+The key feasibility result is that most difficult execution primitives already exist:
 
-- the campaign contract/rubric;
-- exact repository/ref;
-- the one node/module being audited;
-- a small set of cross-cutting findings relevant to that node;
-- the durable ledger state needed to allocate finding IDs;
-- required output/evidence format.
+- exact repository identity and immutable `agent_binding` checks;
+- deterministic task identity/digest;
+- durable workflow DAG/state/revisions/evidence;
+- exact child task publication and cancellation;
+- restart reconciliation and fail-closed ambiguity handling;
+- per-repository execution leases;
+- bounded transient Chat Bridge recovery;
+- durable task-result event outbox and notification-only native transport substrate.
 
-The result is unnecessary context growth, slower reasoning, increasing drift, and eventual loss of useful working context.
+The largest unproven dependency is browser child creation/registration. It is intentionally isolated behind a synthetic feasibility gate and a manual-attach fallback.
 
-Conversation Fabric should make this workload first-class:
+## 2. Concrete product problem
+
+The motivating workload is a long campaign such as a 44-node code audit.
+
+A single chat doing node 1 through node 44 accumulates all previous reports and tool history even when later nodes need only a small subset of earlier facts. Conversation Fabric should instead operate as:
 
 ```text
-parent campaign chat
-    |
-    +--> child 01: audit node 01
-    +--> child 02: audit node 02
-    +--> ...
-    +--> child 44: audit node 44
-    |
-    v
-compact durable ledger + cross-cutting synthesis
+parent campaign
+  -> durable bounded work ledger
+  -> child request 01 -> bounded child context -> compact terminal record
+  -> child request 02 -> bounded child context -> compact terminal record
+  -> ...
+  -> child request 44 -> bounded child context -> compact terminal record
+  -> parent cross-cutting synthesis
 ```
 
-The parent coordinates. Children do bounded work. Full child transcripts are not re-injected into the parent.
+The parent must never receive complete child transcripts by default.
 
-## 2. Parent/child contract for the 44-node case
+## 3. Context-budget contract
 
-### Parent owns
+The parent owns:
 
-- immutable campaign goal and audit rubric;
-- ordered work list (44 nodes);
-- dependency/DAG state;
-- finding-ID namespace and compact finding index;
-- small cross-cutting facts that later children actually need;
-- exact branch/commit/evidence references;
-- integration/final synthesis.
+- immutable campaign goal/rubric;
+- work DAG and state;
+- finding-ID namespace and compact global finding index;
+- dependency/relevance metadata;
+- exact evidence references;
+- final integration/synthesis.
 
-### Each child receives only
+Each child receives only:
 
-- child request id + deterministic digest;
-- parent/campaign id;
-- exact repository, branch/ref and binding;
-- one bounded node/module scope;
-- audit rubric;
-- relevant prior cross-cutting findings, selected by dependency/relevance rather than transcript history;
-- expected structured result schema.
+- exact request id + canonical digest;
+- parent/campaign identity;
+- exact repository/ref/binding;
+- one bounded scope;
+- rubric/role;
+- explicitly selected dependencies/cross-cutting facts;
+- bounded output schema.
 
-### Each child returns only bounded planner evidence
-
-At minimum:
+Each child returns a bounded terminal record, conceptually:
 
 ```text
 status
 scope
 summary
-findings[]: id, severity, title, affected paths/symbols, recurrence links
+findings[]
 positive_guarantees[]
-tests_or_checks[]
-commits_or_exact_evidence[]
+checks[]
+evidence_refs[]
 followups[]
 context_for_later_children[]
 ```
 
-The terminal record must reference exact evidence. It must not paste full logs or the full conversation transcript.
+Raw logs, full transcripts and large diffs are referenced, not copied.
 
-For the sample campaign, the parent should need to retain roughly one compact row per completed node plus the global finding index, not 44 complete audit reports.
+Promotion of reusable child knowledge is explicit. Nothing enters later child context merely because it appeared earlier in a conversation.
 
-## 3. Execution model
+## 4. Bounded concurrency, not tab explosion
 
-Child **reasoning** may run in parallel when safe.
+Forty-four logical children do not mean forty-four simultaneously active tabs.
 
-Current Local Agent execution remains serialized per registered repository. A work branch is not a second executor lane. Conversation Fabric v1 must not weaken repository leases just to gain apparent parallelism.
+Conversation Fabric v1 requires separate limits for:
 
-A child may therefore analyze in parallel, prepare GitHub changes on an isolated branch when allowed, and queue exact Local Agent execution; actual same-repository Local Agent tasks remain serialized.
+- queued logical child requests;
+- active child conversations;
+- browser spawn transactions;
+- Local Agent execution.
 
-## 4. Durable lifecycle
+Browser spawn is serialized initially. Active child reasoning uses a small bounded window. Same-repository Local Agent tasks remain serialized by the existing repository lease. Different registered repositories may run concurrently under the existing supervisor.
 
-The product needs these distinct concepts:
+This preserves resource bounds and keeps recovery tractable.
 
-1. `ChildRequest` — immutable admitted work + digest.
-2. `ChildRegistration` — exact child ChatGPT conversation identity after creation/attach.
-3. Logical lifecycle — requested -> registration_pending -> active -> terminal_pending_evidence -> terminal_recorded -> retired.
-4. `child_checkpoint` — bounded non-terminal reasoning progress.
-5. `child_terminal` — bounded final planner evidence.
-6. Workflow/campaign state — parent-visible DAG/ledger, independent of Chrome tab identity.
-7. Attention event — non-authoritative notification that durable evidence changed and the correct planner may need waking.
+## 5. Durable identities and state ownership
 
-Chrome tab id and `chat-<fnv32>` are caches/routing hints only, never durable child identity.
+Required identities are distinct:
 
-## 5. Context isolation rules
+1. `Campaign/Workflow` identity.
+2. immutable `ChildRequest` id + canonical digest before any browser action;
+3. `ChildRegistration` resolving that exact request to one canonical ChatGPT `/c/<id>` URL;
+4. ephemeral Chrome tab id as cache only;
+5. deterministic Local Agent child task id/digest where execution is needed.
 
-The core feature is not merely opening more tabs. It is **bounded context composition**.
+A tab id or `chat-<fnv32>` hash is never durable authority.
 
-Before each child starts, build its context from durable structured records. Never construct it by copying the whole parent transcript.
+Logical child lifecycle and browser spawn lifecycle must be separate.
 
-Rules:
-
-- default-deny old child prose;
-- include only declared dependencies and relevant global findings;
-- cap summaries/findings/arrays by schema;
-- point to exact files/commits/results instead of embedding large evidence;
-- parent receives compact terminal records, not the child transcript;
-- re-open detailed evidence on demand;
-- if a child discovers a reusable fact, promote that fact explicitly to `context_for_later_children` / global finding state.
-
-This is the mechanism that prevents the 44-node campaign from killing the parent context window.
-
-## 6. One development branch
-
-Canonical development branch:
+Logical lifecycle:
 
 ```text
-develop/conversation-fabric
+requested
+-> registration_pending
+-> active
+-> terminal_pending_evidence
+-> terminal_recorded
+-> retired
 ```
 
-It currently starts from the latest transient-recovery development tree:
+Spawn transaction lifecycle:
 
 ```text
-fc4cb25da4c779daff87e93dedaa906363e3b49e
+pending
+-> tab_created
+-> bootstrap_submitting
+-> identity_discovered
+-> registration_submitting
+-> done
 ```
 
-That preserves the newest bounded Chat Bridge recovery work while keeping `main` unchanged.
+with explicit `failed` and `ambiguous` outcomes.
 
-No new work should continue independently on the seven donor branches.
+## 6. Existing Execution Fabric is the correct execution substrate
 
-## 7. Donor migration map
+The transplanted `local_agent/workflow/` core is retained and remains inert from production entrypoints.
 
-### Already absorbed by branch ancestry
+Its useful existing properties include:
 
-From:
+- bounded workflow size (currently up to 64 nodes, enough for the motivating 44-node campaign);
+- exact repository id + `agent_binding` validation;
+- coordinator-owned deterministic child task identity;
+- one workflow-owned dispatched/running child reserved per repository;
+- deferral when unrelated repository work exists;
+- remote-evidence reconciliation before publication;
+- recovery when publication succeeded but local state transition did not;
+- refusal to replay a dispatched/running child whose authoritative evidence disappeared;
+- digest mismatch fail-closed behavior.
 
-- `work/chat-bridge-live-chat-states`
-- `maintenance/transient-recovery-patch`
-- `work/transient-recovery-validation`
+Conversation Fabric should add reasoning-child identity/evidence around this substrate, not replace its execution semantics.
 
-Preserve the final tree only. Earlier two branches are historical checkpoints of the same line.
+## 7. Chat Bridge boundary
 
-Assets include recognition/recovery for connection interruption, extended thinking and proven no-progress stall; Bridge-owned bounded continuation/reload behavior; proactive reporting; reload reservation across MV3 restart; and the associated tests/audit.
+The latest transient/timeout recovery path is authoritative.
 
-### `feature/conversation-fabric-superchat`
+Do not copy old Event Wake worker/content/delivery files over it.
 
-Use its re-audit as design input, especially:
+Current safe Event Wake assets on the branch are:
 
-- same-repository Local Agent execution is serialized;
-- fresh child creation requires a separate pre-registration spawn transaction;
-- child identity is request+digest, then exact `/c/<id>`;
-- browser spawn state must not overload normal `bridgeState`;
-- manual attach is mandatory fallback;
-- child reasoning checkpoints are not executor `[AGENT_PROGRESS]`;
-- GitHub connector policy is not a technical capability sandbox.
+- durable Local Agent result-event outbox;
+- notification-only Chrome Native Messaging host;
+- pure persisted Event Wake state model + tests.
 
-The branch itself is superseded by this branch.
+`chat_bridge/event_wake_state.js` is intentionally not imported by the production service worker yet. This is not a half-enabled feature; it is an inert verified model waiting for explicit integration against current Bridge owners.
 
-### `feature/chat-bridge-event-wake`
+Future wake integration must retain:
 
-Verified donor code baseline:
+- scheduled reconciliation as correctness fallback;
+- transient/assistant-timeout recovery;
+- exact conversation/binding/task ownership;
+- event-as-hint semantics: the event is never success evidence.
+
+## 8. Child creation feasibility gate
+
+Existing Bridge delivery requires an already-known concrete conversation URL, so a fresh child cannot use normal delivery immediately.
+
+Implement a separate pre-registration spawn transaction:
 
 ```text
-8da2dd576fd2d5e076961886492f59c0164fdbf2
+persist exact ChildRequest/digest
+-> open one ChatGPT new-chat tab
+-> submit one deterministic bounded bootstrap
+-> verify accepted user marker
+-> observe transition to exact /c/<id>
+-> persist provisional identity
+-> durably register exact request -> child URL
+-> converge into normal bound-conversation delivery
 ```
 
-Preserve/selectively port:
+Highest-risk race: timeout after ChatGPT accepted the first prompt but before the exact URL was persisted.
 
-- durable `task_result_ready` outbox;
-- notification-only Native Messaging host;
-- exact WAIT_TASK ownership/routing;
-- durable pending wake/restart semantics;
-- scheduled reconciliation fallback;
-- event/restart/tamper tests and live evidence.
+Recovery must inspect the original tab/URL/marker before any retry. Ambiguous state fails closed to manual attach. It must never create a second child merely because acknowledgement was uncertain.
 
-Do **not** overwrite newer central Chat Bridge files wholesale. Port behavior into current owners and retain newer timeout/transient recovery.
+Manual attach is mandatory from v1.
 
-### `feature/openworker-governance`
+## 9. Native authority split
 
-Verified workflow code baseline:
+Keep the existing event host notification-only.
 
-```text
-09210f66972158a13da8646cce4db11f35d341c8
-```
+If automatic child registration survives the browser feasibility spike, use a separate narrowly typed registration protocol. Browser input may carry only identity-resolution data for an already-admitted request. It must not create tasks, choose repositories/branches, rebind authority, run shell commands, or mutate arbitrary Git paths.
 
-Preserve/selectively port:
+Repeated identical registration is idempotent. Conflicting URL/digest/generation fails closed.
 
-- isolated `local_agent/workflow/` contracts/state/store/revisions/coordinator;
-- deterministic workflow and child identities;
-- planner checkpoints and user gates;
-- exact Git-backed child publication and cancellation;
-- shared control-Git lock;
-- explicit one-cycle/manual workflow CLI;
-- disposable Git integration/recovery tests;
-- narrow self-protection/governance findings.
+## 10. Planner evidence vs executor evidence
 
-Do not wire an automatic production scheduler yet.
+Conversation reasoning progress is not `[AGENT_PROGRESS]`.
 
-### `plan/consolidated-development-roadmap`
+Add separate bounded append-only records:
 
-Its useful architecture decisions are folded into this direction. The planning branch itself is superseded.
+- `child_checkpoint` for meaningful planner progress only;
+- `child_terminal` for final bounded reasoning output/evidence references.
 
-## 8. Implementation order
+A model statement such as "tests passed" is not authoritative unless it references exact CI/task/result evidence.
 
-### Phase A — finish branch consolidation
+The parent wakes on meaningful durable transitions, not every heartbeat.
 
-- transplant Conversation Fabric contracts/design decisions;
-- transplant isolated verified Execution Fabric core + tests;
-- transplant isolated verified Event Wake substrate + tests;
-- reconcile central Chat Bridge integration against the newer transient/timeout recovery tree;
-- run full CI and exact browser tests;
-- only then mark old development branches safe to delete/close.
+## 11. Implementation order
 
-### Phase B — child contracts
+### Phase 1 — pure Conversation Fabric contracts
 
-Implement pure bounded `ChildRequest`, `ChildRegistration`, lifecycle, `child_checkpoint` and `child_terminal` schemas with deterministic digests and strong negative tests.
+Implement bounded schemas/digests/state transitions for:
 
-No production browser side effects yet.
+- `ChildRequest`;
+- `ChildRegistration`;
+- logical child lifecycle;
+- spawn transaction state;
+- `child_checkpoint`;
+- `child_terminal`.
 
-### Phase C — synthetic spawn/attach
+Add strong negative tests: malformed/oversized values, stale generations, duplicate/conflicting registration, cross-parent/binding mismatch, digest stability, invalid transitions.
 
-Prove on disposable Chromium fixture:
+No Chrome or production runtime effects.
 
-- blank ChatGPT page -> one bootstrap -> concrete `/c/<id>`;
-- persisted request before UI actuation;
-- uncertain-send recovery without duplicate child;
-- MV3 restart recovery;
-- serialized spawn;
-- manual attach fallback.
+### Phase 2 — synthetic Chromium spawn/attach proof
 
-### Phase D — campaign/workflow integration
+Prove exactly-once/recoverable child creation in a disposable synthetic ChatGPT fixture, including MV3 restart and uncertain first-send races. Prove manual attach.
 
-Connect child conversation state to the transplanted workflow/campaign substrate while preserving exact repository bindings and per-repository execution serialization.
+No production `SPAWN_CHILD` yet.
 
-### Phase E — unified attention events
+### Phase 3 — campaign/workflow integration
 
-Use one event transport for meaningful durable transitions:
+Bind registered reasoning children to workflow/campaign nodes while keeping Local Agent execution leases unchanged. Add compact parent ledger/projection and context selection.
 
-- project task terminal evidence -> exact project chat wake;
-- child terminal/checkpoint requiring parent action -> exact parent campaign chat wake;
-- workflow waiting_planner/failed/completed -> exact orchestration chat wake.
+### Phase 4 — current Bridge attention routing
 
-An event is never success evidence; the planner must read the referenced durable record.
+Integrate Event Wake behavior into current Bridge owners, not donor files. Route task/child/workflow attention to the exact owning conversation with durable reconciliation fallback.
 
-### Phase F — live 44-node acceptance test
+### Phase 5 — bounded live slice
 
-Use a real multi-node audit as the product acceptance workload.
+Run a small same-repository modular campaign first, then the real 44-node audit acceptance campaign. Measure context growth, recovery, integration conflicts, rework and result quality.
 
-Success criteria:
+### Phase 6 — automatic workflow scheduling only if needed
 
-- parent can allocate and recover all child jobs;
-- no child transcript is copied wholesale into parent;
-- parent context grows primarily with compact ledger state, not detailed reports;
-- one child failure/restart does not corrupt campaign state;
-- duplicate/uncertain child creation fails closed;
-- cross-cutting findings can be promoted once and selectively reused;
-- exact evidence remains inspectable;
-- final synthesis can cover all 44 nodes without replaying all 44 transcripts.
+Only after manual/end-to-end child lifecycle is stable, add a bounded supervisor trigger invoking existing workflow logic. Do not create a second worker pool or model loop.
 
-## 9. Branch deletion gate
+## 12. Hard invariants
 
-Do not delete any donor branch until all of these are true:
+- ChatGPT plans; Local Agent stays model-free.
+- `main` and operational branches are untouched until explicit release/migration.
+- project chats cannot gain orchestration authority from prompt markers.
+- child creation is not execution authority.
+- per-repository execution lease remains authoritative in v1.
+- interrupted/ambiguous execution is never blindly replayed.
+- browser state is cache/recovery state, not workflow truth.
+- no whole child transcript is injected into the parent by default.
+- all collections/payloads have explicit bounds.
+- one record family has one authority; avoid independently mutable duplicate truths.
+- Native Messaging authority stays minimal and typed.
+- browser ambiguity fails closed to manual recovery.
 
-1. every keep-worthy code asset is present on `develop/conversation-fabric` or explicitly rejected with a recorded reason;
-2. relevant donor tests are present and green or replaced by stronger current tests;
-3. important donor docs/evidence are copied or summarized into canonical current docs;
-4. no open PR is the sole remaining reference for a required asset;
-5. a final tree/commit comparison confirms no unaccounted unique implementation remains.
+## 13. Go/no-go criteria
 
-After that, the desired repository shape is:
+The direction remains GO if:
 
-```text
-main                         # production source
-chat-bridge-state            # live Bridge runtime state
-operator-control             # operator control state
-develop/conversation-fabric  # single coherent development direction
-```
+- pure contracts can be made deterministic and bounded;
+- synthetic browser tests can prove duplicate-safe spawn/attach or manual attach is acceptable;
+- current Bridge transient recovery stays green during attention integration;
+- parent context growth tracks compact ledger size rather than child transcript size.
 
-Everything else should be closed/deleted as superseded history after migration verification.
+Stop or redesign automatic spawning if exact child identity cannot be recovered deterministically after uncertain first-send/restart. Conversation Fabric can still proceed with manual attach because the durable workflow/context-isolation model does not depend on automatic tab creation.
+
+## 14. Historical material
+
+Deleted donor branches and old planning PRs are superseded. Their exact snapshots were captured in commit `fdf5d099df39788655f5b41325b8e769fc668981` and remain reachable in branch history. Superseded design documents are under `docs/conversation_fabric/history/`.
+
+Do not restore donor trees into the active working tree. Port only an explicitly audited behavior/test when current owners need it.
