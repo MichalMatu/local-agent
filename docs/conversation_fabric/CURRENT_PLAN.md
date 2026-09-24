@@ -50,7 +50,7 @@ synthetic/disposable repositories until an explicit later gate
 
 Development must never consume or mutate production `chat-bridge-state`, `operator-control`, task queues, repository control worktrees or runtime state merely because those resources exist.
 
-A second execution supervisor is not required for the current phases. Stage 3 intentionally keeps executor, remote control, real Chrome profile access and Native Messaging registration disabled in the DEV lab.
+A second execution supervisor is not required for the current phases. The DEV lab keeps executor, remote control, production Chrome profile access and Native Messaging registration disabled.
 
 ## Execution order
 
@@ -167,13 +167,9 @@ Evidence:
 - PR #92 merged to `develop/conversation-fabric` as `6d4e721ffb53dc85a8c4fb6f82632f244f184729`;
 - post-merge push CI for `develop/conversation-fabric@6d4e721ffb53dc85a8c4fb6f82632f244f184729` completed successfully.
 
-### Stage 7 — Bridge attention/event routing — IN PROGRESS
+### Stage 7 — Bridge attention/event routing — COMPLETE
 
-Current branch: `work/conversation-attention-routing` from verified `develop/conversation-fabric@6d4e721ffb53dc85a8c4fb6f82632f244f184729`.
-
-Current PR: #93 (draft until the final exact-head and post-merge gates complete).
-
-Implemented on the Stage 7 work branch:
+Implemented and verified:
 
 - exact `[LAB:WAIT_TASK=<task-id>]` attention watch for one Local Agent task result;
 - persistent `[LAB:WAIT_WORKFLOW=<workflow-id>]` subscription for durable Conversation Fabric child-terminal attention in the exact parent chat;
@@ -199,24 +195,76 @@ Hard Stage 7 boundaries preserved:
 - no mutation of `main`, `chat-bridge-state` or `operator-control`;
 - Conversation Fabric child-terminal emission remains explicit opt-in rather than silently targeting production state.
 
-Current evidence:
+Evidence:
 
 - task-attention intermediate head `9a53cd3b7d430815a3a72e7d19ba5040a393c2d4` passed all five CI jobs;
-- exact candidate head before this checkpoint update, `90a7cd4c9e8197f1591d6e1f7f14aacfb6ad5d1d`, passed test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
-- final diff review from Stage 6 baseline showed only Chat Bridge attention/transport, bounded event-envelope, opt-in conversation attention and tests; daemon/supervisor/executor entrypoints are untouched;
-- PR #93 has no unresolved review threads.
+- full Stage 7 code head `90a7cd4c9e8197f1591d6e1f7f14aacfb6ad5d1d` passed all five jobs;
+- final PR #93 head `04201d7d53c92d846e0201ebb41ccacdb7e087e5` passed all five jobs;
+- PR #93 merged to `develop/conversation-fabric` as `0ef3eef0d561da2a6817ea8a19987a864e5c97d4`;
+- post-merge `develop/conversation-fabric@0ef3eef0d561da2a6817ea8a19987a864e5c97d4` passed test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
+- final scope review confirmed daemon/supervisor/executor entrypoints remained untouched and no review threads were unresolved.
 
-Stage 7 exit criteria:
+### Stage 8 — bounded live slice — IN PROGRESS / PRE-LIVE READY
 
-- this canonical checkpoint update is included in PR #93;
-- final exact PR head passes test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
-- final PR diff confirms the hard Stage 7 boundaries above;
-- PR #93 is merged to `develop/conversation-fabric`;
-- the same five jobs pass on the post-merge develop SHA.
+Current branch: `work/conversation-live-slice` from verified `develop/conversation-fabric@0ef3eef0d561da2a6817ea8a19987a864e5c97d4`.
 
-### Stage 8 — bounded live slice
+The first Stage 8 gate is intentionally smaller than a full campaign. It must prove one exact durable `ChildRequest` can create one real ChatGPT child in the isolated DEV browser profile, discover one canonical child URL and persist one matching `ChildRegistration` without granting Local Agent execution authority or touching production browser/runtime state.
 
-Only after prior gates, run a small real campaign. Then consider the larger 44-node acceptance campaign with bounded active child/tab concurrency and measured context/recovery behavior.
+Implemented on the Stage 8 work branch:
+
+- one-child/one-browser-spawn live plan derived only from durable workflow/conversation authority;
+- short-lived one-shot arm bound to the exact prepared plan digest;
+- arm consumption before browser side effects and explicit re-arm requirement after a safe pause;
+- separate Node browser actuator with bounded stdin protocol for login readiness, create/recover, probe, submit, reconcile and shutdown;
+- durable create-effect journal: after an uncertain `tabs.create` window, recovery can only find the exact marker tab and never create a replacement automatically;
+- durable runner recovery across `pending`, `tab_created`, `bootstrap_ready`, `bootstrap_submitting`, `identity_discovered` and `registration_submitting`;
+- fail-closed handling for post-submit ambiguity and exact recovery after durable registration but before `SpawnTransaction=done`;
+- content-script pre-submit readiness based on fresh route, idle assistant and an empty available composer; the real submit still waits for a send control only after bootstrap text is inserted;
+- durable completion evidence only after exact child registration and `SpawnTransaction=done`;
+- deterministic DEV seed creating exactly one non-executing `reasoning` node/request for `MichalMatu/local-agent`;
+- seed identity derived from a clean DEV Git checkout, exact branch/HEAD SHA and checked-in binding catalog rather than operator-supplied repository identity;
+- seed rejects `main`, dirty or moved checkout state, wrong origin, different parent URL and any accidental `local-agent execution_enabled=true` catalog entry;
+- guided operator CLI where one invocation performs exactly one existing authority step and returns a typed `next_action`; it never chains effects automatically;
+- safe guided order `seed -> prepare -> login -> arm -> run`; if a run pauses after consuming its one-shot arm, the next action returns to `login` and then explicit re-arm rather than replaying the spawn.
+
+Browser proof is deliberately layered rather than relying on unsupported Playwright interception of extension-created tabs:
+
+- real Chromium actuator smoke proves the separate process, MV3 extension, real `tabs.create` and exact lost-create-ACK marker recovery;
+- actuator protocol smoke proves the complete bounded stdin action surface;
+- the existing synthetic Chromium spawn smoke continues to prove actual content-script bootstrap submission/reconciliation and MV3 restart recovery.
+
+Hard Stage 8 boundaries currently preserved:
+
+- maximum active children = 1 and maximum browser spawn attempts = 1;
+- no Local Agent execution task is created by the Stage 8 seed;
+- the `local-agent` binding must remain `execution_enabled:false`;
+- no second Local Agent executor or worker pool;
+- no production Chrome profile, Native Messaging registration or remote control is enabled by the live slice;
+- no production `SPAWN_CHILD` or automatic Superchat scheduler;
+- no mutation of `main`, `chat-bridge-state` or `operator-control`;
+- browser tab id remains ephemeral routing/recovery state; canonical child conversation URL is the durable browser identity;
+- ambiguous create/submit state never authorizes blind replay or an automatic replacement child.
+
+Current evidence:
+
+- durable live-runner/recovery candidate `d47a1381` passed all five CI jobs;
+- browser actuator/protocol candidate `ca187f8f3da5b78c270a9093e4b3c2268014e5b2` passed test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
+- deterministic non-executing seed candidate `b6061a1269a9bd0e8307c10fe251a4af341a2927` passed all five jobs;
+- guided-flow candidate `794e56b7fa75b5c5736b3b9e505855b333b50b22` passed all five jobs;
+- comparison from Stage 7 integration baseline to `794e56b7fa75b5c5736b3b9e505855b333b50b22` is ahead-only (`21` commits, `0` behind) and contains only Stage 8 DEV/browser readiness, verification and test files; daemon/supervisor/executor files are untouched.
+
+Stage 8 first-live gate:
+
+1. update the isolated `~/local-agent-dev` checkout to the final reviewed Stage 8 candidate branch/SHA;
+2. use one canonical parent ChatGPT conversation URL to seed the fixed non-executing Stage 8 reasoning request;
+3. prepare the exact durable attempt-1 plan;
+4. prove login/composer readiness in the dedicated DEV browser profile before arming;
+5. arm the exact plan digest and run one child spawn;
+6. require a canonical child URL, exact durable `ChildRegistration`, `SpawnTransaction=done` and bounded completion evidence;
+7. inspect the resulting child/bootstrap and durable evidence before adding adoption/terminal/retirement to the live slice;
+8. do not start the 44-node campaign from this gate.
+
+Stage 8 is not complete merely because the pre-live CI is green. The real dedicated-profile child creation/registration proof is still required.
 
 ### Stage 9 — automatic scheduling only if needed
 
@@ -238,25 +286,26 @@ Only after the complete child lifecycle is stable. Reuse the existing workflow/e
 
 Completed:
 
-- Stages 1–6 are merged and fully green;
-- canonical development baseline for Stage 7 is `develop/conversation-fabric@6d4e721ffb53dc85a8c4fb6f82632f244f184729`;
-- Stage 6 durable campaign/workflow ledger and exact child-terminal reconciliation are integrated without changing Local Agent execution semantics;
+- Stages 1–7 are merged and fully green;
+- canonical integration baseline is `develop/conversation-fabric@0ef3eef0d561da2a6817ea8a19987a864e5c97d4`;
+- Stage 7 attention/event routing is integrated without changing Local Agent execution authority;
+- Stage 8 code through guided `seed -> prepare -> login -> arm -> run` is pre-live green on `work/conversation-live-slice@794e56b7fa75b5c5736b3b9e505855b333b50b22`;
 - operational branches remain untouched.
 
 In progress:
 
-- draft PR #93 on `work/conversation-attention-routing` contains the bounded Stage 7 task/workflow attention implementation;
-- exact candidate `90a7cd4c9e8197f1591d6e1f7f14aacfb6ad5d1d` is 5/5 green before this checkpoint-only follow-up;
-- the remaining Stage 7 work is final exact-head CI after this documentation update, ready-for-review transition, merge, and post-merge 5/5 verification.
+- Stage 8 needs its final checkpoint/PR candidate gate and one real dedicated-profile ChatGPT child creation/registration proof;
+- the real proof must stay bounded to the fixed non-executing `local-agent` reasoning request and one browser spawn.
 
 Not yet enabled:
 
-- a bounded real ChatGPT campaign using automatic child spawning;
-- a production Superchat scheduler;
-- a second Local Agent executor.
+- automatic production child spawning;
+- a production Superchat/workflow scheduler;
+- a second Local Agent executor;
+- the 44-node acceptance campaign.
 
 ## Next action
 
-**Require the final PR #93 head (including this checkpoint) to pass all five CI jobs, perform one final scope review, mark the PR ready, merge it to `develop/conversation-fabric`, and require the same five jobs green on the merge commit. Only then begin Stage 8 with a small bounded live campaign; do not jump directly to the 44-node campaign.**
+**Require the final Stage 8 checkpoint head to pass all five CI jobs, open/review the Stage 8 PR without merging it yet, then run exactly one real dedicated-profile child through the guided `seed -> prepare -> login -> arm -> run` flow. Require canonical child registration and durable completion evidence before marking the PR ready or extending the live slice to adoption/terminal/retirement. Do not start the 44-node campaign yet.**
 
 If a future conversation is unsure what to do next, this `Next action` section is the tie-breaker unless the user explicitly changes the goal.
