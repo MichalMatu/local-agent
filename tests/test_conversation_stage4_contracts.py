@@ -433,14 +433,14 @@ class SpawnTransactionContractTests(unittest.TestCase):
             spawn.build_spawn_transaction(
                 request,
                 attempt=2,
-                created_at="2026-09-24T12:03:00Z",
+                created_at="2026-09-24T12:02:00Z",
             ),
         )
         ambiguous = spawn.fail_spawn_transaction(
             submitting,
             request=request,
             reason="submission acknowledgement lost",
-            updated_at="2026-09-24T12:03:04Z",
+            updated_at="2026-09-24T12:02:04Z",
         )
         self.assertEqual(ambiguous["state"], "ambiguous")
 
