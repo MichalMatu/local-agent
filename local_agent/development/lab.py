@@ -1,6 +1,6 @@
 """Fail-closed layout for a Conversation Fabric development lab beside production.
 
-Stage 3 intentionally does not start a second Local Agent executor.  It creates a
+Stage 3 intentionally does not start a second Local Agent executor. It creates a
 small synthetic-only namespace for workflow/browser experiments and makes
 production path overlap a validation error before any filesystem mutation.
 """
@@ -13,6 +13,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
+
+from local_agent.foundation.process import atomic_write_text
 
 LAB_SCHEMA_VERSION = 1
 LAB_MODE = "synthetic-only"
@@ -186,6 +188,21 @@ def _lab_directories(layout: DevLabLayout) -> tuple[Path, ...]:
     )
 
 
+def _validate_existing_lab_entries(layout: DevLabLayout) -> None:
+    """Reject unsafe pre-existing entries before init mutates the namespace."""
+    marker = layout.marker_path
+    if marker.is_symlink():
+        raise RuntimeError(f"DEV lab marker must not be a symlink: {marker}")
+    if marker.exists() and not marker.is_file():
+        raise RuntimeError(f"DEV lab marker is not a regular file: {marker}")
+
+    for path in _lab_directories(layout):
+        if path.is_symlink():
+            raise RuntimeError(f"DEV lab directory must not be a symlink: {path}")
+        if path.exists() and not path.is_dir():
+            raise RuntimeError(f"DEV lab directory path is not a directory: {path}")
+
+
 def initialize_dev_lab(layout: DevLabLayout) -> dict[str, Any]:
     """Create only the inert DEV namespace; never clone, launch or register Chrome."""
     validate_dev_lab_layout(layout)
@@ -194,6 +211,7 @@ def initialize_dev_lab(layout: DevLabLayout) -> dict[str, Any]:
     if layout.root.exists():
         if not layout.root.is_dir():
             raise RuntimeError(f"DEV lab root is not a directory: {layout.root}")
+        _validate_existing_lab_entries(layout)
         existing_entries = tuple(layout.root.iterdir())
         if existing_entries and not layout.marker_path.is_file():
             raise RuntimeError(
@@ -201,7 +219,7 @@ def initialize_dev_lab(layout: DevLabLayout) -> dict[str, Any]:
                 f"{layout.root}"
             )
 
-    if layout.marker_path.exists():
+    if layout.marker_path.is_file():
         try:
             existing = json.loads(layout.marker_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
@@ -212,9 +230,10 @@ def initialize_dev_lab(layout: DevLabLayout) -> dict[str, Any]:
             )
 
     layout.root.mkdir(parents=True, exist_ok=True)
+    _validate_existing_lab_entries(layout)
     for path in _lab_directories(layout):
         path.mkdir(parents=True, exist_ok=True)
-    layout.marker_path.write_text(_json_text(expected), encoding="utf-8")
+    atomic_write_text(layout.marker_path, _json_text(expected))
     return expected
 
 
