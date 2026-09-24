@@ -409,6 +409,16 @@ def prepare_live_slice(
     if paths.arm.exists() or paths.arm.is_symlink():
         raise RuntimeError("refusing to replace a live slice plan while an arm record exists")
 
+    if paths.plan.exists() or paths.plan.is_symlink():
+        existing = load_prepared_live_slice(layout)
+        existing_request = existing["plan"]["request"]
+        if (
+            existing_request.get("workflow_id") != workflow_id
+            or existing_request.get("child_request_id") != request_id
+        ):
+            raise RuntimeError("existing live slice plan belongs to a different durable request")
+        return existing
+
     authority = _load_live_authority(layout, workflow_id, request_id)
     if authority.transaction is None:
         transaction = authority.spawn_store.enqueue(
@@ -423,12 +433,6 @@ def prepare_live_slice(
 
     plan = _build_plan(layout, authority)
     document = _plan_document(plan)
-    if paths.plan.exists() or paths.plan.is_symlink():
-        existing = load_prepared_live_slice(layout)
-        if existing != document:
-            raise RuntimeError("existing live slice plan differs; clear it explicitly first")
-        return existing
-
     _require_safe_directory(paths.root, layout.root, field="state root")
     paths.root.mkdir(parents=True, exist_ok=True)
     paths.browser_profile.mkdir(parents=True, exist_ok=True)
