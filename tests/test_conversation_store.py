@@ -128,10 +128,12 @@ class ConversationStoreTests(unittest.TestCase):
         )
         self.assertEqual(self.store.load_request(request["id"]), request)
         self.assertEqual(self.store.request_ids(), [request["id"]])
+        self.assertEqual(self.store.request_for_node(NODE_ID), request)
 
         restarted = self.restarted_store()
         self.assertEqual(restarted.load_request(request["id"]), request)
         self.assertEqual(restarted.load_state(request["id"]), first)
+        self.assertEqual(restarted.request_for_node(NODE_ID), request)
 
     def test_admission_requires_exact_reasoning_node_provenance_and_target(self) -> None:
         request = valid_request(self.workflow)
@@ -200,20 +202,38 @@ class ConversationStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "different digest"):
             self.store.admit_request(changed)
 
+    def test_reasoning_node_accepts_only_one_durable_child_request(self) -> None:
+        first = valid_request(self.workflow, "child-a")
+        second = valid_request(self.workflow, "child-b")
+        self.store.admit_request(first)
+
+        with self.assertRaisesRegex(ValueError, "already has child request 'child-a'"):
+            self.store.admit_request(second)
+
+        self.assertEqual(self.store.request_ids(), ["child-a"])
+        self.assertEqual(self.store.request_for_node(NODE_ID), first)
+
     def test_request_identity_cannot_escape_store_root(self) -> None:
         with self.assertRaisesRegex(ValueError, "child request id"):
             self.store.load_request("../outside")
 
-    def test_corruption_is_isolated_to_one_request(self) -> None:
+    def test_corruption_is_isolated_to_one_workflow_request(self) -> None:
         first = valid_request(self.workflow, "child-a")
-        second = valid_request(self.workflow, "child-b")
         self.store.admit_request(first)
-        self.store.admit_request(second)
+
+        second_workflow = reasoning_workflow("audit-corruption-2")
+        self.workflow_store.submit(second_workflow)
+        second_store = store.WorkflowConversationStore(
+            self.workflow_store,
+            second_workflow["id"],
+        )
+        second = valid_request(second_workflow, "child-b")
+        second_store.admit_request(second)
         self.store._request_path(first["id"]).write_text("{bad", encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "invalid child request"):
             self.store.load_request(first["id"])
-        self.assertEqual(self.store.load_request(second["id"]), second)
+        self.assertEqual(second_store.load_request(second["id"]), second)
 
     def test_transition_state_is_durable_and_active_requires_registration(self) -> None:
         request = valid_request(self.workflow)
