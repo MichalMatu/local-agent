@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from local_agent.conversation import records, state
+from local_agent.conversation import attention, records, state
 from local_agent.conversation.store import WorkflowConversationStore
 from local_agent.foundation.process import fsync_directory
 
@@ -39,13 +39,21 @@ class WorkflowConversationRecordLedger:
 
     This object has no independent authority, graph, lock or top-level root. It always
     uses the bound WorkflowConversationStore request/state authority and the same
-    WorkflowStore execution lock.
+    WorkflowStore execution lock. Bridge attention emission is explicit and opt-in.
     """
 
-    def __init__(self, conversation_store: WorkflowConversationStore) -> None:
+    def __init__(
+        self,
+        conversation_store: WorkflowConversationStore,
+        *,
+        bridge_event_state_dir: Path | None = None,
+    ) -> None:
         if not isinstance(conversation_store, WorkflowConversationStore):
             raise TypeError("conversation_store must be a WorkflowConversationStore")
         self.store = conversation_store
+        self.bridge_event_state_dir = (
+            Path(bridge_event_state_dir) if bridge_event_state_dir is not None else None
+        )
         self.checkpoints_root = self.store.root / "checkpoints"
         self.terminals_root = self.store.root / "terminals"
 
@@ -243,6 +251,12 @@ class WorkflowConversationRecordLedger:
                 )
 
             self._reconcile_workflow_outcome(request, durable)
+            if self.bridge_event_state_dir is not None:
+                attention.enqueue_child_terminal_attention(
+                    request,
+                    durable,
+                    state_dir=self.bridge_event_state_dir,
+                )
             return durable
 
     def _advance_child_state(
