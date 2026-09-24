@@ -156,6 +156,36 @@ class DevelopmentLabTests(unittest.TestCase):
             self.assertFalse(status["healthy"])
             self.assertIn("marker_layout_mismatch", status["problems"])
 
+    def test_initialize_rejects_symlinked_internal_directory_before_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            layout = build_dev_lab_layout(home=home)
+            external = home / "external-state"
+            external.mkdir()
+            layout.root.mkdir(parents=True)
+            layout.state_dir.symlink_to(external, target_is_directory=True)
+
+            with self.assertRaisesRegex(RuntimeError, "directory must not be a symlink"):
+                initialize_dev_lab(layout)
+
+            self.assertEqual(tuple(external.iterdir()), ())
+            self.assertFalse(layout.marker_path.exists())
+
+    def test_initialize_rejects_symlinked_marker_without_overwriting_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            layout = build_dev_lab_layout(home=home)
+            layout.root.mkdir(parents=True)
+            external_marker = home / "external-marker.json"
+            original = json.dumps(layout.manifest(), sort_keys=True)
+            external_marker.write_text(original, encoding="utf-8")
+            layout.marker_path.symlink_to(external_marker)
+
+            with self.assertRaisesRegex(RuntimeError, "marker must not be a symlink"):
+                initialize_dev_lab(layout)
+
+            self.assertEqual(external_marker.read_text(encoding="utf-8"), original)
+
     def test_status_detects_missing_or_symlinked_lab_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
