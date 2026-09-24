@@ -165,7 +165,7 @@ class DevelopmentLabTests(unittest.TestCase):
             layout.root.mkdir(parents=True)
             layout.state_dir.symlink_to(external, target_is_directory=True)
 
-            with self.assertRaisesRegex(RuntimeError, "directory must not be a symlink"):
+            with self.assertRaisesRegex(ValueError, "must stay below lab root"):
                 initialize_dev_lab(layout)
 
             self.assertEqual(tuple(external.iterdir()), ())
@@ -181,7 +181,7 @@ class DevelopmentLabTests(unittest.TestCase):
             external_marker.write_text(original, encoding="utf-8")
             layout.marker_path.symlink_to(external_marker)
 
-            with self.assertRaisesRegex(RuntimeError, "marker must not be a symlink"):
+            with self.assertRaisesRegex(ValueError, "must stay below lab root"):
                 initialize_dev_lab(layout)
 
             self.assertEqual(external_marker.read_text(encoding="utf-8"), original)
