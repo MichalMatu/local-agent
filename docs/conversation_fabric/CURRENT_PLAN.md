@@ -134,15 +134,9 @@ Evidence:
 - PR #91 merged;
 - post-merge `develop/conversation-fabric@217286fb1f2430bf62491e766ef83025a19076a9` passed all five jobs; one macOS smoke attempt exposed an existing timing-observation flake whose own captured output showed the expected late task had started, and a same-SHA rerun passed.
 
-### Stage 6 — campaign/workflow integration — IN PROGRESS
+### Stage 6 — campaign/workflow integration — COMPLETE
 
-Current branch: `work/conversation-campaign-integration` from verified `develop/conversation-fabric@217286fb1f2430bf62491e766ef83025a19076a9`.
-
-Current PR: #92 (draft until exact-head and post-merge verification complete).
-
-Goal: connect registered reasoning children to the durable parent campaign/workflow ledger while preserving Local Agent repository leases and execution semantics.
-
-Implemented on the Stage 6 work branch:
+Implemented and verified:
 
 - restart-safe reasoning-child/workflow reconciliation from exact durable `child_terminal` records;
 - recovery when a crash lands after terminal persistence but before child lifecycle or workflow-node persistence, without replaying reasoning work;
@@ -160,25 +154,65 @@ Hard Stage 6 boundaries preserved:
 
 - no real ChatGPT child spawning;
 - no automatic production Superchat scheduler;
-- no production Event Wake/attention integration yet;
+- no production Event Wake/attention integration;
 - no second executor or worker pool;
 - no whole child transcripts in the parent ledger/context;
 - no mutation of `main`, `chat-bridge-state` or `operator-control`;
 - browser state remains non-authoritative for workflow success;
-- daemon, supervisor, executor and Chat Bridge implementation files remain unchanged by PR #92.
+- daemon, supervisor, executor and Chat Bridge implementation files remained unchanged by PR #92.
 
-Stage 6 exit criteria:
+Evidence:
 
-- focused unit/integration tests for ledger, reconciliation, bounded context and negative provenance/evidence cases;
-- restart/idempotency tests over durable stores;
-- exact final PR head passes test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
-- final diff confirms Local Agent execution semantics and production entrypoints remain unchanged;
-- Stage 6 PR merged to `develop/conversation-fabric`;
-- all five post-merge develop CI jobs green.
+- exact final PR head `e9041a879d10b0d1b698688439b5309618654133` passed test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
+- PR #92 merged to `develop/conversation-fabric` as `6d4e721ffb53dc85a8c4fb6f82632f244f184729`;
+- post-merge push CI for `develop/conversation-fabric@6d4e721ffb53dc85a8c4fb6f82632f244f184729` completed successfully.
 
-### Stage 7 — Bridge attention/event routing
+### Stage 7 — Bridge attention/event routing — IN PROGRESS
 
-Route child/task/workflow attention through current Chat Bridge owners while preserving current transient/assistant-timeout recovery. Events remain hints to reconcile durable truth, never success authority.
+Current branch: `work/conversation-attention-routing` from verified `develop/conversation-fabric@6d4e721ffb53dc85a8c4fb6f82632f244f184729`.
+
+Current PR: #93 (draft until the final exact-head and post-merge gates complete).
+
+Implemented on the Stage 7 work branch:
+
+- exact `[LAB:WAIT_TASK=<task-id>]` attention watch for one Local Agent task result;
+- persistent `[LAB:WAIT_WORKFLOW=<workflow-id>]` subscription for durable Conversation Fabric child-terminal attention in the exact parent chat;
+- bounded persisted task/workflow attention state with binding-epoch ownership and restart recovery;
+- typed `child_terminal_ready` envelopes addressed by canonical `parent_conversation_url + workflow_id` and carrying only bounded child/terminal identity;
+- explicit opt-in Conversation Fabric event emission through `bridge_event_state_dir`, leaving the default conversation ledger inert;
+- child-terminal emission only after durable terminal persistence, terminal lifecycle reconciliation and successful workflow outcome reconciliation;
+- the existing read-only Native Messaging host reused for `hello` / `event` / `ack` notification transport only;
+- matching events accelerate the existing alarm / `runFeedbackCycle()` path rather than bypassing current delivery, transient, assistant-error or timeout guards;
+- task and child-terminal wake prompts explicitly label notifications as hints and require authoritative task/ledger re-read before action;
+- persistent workflow watches remain active across multiple child completions;
+- repeated identical `WAIT_WORKFLOW` subscriptions are idempotent and do not replay already delivered recent hints;
+- exact-parent, wrong-workflow, task-ownership conflict, binding change, restart, transient delivery, outbox failure/retry and duplicate-attention negative coverage.
+
+Hard Stage 7 boundaries preserved:
+
+- no Local Agent daemon, supervisor, executor, repository-lease or worker execution semantics change;
+- no real ChatGPT child spawning;
+- no production Superchat/workflow scheduler;
+- no second executor or worker pool;
+- no command/execution authority added to Native Messaging;
+- browser/native events remain hints and never prove task/child/workflow success;
+- no mutation of `main`, `chat-bridge-state` or `operator-control`;
+- Conversation Fabric child-terminal emission remains explicit opt-in rather than silently targeting production state.
+
+Current evidence:
+
+- task-attention intermediate head `9a53cd3b7d430815a3a72e7d19ba5040a393c2d4` passed all five CI jobs;
+- exact candidate head before this checkpoint update, `90a7cd4c9e8197f1591d6e1f7f14aacfb6ad5d1d`, passed test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
+- final diff review from Stage 6 baseline showed only Chat Bridge attention/transport, bounded event-envelope, opt-in conversation attention and tests; daemon/supervisor/executor entrypoints are untouched;
+- PR #93 has no unresolved review threads.
+
+Stage 7 exit criteria:
+
+- this canonical checkpoint update is included in PR #93;
+- final exact PR head passes test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
+- final PR diff confirms the hard Stage 7 boundaries above;
+- PR #93 is merged to `develop/conversation-fabric`;
+- the same five jobs pass on the post-merge develop SHA.
 
 ### Stage 8 — bounded live slice
 
@@ -204,26 +238,25 @@ Only after the complete child lifecycle is stable. Reuse the existing workflow/e
 
 Completed:
 
-- Stages 1–5 are merged and fully green;
-- canonical development baseline for Stage 6 is `develop/conversation-fabric@217286fb1f2430bf62491e766ef83025a19076a9`;
-- Stage 5 synthetic spawn/recovery/manual-attach/retirement proof is complete without live ChatGPT authority;
+- Stages 1–6 are merged and fully green;
+- canonical development baseline for Stage 7 is `develop/conversation-fabric@6d4e721ffb53dc85a8c4fb6f82632f244f184729`;
+- Stage 6 durable campaign/workflow ledger and exact child-terminal reconciliation are integrated without changing Local Agent execution semantics;
 - operational branches remain untouched.
 
 In progress:
 
-- PR #92 on `work/conversation-campaign-integration` contains the bounded Stage 6 implementation;
-- implementation review confirms the changed runtime surface is limited to workflow-owned conversation/campaign state, with no daemon/supervisor/executor/Bridge wiring;
-- exact final-head 5/5 CI, ready-for-review transition, merge and post-merge 5/5 remain before Stage 6 can be called complete.
+- draft PR #93 on `work/conversation-attention-routing` contains the bounded Stage 7 task/workflow attention implementation;
+- exact candidate `90a7cd4c9e8197f1591d6e1f7f14aacfb6ad5d1d` is 5/5 green before this checkpoint-only follow-up;
+- the remaining Stage 7 work is final exact-head CI after this documentation update, ready-for-review transition, merge, and post-merge 5/5 verification.
 
 Not yet enabled:
 
-- real ChatGPT child spawning;
-- production Bridge attention/event routing;
+- a bounded real ChatGPT campaign using automatic child spawning;
 - a production Superchat scheduler;
 - a second Local Agent executor.
 
 ## Next action
 
-**Finish exact-SHA 5/5 verification and final diff review for PR #92, merge it to `develop/conversation-fabric`, then require the same five jobs green on the merge commit. Do not begin Stage 7 Bridge attention routing or a live campaign before that post-merge gate is green.**
+**Require the final PR #93 head (including this checkpoint) to pass all five CI jobs, perform one final scope review, mark the PR ready, merge it to `develop/conversation-fabric`, and require the same five jobs green on the merge commit. Only then begin Stage 8 with a small bounded live campaign; do not jump directly to the 44-node campaign.**
 
 If a future conversation is unsure what to do next, this `Next action` section is the tie-breaker unless the user explicitly changes the goal.
