@@ -38,8 +38,8 @@
       "execution_enabled": true
     },
     {
-      "id": "photomaps",
-      "repository": "MichalMatu/PhotoMaps",
+      "id": "photomap",
+      "repository": "MichalMatu/photomap",
       "agent_binding": "2e5d59f8-f6e4-4d75-8d1a-dce7b6bf6607",
       "execution_enabled": true
     },
