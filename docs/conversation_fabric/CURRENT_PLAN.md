@@ -97,22 +97,16 @@ Evidence:
 - PR #90 merged;
 - post-merge `develop/conversation-fabric@26f907e82fc8473070dd2bc9f932e0e98dfe30e6` again passed all five jobs.
 
-### Stage 5 — synthetic Chromium spawn/attach proof — IN PROGRESS
+### Stage 5 — synthetic Chromium spawn/attach proof — COMPLETE
 
-Goal: prove duplicate-safe/recoverable child creation and retirement in disposable offline Chromium before any live promotion.
+Implemented and proved in disposable/offline Chromium:
 
-Current branch: `work/chromium-spawn-spike`.
-Current PR: #91 (draft while verification is in progress).
-
-Current implementation includes:
-
-- first-class workflow `reasoning` node admission and `waiting_conversation` state;
+- first-class workflow `reasoning` node admission and `waiting_conversation` state without masking independent runnable work;
 - workflow-owned durable `WorkflowConversationStore` and checkpoint/terminal ledger;
 - deterministic manual-attach authority and registered-child Bridge adoption with `bootstrapPending=false`;
 - durable workflow-owned spawn attempts with globally serialized browser ownership reconstructed after restart;
 - narrow `worker_spawn.js` actuator and separate pre-registration `spawn_content.js` protocol;
 - deterministic `#la-spawn=<transaction-id>` tab claim with `url`/`pendingUrl` recovery;
-- offline disposable Chromium proof using a temporary profile, `context.setOffline(true)` and a local synthetic ChatGPT fixture;
 - lost-create-ACK recovery without duplicate tab creation;
 - MV3 service-worker termination/restart recovery without duplicate bootstrap submission;
 - wrong-tab/wrong-route/bootstrap-digest failures closed;
@@ -120,9 +114,10 @@ Current implementation includes:
 - ambiguous post-submit state never authorizes an automatic replacement child;
 - durable retirement authority issued only after a durable terminal record and `terminal_recorded` lifecycle state;
 - browser retirement that can close only the exact registered child conversation URL, never an arbitrary tab id;
-- `retired` written only after a validated `closed` or recovery-safe `already_closed` receipt.
+- `retired` written only after a validated `closed` or recovery-safe `already_closed` receipt;
+- offline Chromium retirement smoke proving unrelated tabs remain untouched.
 
-Hard Stage 5 boundaries:
+Hard Stage 5 boundaries preserved:
 
 - no real ChatGPT child creation;
 - no production `SPAWN_CHILD`;
@@ -132,18 +127,54 @@ Hard Stage 5 boundaries:
 - Chrome tab id remains cache/routing detail, not durable identity;
 - a timeout/worker loss after submission never proves the bootstrap was not accepted.
 
-Stage 5 exit criteria:
+Evidence:
 
-- focused Python/Node tests green, including retirement negatives;
-- synthetic Chromium spawn/recovery smoke green in the standard `bridge-browser` profile;
-- exact final PR head passes all five CI jobs;
-- final diff confirms no live/prod authority was enabled;
-- PR #91 merged to `develop/conversation-fabric`;
+- exact final PR head `fed2f611ff9b6ef44c08540ece9c798cb64927ea` passed test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
+- final diff review confirmed no live/production spawn or retirement authority was enabled;
+- PR #91 merged;
+- post-merge `develop/conversation-fabric@217286fb1f2430bf62491e766ef83025a19076a9` passed all five jobs; one macOS smoke attempt exposed an existing timing-observation flake whose own captured output showed the expected late task had started, and a same-SHA rerun passed.
+
+### Stage 6 — campaign/workflow integration — IN PROGRESS
+
+Current branch: `work/conversation-campaign-integration` from verified `develop/conversation-fabric@217286fb1f2430bf62491e766ef83025a19076a9`.
+
+Current PR: #92 (draft until exact-head and post-merge verification complete).
+
+Goal: connect registered reasoning children to the durable parent campaign/workflow ledger while preserving Local Agent repository leases and execution semantics.
+
+Implemented on the Stage 6 work branch:
+
+- restart-safe reasoning-child/workflow reconciliation from exact durable `child_terminal` records;
+- recovery when a crash lands after terminal persistence but before child lifecycle or workflow-node persistence, without replaying reasoning work;
+- fail-closed detection when workflow success/failure exists without a durable child terminal;
+- one durable child request per reasoning workflow node, enforced under the workflow execution lock before browser spawning can begin;
+- compact read-only parent ledger containing bounded checkpoint/terminal summaries rather than transcripts;
+- exact validated evidence references plus digest-pinned durable terminal record references in the parent projection;
+- explicit `child_terminal` context promotion only when the later child request names the exact durable terminal digest;
+- causal rejection of child-terminal context recorded after the target request was created;
+- bounded selected-context count/serialized size and bounded parent-ledger size;
+- negative tests for duplicate child ownership, self-reference, excessive promoted context, wrong digest, future terminal context and missing terminal authority;
+- restart/idempotency tests across durable workflow/conversation stores.
+
+Hard Stage 6 boundaries preserved:
+
+- no real ChatGPT child spawning;
+- no automatic production Superchat scheduler;
+- no production Event Wake/attention integration yet;
+- no second executor or worker pool;
+- no whole child transcripts in the parent ledger/context;
+- no mutation of `main`, `chat-bridge-state` or `operator-control`;
+- browser state remains non-authoritative for workflow success;
+- daemon, supervisor, executor and Chat Bridge implementation files remain unchanged by PR #92.
+
+Stage 6 exit criteria:
+
+- focused unit/integration tests for ledger, reconciliation, bounded context and negative provenance/evidence cases;
+- restart/idempotency tests over durable stores;
+- exact final PR head passes test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
+- final diff confirms Local Agent execution semantics and production entrypoints remain unchanged;
+- Stage 6 PR merged to `develop/conversation-fabric`;
 - all five post-merge develop CI jobs green.
-
-### Stage 6 — campaign/workflow integration
-
-Connect registered reasoning children to the durable parent campaign/workflow ledger while preserving Local Agent repository leases and execution semantics. Add compact parent synthesis, evidence references and bounded context selection.
 
 ### Stage 7 — Bridge attention/event routing
 
@@ -173,26 +204,26 @@ Only after the complete child lifecycle is stable. Reuse the existing workflow/e
 
 Completed:
 
-- Stages 1–4 are merged and fully green;
-- canonical development baseline for Stage 5 is `develop/conversation-fabric@26f907e82fc8473070dd2bc9f932e0e98dfe30e6`;
-- the old `work/conversation-fabric-phase1-contracts` branch is used only as a verified donor/reference, never merged wholesale;
-- `work/chromium-spawn-spike` / PR #91 contains the controlled Stage 5 port plus the new durable retirement gate.
+- Stages 1–5 are merged and fully green;
+- canonical development baseline for Stage 6 is `develop/conversation-fabric@217286fb1f2430bf62491e766ef83025a19076a9`;
+- Stage 5 synthetic spawn/recovery/manual-attach/retirement proof is complete without live ChatGPT authority;
+- operational branches remain untouched.
 
-Pending before Stage 5 can be marked complete:
+In progress:
 
-- verify the exact final PR #91 SHA with all five CI jobs;
-- review the complete Stage 5 diff and browser authority surface;
-- mark PR #91 ready and merge it to `develop/conversation-fabric`;
-- verify all five post-merge develop CI jobs.
+- PR #92 on `work/conversation-campaign-integration` contains the bounded Stage 6 implementation;
+- implementation review confirms the changed runtime surface is limited to workflow-owned conversation/campaign state, with no daemon/supervisor/executor/Bridge wiring;
+- exact final-head 5/5 CI, ready-for-review transition, merge and post-merge 5/5 remain before Stage 6 can be called complete.
 
 Not yet enabled:
 
 - real ChatGPT child spawning;
+- production Bridge attention/event routing;
 - a production Superchat scheduler;
 - a second Local Agent executor.
 
 ## Next action
 
-**Finish exact-SHA verification and review of PR #91 (`work/chromium-spawn-spike`). Do not begin a live slice or production child creation before Stage 5 is merged and post-merge CI is green.**
+**Finish exact-SHA 5/5 verification and final diff review for PR #92, merge it to `develop/conversation-fabric`, then require the same five jobs green on the merge commit. Do not begin Stage 7 Bridge attention routing or a live campaign before that post-merge gate is green.**
 
 If a future conversation is unsure what to do next, this `Next action` section is the tie-breaker unless the user explicitly changes the goal.
