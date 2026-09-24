@@ -264,7 +264,7 @@ class ConversationCampaignIntegrationTests(unittest.TestCase):
         )
         self.assertTrue(child["terminal"]["summary_truncated"])
         self.assertEqual(child["terminal"]["evidence_ref_count"], 1)
-        self.assertNotIn("evidence_refs", child["terminal"])
+        self.assertEqual(child["terminal"]["evidence_refs"], durable["evidence_refs"])
         self.assertEqual(
             child["terminal"]["record_ref"],
             {
@@ -368,16 +368,22 @@ class ConversationCampaignIntegrationTests(unittest.TestCase):
                 self.ledger,
             )
 
-    def test_projection_fails_closed_on_multiple_requests_for_one_node(self) -> None:
+    def test_duplicate_request_for_one_reasoning_node_is_rejected_before_projection(self) -> None:
         duplicate = child_request(
             self.manifest,
             request_id="child-source-duplicate",
             node_id=SOURCE_NODE,
             created_at="2026-09-24T00:03:00Z",
         )
-        self.conversations.admit_request(duplicate)
-        with self.assertRaisesRegex(ValueError, "multiple durable child requests"):
-            campaign.project_parent_ledger(self.conversations, self.ledger)
+        with self.assertRaisesRegex(ValueError, "already has child request"):
+            self.conversations.admit_request(duplicate)
+
+        projection = campaign.project_parent_ledger(self.conversations, self.ledger)
+        self.assertEqual(len(projection["reasoning_children"]), 1)
+        self.assertEqual(
+            projection["reasoning_children"][0]["child_request_id"],
+            self.source_request["id"],
+        )
 
 
 if __name__ == "__main__":
