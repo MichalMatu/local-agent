@@ -1,8 +1,8 @@
 # Unified development direction — Conversation Fabric
 
-Status: canonical architecture for `develop/conversation-fabric` after branch consolidation and re-audit on 2026-09-23.
+Status: canonical architecture for `develop/conversation-fabric` after branch consolidation and re-audit on 2026-09-23; synchronized with production `main` on 2026-09-24.
 
-Production remains `main@474000b5d4b015958fe92be491968dc4625b4a84` until an explicit release decision. Operational state/control branches remain `chat-bridge-state` and `operator-control`.
+Production baseline for this development line is `main@3e3ce9c3e5e8b12b7945a3e07030050b9b1febc6`. Operational state/control branches remain `chat-bridge-state` and `operator-control`; this synchronization does not make Conversation Fabric production-active.
 
 ## 1. Verdict
 
