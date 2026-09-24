@@ -194,15 +194,6 @@ async function recoverCreate(context, intent) {
   );
 }
 
-async function pageForTab(context, tabId) {
-  const tab = await workerExpression(context, `chrome.tabs.get(${Number(tabId)})`);
-  const candidates = [String(tab?.url || ""), String(tab?.pendingUrl || "")].filter(Boolean);
-  for (const page of context.pages()) {
-    if (candidates.includes(page.url())) return page;
-  }
-  return null;
-}
-
 async function probeBeforeSubmit(context, intent) {
   const tabId = Number(intent?.tab_id || 0);
   if (!Number.isInteger(tabId) || tabId < 1) {
@@ -213,52 +204,11 @@ async function probeBeforeSubmit(context, intent) {
   if (content.route !== "fresh") {
     return { ok: false, reason: "spawn_unexpected_route", route: content.route || "unknown" };
   }
-  const page = await pageForTab(context, tabId);
-  if (!page) return { ok: false, reason: "spawn_page_not_ready" };
-  try {
-    return await page.evaluate(() => {
-      const selectors = [
-        "#prompt-textarea",
-        'form [contenteditable="true"][data-lexical-editor="true"]',
-        'form [contenteditable="true"]',
-        "form textarea"
-      ];
-      let composer = null;
-      for (const selector of selectors) {
-        composer = document.querySelector(selector);
-        if (composer) break;
-      }
-      if (!composer) return { ok: false, reason: "spawn_composer_not_found" };
-      const text = composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement
-        ? composer.value || ""
-        : composer.innerText || composer.textContent || "";
-      if (text.trim()) return { ok: false, reason: "spawn_composer_not_empty" };
-      const generating = Array.from(document.querySelectorAll(
-        'button[data-testid="stop-button"], button[data-testid="composer-stop-button"]'
-      )).some((button) => !button.disabled);
-      if (generating) return { ok: false, reason: "spawn_assistant_busy" };
-      const sendSelectors = [
-        "#composer-submit-button",
-        'button[data-testid="send-button"]',
-        'button[data-testid="composer-submit-button"]',
-        'button[aria-label="Send prompt"]',
-        'button[aria-label="Send message"]',
-        'button[aria-label="Send"]'
-      ];
-      const form = composer.closest("form");
-      for (const scope of form ? [form, document] : [document]) {
-        for (const selector of sendSelectors) {
-          const button = scope.querySelector(selector);
-          if (button instanceof HTMLButtonElement && !button.disabled) {
-            return { ok: true, reason: "spawn_ready" };
-          }
-        }
-      }
-      return { ok: false, reason: "spawn_send_button_not_ready" };
-    });
-  } catch (error) {
-    return { ok: false, reason: "spawn_page_not_ready", error: String(error) };
+  const readiness = content.readiness;
+  if (!readiness || typeof readiness !== "object" || typeof readiness.ok !== "boolean") {
+    return { ok: false, reason: "spawn_readiness_unavailable" };
   }
+  return readiness;
 }
 
 async function main() {
