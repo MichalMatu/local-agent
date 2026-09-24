@@ -30,6 +30,27 @@ function recentWorkflowEventsForWatch(state, watch) {
     );
 }
 
+function pendingWorkflowEventsForWatch(state, watch) {
+  return Object.values(state.pendingWakes)
+    .filter((pending) =>
+      pending.conversationId === watch.conversationId && pending.workflowId === watch.workflowId
+    )
+    .sort((left, right) =>
+      Date.parse(left.receivedAt) - Date.parse(right.receivedAt) || left.eventId.localeCompare(right.eventId)
+    );
+}
+
+function sameWorkflowSubscription(left, right) {
+  return Boolean(
+    left && right &&
+    left.conversationId === right.conversationId &&
+    left.conversationUrl === right.conversationUrl &&
+    left.workflowId === right.workflowId &&
+    left.bindingRevision === right.bindingRevision &&
+    left.bindingSetAt === right.bindingSetAt
+  );
+}
+
 async function reconcileWorkflowAttentionOwnership(bridgeState = null) {
   const currentBridgeState = bridgeState || await getBridgeState();
   const currentAttentionState = await loadWorkflowAttentionState();
@@ -96,6 +117,20 @@ async function registerWorkflowWatch(conversation, workflowId) {
   await reconcileWorkflowAttentionOwnership(bridgeState);
 
   const result = await mutateWorkflowAttentionState((state) => {
+    const existing = state.watches[conversation.id] || null;
+    if (sameWorkflowSubscription(existing, watch)) {
+      const pending = pendingWorkflowEventsForWatch(state, existing);
+      return {
+        state,
+        value: {
+          ok: true,
+          matchedRecentEvents: pending.length,
+          oldestEventId: pending[0]?.eventId || null,
+          subscriptionUnchanged: true
+        }
+      };
+    }
+
     state.watches[conversation.id] = watch;
     for (const [eventId, pending] of Object.entries(state.pendingWakes)) {
       if (pending.conversationId === conversation.id && pending.workflowId !== watch.workflowId) {
@@ -111,7 +146,8 @@ async function registerWorkflowWatch(conversation, workflowId) {
       value: {
         ok: true,
         matchedRecentEvents: recent.length,
-        oldestEventId: recent[0]?.eventId || null
+        oldestEventId: recent[0]?.eventId || null,
+        subscriptionUnchanged: false
       }
     };
   });
