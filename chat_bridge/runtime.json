@@ -36,8 +36,8 @@
       "execution_enabled": true
     },
     {
-      "repository_id": "local-climate-link-starter",
-      "repository": "MichalMatu/local-climate-link-starter",
+      "repository_id": "shelly-link",
+      "repository": "MichalMatu/shelly-link",
       "agent_binding": "e75c77cb-7589-4452-94b2-decc97ff85a1",
       "execution_enabled": true
     },
