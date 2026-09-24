@@ -68,8 +68,8 @@ async function addConversation(harness, url, binding, preferredTabId) {
 }
 
 (async () => {
-  assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 8,
-    "WAIT_TASK changes content behavior and must invalidate already-open v7 content scripts");
+  assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 9,
+    "workflow attention changes content controls and must invalidate already-open v8 content scripts");
   assert.deepEqual(
     protocol.parseAssistantControl("[LAB:WAIT_TASK=build-123]"),
     { action: "wait_task", taskId: "build-123", marker: "[LAB:WAIT_TASK=build-123]" }
@@ -190,7 +190,7 @@ async function addConversation(harness, url, binding, preferredTabId) {
     transientHarness, "task-transient", `evt-${"3".repeat(32)}`
   );
   const accepted = await transientHarness.evaluate(
-    `acceptNativeTaskEvent(${JSON.stringify(transientEvent)})`
+    `acceptNativeBridgeEvent(${JSON.stringify(transientEvent)})`
   );
   assert.equal(accepted.reason, "event_pending");
   response = await transientHarness.sendRuntimeMessage({

@@ -7,7 +7,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function createProtocol() {
   "use strict";
 
-  const CONTENT_PROTOCOL_VERSION = 8;
+  const CONTENT_PROTOCOL_VERSION = 9;
   const MIN_INTERVAL_MINUTES = 1;
   const MAX_INTERVAL_MINUTES = 1440;
   const MIN_NEXT_SECONDS = 30;
@@ -15,6 +15,7 @@
   const CHAT_ID_RE = /^chat-[0-9a-f]{8}$/;
   const REPOSITORY_ID_RE = /^[A-Za-z0-9._-]{1,120}$/;
   const TASK_ID_RE = /^[A-Za-z0-9._:-]{1,160}$/;
+  const WORKFLOW_ID_RE = /^[A-Za-z0-9._-]{1,200}$/;
 
   const COMMAND_CATALOG = Object.freeze([
     Object.freeze({ marker: "HELP", privilege: "assistant", category: "inspect", description: "Show the supported LAB command catalog." }),
@@ -31,6 +32,7 @@
     Object.freeze({ marker: "RELOAD=BRIDGE", privilege: "assistant", category: "maintenance", description: "Reload the unpacked extension runtime after persisting control dedupe state." }),
     Object.freeze({ marker: "RESTART=WORKER", privilege: "assistant", category: "maintenance", description: "Alias for RELOAD=BRIDGE; Chrome exposes extension reload rather than an isolated service-worker restart API." }),
     Object.freeze({ marker: "WAIT_TASK=<task-id>", privilege: "assistant", category: "schedule", description: "Wait for one exact Local Agent terminal-result event while keeping scheduled reconciliation as fallback." }),
+    Object.freeze({ marker: "WAIT_WORKFLOW=<workflow-id>", privilege: "assistant", category: "schedule", description: "Watch one exact Conversation Fabric workflow for durable child-terminal attention while keeping scheduled reconciliation as fallback." }),
     Object.freeze({ marker: "PAUSE", privilege: "assistant", category: "schedule", description: "Pause scheduled wakes for this conversation." }),
     Object.freeze({ marker: "RESUME", privilege: "assistant", category: "schedule", description: "Resume scheduled wakes for this conversation." }),
     Object.freeze({ marker: "STOP", privilege: "assistant", category: "schedule", description: "Stop this conversation and clear its interval override." }),
@@ -155,6 +157,13 @@
       return TASK_ID_RE.test(taskId) ? { action: "wait_task", taskId, marker } : null;
     }
 
+    if (body.startsWith("WAIT_WORKFLOW=")) {
+      const workflowId = body.slice("WAIT_WORKFLOW=".length);
+      return WORKFLOW_ID_RE.test(workflowId)
+        ? { action: "wait_workflow", workflowId, marker }
+        : null;
+    }
+
     if (body.startsWith("INTERVAL=")) {
       const interval = parseIntervalBody(body.slice("INTERVAL=".length));
       return interval ? { action: "interval", ...interval, marker } : null;
@@ -229,6 +238,7 @@
     CHAT_ID_RE,
     REPOSITORY_ID_RE,
     TASK_ID_RE,
+    WORKFLOW_ID_RE,
     COMMAND_CATALOG,
     normalizeConversationUrl,
     parseAssistantControl,

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Local Agent Chat Bridge",
-  "version": "0.5.11",
-  "description": "Schedules hard-bound Local Agent wake-ups with optional event-driven task completion notifications.",
+  "version": "0.5.12",
+  "description": "Schedules hard-bound Local Agent wake-ups with optional event-driven task and workflow attention notifications.",
   "permissions": [
     "alarms",
     "storage",

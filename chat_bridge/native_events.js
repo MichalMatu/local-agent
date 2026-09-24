@@ -68,8 +68,13 @@ function failNativeProtocol(reason) {
   closeNativeEventHost(reason, { state: "incompatible", reconnect: false });
 }
 
-async function acceptNativeTaskEvent(rawEvent) {
-  const result = await persistNativeTaskEvent(rawEvent);
+async function acceptNativeBridgeEvent(rawEvent) {
+  let result;
+  if (rawEvent?.event_type === "child_terminal_ready") {
+    result = await persistNativeChildTerminalEvent(rawEvent);
+  } else {
+    result = await persistNativeTaskEvent(rawEvent);
+  }
   if (!result?.ok) return result;
 
   let immediateScheduled = false;
@@ -134,7 +139,7 @@ async function handleNativeMessage(message, port) {
     return;
   }
 
-  const result = await acceptNativeTaskEvent(message.event);
+  const result = await acceptNativeBridgeEvent(message.event);
   if (!result?.ok || port !== nativeTransport.port) {
     const reason = String(result?.reason || "native_event_rejected");
     await updateNativeDiagnostics({ lastError: reason });
@@ -221,7 +226,7 @@ function connectNativeEventHost() {
   }
 }
 
-function nativeWatchIsActive(watch, bridgeState) {
+function nativeTaskWatchIsActive(watch, bridgeState) {
   const conversation = bridgeState.conversations[watch.conversationId];
   return Boolean(
     bridgeState.settings.masterEnabled &&
@@ -230,12 +235,24 @@ function nativeWatchIsActive(watch, bridgeState) {
   );
 }
 
+function nativeWorkflowWatchIsActive(watch, bridgeState) {
+  const conversation = bridgeState.conversations[watch.conversationId];
+  return Boolean(
+    bridgeState.settings.masterEnabled &&
+    conversation?.enabled &&
+    workflowAttentionModel.watchMatchesConversation(watch, conversation)
+  );
+}
+
 async function reconcileNativeEventTransport() {
   const bridgeState = await getBridgeState();
-  const eventState = await reconcileEventWakeOwnership(bridgeState);
-  const wanted = Object.values(eventState.watches).some((watch) =>
-    nativeWatchIsActive(watch, bridgeState)
-  );
+  const [eventState, workflowState] = await Promise.all([
+    reconcileEventWakeOwnership(bridgeState),
+    reconcileWorkflowAttentionOwnership(bridgeState)
+  ]);
+  const wanted =
+    Object.values(eventState.watches).some((watch) => nativeTaskWatchIsActive(watch, bridgeState)) ||
+    Object.values(workflowState.watches).some((watch) => nativeWorkflowWatchIsActive(watch, bridgeState));
   nativeTransport.wanted = wanted;
 
   if (wanted) {
