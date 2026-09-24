@@ -7,7 +7,7 @@ This document records the established machine-specific deployment. It is operati
 When the established Local Agent flow is requested, derive the target repository and source branch from the active conversation goal plus that repository's own instructions. The current machine registry contains:
 
 - `growclip` -> `MichalMatu/growclip`;
-- `growbox-ml-controller` -> `MichalMatu/growbox-ml-controller`;
+- `bloomml` -> `MichalMatu/bloomml`;
 - `matrixhub` -> `MichalMatu/MatrixHub`;
 - `tracker` -> `MichalMatu/tracker`.
 
@@ -21,9 +21,9 @@ registry:                  ~/Library/Application Support/local-agent/repositorie
 LiteGraph control:         ~/agent-workspace/repos/litegraph/control
 LiteGraph work:            ~/agent-workspace/repos/litegraph/work
 LiteGraph checkpoints:     ~/agent-workspace/repos/litegraph/checkpoints
-Growbox control:           ~/agent-workspace/repos/growbox-ml-controller/control
-Growbox work:              ~/agent-workspace/repos/growbox-ml-controller/work
-Growbox checkpoints:       ~/agent-workspace/repos/growbox-ml-controller/checkpoints
+Growbox control:           ~/agent-workspace/repos/bloomml/control
+Growbox work:              ~/agent-workspace/repos/bloomml/work
+Growbox checkpoints:       ~/agent-workspace/repos/bloomml/checkpoints
 MatrixHub control:         ~/agent-workspace/repos/matrixhub/control
 MatrixHub work:            ~/agent-workspace/repos/matrixhub/work
 MatrixHub checkpoints:     ~/agent-workspace/repos/matrixhub/checkpoints

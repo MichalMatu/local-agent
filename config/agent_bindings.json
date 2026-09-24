@@ -14,8 +14,8 @@
       "execution_enabled": true
     },
     {
-      "id": "growbox-ml-controller",
-      "repository": "MichalMatu/growbox-ml-controller",
+      "id": "bloomml",
+      "repository": "MichalMatu/bloomml",
       "agent_binding": "815cf40f-8d2a-4e1f-b7cc-c0f4e37b6cb5",
       "execution_enabled": true
     },
