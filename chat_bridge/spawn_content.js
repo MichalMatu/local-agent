@@ -112,6 +112,25 @@
     return null;
   }
 
+  function preSubmitReadiness() {
+    const route = routeState();
+    if (route.kind !== "fresh") {
+      return { ok: false, reason: "spawn_unexpected_route", route: route.kind };
+    }
+    if (document.visibilityState === "prerender") {
+      return { ok: false, reason: "spawn_page_not_ready" };
+    }
+    if (assistantIsGenerating()) {
+      return { ok: false, reason: "spawn_assistant_busy" };
+    }
+    const composer = findComposer();
+    if (!composer) return { ok: false, reason: "spawn_composer_not_found" };
+    if (composerText(composer).trim()) {
+      return { ok: false, reason: "spawn_composer_not_empty" };
+    }
+    return { ok: true, reason: "spawn_ready" };
+  }
+
   async function waitForSendButton(composer, timeoutMs = 4500) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
@@ -325,7 +344,8 @@
         ok: true,
         reason: "ready",
         protocolVersion: SPAWN_PROTOCOL_VERSION,
-        route: routeState().kind
+        route: routeState().kind,
+        readiness: preSubmitReadiness()
       });
       return false;
     }
