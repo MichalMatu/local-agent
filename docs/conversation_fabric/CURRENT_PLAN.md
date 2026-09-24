@@ -64,16 +64,14 @@ DEVELOPMENT
 ~/local-agent-dev
 branch: develop/conversation-fabric or one current work/* branch
 separate development state
-separate locks where runtime components need them
 separate logs
 separate Chrome/synthetic browser profile
-separate Chat Bridge/native-host configuration where needed
-disposable/synthetic control repositories until an explicit later gate
+disposable/synthetic repositories until an explicit later gate
 ```
 
 Development must never consume or mutate production `chat-bridge-state`, `operator-control`, task queues, repository control worktrees or runtime state merely because those resources already exist.
 
-A full second execution supervisor is **not required initially**. The first isolated development lab should contain only what the current milestone needs: development checkout, tests, disposable workflow/control fixtures and separate browser/Chat Bridge state. Add an explicitly namespaced DEV executor only if a later integration phase genuinely requires it.
+A full second execution supervisor is **not required initially**. Stage 3 establishes a synthetic-only lab and keeps executor, remote control, real Chrome profile access and Native Messaging registration disabled. Add an explicitly namespaced DEV executor only if a later integration phase genuinely requires it.
 
 ## Execution order
 
@@ -97,53 +95,49 @@ Evidence:
 - exact-main CI passed test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
 - no runtime source file changed in the housekeeping PR.
 
-### Stage 2 — synchronize Conversation Fabric with current `main` — IN PROGRESS
+### Stage 2 — synchronize Conversation Fabric with current `main` — COMPLETE
 
 Goal: development starts from current production reality rather than a stale production snapshot.
 
-Method:
+Completed:
 
-1. compare `develop/conversation-fabric` with current `main`;
-2. merge `main` first into isolated `work/conversation-fabric-main-sync`;
-3. reconcile integration documentation and naming there;
-4. run the complete combined verification suite;
-5. only then merge the sync branch into `develop/conversation-fabric`.
+1. audited divergence between current production and Conversation Fabric;
+2. merged `main` first into isolated `work/conversation-fabric-main-sync`;
+3. reconciled integration documentation and naming there;
+4. verified the exact sync candidate `93ae995ab32a643c87d6efc65cbadcde3f936574` with all five CI jobs;
+5. merged PR #88 into `develop/conversation-fabric` with history preserved;
+6. verified `develop/conversation-fabric@fd16bb090451076e2b181b93ac3e216e7e896bb2` is `behind_by=0` from current `main`;
+7. verified all five post-merge develop CI jobs again, including macOS smoke and Bridge browser smoke.
 
-Current evidence:
+Operational branches `chat-bridge-state` and `operator-control` were not touched.
 
-- before synchronization, develop was 55 commits ahead and 9 commits behind `main`, with merge base `474000b5d4b015958fe92be491968dc4625b4a84`;
-- the 9 production commits consist of repository-identity renames plus Stage 1 housekeeping;
-- PR #87 cleanly merged `main@3e3ce9c3e5e8b12b7945a3e07030050b9b1febc6` into the isolated sync branch;
-- operational branches `chat-bridge-state` and `operator-control` remain untouched;
-- canonical Conversation Fabric architecture now names the synchronized production baseline explicitly.
-
-Stage 2 exit criteria:
-
-- combined sync branch CI green on its exact final SHA;
-- Conversation Fabric/workflow/Bridge tests remain green;
-- `develop/conversation-fabric` contains current production fixes/contracts;
-- no production branch or operational-state branch is changed by the develop synchronization itself.
-
-### Stage 3 — isolated DEV lab/runtime boundary
+### Stage 3 — isolated DEV lab/runtime boundary — IN PROGRESS
 
 Goal: allow Conversation Fabric and browser experiments to run beside production without disturbing it.
 
-Start with the smallest useful isolation boundary:
+Implementation direction:
 
-- separate checkout/worktree (`~/local-agent-dev` target topology);
-- separate temporary state roots and test repositories;
-- separate browser/synthetic Chromium profile;
-- separate Chat Bridge test configuration;
-- explicit prohibition on production control/state branches;
-- tests proving DEV paths cannot resolve to production paths.
+- separate checkout target `~/local-agent-dev`;
+- separate synthetic lab root `~/Library/Application Support/local-agent-dev`;
+- separate state/repository/browser/log/fixture directories;
+- explicit collision checks against production checkout/state/workspaces/LaunchAgent/logs/Chrome/native-host paths;
+- canonical path resolution so symlink aliases to PROD are rejected;
+- explicit protected operational branches: `chat-bridge-state`, `operator-control`;
+- executor, remote control, normal Chrome profile and Native Messaging registration disabled in the Stage 3 manifest;
+- production runtime entrypoints forbidden from importing the development package;
+- existing offline disposable Chromium smoke remains the browser model.
 
-Only if later phases need a real second executor, extend the design to an explicit instance namespace covering daemon lock, state, registry, logs, LaunchAgent label, Native Messaging host/config and control-plane identities.
+A second Local Agent executor is deliberately out of scope. Current production mutable paths are still owned in several runtime modules, so full instance namespacing would be a broader runtime refactor than the current Conversation Fabric phases require.
 
 Exit criteria:
 
-- DEV tests/browser fixture can be started, stopped and destroyed without changing PROD state;
-- paths/locks/control identities cannot accidentally collide with production;
-- normal production Local Agent remains available while DEV work proceeds.
+- DEV layout/collision checks deterministic and fully tested;
+- initialization idempotent and refuses ambiguous pre-existing state;
+- tests prove DEV cannot resolve to protected PROD paths, including symlink aliases;
+- production runtime entrypoints do not import the DEV package;
+- synthetic browser path remains independent of normal Chrome;
+- exact Stage 3 candidate CI green;
+- verified Stage 3 PR merged to `develop/conversation-fabric` without touching `main`, `chat-bridge-state` or `operator-control`.
 
 ### Stage 4 — pure Conversation Fabric contracts
 
@@ -207,25 +201,27 @@ Only after the complete child lifecycle is stable. Reuse the existing workflow/e
 Completed:
 
 - Stage 1 production housekeeping is merged and fully green on `main@3e3ce9c3e5e8b12b7945a3e07030050b9b1febc6`;
-- Stage 2 divergence was audited;
-- current `main` was cleanly merged into `work/conversation-fabric-main-sync`;
-- stale production-baseline wording in the canonical architecture was updated.
+- Stage 2 is merged and fully green on `develop/conversation-fabric@fd16bb090451076e2b181b93ac3e216e7e896bb2`;
+- current `main` is fully contained in develop (`behind_by=0`);
+- Stage 3 preimplementation audit identified that a second executor would require a broad namespace refactor and is not needed yet;
+- `work/dev-runtime-isolation` is the active milestone branch;
+- initial Stage 3 code now defines a fail-closed synthetic lab, collision tests, inert-boundary tests and `DEV_LAB.md`.
 
-Pending before Stage 2 can be marked complete:
+Pending before Stage 3 can be marked complete:
 
-- verify the exact final sync-branch SHA with the full branch CI;
-- review the final integration diff;
-- merge the verified sync branch into `develop/conversation-fabric`;
-- verify develop head/CI after merge.
+- review/fix the Stage 3 implementation against its focused tests;
+- run full exact-SHA CI;
+- inspect the complete `develop...work/dev-runtime-isolation` diff;
+- merge the verified Stage 3 PR into develop;
+- verify develop CI after merge.
 
 Not yet started:
 
-- isolated DEV lab/runtime boundary;
 - pure reasoning-child contracts;
 - automatic child creation.
 
 ## Next action
 
-**Finish Stage 2 verification and merge the synchronized branch into `develop/conversation-fabric`. Then start Stage 3 on a fresh `work/dev-runtime-isolation` branch.**
+**Finish and verify `work/dev-runtime-isolation`. Do not start ChildRequest/ChildRegistration work until Stage 3 is merged and green.**
 
 If a future conversation is unsure what to do next, this `Next action` section is the tie-breaker unless the user explicitly changes the goal.
