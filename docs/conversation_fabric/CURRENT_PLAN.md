@@ -71,7 +71,7 @@ disposable/synthetic repositories until an explicit later gate
 
 Development must never consume or mutate production `chat-bridge-state`, `operator-control`, task queues, repository control worktrees or runtime state merely because those resources already exist.
 
-A full second execution supervisor is **not required initially**. Stage 3 establishes a synthetic-only lab and keeps executor, remote control, real Chrome profile access and Native Messaging registration disabled. Add an explicitly namespaced DEV executor only if a later integration phase genuinely requires it.
+A full second execution supervisor is **not required initially**. Stage 3 established a synthetic-only lab and keeps executor, remote control, real Chrome profile access and Native Messaging registration disabled. Add an explicitly namespaced DEV executor only if a later integration phase genuinely requires it.
 
 ## Execution order
 
@@ -111,11 +111,11 @@ Completed:
 
 Operational branches `chat-bridge-state` and `operator-control` were not touched.
 
-### Stage 3 — isolated DEV lab/runtime boundary — IN PROGRESS
+### Stage 3 — isolated DEV lab/runtime boundary — COMPLETE
 
 Goal: allow Conversation Fabric and browser experiments to run beside production without disturbing it.
 
-Implementation direction:
+Completed:
 
 - separate checkout target `~/local-agent-dev`;
 - separate synthetic lab root `~/Library/Application Support/local-agent-dev`;
@@ -125,32 +125,50 @@ Implementation direction:
 - explicit protected operational branches: `chat-bridge-state`, `operator-control`;
 - executor, remote control, normal Chrome profile and Native Messaging registration disabled in the Stage 3 manifest;
 - production runtime entrypoints forbidden from importing the development package;
-- existing offline disposable Chromium smoke remains the browser model.
+- existing offline disposable Chromium smoke retained as the browser model.
 
-A second Local Agent executor is deliberately out of scope. Current production mutable paths are still owned in several runtime modules, so full instance namespacing would be a broader runtime refactor than the current Conversation Fabric phases require.
+Evidence:
+
+- PR #89 merged to `develop/conversation-fabric`;
+- exact candidate `35057a1d3366e779295895f22dd28d4cb59be5b3` passed all five CI jobs;
+- post-merge `develop/conversation-fabric@0f7fd7c9cc9deaa1b03639123db7b557e62e8089` again passed test, coverage, Python 3.14, macOS smoke and Bridge browser smoke;
+- production `main`, `chat-bridge-state` and `operator-control` were not modified.
+
+A second Local Agent executor remains deliberately out of scope. Current production mutable paths are still owned in several runtime modules, so full instance namespacing would be a broader runtime refactor than the current Conversation Fabric phases require.
+
+### Stage 4 — pure Conversation Fabric contracts — IN PROGRESS
+
+Goal: define deterministic reasoning-child identity and lifecycle semantics before any browser actuation.
+
+Current implementation on `work/conversation-child-contracts` includes:
+
+- bounded immutable `ChildRequest` validation and canonical digest;
+- exact workflow/node introduction provenance;
+- repository id, canonical `agent_binding`, repository ref and exact source commit SHA;
+- canonical bounded repository-relative scope and content-addressed context references;
+- immutable/idempotent `ChildRegistration` mapping one request digest to one child URL;
+- deterministic bounded bootstrap record/message/digest;
+- logical child lifecycle including explicit cancellation and abandonment;
+- bounded `child_checkpoint` and `child_terminal` records with typed evidence references;
+- pure `SpawnTransaction` lifecycle with attempt identity, submit boundary and fail-closed ambiguity;
+- static guard preventing Conversation Fabric imports from production runtime entrypoints.
+
+Explicitly excluded from Stage 4:
+
+- durable ConversationStore;
+- manual attach;
+- Chrome or Chat Bridge actuation;
+- Native Messaging authority;
+- second executor instance;
+- live child creation.
 
 Exit criteria:
 
-- DEV layout/collision checks deterministic and fully tested;
-- initialization idempotent and refuses ambiguous pre-existing state;
-- tests prove DEV cannot resolve to protected PROD paths, including symlink aliases;
-- production runtime entrypoints do not import the DEV package;
-- synthetic browser path remains independent of normal Chrome;
-- exact Stage 3 candidate CI green;
-- verified Stage 3 PR merged to `develop/conversation-fabric` without touching `main`, `chat-bridge-state` or `operator-control`.
-
-### Stage 4 — pure Conversation Fabric contracts
-
-Implement bounded deterministic contracts for:
-
-- `ChildRequest`;
-- `ChildRegistration`;
-- logical child lifecycle;
-- spawn transaction lifecycle;
-- `child_checkpoint`;
-- `child_terminal`.
-
-Require strong positive and negative tests. No production Chrome side effects.
+- strong positive and negative tests for all pure contracts;
+- exact candidate CI green;
+- final diff confirms no production/browser side effects;
+- verified PR merged to `develop/conversation-fabric`;
+- post-merge develop CI green.
 
 ### Stage 5 — synthetic Chromium spawn/attach proof
 
@@ -201,27 +219,27 @@ Only after the complete child lifecycle is stable. Reuse the existing workflow/e
 Completed:
 
 - Stage 1 production housekeeping is merged and fully green on `main@3e3ce9c3e5e8b12b7945a3e07030050b9b1febc6`;
-- Stage 2 is merged and fully green on `develop/conversation-fabric@fd16bb090451076e2b181b93ac3e216e7e896bb2`;
-- current `main` is fully contained in develop (`behind_by=0`);
-- Stage 3 preimplementation audit identified that a second executor would require a broad namespace refactor and is not needed yet;
-- `work/dev-runtime-isolation` is the active milestone branch;
-- initial Stage 3 code now defines a fail-closed synthetic lab, collision tests, inert-boundary tests and `DEV_LAB.md`.
+- Stage 2 synchronization is merged and fully green;
+- Stage 3 isolated DEV lab is merged and fully green on `develop/conversation-fabric@0f7fd7c9cc9deaa1b03639123db7b557e62e8089`;
+- current `main` remains contained in the development history;
+- the older `work/conversation-fabric-phase1-contracts` branch was audited only as a donor/reference and is not being merged wholesale;
+- `work/conversation-child-contracts` is the active milestone branch;
+- PR #90 contains only the pure Stage 4 contract slice plus tests/inert-boundary guard.
 
-Pending before Stage 3 can be marked complete:
+Pending before Stage 4 can be marked complete:
 
-- review/fix the Stage 3 implementation against its focused tests;
-- run full exact-SHA CI;
-- inspect the complete `develop...work/dev-runtime-isolation` diff;
-- merge the verified Stage 3 PR into develop;
-- verify develop CI after merge.
+- finish exact-SHA CI for the final PR #90 head;
+- inspect the final diff after all fixes/documentation updates;
+- merge the verified PR into `develop/conversation-fabric`;
+- verify all five develop CI jobs after merge.
 
-Not yet started:
+Not yet started in the current sequence:
 
-- pure reasoning-child contracts;
-- automatic child creation.
+- durable ConversationStore/manual attach integration for the synthetic browser phase;
+- automatic child creation against any real ChatGPT session.
 
 ## Next action
 
-**Finish and verify `work/dev-runtime-isolation`. Do not start ChildRequest/ChildRegistration work until Stage 3 is merged and green.**
+**Finish and verify PR #90 (`work/conversation-child-contracts`). Do not start browser actuation until Stage 4 is merged and post-merge CI is green.**
 
 If a future conversation is unsure what to do next, this `Next action` section is the tie-breaker unless the user explicitly changes the goal.

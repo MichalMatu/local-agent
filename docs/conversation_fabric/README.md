@@ -6,7 +6,7 @@ Production remains `main`. `chat-bridge-state` and `operator-control` remain ope
 
 ## Current state
 
-The consolidation phase is complete. Stage 1 production housekeeping and Stage 2 synchronization with current `main` are complete. Stage 3 establishes the isolated synthetic DEV lab before any child-conversation implementation begins.
+The consolidation phase is complete. Stage 1 production housekeeping, Stage 2 synchronization with current `main`, and Stage 3 isolated synthetic DEV lab are complete. Stage 4 is the current milestone: pure bounded child-conversation contracts, with no production browser or runtime actuation.
 
 Already present on this development line:
 
@@ -16,9 +16,10 @@ Already present on this development line:
 - the durable task-result event outbox and notification-only Native Messaging host substrate;
 - the pure persisted Event Wake state model and tests;
 - CI for `develop/**`;
-- the current production baseline merged into Conversation Fabric history.
+- the current production baseline merged into Conversation Fabric history;
+- a fail-closed synthetic DEV lab that is isolated from production state, Chrome and execution authority.
 
-Execution Fabric is intentionally inert with respect to production runtime entrypoints. Event Wake is also intentionally only partially active: its pure state/outbox/native-host substrate is present, but old donor worker/delivery files are not wired over the newer transient recovery path.
+Execution Fabric and the DEV lab are intentionally inert with respect to production runtime entrypoints. Event Wake is also intentionally only partially active: its pure state/outbox/native-host substrate is present, but old donor worker/delivery files are not wired over the newer transient recovery path.
 
 ## Canonical documents
 
@@ -36,8 +37,8 @@ The prerequisites are intentionally serial at the product boundary even though v
 
 1. **complete:** small production-`main` housekeeping with no intentional runtime behavior change;
 2. **complete:** reconcile `develop/conversation-fabric` with the resulting current `main`;
-3. **current:** establish the isolated synthetic DEV checkout/state/browser lab described in `DEV_LAB.md`;
-4. then implement the pure bounded `ChildRequest`, `ChildRegistration`, lifecycle, checkpoint and terminal-result contracts;
+3. **complete:** establish the isolated synthetic DEV checkout/state/browser lab described in `DEV_LAB.md`;
+4. **current:** implement and verify pure bounded `ChildRequest`, `ChildRegistration`, lifecycle, spawn-transaction, checkpoint and terminal-result contracts;
 5. then run the synthetic Chromium spawn/attach feasibility spike proving duplicate-safe child creation/recovery;
 6. only after those gates, connect child conversations to the already-transplanted workflow substrate and attention-event transport.
 

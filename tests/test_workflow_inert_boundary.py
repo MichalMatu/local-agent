@@ -19,6 +19,8 @@ FORBIDDEN_IMPORT_MARKERS = (
     "import local_agent.workflow",
     "from local_agent.development",
     "import local_agent.development",
+    "from local_agent.conversation",
+    "import local_agent.conversation",
 )
 UNWIRED_WORKFLOW_SIDE_EFFECT_MODULES = (
     "local_agent/workflow/git_control_plane.py",
@@ -41,7 +43,7 @@ class WorkflowInertBoundaryTests(unittest.TestCase):
         self.assertEqual(
             violations,
             [],
-            "Workflow/DEV infrastructure must remain inert until an explicit integration phase: "
+            "Workflow/DEV/Conversation Fabric infrastructure must remain inert until an explicit integration phase: "
             + ", ".join(violations),
         )
 
