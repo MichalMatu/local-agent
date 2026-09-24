@@ -202,7 +202,7 @@ class DevelopmentLiveSliceTests(unittest.TestCase):
         external.mkdir()
         paths.browser_profile.symlink_to(external, target_is_directory=True)
 
-        with self.assertRaisesRegex(RuntimeError, "browser profile must not be a symlink"):
+        with self.assertRaisesRegex(ValueError, "browser profile must stay below DEV lab root"):
             build_live_slice_plan(self.layout, self.request)
 
     def test_tampered_prepared_plan_fails_closed(self) -> None:
