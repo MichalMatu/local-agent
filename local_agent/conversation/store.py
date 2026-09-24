@@ -194,6 +194,22 @@ class WorkflowConversationStore:
             request_ids.append(request_id)
         return sorted(request_ids)
 
+    def request_for_node(self, node_id: str) -> dict[str, Any] | None:
+        if not isinstance(node_id, str) or not node_id:
+            raise ValueError("workflow node id must be a non-empty string")
+        match: dict[str, Any] | None = None
+        for request_id in self.request_ids():
+            request = self.load_request(request_id)
+            if request["workflow_node_id"] != node_id:
+                continue
+            if match is not None and match["id"] != request["id"]:
+                raise ValueError(
+                    f"workflow reasoning node {node_id!r} has multiple durable child requests: "
+                    f"{match['id']!r} and {request['id']!r}"
+                )
+            match = request
+        return match
+
     def admit_request(self, request: dict[str, Any]) -> dict[str, Any]:
         contract.validate_child_request(request)
         request_id = _validate_request_id(request["id"])
@@ -211,6 +227,14 @@ class WorkflowConversationStore:
                 if not self._state_path(request_id).exists():
                     self._write_state(request_id, self._initial_state(existing))
                 return self.load_state(request_id)
+
+            node_id = str(request["workflow_node_id"])
+            existing_for_node = self.request_for_node(node_id)
+            if existing_for_node is not None:
+                raise ValueError(
+                    f"workflow reasoning node {node_id!r} already has child request "
+                    f"{existing_for_node['id']!r}"
+                )
 
             self._require_new_request_ready(request)
             atomic_write_text(path, _json_text(request))
