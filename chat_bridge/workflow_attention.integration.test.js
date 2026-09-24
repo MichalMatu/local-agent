@@ -65,6 +65,7 @@ function childTerminalEvent(parentUrl, workflowId, suffix, overrides = {}) {
   assert.equal(response.ok, true);
   assert.equal(response.reason, "waiting_workflow");
   assert.equal(response.workflowId, "audit-44");
+  assert.equal(response.subscriptionUnchanged, false);
   assert.equal(h.storage.workflowAttentionState.watches[parent.id].workflowId, "audit-44");
   assert.equal(h.storage.workflowAttentionState.watches[parent.id].conversationUrl, parent.url);
   assert.equal(h.alarms.has(`local-agent-chat:${parent.id}`), true,
@@ -93,6 +94,15 @@ function childTerminalEvent(parentUrl, workflowId, suffix, overrides = {}) {
   assert.equal(h.storage.workflowAttentionState.pendingWakes[first.event_id], undefined);
   assert.equal(h.storage.workflowAttentionState.watches[parent.id].workflowId, "audit-44");
 
+  response = await assistantControl(h, parent.url, "71000002", "[LAB:WAIT_WORKFLOW=audit-44]");
+  assert.equal(response.ok, true);
+  assert.equal(response.reason, "waiting_workflow");
+  assert.equal(response.subscriptionUnchanged, true,
+    "repeating the same persistent subscription must be idempotent");
+  assert.equal(response.matchedRecentEvents, 0,
+    "repeating WAIT_WORKFLOW must not replay already delivered recent child hints");
+  assert.equal(h.storage.workflowAttentionState.pendingWakes[first.event_id], undefined);
+
   const second = childTerminalEvent(parent.url, "audit-44", "5");
   accepted = await h.context.acceptNativeBridgeEvent(second);
   assert.equal(accepted.reason, "workflow_event_pending",
@@ -110,7 +120,7 @@ function childTerminalEvent(parentUrl, workflowId, suffix, overrides = {}) {
   assert.equal(h.storage.workflowAttentionState.pendingWakes[wrongParent.event_id], undefined,
     "workflow id alone must never route cross-conversation attention");
 
-  response = await assistantControl(h, parent.url, "71000002", "[LAB:REBIND=tracker]");
+  response = await assistantControl(h, parent.url, "71000003", "[LAB:REBIND=tracker]");
   assert.equal(response.ok, true);
   assert.equal(h.storage.workflowAttentionState.watches[parent.id], undefined,
     "binding epoch change must invalidate parent workflow ownership");
@@ -129,7 +139,7 @@ function childTerminalEvent(parentUrl, workflowId, suffix, overrides = {}) {
   response = await assistantControl(
     beforeRestart,
     restartParent.url,
-    "71000003",
+    "71000004",
     "[LAB:WAIT_WORKFLOW=restart-workflow]"
   );
   assert.equal(response.ok, true);
