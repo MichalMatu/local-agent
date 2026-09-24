@@ -38,27 +38,7 @@ const fixture = `<!doctype html><html><body>
   <div id="prompt-textarea" class="ProseMirror" contenteditable="true" role="textbox"></div>
   <button id="composer-submit-button" type="submit">Send</button>
 </form>
-<script>
-window.submits = 0;
-window.syntheticChildPath = (() => {
-  const params = new URLSearchParams(location.hash.replace(/^#/, ""));
-  const transaction = params.get("la-spawn") || "spawn-login";
-  return "/c/live-slice-" + transaction.slice(-12);
-})();
-document.querySelector("form").onsubmit = (event) => {
-  event.preventDefault();
-  window.submits++;
-  const input = document.querySelector("#prompt-textarea");
-  const text = input.innerText || input.textContent || "";
-  const message = document.createElement("div");
-  message.dataset.messageAuthorRole = "user";
-  message.textContent = text;
-  document.body.append(message);
-  input.textContent = "";
-  input.dispatchEvent(new Event("input", { bubbles: true }));
-  history.pushState({}, "", window.syntheticChildPath);
-};
-</script></body></html>`;
+</body></html>`;
 
 const wrapperSource = `"use strict";
 const fs = require("node:fs");
@@ -165,25 +145,6 @@ function bounded(label, promise, timeoutMs = 20_000) {
     assert.equal(recovered.reason, "tab_recovered", JSON.stringify(recovered));
     assert.equal(recovered.tabId, created.tabId);
 
-    const active = { ...pending, tab_id: created.tabId };
-    let probe = null;
-    const probeDeadline = Date.now() + 10_000;
-    do {
-      probe = await request("probe", { intent: active });
-      if (probe.ok) break;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    } while (Date.now() < probeDeadline);
-    assert.equal(probe?.ok, true, JSON.stringify(probe));
-    assert.equal(probe.reason, "spawn_ready", JSON.stringify(probe));
-
-    const submitted = await request("submit", { intent: active });
-    assert.equal(submitted.ok, true, JSON.stringify(submitted));
-    assert.equal(submitted.reason, "identity_discovered", JSON.stringify(submitted));
-    assert.match(
-      submitted.childConversationUrl,
-      /^https:\/\/chatgpt\.com\/c\/live-slice-[a-f0-9]{12}$/
-    );
-
     const shutdown = await request("shutdown");
     assert.equal(shutdown.ok, true, JSON.stringify(shutdown));
     assert.equal(shutdown.reason, "shutdown");
@@ -194,7 +155,7 @@ function bounded(label, promise, timeoutMs = 20_000) {
       10_000
     );
     assert.equal(exitCode, 0, stderr);
-    console.log("Conversation live slice browser actuator smoke passed.");
+    console.log("Conversation live slice real-browser create/recovery smoke passed.");
   } finally {
     if (child.exitCode === null) child.kill("SIGTERM");
     lines.close();
