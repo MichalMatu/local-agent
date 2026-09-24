@@ -71,13 +71,14 @@ module.exports = {
         ...options,
         channel: "chromium"
       });
-      const fulfill = (route) => route.fulfill({
-        status: 200,
-        contentType: "text/html",
-        body: fixture
+      await context.setOffline(true);
+      await context.route("https://**/*", (route) => {
+        const url = route.request().url();
+        if (url.startsWith("https://chatgpt.com/") || url.startsWith("https://chat.openai.com/")) {
+          return route.fulfill({ status: 200, contentType: "text/html", body: fixture });
+        }
+        return route.abort();
       });
-      await context.route("https://chatgpt.com/**", fulfill);
-      await context.route("https://chat.openai.com/**", fulfill);
       return context;
     }
   }
