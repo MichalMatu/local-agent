@@ -31,6 +31,7 @@
         "control_protocol.js",
         "content_retry.js",
         "content.js",
+        "spawn_content.js",
         "dom_contract.js",
         "exhaustion_guard.js"
       ],

@@ -133,6 +133,10 @@ def run_macos_smoke() -> None:
 def run_bridge_browser() -> None:
     node = _require("node")
     _run("Chromium extension smoke", [node, "scripts/bridge_browser_smoke.cjs"])
+    _run(
+        "Chromium Conversation Fabric synthetic spawn smoke",
+        [node, "scripts/conversation_spawn_browser_smoke.cjs"],
+    )
     _run("Chromium assistant timeout recovery smoke", [node, "scripts/bridge_assistant_error_smoke.cjs"])
     _run(
         "Chromium assistant timeout resilience smoke",
