@@ -112,7 +112,7 @@ This item can be marked `Fixed` only when the exact failure can be reproduced in
 
 ## BUG-002 — active control-repository lease contention drains unrelated parallel admission
 
-**Status:** Candidate validated; pending v4.18.14 merge/tag/live verification  
+**Status:** Fixed in production source; introduced in v4.18.14 behavior and retained by later releases  
 **Priority:** P1  
 **First confirmed:** 2026-09-08  
 **Area:** parallel supervisor, global control probe, repository admission
@@ -129,66 +129,58 @@ The v4.18.13 supervisor probes the designated control repository periodically wh
 
 After repeated lease-busy outcomes, v4.18.13 can enter global control pending/drain state. While that state is active and any worker is still running, the main loop continues before normal repository admission. Unrelated repository tasks are therefore not started until the active worker set becomes empty.
 
-Production evidence confirmed the pattern with LiteGraph as the control repository and Growbox as the waiting repository. Both tasks used `resources: []`; worker capacity was available; the Growbox task started only after the long LiteGraph task ended.
+Production evidence confirmed the pattern with the then-LiteGraph control repository and the then-Growbox waiting repository. Both tasks used `resources: []`; worker capacity was available; the waiting repository task started only after the long control-repository task ended.
 
 The original short two-repository parallel barrier test did not expose the defect because it finished before the global-control probe/backoff path could accumulate enough lease contention.
 
 ### Impact
 
-- cross-repository parallelism can collapse during sufficiently long control-repository tasks;
-- pending tasks can wait well beyond the nominal repository poll interval despite free worker capacity;
-- operators can misdiagnose the delay as RAM pressure, `machine` contention or a dead poll loop;
-- production `max_workers=4` is not reliably usable for ordinary independent work on v4.18.13;
-- development throughput is materially degraded.
+- cross-repository parallelism could collapse during sufficiently long control-repository tasks;
+- pending tasks could wait well beyond the nominal repository poll interval despite free worker capacity;
+- operators could misdiagnose the delay as RAM pressure, `machine` contention or a dead poll loop;
+- production `max_workers=4` was not reliably usable for ordinary independent work on v4.18.13;
+- development throughput was materially degraded.
 
 ### Non-cause: RAM admission
 
 `memory_limit_mb` is not a scheduler-wide reservation. It is enforced inside an already-running task by process-group RSS sampling. The parallel supervisor does not sum task memory limits and does not block another repository because aggregate host RAM or requested per-task memory exceeds a scheduler threshold.
 
-### v4.18.14 candidate repair
+### Implemented repair
 
-The v4.18.14 candidate implements the repair in the existing scheduling ownership boundary instead of adding another state machine to `orchestrator.py`:
+The repair introduced with v4.18.14 behavior lives in the existing scheduling ownership boundary instead of adding another state machine to `orchestrator.py`:
 
 1. `local_agent.supervisor.scheduling.ControlDeferralState` owns control retry/admission evidence.
 2. Overall deferred-probe count drives bounded 2-15 second retry/backoff; a separate **consecutive `LEASE_BUSY`** streak drives lease-starvation protection.
 3. A `DEFERRED` sync/network/ACK-read outcome breaks the lease-busy streak while retaining bounded retry behavior.
 4. Fewer than six consecutive `LEASE_BUSY` outcomes retry without changing admission.
 5. On the sixth consecutive `LEASE_BUSY`, a known active control-repository worker causes only **new control-repository admission** to pause. Existing workers continue and unrelated repositories remain admissible when capacity/resources permit it.
-6. That pause gives the supervisor a control-probe opportunity after the active control worker releases its lease, preventing a continuous control-repository queue from starving global control.
+6. That pause gives the supervisor a control-probe opportunity after the active control worker releases the lease, preventing a continuous control-repository queue from starving global control.
 7. Six consecutive `LEASE_BUSY` outcomes with no corresponding known active control worker retain the defensive global drain for unexplained/stale lease ownership.
 8. A confirmed `PENDING` global control request still drains immediately.
 9. A configured control-repository identity change clears stale retry/lease-busy/pause evidence and invalidates the previous control-poll clock.
 10. `resources: ["machine"]` priority/drain semantics, named-resource locking, repository leases, claims/results, hard binding, emergency disable and self-update behavior are unchanged.
 
-### Candidate regression coverage
+### Regression coverage
 
-Implemented on `fix/control-probe-parallel-admission`:
+The production line retains:
 
 - pure policy coverage for five lease-busy retries and the sixth known-worker pause;
 - pure policy coverage for the sixth unexplained lease-busy defensive global drain;
 - mixed sequence coverage proving `5 × LEASE_BUSY -> DEFERRED -> LEASE_BUSY` leaves a lease-busy streak of one rather than seven;
 - control-repository identity-change/reset coverage;
-- real temporary-Git integration test that keeps the control task alive, crosses the six-consecutive-busy threshold, queues a second repository afterwards and requires that second task to start before the control task is released;
-- explicit integration evidence that the known-worker path logs `pausing new control-repository admission` with `consecutive_lease_busy=6` and does not log the global-drain path;
-- full existing parallel/resource/repository lease regression suite through normal CI;
-- exact-candidate macOS smoke includes both the pure policy and real overlap regression modules;
-- current-documentation and release-metadata drift checks are part of the suite.
+- real temporary-Git integration coverage that keeps the control task alive, crosses the six-consecutive-busy threshold, queues a second repository afterwards and requires that second task to start before the control task is released;
+- explicit integration evidence that the known-worker path uses the control-repository pause rather than the global-drain path;
+- full parallel/resource/repository lease regression coverage;
+- macOS smoke coverage for the policy and real overlap regression;
+- current-documentation and release-metadata drift checks.
 
-### Temporary operator workaround
+### Closure evidence
 
-Until v4.18.14 is merged/tagged and production is verified live, v4.18.13 remains the running baseline. Avoid assuming `max_workers=4` guarantees admission while a long task is running in the designated control repository. No restart is required merely because a waiting task is delayed; allowing the control-repository task to finish normally releases the current condition.
-
-For rollback, use release tag `v4.18.13` or branch `rollback/v4.18.13-known-working`, both pointing to commit `a32e54858c3bcb9687334b3232b71ae6ff130208`.
-
-### Closure criteria
-
-Mark this item `Fixed` only after all of the following are true:
-
-1. the exact final v4.18.14 candidate passes focused control-admission tests, the complete CI matrix and macOS ARM64 smoke/recheck;
-2. downstream documentation audit has no material contradiction;
-3. the validated candidate is explicitly merged to `main` and tagged `v4.18.14`;
-4. the live daemon reports the released version/revision;
-5. live production evidence demonstrates independent repository admission while a sufficiently long control-repository task is active, or an equivalent exact released-code E2E is recorded.
+- `docs/CHANGELOG.md` records BUG-002 as fixed under v4.18.14 behavior.
+- Later released source retained those semantics; v4.18.15 explicitly states that it preserved the 4.18.14 BUG-002 admission behavior.
+- Current production documentation and tests describe the repaired policy as established behavior rather than pending candidate work.
+- The historical `v4.18.14` tag is absent from the remote tag set. Do not fabricate or back-date that tag merely to satisfy old prose; the durable source/release lineage above is the closure record.
+- `v4.18.13` remains the explicit pre-fix rollback baseline for historical comparison.
 
 ---
 

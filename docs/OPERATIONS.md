@@ -22,7 +22,9 @@ v4.18.13
 = rollback/v4.18.13-known-working
 ```
 
-The current release candidate is v4.18.14. It is not production until explicitly advanced to `main`. See [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) before changing scheduler/control admission behavior.
+Current production source identifies itself as v4.18.24. The BUG-002 scheduler repair introduced with v4.18.14 behavior is established production behavior; v4.18.13 is retained only as the explicit pre-fix rollback baseline. See [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) for historical pre-fix context before changing scheduler/control admission behavior.
+
+The remote tag set currently has no `v4.18.24` tag. Do not fabricate or back-date a release tag during unrelated housekeeping. The release-flow invariant below remains the rule for future releases; repairing historical tag metadata requires an explicit release-metadata decision against an exact commit.
 
 ## Hard agent-binding contract
 
@@ -211,7 +213,7 @@ python -m local_agent.operator.local migrate-bindings
 
 Provisioning is explicit and never a poll-loop side effect. Repository ids/remotes/bindings and normalized control/work/checkpoint paths must remain disjoint and stable.
 
-The first enabled registry entry is the supervisor control repository in registry v1. Reordering entries therefore changes the global restart/self-update/status control source. v4.18.14 clears stale retry/lease-busy/pause state and invalidates the old poll clock when that identity changes.
+The first enabled registry entry is the supervisor control repository in registry v1. Reordering entries therefore changes the global restart/self-update/status control source. The production policy introduced in v4.18.14 clears stale retry/lease-busy/pause state and invalidates the old poll clock when that identity changes.
 
 Do not remove or identity-mutate an active registry entry while workers/descendants may still be alive.
 
@@ -225,11 +227,11 @@ Repository controls include `cancel_task`, `disable` and status handling. Active
 
 Repository workers never execute supervisor-wide restart/self-update directly. While workers are active, the parallel supervisor probes global control and drains safely before confirmed global maintenance.
 
-### v4.18.14 control-probe admission policy
+### Control-probe admission policy (introduced in v4.18.14)
 
-The frozen v4.18.13 scheduler has confirmed BUG-002: a long task in the designated control repository legitimately owns its repository lease, so the periodic global-control probe returns `LEASE_BUSY`. Repeated expected ownership could trigger a global admission drain and block unrelated repositories even with `resources: []` and free worker capacity.
+The frozen v4.18.13 scheduler had confirmed BUG-002: a long task in the designated control repository legitimately owned its repository lease, so the periodic global-control probe returned `LEASE_BUSY`. Repeated expected ownership could trigger a global admission drain and block unrelated repositories even with `resources: []` and free worker capacity.
 
-v4.18.14 separates retry evidence from the lease-busy starvation streak:
+Current production behavior separates retry evidence from the lease-busy starvation streak:
 
 - each deferred probe participates in bounded 2-15 second retry/backoff;
 - only true **consecutive `LEASE_BUSY`** outcomes count toward the six-attempt lease-ownership threshold;
@@ -329,7 +331,7 @@ Hard-binding releases additionally require missing/wrong binding rejection on bo
 
 ## Downstream documentation gate
 
-Current execution targets are LiteGraph, Growbox ML Controller, MatrixHub and Tracker. Standalone `esp32-c6-zigbee` execution has been removed from the agent registry/catalog; active C6 development belongs to LiteGraph. Changes to task schema, planner flow, status/control or execution model require a downstream docs audit before release. See `AGENTS.md` for exact files/branches.
+The canonical execution-enabled target set is defined by `config/agent_bindings.json`; do not maintain a second hand-written repository list here. Changes to task schema, planner flow, status/control or execution model require a downstream documentation audit before release. `AGENTS.md` defines the exact downstream files/branches that must remain synchronized.
 
 Downstream task examples must include `agent_binding` for executable Chat Bridge/Local Agent work and must not instruct a conversation to select/switch repositories from model context.
 
@@ -344,6 +346,6 @@ Downstream task examples must include `agent_binding` for executable Chat Bridge
 
 Use focused regression during iteration, then one bounded full suite near the end. Long/noisy structured stages may use `output_policy: "summary"`; bounded raw evidence remains in terminal results.
 
-Unexpected worker exits back off 2-300 s and reset after normal outcomes. Deferred global-control work backs off 2-15 s. Only six **consecutive** `LEASE_BUSY` outcomes activate lease-ownership starvation protection in v4.18.14; degraded probe outcomes break that streak. Known active control-worker contention pauses only new control-repository admission, while unexplained contention retains the defensive global drain.
+Unexpected worker exits back off 2-300 s and reset after normal outcomes. Deferred global-control work backs off 2-15 s. Only six **consecutive** `LEASE_BUSY` outcomes activate lease-ownership starvation protection in the production policy introduced in v4.18.14; degraded probe outcomes break that streak. Known active control-worker contention pauses only new control-repository admission, while unexplained contention retains the defensive global drain.
 
 The production supervisor bounds `~/Library/Logs/local-agent.log` and `local-agent-error.log`. Routine successful internal Git housekeeping is quiet by default; actionable control failures, timeouts, nonzero internal commands, task lifecycle and other degraded states remain logged. Set `LOCAL_AGENT_VERBOSE_LOGS=1` only for temporary low-level diagnostics.
