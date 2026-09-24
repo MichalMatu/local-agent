@@ -17,6 +17,8 @@ PRODUCTION_ENTRYPOINTS = (
 FORBIDDEN_IMPORT_MARKERS = (
     "from local_agent.workflow",
     "import local_agent.workflow",
+    "from local_agent.development",
+    "import local_agent.development",
 )
 UNWIRED_WORKFLOW_SIDE_EFFECT_MODULES = (
     "local_agent/workflow/git_control_plane.py",
@@ -28,7 +30,7 @@ UNWIRED_WORKFLOW_SIDE_EFFECT_MODULES = (
 
 
 class WorkflowInertBoundaryTests(unittest.TestCase):
-    def test_execution_fabric_is_not_imported_by_production_runtime_entrypoints(self) -> None:
+    def test_development_orchestration_is_not_imported_by_production_runtime_entrypoints(self) -> None:
         violations: list[str] = []
         for relative in PRODUCTION_ENTRYPOINTS:
             path = ROOT / relative
@@ -39,7 +41,7 @@ class WorkflowInertBoundaryTests(unittest.TestCase):
         self.assertEqual(
             violations,
             [],
-            "Execution Fabric must remain inert until an explicit integration phase: "
+            "Workflow/DEV infrastructure must remain inert until an explicit integration phase: "
             + ", ".join(violations),
         )
 
