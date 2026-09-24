@@ -16,9 +16,14 @@ class ConversationFabricTreeHygieneTests(unittest.TestCase):
         )
 
     def test_canonical_conversation_fabric_docs_exist(self) -> None:
-        self.assertTrue((CF / "README.md").is_file())
-        self.assertTrue((CF / "UNIFIED_DEVELOPMENT_DIRECTION.md").is_file())
-        self.assertTrue((CF / "BRANCH_CONSOLIDATION.md").is_file())
+        for name in (
+            "README.md",
+            "CURRENT_PLAN.md",
+            "UNIFIED_DEVELOPMENT_DIRECTION.md",
+            "DEV_LAB.md",
+            "BRANCH_CONSOLIDATION.md",
+        ):
+            self.assertTrue((CF / name).is_file(), f"missing canonical Conversation Fabric doc: {name}")
 
     def test_superseded_plans_live_under_history(self) -> None:
         expected = (
