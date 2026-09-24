@@ -1,4 +1,4 @@
-"""Durable, bounded notification events for remotely published task results."""
+"""Durable, bounded notification events for Chat Bridge attention routing."""
 
 from __future__ import annotations
 
@@ -10,11 +10,13 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from local_agent.foundation.process import atomic_write_text, fsync_directory
 
 EVENT_SCHEMA_VERSION = 1
 EVENT_TYPE_TASK_RESULT_READY = "task_result_ready"
+EVENT_TYPE_CHILD_TERMINAL_READY = "child_terminal_ready"
 MAX_OUTBOX_EVENTS = 256
 EVENT_TTL_SECONDS = 7 * 24 * 60 * 60
 MAX_EVENT_BYTES = 4096
@@ -25,10 +27,13 @@ CONTROL_BINDING_RELATIVE = Path(".agent") / "binding.json"
 _REPOSITORY_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,120}$")
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
+_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,200}$")
 _EVENT_ID_RE = re.compile(r"^evt-[0-9a-f]{32}$")
 _STATUS_RE = re.compile(r"^[A-Za-z0-9._:-]{1,64}$")
 _DIGEST_RE = re.compile(r"^[A-Za-z0-9._:-]{1,160}$")
-_EVENT_IDENTITY_FIELDS = (
+_SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_OUTCOME_RE = re.compile(r"^(?:succeeded|failed)$")
+_TASK_EVENT_IDENTITY_FIELDS = (
     "schema_version",
     "event_id",
     "event_type",
@@ -38,6 +43,18 @@ _EVENT_IDENTITY_FIELDS = (
     "task_id",
     "task_digest",
     "result_status",
+)
+_CHILD_TERMINAL_EVENT_IDENTITY_FIELDS = (
+    "schema_version",
+    "event_id",
+    "event_type",
+    "parent_conversation_url",
+    "workflow_id",
+    "workflow_node_id",
+    "child_request_id",
+    "child_request_digest",
+    "terminal_digest",
+    "outcome",
 )
 
 
@@ -61,6 +78,20 @@ def _canonical_binding(value: Any) -> str:
     return canonical
 
 
+def _canonical_conversation_url(value: Any) -> str:
+    if not isinstance(value, str) or not value or len(value) > 512 or value != value.strip():
+        raise ValueError("parent_conversation_url must be a bounded canonical ChatGPT URL")
+    parsed = urlparse(value)
+    if parsed.scheme != "https" or parsed.netloc not in {"chatgpt.com", "chat.openai.com"}:
+        raise ValueError("parent_conversation_url must use a supported ChatGPT origin")
+    if parsed.params or parsed.query or parsed.fragment:
+        raise ValueError("parent_conversation_url must not contain params, query, or fragment")
+    match = re.fullmatch(r"/c/([A-Za-z0-9_-]{1,200})", parsed.path.rstrip("/"))
+    if match is None:
+        raise ValueError("parent_conversation_url must identify one concrete conversation")
+    return f"https://chatgpt.com/c/{match.group(1)}"
+
+
 def _load_control_identity(control_dir: Path) -> tuple[str, str, str]:
     path = control_dir / CONTROL_BINDING_RELATIVE
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -75,13 +106,35 @@ def _load_control_identity(control_dir: Path) -> tuple[str, str, str]:
     return repository_id, repository, _canonical_binding(payload.get("agent_binding"))
 
 
-def _event_id(
+def _task_event_id(
     repository_id: str,
     agent_binding: str,
     task_id: str,
     task_digest: str | None,
 ) -> str:
     identity = "\0".join((repository_id, agent_binding, task_id, task_digest or ""))
+    return f"evt-{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:32]}"
+
+
+def _child_terminal_event_id(
+    parent_conversation_url: str,
+    workflow_id: str,
+    workflow_node_id: str,
+    child_request_id: str,
+    child_request_digest: str,
+    terminal_digest: str,
+) -> str:
+    identity = "\0".join(
+        (
+            EVENT_TYPE_CHILD_TERMINAL_READY,
+            parent_conversation_url,
+            workflow_id,
+            workflow_node_id,
+            child_request_id,
+            child_request_digest,
+            terminal_digest,
+        )
+    )
     return f"evt-{hashlib.sha256(identity.encode('utf-8')).hexdigest()[:32]}"
 
 
@@ -106,7 +159,7 @@ def build_result_event(
 
     event = {
         "schema_version": EVENT_SCHEMA_VERSION,
-        "event_id": _event_id(repository_id, agent_binding, task_id, task_digest),
+        "event_id": _task_event_id(repository_id, agent_binding, task_id, task_digest),
         "event_type": EVENT_TYPE_TASK_RESULT_READY,
         "emitted_at": emitted_at or now_iso(),
         "repository_id": repository_id,
@@ -118,6 +171,54 @@ def build_result_event(
     if task_digest is not None:
         event["task_digest"] = task_digest
     return event
+
+
+def build_child_terminal_event(
+    *,
+    parent_conversation_url: str,
+    workflow_id: str,
+    workflow_node_id: str,
+    child_request_id: str,
+    child_request_digest: str,
+    terminal_digest: str,
+    outcome: str,
+    emitted_at: str | None = None,
+) -> dict[str, Any]:
+    parent_url = _canonical_conversation_url(parent_conversation_url)
+    for field, value in (
+        ("workflow_id", workflow_id),
+        ("workflow_node_id", workflow_node_id),
+        ("child_request_id", child_request_id),
+    ):
+        if not isinstance(value, str) or not _ID_RE.fullmatch(value):
+            raise ValueError(f"{field} must be a canonical bounded identifier")
+    if not isinstance(child_request_digest, str) or not _SHA256_RE.fullmatch(child_request_digest):
+        raise ValueError("child_request_digest must be a canonical sha256 digest")
+    if not isinstance(terminal_digest, str) or not _SHA256_RE.fullmatch(terminal_digest):
+        raise ValueError("terminal_digest must be a canonical sha256 digest")
+    if not isinstance(outcome, str) or not _OUTCOME_RE.fullmatch(outcome):
+        raise ValueError("outcome must be succeeded or failed")
+
+    return {
+        "schema_version": EVENT_SCHEMA_VERSION,
+        "event_id": _child_terminal_event_id(
+            parent_url,
+            workflow_id,
+            workflow_node_id,
+            child_request_id,
+            child_request_digest,
+            terminal_digest,
+        ),
+        "event_type": EVENT_TYPE_CHILD_TERMINAL_READY,
+        "emitted_at": emitted_at or now_iso(),
+        "parent_conversation_url": parent_url,
+        "workflow_id": workflow_id,
+        "workflow_node_id": workflow_node_id,
+        "child_request_id": child_request_id,
+        "child_request_digest": child_request_digest,
+        "terminal_digest": terminal_digest,
+        "outcome": outcome,
+    }
 
 
 def _event_path(event_id: str, *, state_dir: Path | None = None) -> Path:
@@ -138,18 +239,23 @@ def _event_timestamp(event: dict[str, Any], fallback: float) -> float:
     return fallback
 
 
-def _valid_event_payload(payload: dict[str, Any]) -> bool:
-    if payload.get("schema_version") != EVENT_SCHEMA_VERSION:
+def _valid_timestamp(payload: dict[str, Any]) -> bool:
+    emitted_at = payload.get("emitted_at")
+    if not isinstance(emitted_at, str) or len(emitted_at) > 64:
         return False
-    if payload.get("event_type") != EVENT_TYPE_TASK_RESULT_READY:
+    try:
+        parsed = datetime.fromisoformat(emitted_at)
+    except ValueError:
         return False
+    return parsed.tzinfo is not None
 
+
+def _valid_task_event(payload: dict[str, Any]) -> bool:
     event_id = payload.get("event_id")
     repository_id = payload.get("repository_id")
     repository = payload.get("repository")
     task_id = payload.get("task_id")
     result_status = payload.get("result_status")
-    emitted_at = payload.get("emitted_at")
     raw_digest = payload.get("task_digest")
 
     if not isinstance(event_id, str) or not _EVENT_ID_RE.fullmatch(event_id):
@@ -166,21 +272,57 @@ def _valid_event_payload(payload: dict[str, Any]) -> bool:
         not isinstance(raw_digest, str) or not _DIGEST_RE.fullmatch(raw_digest)
     ):
         return False
-    if not isinstance(emitted_at, str) or len(emitted_at) > 64:
-        return False
-    try:
-        parsed = datetime.fromisoformat(emitted_at)
-    except ValueError:
-        return False
-    if parsed.tzinfo is None:
-        return False
-
     try:
         agent_binding = _canonical_binding(payload.get("agent_binding"))
     except ValueError:
         return False
-    expected_id = _event_id(repository_id, agent_binding, task_id, raw_digest)
+    expected_id = _task_event_id(repository_id, agent_binding, task_id, raw_digest)
     return event_id == expected_id
+
+
+def _valid_child_terminal_event(payload: dict[str, Any]) -> bool:
+    event_id = payload.get("event_id")
+    try:
+        parent_url = _canonical_conversation_url(payload.get("parent_conversation_url"))
+    except ValueError:
+        return False
+    workflow_id = payload.get("workflow_id")
+    workflow_node_id = payload.get("workflow_node_id")
+    child_request_id = payload.get("child_request_id")
+    child_request_digest = payload.get("child_request_digest")
+    terminal_digest = payload.get("terminal_digest")
+    outcome = payload.get("outcome")
+    if not isinstance(event_id, str) or not _EVENT_ID_RE.fullmatch(event_id):
+        return False
+    for value in (workflow_id, workflow_node_id, child_request_id):
+        if not isinstance(value, str) or not _ID_RE.fullmatch(value):
+            return False
+    if not isinstance(child_request_digest, str) or not _SHA256_RE.fullmatch(child_request_digest):
+        return False
+    if not isinstance(terminal_digest, str) or not _SHA256_RE.fullmatch(terminal_digest):
+        return False
+    if not isinstance(outcome, str) or not _OUTCOME_RE.fullmatch(outcome):
+        return False
+    expected_id = _child_terminal_event_id(
+        parent_url,
+        workflow_id,
+        workflow_node_id,
+        child_request_id,
+        child_request_digest,
+        terminal_digest,
+    )
+    return event_id == expected_id and payload.get("parent_conversation_url") == parent_url
+
+
+def _valid_event_payload(payload: dict[str, Any]) -> bool:
+    if payload.get("schema_version") != EVENT_SCHEMA_VERSION or not _valid_timestamp(payload):
+        return False
+    event_type = payload.get("event_type")
+    if event_type == EVENT_TYPE_TASK_RESULT_READY:
+        return _valid_task_event(payload)
+    if event_type == EVENT_TYPE_CHILD_TERMINAL_READY:
+        return _valid_child_terminal_event(payload)
+    return False
 
 
 def _read_event_file(path: Path) -> dict[str, Any] | None:
@@ -199,7 +341,14 @@ def _read_event_file(path: Path) -> dict[str, Any] | None:
 
 
 def _same_event_identity(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    return all(left.get(field) == right.get(field) for field in _EVENT_IDENTITY_FIELDS)
+    if left.get("event_type") != right.get("event_type"):
+        return False
+    fields = (
+        _TASK_EVENT_IDENTITY_FIELDS
+        if left.get("event_type") == EVENT_TYPE_TASK_RESULT_READY
+        else _CHILD_TERMINAL_EVENT_IDENTITY_FIELDS
+    )
+    return all(left.get(field) == right.get(field) for field in fields)
 
 
 def prune_outbox(
@@ -252,14 +401,16 @@ def enqueue_event(
     if not isinstance(event_id, str):
         raise ValueError("event_id is required")
     if not _valid_event_payload(event):
-        raise ValueError("invalid result event payload")
+        if event.get("event_type") == EVENT_TYPE_TASK_RESULT_READY:
+            raise ValueError("invalid result event payload")
+        raise ValueError("invalid bridge event payload")
     path = _event_path(event_id, state_dir=state_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     prune_outbox(state_dir=state_dir)
 
     encoded = json.dumps(event, indent=2, ensure_ascii=False) + "\n"
     if len(encoded.encode("utf-8")) > MAX_EVENT_BYTES:
-        raise ValueError("result event exceeds bounded outbox event size")
+        raise ValueError("bridge event exceeds bounded outbox event size")
 
     if path.exists():
         existing = _read_event_file(path)

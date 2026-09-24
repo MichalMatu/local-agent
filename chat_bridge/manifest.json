@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Local Agent Chat Bridge",
-  "version": "0.5.10",
-  "description": "Schedules hard-bound Local Agent wake-ups with explicit assistant-controlled repository binding.",
+  "version": "0.5.12",
+  "description": "Schedules hard-bound Local Agent wake-ups with optional event-driven task and workflow attention notifications.",
   "permissions": [
     "alarms",
     "storage",
     "tabs",
-    "scripting"
+    "scripting",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
