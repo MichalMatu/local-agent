@@ -202,12 +202,14 @@ def workflow_state(states: dict[str, str]) -> str:
         return "waiting_planner"
     if "waiting_user" in values:
         return "waiting_user"
+    # A conversation wait is local to one reasoning node. Independent executable
+    # work must remain visible as running instead of being masked by that wait.
+    if any(value in {"ready", "dispatched", "running"} for value in values):
+        return "running"
     if "waiting_conversation" in values:
         return "waiting_conversation"
     if all(value == "succeeded" for value in values):
         return "completed"
-    if any(value in {"ready", "dispatched", "running"} for value in values):
-        return "running"
     if "cancelled" in values:
         return "cancelled"
     if "succeeded" in values:
