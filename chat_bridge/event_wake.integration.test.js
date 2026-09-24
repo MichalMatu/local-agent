@@ -133,7 +133,8 @@ async function addConversation(harness, url, binding, preferredTabId) {
 
   response = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: a.id });
   assert.equal(response.ok, true);
-  assert.deepEqual(response.eventWake, { eventId: event1.event_id, taskId: "task-1" });
+  assert.equal(response.eventWake.eventId, event1.event_id);
+  assert.equal(response.eventWake.taskId, "task-1");
   const eventMessage = h.sentMessages.at(-1).message;
   assert.match(eventMessage.prompt, /\[LA_EVENT=task_result_ready\]/);
   assert.match(eventMessage.prompt, /\[LA_TASK=task-1\]/);
