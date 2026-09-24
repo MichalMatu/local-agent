@@ -140,8 +140,18 @@ function bounded(label, promise, timeoutMs = 20_000) {
     assert.equal(created.reason, "tab_created", JSON.stringify(created));
     assert.ok(Number.isInteger(created.tabId));
 
-    const recovered = await request("recover_create", { intent: pending });
-    assert.equal(recovered.ok, true, JSON.stringify(recovered));
+    // tabs.create can acknowledge before the new tab exposes its marker through
+    // tabs.query(url/pendingUrl). Real lost-ACK recovery happens after process/restart
+    // latency, so the smoke should bounded-poll only the temporary "missing" state.
+    // Any conflict or other failure remains immediately fatal.
+    let recovered = null;
+    const recoveryDeadline = Date.now() + 3000;
+    do {
+      recovered = await request("recover_create", { intent: pending });
+      if (recovered.ok || recovered.reason !== "spawn_create_recovery_missing") break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } while (Date.now() < recoveryDeadline);
+    assert.equal(recovered?.ok, true, JSON.stringify(recovered));
     assert.equal(recovered.reason, "tab_recovered", JSON.stringify(recovered));
     assert.equal(recovered.tabId, created.tabId);
 
