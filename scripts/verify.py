@@ -138,6 +138,10 @@ def run_bridge_browser() -> None:
         [node, "scripts/conversation_spawn_browser_smoke.cjs"],
     )
     _run(
+        "Chromium Conversation Fabric live-slice actuator smoke",
+        [node, "scripts/conversation_live_slice_browser_smoke.cjs"],
+    )
+    _run(
         "Chromium Conversation Fabric retirement smoke",
         [node, "scripts/conversation_retirement_browser_smoke.cjs"],
     )
