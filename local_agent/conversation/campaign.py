@@ -227,6 +227,7 @@ def project_parent_ledger(
                     "summary": summary,
                     "summary_truncated": truncated,
                     "evidence_ref_count": len(terminal["evidence_refs"]),
+                    "evidence_refs": [dict(reference) for reference in terminal["evidence_refs"]],
                     "record_ref": _terminal_record_ref(request, terminal),
                 }
 
