@@ -16,6 +16,7 @@ NODE_STATES = frozenset(
         "cancelled",
         "waiting_user",
         "waiting_planner",
+        "waiting_conversation",
         "blocked_interrupted",
     }
 )
@@ -26,6 +27,7 @@ WORKFLOW_STATES = frozenset(
         "running",
         "waiting_user",
         "waiting_planner",
+        "waiting_conversation",
         "failed",
         "cancelled",
         "completed",
@@ -40,6 +42,7 @@ _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
             "succeeded",
             "waiting_user",
             "waiting_planner",
+            "waiting_conversation",
             "cancelled",
         }
     ),
@@ -49,6 +52,7 @@ _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
             "succeeded",
             "waiting_user",
             "waiting_planner",
+            "waiting_conversation",
             "cancelled",
         }
     ),
@@ -84,6 +88,7 @@ _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     ),
     "waiting_user": frozenset({"succeeded", "cancelled"}),
     "waiting_planner": frozenset({"succeeded", "cancelled"}),
+    "waiting_conversation": frozenset({"succeeded", "failed", "cancelled"}),
     "succeeded": frozenset(),
     "failed": frozenset(),
     "cancelled": frozenset(),
@@ -138,6 +143,8 @@ def transition_node_state(current: str, target: str) -> str:
 def _dependency_target(kind: str) -> str:
     if kind == "task":
         return "ready"
+    if kind == "reasoning":
+        return "waiting_conversation"
     if kind == "barrier":
         return "succeeded"
     if kind == "user_gate":
@@ -195,6 +202,8 @@ def workflow_state(states: dict[str, str]) -> str:
         return "waiting_planner"
     if "waiting_user" in values:
         return "waiting_user"
+    if "waiting_conversation" in values:
+        return "waiting_conversation"
     if all(value == "succeeded" for value in values):
         return "completed"
     if any(value in {"ready", "dispatched", "running"} for value in values):

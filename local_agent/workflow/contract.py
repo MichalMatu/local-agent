@@ -24,6 +24,7 @@ MAX_GATE_CHOICE_CHARS = 100
 WORKFLOW_NODE_KINDS = frozenset(
     {
         "task",
+        "reasoning",
         "barrier",
         "user_gate",
         "planner_checkpoint",
@@ -167,6 +168,27 @@ def _validate_task_node(node: dict[str, Any]) -> None:
     validate_task(candidate, require_agent_binding=True)
 
 
+def _validate_reasoning_node(node: dict[str, Any]) -> None:
+    allowed = {
+        "id",
+        "kind",
+        "phase",
+        "repository_id",
+        "agent_binding",
+        "depends_on",
+    }
+    extra = set(node) - allowed
+    if extra:
+        raise ValueError(
+            f"workflow reasoning node {node['id']!r} contains unsupported fields: {sorted(extra)!r}"
+        )
+    _validate_repository_id(node.get("repository_id"))
+    canonical_agent_binding(
+        node.get("agent_binding"),
+        field=f"workflow node {node['id']!r} agent_binding",
+    )
+
+
 def _validate_barrier_node(node: dict[str, Any]) -> None:
     allowed = {"id", "kind", "phase", "depends_on"}
     extra = set(node) - allowed
@@ -306,6 +328,8 @@ def validate_workflow_manifest(manifest: dict[str, Any]) -> None:
 
         if kind == "task":
             _validate_task_node(raw_node)
+        elif kind == "reasoning":
+            _validate_reasoning_node(raw_node)
         elif kind == "barrier":
             _validate_barrier_node(raw_node)
         elif kind == "user_gate":
