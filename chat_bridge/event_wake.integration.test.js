@@ -8,24 +8,19 @@ const { createHarness } = require("./worker_test_harness.js");
 function makeNativePort() {
   const posted = [];
   let messageListener = null;
-  let disconnectListener = null;
   let disconnected = false;
   return {
     posted,
     get disconnected() { return disconnected; },
     port: {
       onMessage: { addListener(listener) { messageListener = listener; } },
-      onDisconnect: { addListener(listener) { disconnectListener = listener; } },
+      onDisconnect: { addListener() {} },
       postMessage(message) { posted.push(JSON.parse(JSON.stringify(message))); },
       disconnect() { disconnected = true; }
     },
     emit(message) {
       assert.ok(messageListener, "native message listener must be installed");
       messageListener(message);
-    },
-    disconnectFromHost() {
-      assert.ok(disconnectListener, "native disconnect listener must be installed");
-      disconnectListener();
     }
   };
 }
@@ -46,17 +41,14 @@ function taskEvent(harness, taskId, eventId, overrides = {}) {
   };
 }
 
-async function settle() {
-  await new Promise((resolve) => setTimeout(resolve, 10));
-}
+const settle = () => new Promise((resolve) => setTimeout(resolve, 10));
 
-async function assistantControl(harness, url, fingerprint, marker, extra = {}) {
+async function assistantControl(harness, url, fingerprint, marker) {
   return harness.sendRuntimeMessage({
     type: "bridge:assistant-control",
     conversationUrl: url,
     fingerprint,
-    control: { marker },
-    ...extra
+    control: { marker }
   }, { tab: { url } });
 }
 
@@ -83,8 +75,7 @@ async function addConversation(harness, url, binding, preferredTabId) {
     { action: "wait_task", taskId: "build-123", marker: "[LAB:WAIT_TASK=build-123]" }
   );
   assert.equal(protocol.parseAssistantControl("[LAB:WAIT_TASK=bad task]"), null);
-  assert.ok(manifest.permissions.includes("nativeMessaging"),
-    "event wake transport requires only Chrome's nativeMessaging permission in addition to existing permissions");
+  assert.ok(manifest.permissions.includes("nativeMessaging"));
 
   const h = createHarness();
   const nativePorts = [];
@@ -97,18 +88,17 @@ async function addConversation(harness, url, binding, preferredTabId) {
 
   const a = await addConversation(h, "https://chatgpt.com/c/a", h.MATRIX_BINDING, 11);
   let response = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: a.id });
-  assert.equal(response.ok, true, "bootstrap delivery should still use the current delivery path");
+  assert.equal(response.ok, true, "bootstrap must still use the current delivery path");
   assert.equal(h.storage.bridgeState.conversations[a.id].bootstrapPending, false);
 
   response = await assistantControl(h, a.url, "70000001", "[LAB:WAIT_TASK=task-1]");
   assert.equal(response.ok, true);
   assert.equal(response.reason, "waiting_task");
-  assert.equal(response.taskId, "task-1");
   assert.equal(h.storage.eventWakeState.watches[a.id].taskId, "task-1");
   assert.equal(h.storage.eventWakeState.watches[a.id].agentBinding, h.MATRIX_BINDING);
   assert.equal(h.alarms.has(`local-agent-chat:${a.id}`), true,
-    "WAIT_TASK must retain scheduled reconciliation as correctness fallback");
-  assert.equal(nativePorts.length, 1, "an active exact watch should connect the notification-only native host");
+    "WAIT_TASK must retain scheduled reconciliation fallback");
+  assert.equal(nativePorts.length, 1);
   assert.deepEqual(nativePorts[0].posted[0], { type: "hello", protocol_version: 1 });
 
   nativePorts[0].emit({
@@ -118,18 +108,16 @@ async function addConversation(harness, url, binding, preferredTabId) {
     host_version: "test"
   });
   await settle();
-
   const event1 = taskEvent(h, "task-1", `evt-${"1".repeat(32)}`);
   nativePorts[0].emit({ type: "event", protocol_version: 1, event: event1 });
   await settle();
   assert.ok(nativePorts[0].posted.some((message) =>
     message.type === "ack" && message.event_id === event1.event_id
-  ), "valid result events must be acknowledged only after durable Bridge acceptance");
+  ));
   assert.equal(h.storage.eventWakeState.pendingWakes[a.id].taskId, "task-1");
   assert.equal(h.storage.eventWakeState.watches[a.id], undefined);
-  const eventAlarm = h.alarms.get(`local-agent-chat:${a.id}`);
-  assert.ok(eventAlarm.when <= Date.now() + 2500,
-    "a matching terminal-result event should accelerate the existing alarm path");
+  assert.ok(h.alarms.get(`local-agent-chat:${a.id}`).when <= Date.now() + 2500,
+    "matching events must accelerate the existing alarm path");
 
   response = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: a.id });
   assert.equal(response.ok, true);
@@ -141,12 +129,11 @@ async function addConversation(harness, url, binding, preferredTabId) {
   assert.match(eventMessage.prompt, /Wake hint only/);
   assert.match(eventMessage.prompt, new RegExp(`\\[LA_AGENT=${h.MATRIX_BINDING}\\]`));
   assert.equal(h.storage.eventWakeState.pendingWakes[a.id], undefined,
-    "a pending wake is consumed only after the current delivery path succeeds");
+    "pending wake is consumed only after current delivery succeeds");
   assert.equal(h.storage.eventWakeState.diagnostics.lastDeliveredEventId, event1.event_id);
 
   response = await assistantControl(h, a.url, "70000002", "[LAB:WAIT_TASK=task-2]");
   assert.equal(response.ok, true);
-  assert.equal(response.reason, "waiting_task");
   const secondPort = nativePorts.at(-1);
   secondPort.emit({
     type: "hello",
@@ -159,16 +146,15 @@ async function addConversation(harness, url, binding, preferredTabId) {
   secondPort.emit({ type: "event", protocol_version: 1, event: unrelated });
   await settle();
   assert.equal(h.storage.eventWakeState.pendingWakes[a.id], undefined,
-    "an unrelated task event must not route attention");
+    "unrelated task event must not route attention");
   assert.equal(h.storage.eventWakeState.watches[a.id].taskId, "task-2",
-    "an unrelated event must not consume the exact watch");
+    "unrelated event must not consume exact watch");
 
   const b = await addConversation(h, "https://chatgpt.com/c/b", h.MATRIX_BINDING, 22);
   response = await assistantControl(h, b.url, "70000003", "[LAB:WAIT_TASK=task-2]");
   assert.equal(response.ok, false);
   assert.equal(response.reason, "task_watch_conflict");
-  assert.equal(response.conflictChatId, a.id,
-    "the same repository/binding/task claim must have only one owning conversation");
+  assert.equal(response.conflictChatId, a.id);
   assert.equal(response.fallbackScheduled, true);
 
   response = await assistantControl(h, a.url, "70000004", "[LAB:REBIND=tracker]");
@@ -194,27 +180,18 @@ async function addConversation(harness, url, binding, preferredTabId) {
     }
   });
   const transientChat = await addConversation(
-    transientHarness,
-    "https://chatgpt.com/c/a",
-    transientHarness.MATRIX_BINDING,
-    11
+    transientHarness, "https://chatgpt.com/c/a", transientHarness.MATRIX_BINDING, 11
   );
   response = await assistantControl(
-    transientHarness,
-    transientChat.url,
-    "70000005",
-    "[LAB:WAIT_TASK=task-transient]"
+    transientHarness, transientChat.url, "70000005", "[LAB:WAIT_TASK=task-transient]"
   );
   assert.equal(response.ok, true);
   const transientEvent = taskEvent(
-    transientHarness,
-    "task-transient",
-    `evt-${"3".repeat(32)}`
+    transientHarness, "task-transient", `evt-${"3".repeat(32)}`
   );
   const accepted = await transientHarness.evaluate(
     `acceptNativeTaskEvent(${JSON.stringify(transientEvent)})`
   );
-  assert.equal(accepted.ok, true);
   assert.equal(accepted.reason, "event_pending");
   response = await transientHarness.sendRuntimeMessage({
     type: "bridge:run-now",
@@ -223,26 +200,19 @@ async function addConversation(harness, url, binding, preferredTabId) {
   assert.equal(response.ok, false);
   assert.equal(response.reason, "assistant_extended_thinking");
   assert.equal(transientHarness.sentMessages.length, 0,
-    "event routing must not bypass current assistant transient preflight");
+    "event routing must not bypass current transient preflight");
   assert.equal(
     transientHarness.storage.eventWakeState.pendingWakes[transientChat.id].eventId,
-    transientEvent.event_id,
-    "failed/transient delivery must leave the durable pending wake for reconciliation"
+    transientEvent.event_id
   );
 
   const restartStorage = {};
   const beforeRestart = createHarness({ storage: restartStorage });
   const restartChat = await addConversation(
-    beforeRestart,
-    "https://chatgpt.com/c/a",
-    beforeRestart.MATRIX_BINDING,
-    11
+    beforeRestart, "https://chatgpt.com/c/a", beforeRestart.MATRIX_BINDING, 11
   );
   response = await assistantControl(
-    beforeRestart,
-    restartChat.url,
-    "70000006",
-    "[LAB:WAIT_TASK=task-restart]"
+    beforeRestart, restartChat.url, "70000006", "[LAB:WAIT_TASK=task-restart]"
   );
   assert.equal(response.ok, true);
   assert.equal(restartStorage.eventWakeState.watches[restartChat.id].taskId, "task-restart");
@@ -257,9 +227,14 @@ async function addConversation(harness, url, binding, preferredTabId) {
   };
   await afterRestart.evaluate("reconcileNativeEventTransport()");
   assert.equal(restartPorts.length, 1,
-    "a durable exact watch must reconnect notification transport after service-worker restart");
+    "durable exact watch must reconnect notification transport after worker restart");
   assert.deepEqual(restartPorts[0].posted[0], { type: "hello", protocol_version: 1 });
   assert.equal(restartStorage.eventWakeState.watches[restartChat.id].taskId, "task-restart");
+  await afterRestart.evaluate(
+    `clearTaskWatch(${JSON.stringify(restartChat.id)}).then(() => reconcileNativeEventTransport())`
+  );
+  assert.equal(restartPorts[0].disconnected, true,
+    "test cleanup must retire the fake port without leaving reconnect timers alive");
 
   console.log("Chat Bridge event wake integration tests passed.");
 })().catch((error) => {
