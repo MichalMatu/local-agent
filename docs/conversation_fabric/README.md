@@ -6,50 +6,63 @@ Production remains `main`. `chat-bridge-state` and `operator-control` remain ope
 
 ## Current state
 
-The consolidation phase is complete. Stage 1 production housekeeping, Stage 2 synchronization with current `main`, and Stage 3 isolated synthetic DEV lab are complete. Stage 4 is the current milestone: pure bounded child-conversation contracts, with no production browser or runtime actuation.
+Stages 1–4 are complete and fully verified. Stage 5 is the current milestone: durable child-conversation storage plus an **offline synthetic Chromium** proof of duplicate-safe spawn/attach/recovery and terminal-gated tab retirement.
 
 Already present on this development line:
 
 - the latest Chat Bridge transient-assistant recovery line;
 - the verified Execution Fabric core under `local_agent/workflow/`;
-- the workflow CLI, shared control-Git lock, fixtures and full workflow regression suite;
-- the durable task-result event outbox and notification-only Native Messaging host substrate;
-- the pure persisted Event Wake state model and tests;
-- CI for `develop/**`;
-- the current production baseline merged into Conversation Fabric history;
-- a fail-closed synthetic DEV lab that is isolated from production state, Chrome and execution authority.
+- workflow CLI, shared control-Git lock, fixtures and workflow regression suite;
+- durable task-result event outbox and notification-only Native Messaging host substrate;
+- pure persisted Event Wake state model and tests;
+- current production baseline merged into Conversation Fabric history;
+- fail-closed synthetic DEV lab isolated from production state, Chrome and execution authority;
+- pure child request/registration/lifecycle/checkpoint/terminal/spawn contracts;
+- workflow-owned ConversationStore and durable spawn-attempt ownership for Stage 5;
+- isolated browser actuator and synthetic Chromium test path on the Stage 5 work branch.
 
-Execution Fabric and the DEV lab are intentionally inert with respect to production runtime entrypoints. Event Wake is also intentionally only partially active: its pure state/outbox/native-host substrate is present, but old donor worker/delivery files are not wired over the newer transient recovery path.
+Production runtime entrypoints remain isolated from Conversation Fabric development packages. Event Wake remains attention transport, not truth.
 
 ## Canonical documents
 
-1. `CURRENT_PLAN.md` — current goal, production/development lane split, ordered execution plan, checkpoint and exact next action. Read this first when resuming work.
-2. `UNIFIED_DEVELOPMENT_DIRECTION.md` — current architecture, invariants, technical feasibility and implementation order for Conversation Fabric itself.
-3. `DEV_LAB.md` — Stage 3 isolation boundary and safe synthetic development topology beside production.
-4. `BRANCH_CONSOLIDATION.md` — what was transplanted, what was deliberately not transplanted, and where donor history is retained.
-5. `history/` — superseded design plans, audits and handoffs retained as evidence/reference only. They may mention deleted branches and must not be treated as current instructions.
+1. `CURRENT_PLAN.md` — current goal, lane split, ordered stages, checkpoint and exact next action. Read this first when resuming work.
+2. `UNIFIED_DEVELOPMENT_DIRECTION.md` — architecture, invariants, feasibility and implementation order.
+3. `DEV_LAB.md` — isolated synthetic development topology beside production.
+4. `BRANCH_CONSOLIDATION.md` — what was transplanted, deliberately omitted and retained as donor history.
+5. `history/` — superseded plans/audits/handoffs retained as evidence only.
 
-`CURRENT_PLAN.md` is the tie-breaker for execution order unless the user explicitly changes the goal. Update its `Current checkpoint` and `Next action` when a milestone completes so future chats do not reconstruct the plan from memory.
+`CURRENT_PLAN.md` is the execution-order tie-breaker unless the user explicitly changes the goal.
 
-## Next implementation gate
+## Current implementation gate
 
-The prerequisites are intentionally serial at the product boundary even though verification work can overlap:
+1. **complete:** production `main` housekeeping with no intentional runtime behavior change;
+2. **complete:** synchronize Conversation Fabric with current `main`;
+3. **complete:** isolated synthetic DEV lab;
+4. **complete:** pure bounded child request/registration/lifecycle/spawn/checkpoint/terminal contracts;
+5. **current:** prove durable registration/manual attach, duplicate-safe spawn recovery, MV3 restart recovery and terminal-gated retirement in disposable offline Chromium;
+6. next connect the verified child lifecycle to the durable parent campaign/workflow ledger;
+7. then add bounded Bridge attention routing;
+8. only afterward consider a small live slice and later larger acceptance campaign.
 
-1. **complete:** small production-`main` housekeeping with no intentional runtime behavior change;
-2. **complete:** reconcile `develop/conversation-fabric` with the resulting current `main`;
-3. **complete:** establish the isolated synthetic DEV checkout/state/browser lab described in `DEV_LAB.md`;
-4. **current:** implement and verify pure bounded `ChildRequest`, `ChildRegistration`, lifecycle, spawn-transaction, checkpoint and terminal-result contracts;
-5. then run the synthetic Chromium spawn/attach feasibility spike proving duplicate-safe child creation/recovery;
-6. only after those gates, connect child conversations to the already-transplanted workflow substrate and attention-event transport.
+Stage 5 must not contact the operator's real ChatGPT session. The browser smoke uses a temporary Chromium profile, forces offline mode and serves a local synthetic fixture. No production `SPAWN_CHILD`, second executor or broader Native Messaging authority is enabled.
 
-Do not enable a production `SPAWN_CHILD`, automatic workflow scheduler, second executor instance, or broader Native Messaging authority before the relevant gates pass.
+## Child identity and retirement invariants
+
+- `ChildRequest` is stable logical intent; browser attempts are separate.
+- one admitted request digest resolves to one canonical child conversation URL or fails closed;
+- Chrome tab id is routing cache only;
+- post-submit uncertainty is ambiguous and never authorizes a replacement child;
+- normal Chat Bridge ownership begins only after durable registration/adoption;
+- child tab retirement requires a durable terminal record and exact registered child URL;
+- unrelated tabs cannot be closed by retirement authority;
+- parent reconstruction uses compact durable records, not whole child transcripts.
 
 ## 44-node acceptance model
 
-A campaign may contain 44 logical child requests, but v1 must use bounded active child concurrency. It must not open 44 tabs or inject 44 transcripts into the parent.
+A campaign may contain 44 logical child requests, but v1 must use bounded active child/tab concurrency. It must not open 44 tabs or inject 44 transcripts into the parent.
 
-The parent keeps a compact ledger and global finding index. Each child receives only its bounded scope plus declared/relevant dependencies and returns a bounded structured terminal record with exact evidence references.
+The parent keeps a compact ledger and finding index. Each child receives only bounded scope plus declared/relevant dependencies and returns a bounded structured terminal record with exact evidence references.
 
-The transplanted workflow contract currently bounds a workflow to 64 nodes and direct `depends_on` fan-in to 16. A 44-step campaign therefore must not build one naive 44-way dependency edge. Use the parent ledger for campaign-wide synthesis or bounded hierarchical barriers. Keep the verified fan-in bound unless profiling or a concrete workflow requirement justifies changing it.
+The workflow contract currently bounds a workflow to 64 nodes and direct `depends_on` fan-in to 16. A 44-step campaign therefore must not build one naive 44-way dependency edge; use compact parent synthesis or bounded hierarchical barriers.
 
 Same-repository Local Agent execution remains serialized. Different registered repositories may execute concurrently under the existing scheduler invariants.

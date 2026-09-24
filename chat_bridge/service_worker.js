@@ -11,6 +11,9 @@ importScripts(
   "worker_delivery.js",
   "worker_assistant_errors.js",
   "worker_conversations.js",
+  "worker_spawn.js",
+  "worker_adoption.js",
+  "worker_retirement.js",
   "worker_lab_commands.js",
   "worker_events.js"
 );
