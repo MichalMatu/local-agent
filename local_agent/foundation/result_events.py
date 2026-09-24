@@ -401,6 +401,8 @@ def enqueue_event(
     if not isinstance(event_id, str):
         raise ValueError("event_id is required")
     if not _valid_event_payload(event):
+        if event.get("event_type") == EVENT_TYPE_TASK_RESULT_READY:
+            raise ValueError("invalid result event payload")
         raise ValueError("invalid bridge event payload")
     path = _event_path(event_id, state_dir=state_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
