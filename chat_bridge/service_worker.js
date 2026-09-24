@@ -3,8 +3,11 @@ importScripts(
   "worker_state.js",
   "worker_runtime.js",
   "worker_binding.js",
+  "event_wake_state.js",
+  "worker_event_wake.js",
   "worker_schedule.js",
   "worker_transport.js",
+  "native_events.js",
   "worker_controls.js",
   "worker_transient_recovery.js",
   "worker_transient_events.js",
@@ -15,5 +18,6 @@ importScripts(
   "worker_adoption.js",
   "worker_retirement.js",
   "worker_lab_commands.js",
+  "worker_attention.js",
   "worker_events.js"
 );
