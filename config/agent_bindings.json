@@ -8,8 +8,8 @@
       "execution_enabled": false
     },
     {
-      "id": "litegraph",
-      "repository": "MichalMatu/esp32s3_LiteGraph",
+      "id": "growclip",
+      "repository": "MichalMatu/growclip",
       "agent_binding": "2db52048-57ea-4643-bf4b-1ea5c5c3fa86",
       "execution_enabled": true
     },

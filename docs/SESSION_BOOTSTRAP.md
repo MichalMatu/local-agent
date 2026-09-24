@@ -6,7 +6,7 @@ This document records the established machine-specific deployment. It is operati
 
 When the established Local Agent flow is requested, derive the target repository and source branch from the active conversation goal plus that repository's own instructions. The current machine registry contains:
 
-- `litegraph` -> `MichalMatu/esp32s3_LiteGraph`;
+- `growclip` -> `MichalMatu/growclip`;
 - `growbox-ml-controller` -> `MichalMatu/growbox-ml-controller`;
 - `matrixhub` -> `MichalMatu/MatrixHub`;
 - `tracker` -> `MichalMatu/tracker`.

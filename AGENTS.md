@@ -119,7 +119,7 @@ Planner-facing Local Agent behavior is a cross-repository contract. Any change t
 
 The currently registered downstream repositories are:
 
-- `MichalMatu/esp32s3_LiteGraph` — update `LOCAL_AGENT_FLOW.md`, `LOCAL_AGENT_AUTOPILOT.md` when task construction/autonomy changes, and `AGENTS.md` when the contract is repeated there.
+- `MichalMatu/growclip` — update `LOCAL_AGENT_FLOW.md`, `LOCAL_AGENT_AUTOPILOT.md` when task construction/autonomy changes, and `AGENTS.md` when the contract is repeated there.
 - `MichalMatu/growbox-ml-controller` — update root `AGENTS.md` on `main` and any active long-lived work branch that carries its own Local Agent bootstrap; currently `mvp/environment-controller` must stay synchronized.
 - `MichalMatu/MatrixHub` — update root `AGENTS.md` on `main` and the active long-lived development branch when it differs; currently `develop` must stay synchronized.
 - `MichalMatu/tracker` (repository id: `tracker`) — update root `AGENTS.md` on `main` when the Local Agent or planner contract changes.
