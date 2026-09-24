@@ -21,17 +21,23 @@ Execution Fabric is intentionally inert with respect to production runtime entry
 
 ## Canonical documents
 
-1. `UNIFIED_DEVELOPMENT_DIRECTION.md` — current architecture, invariants, technical feasibility and implementation order. This is the source of truth for new work.
-2. `BRANCH_CONSOLIDATION.md` — what was transplanted, what was deliberately not transplanted, and where donor history is retained.
-3. `history/` — superseded design plans, audits and handoffs retained as evidence/reference only. They may mention deleted branches and must not be treated as current instructions.
+1. `CURRENT_PLAN.md` — current goal, production/development lane split, ordered execution plan, checkpoint and exact next action. Read this first when resuming work.
+2. `UNIFIED_DEVELOPMENT_DIRECTION.md` — current architecture, invariants, technical feasibility and implementation order for Conversation Fabric itself.
+3. `BRANCH_CONSOLIDATION.md` — what was transplanted, what was deliberately not transplanted, and where donor history is retained.
+4. `history/` — superseded design plans, audits and handoffs retained as evidence/reference only. They may mention deleted branches and must not be treated as current instructions.
+
+`CURRENT_PLAN.md` is the tie-breaker for execution order unless the user explicitly changes the goal. Update its `Current checkpoint` and `Next action` when a milestone completes so future chats do not reconstruct the plan from memory.
 
 ## Next implementation gate
 
-The next product work is deliberately narrow:
+Before new browser/orchestration behavior is enabled, follow the ordered prerequisites in `CURRENT_PLAN.md`:
 
-1. pure bounded `ChildRequest`, `ChildRegistration`, lifecycle, checkpoint and terminal-result contracts;
-2. then a synthetic Chromium spawn/attach feasibility spike proving exactly-once child creation/recovery;
-3. only after that, connect child conversations to the already-transplanted workflow substrate and attention-event transport.
+1. small production-`main` housekeeping with no intentional runtime behavior change;
+2. reconcile `develop/conversation-fabric` with the resulting current `main`;
+3. establish an isolated DEV checkout/state/browser lab that cannot collide with production;
+4. then implement the pure bounded `ChildRequest`, `ChildRegistration`, lifecycle, checkpoint and terminal-result contracts;
+5. then run the synthetic Chromium spawn/attach feasibility spike proving duplicate-safe child creation/recovery;
+6. only after those gates, connect child conversations to the already-transplanted workflow substrate and attention-event transport.
 
 Do not enable a production `SPAWN_CHILD`, automatic workflow scheduler, or broader Native Messaging authority before those gates pass.
 
