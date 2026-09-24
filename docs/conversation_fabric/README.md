@@ -6,7 +6,7 @@ Production remains `main`. `chat-bridge-state` and `operator-control` remain ope
 
 ## Current state
 
-Stages 1–4 are complete and fully verified. Stage 5 is the current milestone: durable child-conversation storage plus an **offline synthetic Chromium** proof of duplicate-safe spawn/attach/recovery and terminal-gated tab retirement.
+Stages 1–5 are complete and fully verified. Stage 6 is the current milestone: bind durable reasoning children to the parent workflow/campaign ledger with restart-safe reconciliation, explicit evidence references and bounded context selection while leaving Local Agent execution semantics unchanged.
 
 Already present on this development line:
 
@@ -18,8 +18,9 @@ Already present on this development line:
 - current production baseline merged into Conversation Fabric history;
 - fail-closed synthetic DEV lab isolated from production state, Chrome and execution authority;
 - pure child request/registration/lifecycle/checkpoint/terminal/spawn contracts;
-- workflow-owned ConversationStore and durable spawn-attempt ownership for Stage 5;
-- isolated browser actuator and synthetic Chromium test path on the Stage 5 work branch.
+- workflow-owned ConversationStore and durable spawn-attempt ownership;
+- verified disposable/offline Chromium spawn, attach, restart-recovery and terminal-gated retirement proof from Stage 5;
+- Stage 6 campaign projection/reconciliation on `work/conversation-campaign-integration`, still inert from production entrypoints.
 
 Production runtime entrypoints remain isolated from Conversation Fabric development packages. Event Wake remains attention transport, not truth.
 
@@ -39,16 +40,26 @@ Production runtime entrypoints remain isolated from Conversation Fabric developm
 2. **complete:** synchronize Conversation Fabric with current `main`;
 3. **complete:** isolated synthetic DEV lab;
 4. **complete:** pure bounded child request/registration/lifecycle/spawn/checkpoint/terminal contracts;
-5. **current:** prove durable registration/manual attach, duplicate-safe spawn recovery, MV3 restart recovery and terminal-gated retirement in disposable offline Chromium;
-6. next connect the verified child lifecycle to the durable parent campaign/workflow ledger;
-7. then add bounded Bridge attention routing;
+5. **complete:** durable registration/manual attach, duplicate-safe spawn recovery, MV3 restart recovery and terminal-gated retirement in disposable offline Chromium;
+6. **current:** connect the verified reasoning-child lifecycle to the durable parent campaign/workflow ledger with restart-safe reconciliation, exact evidence refs and bounded explicit context promotion;
+7. next add bounded Bridge attention/event routing against current Bridge owners;
 8. only afterward consider a small live slice and later larger acceptance campaign.
 
-Stage 5 must not contact the operator's real ChatGPT session. The browser smoke uses a temporary Chromium profile, forces offline mode and serves a local synthetic fixture. No production `SPAWN_CHILD`, second executor or broader Native Messaging authority is enabled.
+Stage 6 does not contact the operator's real ChatGPT session and does not add browser actuation. No production `SPAWN_CHILD`, Event Wake routing, second executor or broader Native Messaging authority is enabled by this stage.
+
+## Campaign ledger and context invariants
+
+- one workflow reasoning node may own only one durable child request;
+- workflow success/failure may be reconciled from an exact durable child terminal record, never from browser state or a model assertion alone;
+- crash windows between terminal persistence, child lifecycle update and workflow-node update are restart-reconciled without replaying reasoning work;
+- the parent ledger contains bounded checkpoint/terminal summaries and exact validated evidence references, not child transcripts;
+- reusable child context is promoted only through explicit digest-pinned durable record references;
+- context selection is bounded by record count and serialized size and rejects self/future/digest-mismatched terminal references;
+- existing Local Agent repository leases and task execution paths are not bypassed or duplicated.
 
 ## Child identity and retirement invariants
 
-- `ChildRequest` is stable logical intent; browser attempts are separate.
+- `ChildRequest` is stable logical intent; browser attempts are separate;
 - one admitted request digest resolves to one canonical child conversation URL or fails closed;
 - Chrome tab id is routing cache only;
 - post-submit uncertainty is ambiguous and never authorizes a replacement child;
