@@ -138,18 +138,25 @@ Evidence:
 
 Current branch: `work/conversation-campaign-integration` from verified `develop/conversation-fabric@217286fb1f2430bf62491e766ef83025a19076a9`.
 
+Current PR: #92 (draft until exact-head and post-merge verification complete).
+
 Goal: connect registered reasoning children to the durable parent campaign/workflow ledger while preserving Local Agent repository leases and execution semantics.
 
-Required Stage 6 slices:
+Implemented on the Stage 6 work branch:
 
-- deterministic reasoning-child reconciliation against exact workflow/node revision and introduction provenance;
-- compact parent ledger/projection that contains durable child state and bounded terminal summaries, not transcripts;
-- explicit evidence-reference projection, keeping executor/CI evidence authoritative;
-- bounded context selection for later reasoning children using only explicitly promoted durable records;
-- restart-safe/idempotent reconciliation between workflow state and child registration/checkpoint/terminal records;
-- same-repository execution semantics unchanged: Conversation Fabric reasoning orchestration must not bypass Local Agent repository leases or create a second executor path.
+- restart-safe reasoning-child/workflow reconciliation from exact durable `child_terminal` records;
+- recovery when a crash lands after terminal persistence but before child lifecycle or workflow-node persistence, without replaying reasoning work;
+- fail-closed detection when workflow success/failure exists without a durable child terminal;
+- one durable child request per reasoning workflow node, enforced under the workflow execution lock before browser spawning can begin;
+- compact read-only parent ledger containing bounded checkpoint/terminal summaries rather than transcripts;
+- exact validated evidence references plus digest-pinned durable terminal record references in the parent projection;
+- explicit `child_terminal` context promotion only when the later child request names the exact durable terminal digest;
+- causal rejection of child-terminal context recorded after the target request was created;
+- bounded selected-context count/serialized size and bounded parent-ledger size;
+- negative tests for duplicate child ownership, self-reference, excessive promoted context, wrong digest, future terminal context and missing terminal authority;
+- restart/idempotency tests across durable workflow/conversation stores.
 
-Hard Stage 6 boundaries:
+Hard Stage 6 boundaries preserved:
 
 - no real ChatGPT child spawning;
 - no automatic production Superchat scheduler;
@@ -157,7 +164,8 @@ Hard Stage 6 boundaries:
 - no second executor or worker pool;
 - no whole child transcripts in the parent ledger/context;
 - no mutation of `main`, `chat-bridge-state` or `operator-control`;
-- browser state remains non-authoritative for workflow success.
+- browser state remains non-authoritative for workflow success;
+- daemon, supervisor, executor and Chat Bridge implementation files remain unchanged by PR #92.
 
 Stage 6 exit criteria:
 
@@ -203,9 +211,9 @@ Completed:
 
 In progress:
 
-- `work/conversation-campaign-integration` is the only Stage 6 work branch;
-- preimplementation audit of workflow/conversation durable ownership and reconciliation boundaries;
-- compact parent-ledger and bounded-context design before implementation side effects.
+- PR #92 on `work/conversation-campaign-integration` contains the bounded Stage 6 implementation;
+- implementation review confirms the changed runtime surface is limited to workflow-owned conversation/campaign state, with no daemon/supervisor/executor/Bridge wiring;
+- exact final-head 5/5 CI, ready-for-review transition, merge and post-merge 5/5 remain before Stage 6 can be called complete.
 
 Not yet enabled:
 
@@ -216,6 +224,6 @@ Not yet enabled:
 
 ## Next action
 
-**Audit the existing workflow/conversation stores and coordinator on `work/conversation-campaign-integration`, then implement the smallest deterministic Stage 6 ledger/reconciliation slice. Do not begin Bridge attention routing or a live campaign before Stage 6 is merged and post-merge CI is green.**
+**Finish exact-SHA 5/5 verification and final diff review for PR #92, merge it to `develop/conversation-fabric`, then require the same five jobs green on the merge commit. Do not begin Stage 7 Bridge attention routing or a live campaign before that post-merge gate is green.**
 
 If a future conversation is unsure what to do next, this `Next action` section is the tie-breaker unless the user explicitly changes the goal.
