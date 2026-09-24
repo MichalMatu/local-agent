@@ -15,12 +15,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from local_agent.foundation.process import atomic_write_text
+from local_agent.platform.macos_launchd import default_launch_agent_path
 
 LAB_SCHEMA_VERSION = 1
 LAB_MODE = "synthetic-only"
 LAB_MARKER_NAME = "lab.json"
-PRODUCTION_LAUNCH_AGENT_LABEL = "com.michal.local-agent"
-PRODUCTION_NATIVE_HOST_NAME = "com.michalmatu.local_agent_bridge"
 PROTECTED_OPERATIONAL_BRANCHES = ("chat-bridge-state", "operator-control")
 
 
@@ -96,16 +95,10 @@ def protected_production_paths(
         "checkout": production_checkout,
         "state": application_support / "local-agent",
         "workspace": home / "agent-workspace",
-        "launch_agent": home
-        / "Library"
-        / "LaunchAgents"
-        / f"{PRODUCTION_LAUNCH_AGENT_LABEL}.plist",
+        "launch_agent": default_launch_agent_path(home),
         "stdout_log": home / "Library" / "Logs" / "local-agent.log",
         "stderr_log": home / "Library" / "Logs" / "local-agent-error.log",
         "chrome_profile_root": chrome_root,
-        "native_host_manifest": chrome_root
-        / "NativeMessagingHosts"
-        / f"{PRODUCTION_NATIVE_HOST_NAME}.json",
     }
 
 
