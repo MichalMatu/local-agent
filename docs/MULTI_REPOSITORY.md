@@ -125,7 +125,7 @@ Restart, self-update and global status are supervisor-wide operations.
 
 While workers run, the supervisor probes the designated control repository for a pending valid request. Probe outcomes distinguish `CLEAR`, `PENDING`, `LEASE_BUSY` and degraded `DEFERRED` failures. Before executing global control, the supervisor acquires execution identities for every currently configured repository, which also catches surviving workers/descendants from an earlier supervisor process.
 
-v4.18.14 uses two related but distinct counters:
+The current production policy, introduced in v4.18.14, uses two related but distinct counters:
 
 - **consecutive deferrals** drive bounded 2-15 second retry/backoff;
 - **consecutive `LEASE_BUSY` outcomes** drive lease-ownership starvation protection.
@@ -204,4 +204,4 @@ v4.18.13
 
 Use the generated macOS LaunchAgent configuration for bounded parallel mode with `--max-workers 4`. The serial mode remains a direct rollback path and uses the same label.
 
-Candidate branches/worktrees are release-candidate infrastructure only. After a validated v4.18.14 candidate is explicitly advanced to `main`, tagged and verified live from `main`, remove obsolete candidate worktrees/branches.
+Candidate branches/worktrees are temporary release infrastructure only. Once a release is established on `main`, obsolete candidate worktrees and branches for that release should be removed; the v4.18.14 candidate state is historical and must not be described as pending production work.

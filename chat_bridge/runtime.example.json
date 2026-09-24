@@ -12,14 +12,14 @@
       "execution_enabled": false
     },
     {
-      "repository_id": "litegraph",
-      "repository": "MichalMatu/esp32s3_LiteGraph",
+      "repository_id": "growclip",
+      "repository": "MichalMatu/growclip",
       "agent_binding": "2db52048-57ea-4643-bf4b-1ea5c5c3fa86",
       "execution_enabled": true
     },
     {
-      "repository_id": "growbox-ml-controller",
-      "repository": "MichalMatu/growbox-ml-controller",
+      "repository_id": "bloomml",
+      "repository": "MichalMatu/bloomml",
       "agent_binding": "815cf40f-8d2a-4e1f-b7cc-c0f4e37b6cb5",
       "execution_enabled": true
     },
@@ -36,20 +36,20 @@
       "repository_id": "tracker"
     },
     {
-      "repository_id": "local-climate-link-starter",
-      "repository": "MichalMatu/local-climate-link-starter",
+      "repository_id": "shelly-link",
+      "repository": "MichalMatu/shelly-link",
       "agent_binding": "e75c77cb-7589-4452-94b2-decc97ff85a1",
       "execution_enabled": true
     },
     {
-      "repository_id": "photomaps",
-      "repository": "MichalMatu/PhotoMaps",
+      "repository_id": "photomap",
+      "repository": "MichalMatu/photomap",
       "agent_binding": "2e5d59f8-f6e4-4d75-8d1a-dce7b6bf6607",
       "execution_enabled": true
     },
     {
-      "repository_id": "android-ai-call-bridge",
-      "repository": "MichalMatu/android-ai-call-bridge",
+      "repository_id": "ai-calls",
+      "repository": "MichalMatu/ai-calls",
       "agent_binding": "c25f88c0-4682-414c-8062-c47fa4034cb0",
       "execution_enabled": true
     },

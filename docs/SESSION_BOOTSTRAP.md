@@ -4,26 +4,32 @@ This document records the established machine-specific deployment. It is operati
 
 ## Project pairing
 
-When the established Local Agent flow is requested, derive the target repository and source branch from the active conversation goal plus that repository's own instructions. The current machine registry contains:
+When the established Local Agent flow is requested, derive the target repository and source branch from the active conversation goal plus that repository's own instructions. The canonical binding catalog currently contains these execution-enabled project identities:
 
-- `litegraph` -> `MichalMatu/esp32s3_LiteGraph`;
-- `growbox-ml-controller` -> `MichalMatu/growbox-ml-controller`;
+- `growclip` -> `MichalMatu/growclip`;
+- `bloomml` -> `MichalMatu/bloomml`;
 - `matrixhub` -> `MichalMatu/MatrixHub`;
-- `tracker` -> `MichalMatu/tracker`.
+- `tracker` -> `MichalMatu/tracker`;
+- `shelly-link` -> `MichalMatu/shelly-link`;
+- `photomap` -> `MichalMatu/photomap`;
+- `ai-calls` -> `MichalMatu/ai-calls`;
+- `host-ops` -> `MichalMatu/host-ops`.
 
-Each repository uses its own `agent-control` branch. The production daemon source is `MichalMatu/local-agent/main`. Only treat `local-agent` itself as the product target when the request explicitly concerns the daemon/infrastructure.
+The machine-local registry remains the authority for which of those identities are provisioned on a particular Mac and for their exact workspace paths. Inspect it rather than inferring local provisioning from the source catalog.
+
+Each provisioned repository uses its own `agent-control` branch. The production daemon source is `MichalMatu/local-agent/main`. Only treat `local-agent` itself as the product target when the request explicitly concerns the daemon/infrastructure.
 
 ## Local topology
 
 ```text
-normal LiteGraph checkout: /Users/michal/Documents/PlatformIO/Projects/esp32s3_LiteGraph
+normal Growclip checkout: /Users/michal/Documents/PlatformIO/Projects/esp32s3_LiteGraph
 registry:                  ~/Library/Application Support/local-agent/repositories.json
-LiteGraph control:         ~/agent-workspace/repos/litegraph/control
-LiteGraph work:            ~/agent-workspace/repos/litegraph/work
-LiteGraph checkpoints:     ~/agent-workspace/repos/litegraph/checkpoints
-Growbox control:           ~/agent-workspace/repos/growbox-ml-controller/control
-Growbox work:              ~/agent-workspace/repos/growbox-ml-controller/work
-Growbox checkpoints:       ~/agent-workspace/repos/growbox-ml-controller/checkpoints
+Growclip control:          ~/agent-workspace/repos/litegraph/control
+Growclip work:             ~/agent-workspace/repos/litegraph/work
+Growclip checkpoints:      ~/agent-workspace/repos/litegraph/checkpoints
+BloomML control:           ~/agent-workspace/repos/bloomml/control
+BloomML work:              ~/agent-workspace/repos/bloomml/work
+BloomML checkpoints:       ~/agent-workspace/repos/bloomml/checkpoints
 MatrixHub control:         ~/agent-workspace/repos/matrixhub/control
 MatrixHub work:            ~/agent-workspace/repos/matrixhub/work
 MatrixHub checkpoints:     ~/agent-workspace/repos/matrixhub/checkpoints
@@ -36,7 +42,9 @@ daemon stdout:             ~/Library/Logs/local-agent.log
 daemon stderr:             ~/Library/Logs/local-agent-error.log
 ```
 
-All four current registry entries use the default non-legacy workspace layout derived from their repository ids. The loaded production LaunchAgent uses the guarded entrypoint with the registry above and `--max-workers 4` from `~/local-agent`. Four is also the scheduler hard cap.
+The paths above record the established deployment, including preserved physical workspace paths from earlier repository identities. In particular, the `growclip` identity may continue using the existing `repos/litegraph` directories. Do not rename or migrate a live workspace merely to make its pathname match the current repository id; explicit registry configuration and validated repository identity are authoritative.
+
+The loaded production LaunchAgent uses the guarded entrypoint with the registry above and `--max-workers 4` from `~/local-agent`. Four is also the scheduler hard cap.
 
 The user's normal ESP32 checkout is not the disposable agent worktree. Never reset, clean or overwrite it during normal daemon execution.
 
@@ -50,7 +58,7 @@ The installed service is `~/Library/LaunchAgents/com.michal.local-agent.plist` w
 
 ## Current project resource policy
 
-The four registered project repositories use `resources: []` for executable project work, including project-dedicated hardware work. Repository execution leases already serialize work within one repository.
+The current execution-enabled project repositories use `resources: []` for ordinary executable project work, including project-dedicated hardware work. Repository execution leases already serialize work within one repository.
 
 Hardware identity is discovered and verified inside each task immediately before use. A USB/serial path is not a stable scheduler identity. Do not reintroduce project-specific `board:*`, raw serial-path resources or `machine` merely because a project task flashes, monitors, uses ADB/BLE, or talks to dedicated hardware.
 
@@ -69,9 +77,9 @@ The serial path is not a stable identifier. Rediscover the device immediately be
 
 The frontend root and `GET /rest/features` are suitable reachability probes. Protected endpoints require local authentication when device security is enabled. Never place credentials, bearer tokens or session data in Git tasks, results, runs or repository documentation.
 
-## Efficient LiteGraph verification
+## Efficient Growclip verification
 
-Use `workflow_policy: "efficient-verification-v1"` for normal LiteGraph coding tasks. Verification must be derived from the changed files and integration boundary rather than defaulting to the repository-wide host suite.
+Use `workflow_policy: "efficient-verification-v1"` for normal Growclip coding tasks. Verification must be derived from the changed files and integration boundary rather than defaulting to the repository-wide host suite.
 
 During iteration:
 

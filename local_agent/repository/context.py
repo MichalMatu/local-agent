@@ -12,8 +12,8 @@ from typing import Any, Iterable
 
 from local_agent.repository.binding import canonical_agent_binding
 
-DEFAULT_REPOSITORY_ID = "litegraph"
-DEFAULT_REPOSITORY = "MichalMatu/esp32s3_LiteGraph"
+DEFAULT_REPOSITORY_ID = "growclip"
+DEFAULT_REPOSITORY = "MichalMatu/growclip"
 DEFAULT_CONTROL_BRANCH = "agent-control"
 DEFAULT_SOURCE_BRANCH = "main"
 REGISTRY_VERSION = 1

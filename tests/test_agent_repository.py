@@ -30,7 +30,7 @@ class RepositoryRegistryTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_missing_registry_preserves_legacy_litegraph_workspace(self) -> None:
+    def test_missing_registry_preserves_legacy_growclip_workspace(self) -> None:
         repositories = load_repository_registry(home=self.home, path=self.registry)
         self.assertEqual(len(repositories), 1)
         repository = repositories[0]
@@ -47,8 +47,8 @@ class RepositoryRegistryTests(unittest.TestCase):
         self.write(
             [
                 {
-                    "id": "litegraph",
-                    "repository": "MichalMatu/esp32s3_LiteGraph",
+                    "id": "growclip",
+                    "repository": "MichalMatu/growclip",
                     "legacy_workspace": True,
                 },
                 {"id": "photomaps", "repository": "MichalMatu/PhotoMaps"},
@@ -56,7 +56,7 @@ class RepositoryRegistryTests(unittest.TestCase):
             ]
         )
         repositories = load_repository_registry(home=self.home, path=self.registry)
-        self.assertEqual([item.repository_id for item in repositories], ["litegraph", "photomaps", "wreckscanner"])
+        self.assertEqual([item.repository_id for item in repositories], ["growclip", "photomaps", "wreckscanner"])
         self.assertEqual(repositories[0].work, self.home / "agent-workspace" / "work")
         self.assertEqual(
             repositories[1].work,
