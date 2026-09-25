@@ -18,13 +18,21 @@ The compactor is fail-closed:
 - if a new task/status commit lands immediately after the compacted root, the compactor recognizes the newer remote as a descendant of that root and realigns the local checkout to the newer tip;
 - project source branches are never targets of this maintenance path.
 
-The default compaction threshold is the same as `CONTROL_HISTORY_DEPTH` (currently 256 locally visible commits).
+The administrative migration command defaults to the existing `CONTROL_HISTORY_DEPTH` boundary: 256 locally visible commits. This keeps ordinary dry-run output focused on repositories that have actually accumulated substantial control history.
 
-## Automatic runtime compaction
+## Migration gate and automatic runtime compaction
 
-After upgrade, ordinary runtime cleanup also keeps remote `agent-control` ancestry bounded. When a real control checkout reaches the default 256-visible-commit threshold, Local Agent may replace the existing control ancestry with one root commit containing the exact same current tree.
+Automatic history rewriting is opt-in at the Git-history level. A managed control lineage contains the versioned commit trailer:
 
-Automatic compaction uses the same exact-tree and exact-lease rules as the administrative path. It does **not** create a full Git bundle every time the 256-commit boundary is reached; those recurring commits are ephemeral control-plane history. A compaction error is maintenance-degraded rather than task-fatal, so normal execution can continue and a later cleanup cycle can retry.
+```text
+Local-Agent-Control-History: bounded-v1
+```
+
+Fresh control branches created by this release contain the trailer in their initial root commit. The one-time administrative migration also writes the trailer into the new compacted root. Existing legacy `agent-control` branches do not contain it, so merely upgrading Local Agent cannot cause those old histories to be rewritten automatically before their verified backup migration.
+
+After a branch is managed, ordinary runtime cleanup keeps its remote ancestry bounded. The runtime compaction threshold is half of the shallow control-history window: currently 128 commits with a 256-commit visible window. Policy detection scans the full 256-commit window. This leaves roughly 128 commits of scheduling/race margin after the automatic threshold is reached, rather than requiring Local Agent to hit one exact boundary before the marked root falls out of a shallow checkout.
+
+Automatic compaction uses the same exact-tree and exact-lease rules as the administrative path. It does **not** create a full Git bundle every time the runtime threshold is reached; those recurring commits are ephemeral control-plane history. A compaction error is maintenance-degraded rather than task-fatal, so normal execution can continue and a later cleanup cycle can retry.
 
 The verified bundle backup requirement below applies to the one-time migration of repositories that already accumulated large historical `agent-control` branches.
 
@@ -42,7 +50,7 @@ Inspect one repository:
 python -m local_agent.repository.compaction --repository-id growclip
 ```
 
-The command prints one JSON record per repository. `plan.eligible=true` means the checkout is clean, is on its configured control branch, matches the remote HEAD and has reached the compaction threshold.
+The command prints one JSON record per repository. `plan.eligible=true` means the checkout is clean, is on its configured control branch, matches the remote HEAD and has reached the administrative compaction threshold.
 
 No branch is rewritten in dry-run mode.
 
@@ -68,7 +76,7 @@ python -m local_agent.repository.compaction \
   --backup-dir "$HOME/local-agent-backups/agent-control"
 ```
 
-For an explicit one-time maintenance case where a control checkout has fewer than the normal threshold but still must be compacted, lower the threshold deliberately:
+For an explicit one-time maintenance case where a control checkout has fewer than the normal administrative threshold but still must be compacted, lower the threshold deliberately:
 
 ```bash
 python -m local_agent.repository.compaction \
@@ -100,9 +108,11 @@ For each migrated repository verify:
 
 1. the current `.agent/` tree is unchanged;
 2. the local control checkout and remote `agent-control` resolve to the same rewritten lineage;
-3. a new task can be published;
-4. Local Agent claims and executes it normally;
-5. the result is published and visible on `agent-control`;
-6. project source branches are unchanged.
+3. the new compacted root contains the `bounded-v1` history-policy trailer;
+4. a new task can be published;
+5. Local Agent claims and executes it normally;
+6. the result is published and visible on `agent-control`;
+7. a subsequent bounded pull still works from the existing shallow control checkout;
+8. project source branches are unchanged.
 
 Only after live task/result verification should old backup bundles be considered removable.
