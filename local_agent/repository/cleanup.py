@@ -19,7 +19,7 @@ TERMINAL_PAIR_RETENTION = 32
 RUN_RETENTION = 32
 ACK_RETENTION = 16
 ORPHAN_RESULT_RETENTION = 8
-CONTROL_HISTORY_COMPACTION_THRESHOLD = storage.CONTROL_HISTORY_DEPTH
+CONTROL_HISTORY_COMPACTION_THRESHOLD = max(1, storage.CONTROL_HISTORY_DEPTH // 2)
 _RUNTIME_PREFIXES = (
     ".agent/tasks/",
     ".agent/results/",
@@ -125,10 +125,16 @@ def _control_output(
     )
 
 
-def _control_history_policy_enabled(core_module: Any, threshold: int) -> bool:
+def _control_history_policy_enabled(core_module: Any) -> bool:
     messages = _control_output(
         core_module,
-        ["log", "--format=%B", "--max-count", str(threshold), "HEAD"],
+        [
+            "log",
+            "--format=%B",
+            "--max-count",
+            str(storage.CONTROL_HISTORY_DEPTH),
+            "HEAD",
+        ],
         "inspect control history policy",
         timeout=30,
     )
@@ -285,7 +291,7 @@ def _compact_control_history_locked(
             "visible_commits": visible_commits,
             "threshold": threshold,
         }
-    if not _control_history_policy_enabled(core_module, threshold):
+    if not _control_history_policy_enabled(core_module):
         return {
             "changed": False,
             "reason": "history_policy_unmanaged",
