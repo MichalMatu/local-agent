@@ -8,6 +8,10 @@ from pathlib import Path
 from unittest import mock
 
 import local_agent.repository.cleanup as cleanup
+from local_agent.repository.history_policy import (
+    CONTROL_HISTORY_INITIAL_ROOT_MESSAGE,
+    CONTROL_HISTORY_POLICY_TRAILER,
+)
 
 
 def git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -63,7 +67,7 @@ class CoreAdapter:
 
 
 class ControlFixture:
-    def __init__(self, root: Path, commits: int = 5) -> None:
+    def __init__(self, root: Path, commits: int = 5, *, managed: bool = True) -> None:
         self.root = root
         self.remote = root / "remote.git"
         self.seed = root / "seed"
@@ -77,7 +81,10 @@ class ControlFixture:
         status.parent.mkdir(parents=True)
         status.write_text('{"generation":0}\n', encoding="utf-8")
         git(self.seed, "add", ".agent/status/daemon.json")
-        git(self.seed, "commit", "-m", "Initialize control branch")
+        initial_message = (
+            CONTROL_HISTORY_INITIAL_ROOT_MESSAGE if managed else "Initialize control branch"
+        )
+        git(self.seed, "commit", "-m", initial_message)
         for generation in range(1, commits):
             status.write_text(f'{{"generation":{generation}}}\n', encoding="utf-8")
             git(self.seed, "add", ".agent/status/daemon.json")
@@ -131,6 +138,20 @@ class AutomaticControlHistoryCompactionTests(unittest.TestCase):
             self.assertEqual(fixture.remote_head(), before)
             self.assertEqual(fixture.remote_count(), 3)
 
+    def test_unmanaged_legacy_history_is_not_rewritten_automatically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = ControlFixture(Path(tmp), commits=5, managed=False)
+            old_head = fixture.remote_head()
+            old_tree = fixture.remote_tree()
+
+            result = cleanup.compact_control_history(fixture.core, threshold=5)
+
+            self.assertFalse(result["changed"])
+            self.assertEqual(result["reason"], "history_policy_unmanaged")
+            self.assertEqual(fixture.remote_head(), old_head)
+            self.assertEqual(fixture.remote_tree(), old_tree)
+            self.assertEqual(fixture.remote_count(), 5)
+
     def test_threshold_compaction_preserves_exact_tree_and_leaves_one_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture = ControlFixture(Path(tmp), commits=5)
@@ -149,6 +170,10 @@ class AutomaticControlHistoryCompactionTests(unittest.TestCase):
             self.assertEqual(
                 git_output(fixture.control, "rev-parse", "refs/remotes/origin/agent-control"),
                 result["new_sha"],
+            )
+            self.assertIn(
+                CONTROL_HISTORY_POLICY_TRAILER,
+                git_output(fixture.remote, "log", "-1", "--format=%B", "agent-control"),
             )
 
     def test_exact_lease_loses_race_without_overwriting_concurrent_commit(self) -> None:
