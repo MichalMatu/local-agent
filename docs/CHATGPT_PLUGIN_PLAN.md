@@ -4,6 +4,8 @@ Status: candidate work on `feature/chatgpt-plugin-github-control-plane`.
 
 Market/product research snapshot: [`PLUGIN_PRODUCT_AUDIT_2026-09-25.md`](PLUGIN_PRODUCT_AUDIT_2026-09-25.md).
 
+Session continuation handoff: [`PLUGIN_SESSION_HANDOFF.md`](PLUGIN_SESSION_HANDOFF.md).
+
 ## Goal
 
 Expose the established Local Agent Git-backed control plane as a ChatGPT plugin workflow without adding a Local Agent MCP execution server, while using the ChatGPT sandbox as the preferred software-only execution worker when a repository provides reproducible offline inputs.
@@ -23,6 +25,22 @@ ChatGPT planner
 GitHub remains the source of truth and durable transport. The user's own GitHub account/repositories are used; customer work must never be routed through the maintainer's GitHub account.
 
 The Local Agent executor remains unchanged and retains hard binding, immutable tasks, bounded process execution, resource admission, watchdogs, recovery, and emergency controls.
+
+## Product positioning
+
+The product is not another hosted coding model and should not be positioned as one.
+
+The product value is the orchestration layer that lets a customer reuse resources they already have:
+
+- their ChatGPT subscription as the planner/conversation surface;
+- their own GitHub account as the durable authenticated control plane and source of truth;
+- the ChatGPT sandbox + Library for reproducible software-only compute when available;
+- GitHub Actions for networked bootstrap/dependency generation and canonical CI;
+- their own computer through Local Agent only when local state, platform-specific behavior or hardware is genuinely required.
+
+The already proven operator setup does not invoke Codex as the executor in its normal ChatGPT + GitHub + Local Agent loop. Preserve that architecture, but validate the exact customer-facing plugin surface and plan before making broad quota/usage claims in marketing.
+
+Adjacent products exist, but the current market audit did not find an exact match for the full combination of ordinary ChatGPT planning, user-owned GitHub control, deterministic bound local execution, and a ChatGPT sandbox/Library lane. Treat the competitor analysis in `PLUGIN_PRODUCT_AUDIT_2026-09-25.md` as a living research document, not as proof of uniqueness forever.
 
 ## Established sandbox references
 
@@ -137,6 +155,19 @@ Validate both lanes in the ChatGPT client.
 10. A second task for the same active goal is not queued while the first is active.
 11. Exact-task `cancel_task` is tested with remote ACK plus terminal cancellation evidence.
 
+### Independent-customer validation
+
+Before making public claims, repeat the end-to-end flow on a clean second account/environment that does not inherit the maintainer's current setup:
+
+- a different GitHub account or organization;
+- a newly authorized repository;
+- a fresh plugin install;
+- a fresh Local Agent installation;
+- a fresh sandbox/Library setup where applicable;
+- no maintainer-specific repository ids, paths, bindings or credentials.
+
+This test must prove that the product is genuinely user-owned and portable rather than accidentally dependent on the original development environment.
+
 ## Phase 2 - repository onboarding
 
 Turn the current hand-built repository integrations into a portable product contract.
@@ -147,6 +178,24 @@ A repository should be able to opt into one or both execution lanes:
 - **Local Agent profile:** `agent-control`, exact `agent_binding`, daemon/status/task/result contract.
 
 Future onboarding tooling should inspect the repository and generate only the missing pieces. It must not overwrite an existing project-specific sandbox or Local Agent policy.
+
+The onboarding experience is a commercial requirement, not optional polish. The target experience is approximately:
+
+```text
+local-agent setup
+  -> authenticate/verify GitHub
+  -> choose repository
+  -> inspect existing project instructions
+  -> provision only missing Local Agent control-plane state
+  -> detect or bootstrap optional sandbox profile
+  -> verify plugin/GitHub access
+  -> run a harmless read-only end-to-end task
+  -> READY
+```
+
+Add a companion `local-agent doctor` command that produces actionable diagnostics for GitHub authorization, repository binding, daemon state, runtime dependencies, sandbox prerequisites and common platform-specific failures.
+
+Support cost is a pricing constraint: a low-cost subscription is viable only if setup and diagnosis are usually self-service. Avoid a product model that requires routine manual debugging of PATH, Python, permissions, launchd/services or GitHub state for each customer.
 
 ## Phase 3 - workflow hardening
 
@@ -159,7 +208,9 @@ After live E2E succeeds:
 - document recovery when Library cache is missing/stale;
 - document recovery when GitHub write succeeds but the local executor is offline;
 - document recovery when a task is accepted but terminal evidence is delayed;
-- preserve the rule that worker-specific evidence proves only what that worker actually executed.
+- preserve the rule that worker-specific evidence proves only what that worker actually executed;
+- add product-level diagnostics that explain why a worker was selected or rejected;
+- test degraded operation when sandbox access, GitHub Actions, Local Agent, or Library is individually unavailable.
 
 ## Phase 4 - public skills-only candidate
 
@@ -174,6 +225,8 @@ The public skill must:
 - never fall back to an untrusted alternate transport;
 - retain exact repository/binding/source-SHA safety semantics.
 
+Public-release validation must explicitly confirm the target ChatGPT surface, model availability, GitHub write behavior, sandbox/Library availability and actual usage/quota behavior. Do not assume private/local plugin behavior automatically carries over to the public directory surface.
+
 ## Phase 5 - product and entitlement
 
 The execution transport should remain GitHub-backed unless evidence shows a real need for another transport.
@@ -181,6 +234,47 @@ The execution transport should remain GitHub-backed unless evidence shows a real
 If Local Agent becomes a paid product, use an external account/license flow for the Local Agent installation. The ChatGPT plugin may recognize an existing entitlement but must not sell or promote a digital subscription inside the plugin under current OpenAI policy.
 
 A small entitlement service may be added later, but it is independent of GitHub transport and is not an MCP requirement.
+
+Initial pricing hypothesis:
+
+- individual target: approximately **US$5/month**;
+- annual target to evaluate: approximately **US$49/year**;
+- future team/business tiers only after the individual workflow is validated.
+
+These are hypotheses, not committed prices. Validate willingness to pay, churn, payment fees and support burden before locking pricing.
+
+The main economic advantage is that Local Agent should not pay for the customer's model inference or routine build compute. The customer supplies ChatGPT, GitHub, GitHub Actions quota, sandbox availability and/or their own hardware. Our recurring infrastructure should remain mostly account/licensing/update/support infrastructure rather than a hosted execution farm.
+
+## Phase 6 - licensing and distribution decision
+
+There is currently no root `LICENSE` file. Before public distribution, make an explicit product/legal choice rather than accidentally implying open-source rights.
+
+Evaluate at least these models:
+
+- proprietary commercial distribution;
+- source-available core with commercial-use restrictions;
+- open-source core plus paid convenience/product layer;
+- dual licensing where appropriate.
+
+The chosen model should protect the ability to monetize installer/onboarding, updates, plugin packaging, support and commercial convenience without preventing useful community adoption.
+
+Do not advertise the project as open source until a specific license is present and reviewed.
+
+## Phase 7 - commercial validation
+
+Before treating the product as ready to monetize:
+
+1. onboard at least one genuinely independent user/account without maintainer intervention;
+2. measure install-to-first-success time;
+3. measure how often `setup` and `doctor` solve problems without manual support;
+4. validate both sandbox-first and Local-Agent-required workflows;
+5. verify no customer repository traffic is routed through maintainer-owned GitHub infrastructure;
+6. confirm current OpenAI plugin publishing and commerce rules again immediately before submission;
+7. validate the claim about avoiding Codex execution on the exact public customer surface before using it in sales copy;
+8. collect failure categories and use them to improve onboarding before adding more features;
+9. test a small paid beta before committing to a final subscription price.
+
+The primary commercial risk is not compute cost; it is support/onboarding cost and dependence on platform behavior outside Local Agent's control. Optimize product work accordingly.
 
 ## Release boundary
 
