@@ -106,6 +106,17 @@ class ControlFixture:
         git(self.seed, "push", "origin", "agent-control")
         return self.remote_head()
 
+    def advance_rewritten_remote(self, name: str = "post-compact.json") -> str:
+        writer = self.root / f"writer-{name}"
+        git(self.root, "clone", "--branch", "agent-control", str(self.remote), str(writer))
+        configure_identity(writer)
+        path = writer / ".agent" / "status" / name
+        path.write_text('{"source":"post-compact"}\n', encoding="utf-8")
+        git(writer, "add", f".agent/status/{name}")
+        git(writer, "commit", "-m", "Post-compaction remote update")
+        git(writer, "push", "origin", "agent-control")
+        return self.remote_head()
+
 
 class AutomaticControlHistoryCompactionTests(unittest.TestCase):
     def test_below_threshold_is_a_noop(self) -> None:
@@ -198,9 +209,50 @@ class AutomaticControlHistoryCompactionTests(unittest.TestCase):
             self.assertTrue(injected)
             self.assertTrue(result["changed"])
             self.assertTrue(result["push_reconciled"])
+            self.assertFalse(result["remote_advanced"])
             self.assertEqual(fixture.remote_count(), 1)
             self.assertEqual(fixture.remote_tree(), old_tree)
             self.assertEqual(git_output(fixture.control, "rev-parse", "HEAD"), result["new_sha"])
+
+    def test_ambiguous_push_with_immediate_remote_advance_keeps_new_task(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = ControlFixture(Path(tmp), commits=5)
+            injected = False
+            advanced_head = ""
+
+            def hook(args, cwd):
+                nonlocal injected, advanced_head
+                if len(args) > 1 and args[0] == "git" and args[1] == "push" and not injected:
+                    injected = True
+                    completed = subprocess.run(
+                        args,
+                        cwd=cwd,
+                        check=False,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                    )
+                    self.assertEqual(completed.returncode, 0, completed.stdout)
+                    advanced_head = fixture.advance_rewritten_remote()
+                    return {
+                        "exit_code": 1,
+                        "output": "simulated lost push response before remote advanced\n",
+                        "timed_out": True,
+                    }
+                return None
+
+            fixture.core.process_hook = hook
+            result = cleanup.compact_control_history(fixture.core, threshold=5)
+
+            self.assertTrue(injected)
+            self.assertTrue(result["changed"])
+            self.assertTrue(result["push_reconciled"])
+            self.assertTrue(result["remote_advanced"])
+            self.assertEqual(result["head_sha"], advanced_head)
+            self.assertEqual(fixture.remote_head(), advanced_head)
+            self.assertEqual(fixture.remote_count(), 2)
+            self.assertEqual(git_output(fixture.control, "rev-parse", "HEAD"), advanced_head)
+            self.assertTrue((fixture.control / ".agent/status/post-compact.json").exists())
 
     def test_runtime_gc_checks_history_even_when_no_artifacts_need_pruning(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
