@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "local-agent",
   "version": "0.1.0",
-  "description": "Use ChatGPT with the connected GitHub app as a durable control plane for a bounded Local Agent executor running on your own computer.",
+  "description": "Use ChatGPT, GitHub, the ChatGPT sandbox, and an optional Local Agent executor as one bounded development workflow.",
   "author": {
     "name": "Michal Matuszewski"
   },
@@ -10,6 +10,7 @@
   "repository": "https://github.com/MichalMatu/local-agent",
   "keywords": [
     "local execution",
+    "sandbox",
     "github",
     "developer tools",
     "automation"
@@ -19,15 +20,16 @@
       "apps": "./.app.json",
       "interface": {
         "displayName": "Local Agent",
-        "shortDescription": "Run bounded development tasks on your own computer through GitHub.",
-        "longDescription": "Local Agent lets ChatGPT plan work in a repository, use GitHub as a durable authenticated control plane, and delegate bounded builds, tests, device checks, and other machine-specific commands to a Local Agent executor running on the user's computer.",
+        "shortDescription": "Build and test in ChatGPT sandbox or on your own computer through GitHub.",
+        "longDescription": "Local Agent gives ChatGPT a bounded development workflow with GitHub as the durable source/control plane. Software-only work can prefer the ChatGPT sandbox with reproducible offline packs stored in ChatGPT Library, while machine-specific builds, devices, local files, and hardware can be delegated to an optional Local Agent executor on the user's computer.",
         "developerName": "Michal Matuszewski",
         "category": "Productivity",
         "capabilities": ["Read", "Write"],
         "websiteURL": "https://github.com/MichalMatu/local-agent",
         "defaultPrompt": [
-          "Use Local Agent to inspect the current executor status for my repository.",
-          "Use Local Agent to run the relevant local tests for this repository and report the terminal evidence."
+          "Choose the cheapest safe worker for this repository and run the relevant checks.",
+          "Use the ChatGPT sandbox for software-only verification when a compatible offline pack is available.",
+          "Use Local Agent only when this task genuinely needs my computer or connected hardware."
         ]
       }
     }
