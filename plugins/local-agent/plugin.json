@@ -1,0 +1,35 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "local-agent",
+  "version": "0.1.0",
+  "description": "Use ChatGPT with the connected GitHub app as a durable control plane for a bounded Local Agent executor running on your own computer.",
+  "author": {
+    "name": "Michal Matuszewski"
+  },
+  "homepage": "https://github.com/MichalMatu/local-agent",
+  "repository": "https://github.com/MichalMatu/local-agent",
+  "keywords": [
+    "local execution",
+    "github",
+    "developer tools",
+    "automation"
+  ],
+  "extensions": {
+    "com.openai": {
+      "apps": "./.app.json",
+      "interface": {
+        "displayName": "Local Agent",
+        "shortDescription": "Run bounded development tasks on your own computer through GitHub.",
+        "longDescription": "Local Agent lets ChatGPT plan work in a repository, use GitHub as a durable authenticated control plane, and delegate bounded builds, tests, device checks, and other machine-specific commands to a Local Agent executor running on the user's computer.",
+        "developerName": "Michal Matuszewski",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "websiteURL": "https://github.com/MichalMatu/local-agent",
+        "defaultPrompt": [
+          "Use Local Agent to inspect the current executor status for my repository.",
+          "Use Local Agent to run the relevant local tests for this repository and report the terminal evidence."
+        ]
+      }
+    }
+  }
+}
