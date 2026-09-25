@@ -1,11 +1,20 @@
 ---
 name: local-agent-control
-description: Use the connected GitHub app to control a bounded Local Agent executor running on the user's own computer. Use this for local builds, tests, device checks, machine-specific commands, and exact Local Agent status/result inspection.
+description: Use the connected GitHub app to control a bounded Local Agent executor running on the user's own computer when work genuinely requires local machine or hardware evidence.
 ---
 
 # Local Agent control workflow
 
-Use the required GitHub app as the only remote control-plane transport. Local Agent itself remains the deterministic executor on the user's computer.
+Use the required GitHub app as the remote control-plane transport. Local Agent remains the deterministic executor on the user's computer.
+
+Do not treat Local Agent as the default worker for every build or test. Before queueing local execution, apply the worker-selection policy:
+
+1. direct GitHub for bounded source/configuration/documentation edits;
+2. ChatGPT sandbox for reproducible software-only builds/tests when the repository has a compatible sandbox/offline-pack flow;
+3. GitHub Actions for canonical networked CI and dependency-pack generation;
+4. Local Agent for machine-specific, local-state, platform-specific, or hardware-specific evidence.
+
+When sandbox execution is appropriate, follow the `sandbox-execution` skill and repository-owned sandbox instructions instead of queueing a Local Agent task.
 
 ## Hard safety rules
 
@@ -18,26 +27,26 @@ Use the required GitHub app as the only remote control-plane transport. Local Ag
 7. Every task must declare `resources` explicitly. Use `resources: []` unless exact repository/operator policy requires a named resource or whole-machine exclusivity.
 8. Prefer `allow_write: false`. Use local write execution only when the requested workflow genuinely requires the machine to modify the checkout and the repository policy permits it.
 9. Never treat a queued task, a Git commit, daemon `idle`, or a live run as proof of successful local execution. The exact terminal result is authoritative.
-10. Never use the `MichalMatu/local-agent` repository as a project execution target. Infrastructure changes to Local Agent follow that repository's own candidate-branch and release policy.
+10. Never route a product user's project through the maintainer's GitHub account or repositories. Each user operates through their own connected GitHub account and their own repository control branch.
 
 ## Inspect repository instructions first
 
-Before planning a source change or execution task, read the target repository's current instructions when present, especially `AGENTS.md`, Local Agent flow documentation, and branch/testing policy. Follow those instructions unless they conflict with the Local Agent hard safety contract.
+Before planning a source change or execution task, read the target repository's current instructions when present, especially `AGENTS.md`, Local Agent flow documentation, sandbox execution documentation, and branch/testing policy. Follow those instructions unless they conflict with the Local Agent hard safety contract.
 
-## Choose direct GitHub work or Local Agent execution
+## When Local Agent is the correct worker
 
-Use direct GitHub edits for bounded source, configuration, or documentation changes when the exact diff plus repository CI can verify the outcome.
+Use Local Agent when requested evidence genuinely requires the user's computer, such as:
 
-Use Local Agent when the requested evidence requires the user's computer, such as:
+- attached hardware or devices: USB, serial, BLE, ADB, phones, microcontrollers;
+- locally installed SDKs/toolchains that are not reproducible in the sandbox;
+- machine-specific diagnostics or operating-system behavior;
+- local files, services, credentials, or data intentionally required by the task;
+- production-like runtime state that must remain local;
+- verification that repository policy explicitly requires from the user's machine.
 
-- local compilation or tests;
-- hardware/device access;
-- locally installed SDKs or toolchains;
-- machine-specific diagnostics;
-- local files or resources intentionally exposed by the task command;
-- verification that cannot be established by GitHub state or hosted CI alone.
+Routine software-only compilation/tests should prefer the sandbox when the repository provides a compatible offline pack, and canonical CI should remain the release gate when repository policy says so.
 
-A hybrid flow is preferred for many development tasks: make the source change through GitHub, then queue a read-only Local Agent verification task for the exact target branch/commit.
+A common hybrid flow is: edit through GitHub, verify software-only behavior in the sandbox, use GitHub Actions for exact-SHA CI, and invoke Local Agent only for the final device/local-machine evidence.
 
 ## Read the Local Agent control plane
 
@@ -121,8 +130,9 @@ If GitHub write access is unavailable, the required GitHub app is disconnected, 
 When work completes, report the smallest useful evidence set:
 
 - repository and source branch/commit;
-- Local Agent task id when local execution was used;
-- terminal result status;
+- worker used: GitHub, ChatGPT sandbox, GitHub Actions, or Local Agent;
+- Local Agent task id only when local execution was used;
+- terminal result or CI/sandbox evidence appropriate to that worker;
 - relevant build/test/device outcome;
 - any remaining limitation or required user action.
 
