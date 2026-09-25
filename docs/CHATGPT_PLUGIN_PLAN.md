@@ -2,6 +2,8 @@
 
 Status: candidate work on `feature/chatgpt-plugin-github-control-plane`.
 
+Market/product research snapshot: [`PLUGIN_PRODUCT_AUDIT_2026-09-25.md`](PLUGIN_PRODUCT_AUDIT_2026-09-25.md).
+
 ## Goal
 
 Expose the established Local Agent Git-backed control plane as a ChatGPT plugin workflow without adding a Local Agent MCP execution server, while using the ChatGPT sandbox as the preferred software-only execution worker when a repository provides reproducible offline inputs.
