@@ -13,10 +13,20 @@ The compactor is fail-closed:
 - apply mode requires a verified full-history Git bundle of the target `agent-control` branch before any rewrite;
 - the compacted root commit reuses the exact current Git tree object and verifies the tree SHA before publication;
 - publication uses an exact `--force-with-lease=refs/heads/<branch>:<old-sha>` lease;
-- if the remote branch changes while backup or compaction is in progress, the operation aborts rather than overwriting the new commit;
-- after publication, the local control checkout is refreshed and reset to the rewritten remote branch.
+- if a competing remote update lands before the rewrite, the exact lease rejects the rewrite rather than overwriting that update;
+- if the rewrite was accepted but the client loses the push response, the compactor inspects the remote instead of blindly retrying the force push;
+- if a new task/status commit lands immediately after the compacted root, the compactor recognizes the newer remote as a descendant of that root and realigns the local checkout to the newer tip;
+- project source branches are never targets of this maintenance path.
 
 The default compaction threshold is the same as `CONTROL_HISTORY_DEPTH` (currently 256 locally visible commits).
+
+## Automatic runtime compaction
+
+After upgrade, ordinary runtime cleanup also keeps remote `agent-control` ancestry bounded. When a real control checkout reaches the default 256-visible-commit threshold, Local Agent may replace the existing control ancestry with one root commit containing the exact same current tree.
+
+Automatic compaction uses the same exact-tree and exact-lease rules as the administrative path. It does **not** create a full Git bundle every time the 256-commit boundary is reached; those recurring commits are ephemeral control-plane history. A compaction error is maintenance-degraded rather than task-fatal, so normal execution can continue and a later cleanup cycle can retry.
+
+The verified bundle backup requirement below applies to the one-time migration of repositories that already accumulated large historical `agent-control` branches.
 
 ## Dry-run
 
@@ -89,7 +99,7 @@ Rollback should be an explicit operator action using the recorded old and curren
 For each migrated repository verify:
 
 1. the current `.agent/` tree is unchanged;
-2. the local control checkout and remote `agent-control` resolve to the same new root commit;
+2. the local control checkout and remote `agent-control` resolve to the same rewritten lineage;
 3. a new task can be published;
 4. Local Agent claims and executes it normally;
 5. the result is published and visible on `agent-control`;
