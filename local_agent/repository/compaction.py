@@ -12,6 +12,7 @@ from pathlib import Path
 from local_agent.foundation import storage
 from local_agent.repository import admin
 from local_agent.repository.context import RepositoryContext, load_repository_registry
+from local_agent.repository.history_policy import CONTROL_HISTORY_COMPACT_ROOT_MESSAGE
 
 DEFAULT_COMPACTION_THRESHOLD = storage.CONTROL_HISTORY_DEPTH
 
@@ -221,7 +222,7 @@ def compact_control_history(
     admin._require_commit_identity(control)
     new_sha = _git_output(
         control,
-        ["commit-tree", plan.tree_sha, "-m", "Compact local-agent control history"],
+        ["commit-tree", plan.tree_sha, "-m", CONTROL_HISTORY_COMPACT_ROOT_MESSAGE],
         "create compacted control root commit",
         timeout=60,
     )
