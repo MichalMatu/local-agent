@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from local_agent.foundation import storage
 from local_agent.repository import admin, compaction
 from local_agent.repository.context import RepositoryContext
 
@@ -126,6 +127,62 @@ class AgentControlCompactionTests(unittest.TestCase):
             )
             self.assertEqual(fixture.remote_commit_count(), 1)
             self.assertEqual(int(git(fixture.control, "rev-list", "--count", "HEAD")), 1)
+
+    def test_shallow_checkout_migration_backup_rewrite_and_followup_pull(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fixture = ControlRepositoryFixture(root)
+            shallow = root / "shallow-control"
+            git(
+                root,
+                "clone",
+                "--depth",
+                "3",
+                "--single-branch",
+                "--branch",
+                "agent-control",
+                f"file://{fixture.remote}",
+                str(shallow),
+            )
+            configure_identity(shallow)
+            self.assertEqual(git(shallow, "rev-parse", "--is-shallow-repository"), "true")
+            self.assertEqual(int(git(shallow, "rev-list", "--count", "HEAD")), 3)
+
+            old_head = fixture.remote_head()
+            old_tree = git(shallow, "rev-parse", "HEAD^{tree}")
+            repository = RepositoryContext(
+                repository_id="project-shallow",
+                repository="owner/project-shallow",
+                control=shallow,
+                work=root / "work",
+                checkpoints=root / "checkpoints",
+            )
+            backup_dir = root / "backups"
+
+            with mock.patch.object(admin, "clone_url", return_value=str(fixture.remote)):
+                bundle = compaction.backup_control_history(
+                    repository,
+                    backup_dir,
+                    expected_head=old_head,
+                )
+
+            self.assertTrue(bundle.is_file())
+            self.assertIn(old_head, git(root, "bundle", "list-heads", str(bundle)))
+
+            result = compaction.compact_control_history(
+                shallow,
+                "agent-control",
+                threshold=3,
+                expected_head=old_head,
+            )
+            self.assertTrue(result["changed"])
+            self.assertEqual(fixture.remote_commit_count(), 1)
+            self.assertEqual(git(shallow, "rev-parse", "HEAD^{tree}"), old_tree)
+
+            advanced_head = fixture.advance_rewritten_remote()
+            git(shallow, *storage.bounded_control_pull_args("agent-control"))
+            self.assertEqual(git(shallow, "rev-parse", "HEAD"), advanced_head)
+            self.assertTrue((shallow / ".agent/status/post-compact.json").is_file())
 
     def test_force_with_lease_rejects_concurrent_remote_update_without_data_loss(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
