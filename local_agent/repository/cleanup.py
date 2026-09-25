@@ -10,6 +10,10 @@ from typing import Any
 
 from local_agent.foundation import storage
 from local_agent.foundation.process import RESOURCE_LEASE_FDS_ENV, termination_critical_section
+from local_agent.repository.history_policy import (
+    CONTROL_HISTORY_COMPACT_ROOT_MESSAGE,
+    CONTROL_HISTORY_POLICY_TRAILER,
+)
 
 TERMINAL_PAIR_RETENTION = 32
 RUN_RETENTION = 32
@@ -119,6 +123,16 @@ def _control_output(
         ),
         operation,
     )
+
+
+def _control_history_policy_enabled(core_module: Any, threshold: int) -> bool:
+    messages = _control_output(
+        core_module,
+        ["log", "--format=%B", "--max-count", str(threshold), "HEAD"],
+        "inspect control history policy",
+        timeout=30,
+    )
+    return CONTROL_HISTORY_POLICY_TRAILER in messages
 
 
 def _parse_remote_branch_sha(output: str, branch: str) -> str:
@@ -271,6 +285,13 @@ def _compact_control_history_locked(
             "visible_commits": visible_commits,
             "threshold": threshold,
         }
+    if not _control_history_policy_enabled(core_module, threshold):
+        return {
+            "changed": False,
+            "reason": "history_policy_unmanaged",
+            "visible_commits": visible_commits,
+            "threshold": threshold,
+        }
 
     old_sha = _control_output(core_module, ["rev-parse", "HEAD"], "read control HEAD")
     remote_sha = _remote_control_sha(core_module)
@@ -289,7 +310,7 @@ def _compact_control_history_locked(
     )
     new_sha = _control_output(
         core_module,
-        ["commit-tree", tree_sha, "-m", "Compact local-agent control history"],
+        ["commit-tree", tree_sha, "-m", CONTROL_HISTORY_COMPACT_ROOT_MESSAGE],
         "create compacted control root commit",
         timeout=60,
     )
