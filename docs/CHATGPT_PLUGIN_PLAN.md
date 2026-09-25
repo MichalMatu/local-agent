@@ -26,6 +26,22 @@ GitHub remains the source of truth and durable transport. The user's own GitHub 
 
 The Local Agent executor remains unchanged and retains hard binding, immutable tasks, bounded process execution, resource admission, watchdogs, recovery, and emergency controls.
 
+## Product invariants
+
+These are product-level constraints, not optional implementation details:
+
+1. **User-owned GitHub only.** Customer source, control branches, task state and authorization live in the customer's GitHub account or organization. The maintainer's GitHub account is never a relay for customer repositories.
+2. **No public execution endpoint in the core design.** The normal product flow does not require exposing the customer's computer through a public MCP server, inbound remote-shell service, tunnel or maintainer-operated execution broker.
+3. **GitHub is source of truth.** ChatGPT Library artifacts and sandbox workspaces are cache/transport/execution state only. They never replace the exact repository SHA as source identity.
+4. **Exact identity before execution.** Sandbox work is tied to an exact source SHA; Local Agent work is tied to the exact repository and `agent_binding`; completion claims are tied to worker-specific terminal evidence.
+5. **Sandbox is opportunistic, not assumed.** Use it when the active ChatGPT surface exposes the needed sandbox/Library capabilities and compatible offline inputs exist. Fail over according to repository policy rather than pretending unavailable capabilities exist.
+6. **Local Agent is the machine-specific worker.** Do not consume customer CPU/RAM for routine software-only work when the sandbox or canonical CI can provide equivalent evidence.
+7. **No secret migration into Library.** Tokens, credentials, signing material, private machine state, production databases and local `.env` files remain outside reusable sandbox packs.
+8. **No universal quota claims without validation.** The current operator flow has demonstrated the desired non-Codex-executor behavior, but public claims about plan/model/quota behavior require validation on the exact customer-facing ChatGPT surface.
+9. **Fail closed on routing ambiguity.** Missing GitHub access, stale source packs, binding mismatches, unsupported worker capabilities or ambiguous repository identity stop the workflow instead of triggering an improvised alternate transport.
+
+Any later architecture change that weakens one of these invariants needs an explicit product/security decision rather than an incidental implementation shortcut.
+
 ## Product positioning
 
 The product is not another hosted coding model and should not be positioned as one.
@@ -73,7 +89,7 @@ These implementations are references, not product dependencies. Product users mu
 
 ## Worker-selection policy
 
-The product should choose the cheapest safe worker that can produce the required evidence:
+The product should choose the least-cost safe worker that can produce the required evidence:
 
 1. direct GitHub for bounded source/configuration/documentation changes;
 2. ChatGPT sandbox for reproducible software-only builds/tests when exact source and compatible offline dependencies are available;
@@ -109,6 +125,8 @@ If Library/file access is unavailable on the active ChatGPT surface, the skill m
 5. A public skills-only Local Agent plugin can preserve the no-MCP architecture if GitHub is installed/connected separately and the skill fails closed when GitHub write access is unavailable.
 6. Plugin commerce currently does not allow selling digital subscriptions inside the plugin. Users may access an existing paid account/entitlement. Any future Local Agent billing and entitlement flow must therefore live outside the ChatGPT plugin surface.
 7. The already proven GitHub-backed Local Agent flow uses ordinary ChatGPT conversation planning and local execution rather than Codex execution. The plugin product must preserve that architecture where the target ChatGPT surface supports the same workflow; do not generalize quota claims to untested surfaces.
+
+Re-check these platform facts immediately before public submission because plugin capabilities, distribution rules and plan availability can change independently of this repository.
 
 ## Phase 0 - private package scaffold
 
@@ -275,6 +293,22 @@ Before treating the product as ready to monetize:
 9. test a small paid beta before committing to a final subscription price.
 
 The primary commercial risk is not compute cost; it is support/onboarding cost and dependence on platform behavior outside Local Agent's control. Optimize product work accordingly.
+
+## MVP completion gate
+
+Do not call the plugin product MVP complete until all of the following are true:
+
+- a fresh private plugin installation can use the customer's own connected GitHub account without maintainer-owned routing;
+- one software-only repository completes an exact-SHA sandbox build/test from reproducible offline inputs;
+- one repository completes a read-only Local Agent task and returns exact terminal evidence through its own `agent-control` branch;
+- the same worker-selection rules correctly choose sandbox/CI/local execution and explain degraded fallbacks;
+- a clean second account/environment completes onboarding without maintainer-specific ids, paths, bindings or credentials;
+- `setup` and `doctor` cover the common installation/binding/authorization failures well enough for self-service use;
+- failure cases for missing GitHub access, stale sandbox packs, offline Local Agent and binding mismatch fail closed;
+- public-surface quota/model behavior is validated before any associated marketing claim;
+- licensing/distribution and external entitlement decisions are explicit before commercial release.
+
+This gate is intentionally product-facing. Passing unit tests alone does not satisfy it.
 
 ## Release boundary
 
