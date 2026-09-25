@@ -1,0 +1,20 @@
+{
+  "name": "local-agent-dev",
+  "interface": {
+    "displayName": "Local Agent Development"
+  },
+  "plugins": [
+    {
+      "name": "local-agent",
+      "source": {
+        "source": "local",
+        "path": "./plugins/local-agent"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
