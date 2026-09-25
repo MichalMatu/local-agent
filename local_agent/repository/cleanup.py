@@ -15,6 +15,7 @@ TERMINAL_PAIR_RETENTION = 32
 RUN_RETENTION = 32
 ACK_RETENTION = 16
 ORPHAN_RESULT_RETENTION = 8
+CONTROL_HISTORY_COMPACTION_THRESHOLD = storage.CONTROL_HISTORY_DEPTH
 _RUNTIME_PREFIXES = (
     ".agent/tasks/",
     ".agent/results/",
@@ -96,6 +97,214 @@ def _control_process(
     return core_module.process(args, core_module.CONTROL, **kwargs)
 
 
+def _require_control_git(result: dict[str, Any], operation: str) -> str:
+    if result["exit_code"] != 0:
+        raise RuntimeError(f"{operation} failed: {storage.git_failure_diagnostic(result)}")
+    return str(result.get("output", "")).strip()
+
+
+def _control_output(
+    core_module: Any,
+    args: list[str],
+    operation: str,
+    *,
+    timeout: int = 30,
+) -> str:
+    return _require_control_git(
+        _control_process(
+            core_module,
+            ["git", *args],
+            timeout=timeout,
+            log_commands=False,
+        ),
+        operation,
+    )
+
+
+def _parse_remote_branch_sha(output: str, branch: str) -> str:
+    lines = [line for line in output.splitlines() if line.strip()]
+    if len(lines) != 1:
+        raise RuntimeError(
+            f"expected exactly one remote ref for {branch!r}, got {len(lines)}"
+        )
+    fields = lines[0].split()
+    expected_ref = f"refs/heads/{branch}"
+    if len(fields) < 2 or fields[1] != expected_ref:
+        raise RuntimeError(f"unexpected ls-remote output for {branch!r}: {lines[0]!r}")
+    return fields[0]
+
+
+def _remote_control_sha(core_module: Any) -> str:
+    branch = core_module.CONTROL_BRANCH
+    environment = _control_git_environment(core_module)
+    result = storage.run_git_with_network_retry(
+        core_module,
+        ["git", "ls-remote", "--heads", "origin", f"refs/heads/{branch}"],
+        core_module.CONTROL,
+        timeout=120,
+        log_commands=False,
+        environment=environment,
+    )
+    output = _require_control_git(result, "read remote control branch")
+    return _parse_remote_branch_sha(output, branch)
+
+
+def _realign_compacted_control_checkout(
+    core_module: Any,
+    *,
+    new_sha: str,
+    tree_sha: str,
+) -> None:
+    branch = core_module.CONTROL_BRANCH
+    reset = _control_process(
+        core_module,
+        ["git", "reset", "--hard", new_sha],
+        timeout=120,
+        log_commands=False,
+    )
+    _require_control_git(reset, "reset compacted control checkout")
+    update_ref = _control_process(
+        core_module,
+        ["git", "update-ref", f"refs/remotes/origin/{branch}", new_sha],
+        timeout=30,
+        log_commands=False,
+    )
+    _require_control_git(update_ref, "update compacted remote-tracking ref")
+
+    final_head = _control_output(core_module, ["rev-parse", "HEAD"], "verify compacted HEAD")
+    final_tree = _control_output(
+        core_module,
+        ["rev-parse", "HEAD^{tree}"],
+        "verify compacted control tree",
+    )
+    if final_head != new_sha:
+        raise RuntimeError("local control checkout did not converge on compacted root")
+    if final_tree != tree_sha:
+        raise RuntimeError("local control tree changed during history compaction")
+
+
+def _compact_control_history_locked(
+    core_module: Any,
+    *,
+    threshold: int = CONTROL_HISTORY_COMPACTION_THRESHOLD,
+) -> dict[str, Any]:
+    """Bound remote control history while preserving the exact current tree.
+
+    Caller must hold CONTROL_GIT_LOCK. The force push is never blindly retried: an
+    ambiguous transport failure is reconciled against the remote ref first.
+    """
+    if threshold < 1:
+        raise ValueError("control history compaction threshold must be positive")
+
+    dirty = _control_output(
+        core_module,
+        ["status", "--porcelain=v1", "--untracked-files=all"],
+        "inspect control checkout",
+    )
+    if dirty:
+        return {"changed": False, "reason": "dirty"}
+
+    branch = _control_output(
+        core_module,
+        ["symbolic-ref", "--quiet", "--short", "HEAD"],
+        "read control branch",
+    )
+    if branch != core_module.CONTROL_BRANCH:
+        return {"changed": False, "reason": "wrong_branch", "branch": branch}
+
+    visible_raw = _control_output(
+        core_module,
+        ["rev-list", "--count", "HEAD"],
+        "count visible control commits",
+    )
+    try:
+        visible_commits = int(visible_raw)
+    except ValueError as exc:
+        raise RuntimeError(f"invalid control commit count: {visible_raw!r}") from exc
+    if visible_commits < threshold:
+        return {
+            "changed": False,
+            "reason": "below_threshold",
+            "visible_commits": visible_commits,
+            "threshold": threshold,
+        }
+
+    old_sha = _control_output(core_module, ["rev-parse", "HEAD"], "read control HEAD")
+    remote_sha = _remote_control_sha(core_module)
+    if old_sha != remote_sha:
+        return {
+            "changed": False,
+            "reason": "remote_changed",
+            "head_sha": old_sha,
+            "remote_sha": remote_sha,
+        }
+
+    tree_sha = _control_output(
+        core_module,
+        ["rev-parse", "HEAD^{tree}"],
+        "read control tree",
+    )
+    new_sha = _control_output(
+        core_module,
+        ["commit-tree", tree_sha, "-m", "Compact local-agent control history"],
+        "create compacted control root commit",
+        timeout=60,
+    )
+    new_tree = _control_output(
+        core_module,
+        ["rev-parse", f"{new_sha}^{{tree}}"],
+        "verify compacted root tree",
+    )
+    if new_tree != tree_sha:
+        raise RuntimeError(
+            "compacted control tree differs from source tree; refusing remote update"
+        )
+
+    lease = f"--force-with-lease=refs/heads/{branch}:{old_sha}"
+    push = _control_process(
+        core_module,
+        ["git", "push", lease, "origin", f"{new_sha}:refs/heads/{branch}"],
+        timeout=120,
+        log_commands=False,
+    )
+    push_succeeded = push["exit_code"] == 0
+    if not push_succeeded:
+        observed_remote = _remote_control_sha(core_module)
+        if observed_remote != new_sha:
+            return {
+                "changed": False,
+                "reason": "lease_or_push_failed",
+                "old_sha": old_sha,
+                "new_sha": new_sha,
+                "remote_sha": observed_remote,
+                "diagnostic": storage.git_failure_diagnostic(push),
+            }
+
+    _realign_compacted_control_checkout(
+        core_module,
+        new_sha=new_sha,
+        tree_sha=tree_sha,
+    )
+    return {
+        "changed": True,
+        "old_sha": old_sha,
+        "new_sha": new_sha,
+        "tree_sha": tree_sha,
+        "visible_commits_before": visible_commits,
+        "push_reconciled": not push_succeeded,
+    }
+
+
+def compact_control_history(
+    core_module: Any,
+    *,
+    threshold: int = CONTROL_HISTORY_COMPACTION_THRESHOLD,
+) -> dict[str, Any]:
+    """Public lock-safe control-history compaction entry point."""
+    with core_module.CONTROL_GIT_LOCK:
+        return _compact_control_history_locked(core_module, threshold=threshold)
+
+
 def control_cleanup_plan(
     control: Path,
     *,
@@ -173,82 +382,103 @@ def control_cleanup_plan(
 
 
 def prune_control_runtime(core_module: Any) -> dict[str, Any]:
-    """Prune bounded terminal history and publish one atomic cleanup commit."""
+    """Prune runtime artifacts and keep remote control history bounded."""
+    paths: tuple[str, ...] = ()
     with core_module.CONTROL_GIT_LOCK:
         paths = control_cleanup_plan(core_module.CONTROL)
-        if not paths:
-            return {"changed": False, "deleted": 0, "paths": ()}
+        if paths:
+            with termination_critical_section():
+                for relative in paths:
+                    target = (core_module.CONTROL / relative).resolve()
+                    root = core_module.CONTROL.resolve()
+                    if root not in target.parents:
+                        raise ValueError(f"cleanup path escapes control checkout: {relative!r}")
+                    if not any(relative.startswith(prefix) for prefix in _RUNTIME_PREFIXES):
+                        raise ValueError(f"cleanup path is outside runtime allowlist: {relative!r}")
+                    target.unlink(missing_ok=True)
 
-        with termination_critical_section():
-            for relative in paths:
-                target = (core_module.CONTROL / relative).resolve()
-                root = core_module.CONTROL.resolve()
-                if root not in target.parents:
-                    raise ValueError(f"cleanup path escapes control checkout: {relative!r}")
-                if not any(relative.startswith(prefix) for prefix in _RUNTIME_PREFIXES):
-                    raise ValueError(f"cleanup path is outside runtime allowlist: {relative!r}")
-                target.unlink(missing_ok=True)
+                add = _control_process(
+                    core_module,
+                    ["git", "add", "-A", "--", *paths],
+                    timeout=30,
+                    log_commands=False,
+                )
+                if add["exit_code"] != 0:
+                    raise RuntimeError(storage.git_failure_diagnostic(add))
 
-            add = _control_process(
-                core_module,
-                ["git", "add", "-A", "--", *paths],
-                timeout=30,
-                log_commands=False,
-            )
-            if add["exit_code"] != 0:
-                raise RuntimeError(storage.git_failure_diagnostic(add))
+                staged = _control_process(
+                    core_module,
+                    ["git", "diff", "--cached", "--quiet", "--", *paths],
+                    timeout=30,
+                    log_commands=False,
+                )
+                if staged["exit_code"] not in {0, 1}:
+                    raise RuntimeError(storage.git_failure_diagnostic(staged))
 
-            staged = _control_process(
-                core_module,
-                ["git", "diff", "--cached", "--quiet", "--", *paths],
-                timeout=30,
-                log_commands=False,
-            )
-            if staged["exit_code"] == 0:
-                return {"changed": False, "deleted": 0, "paths": ()}
-            if staged["exit_code"] != 1:
-                raise RuntimeError(storage.git_failure_diagnostic(staged))
+                if staged["exit_code"] == 1:
+                    commit = _control_process(
+                        core_module,
+                        [
+                            "git",
+                            "commit",
+                            "-m",
+                            f"Agent runtime GC: prune {len(paths)} artifacts",
+                            "--",
+                            *paths,
+                        ],
+                        timeout=60,
+                        log_commands=False,
+                    )
+                    if commit["exit_code"] != 0:
+                        raise RuntimeError(storage.git_failure_diagnostic(commit))
 
-            commit = _control_process(
-                core_module,
-                [
-                    "git",
-                    "commit",
-                    "-m",
-                    f"Agent runtime GC: prune {len(paths)} artifacts",
-                    "--",
-                    *paths,
-                ],
-                timeout=60,
-                log_commands=False,
-            )
-            if commit["exit_code"] != 0:
-                raise RuntimeError(storage.git_failure_diagnostic(commit))
+                    environment = _control_git_environment(core_module)
+                    pull = storage.run_git_with_network_retry(
+                        core_module,
+                        ["git", *storage.bounded_control_pull_args(core_module.CONTROL_BRANCH)],
+                        core_module.CONTROL,
+                        timeout=120,
+                        log_commands=False,
+                        environment=environment,
+                    )
+                    if pull["exit_code"] != 0:
+                        raise RuntimeError(pull["output"])
 
-        environment = _control_git_environment(core_module)
-        pull = storage.run_git_with_network_retry(
-            core_module,
-            ["git", *storage.bounded_control_pull_args(core_module.CONTROL_BRANCH)],
-            core_module.CONTROL,
-            timeout=120,
-            log_commands=False,
-            environment=environment,
-        )
-        if pull["exit_code"] != 0:
-            raise RuntimeError(pull["output"])
+                    push = storage.run_git_with_network_retry(
+                        core_module,
+                        ["git", "push", "origin", core_module.CONTROL_BRANCH],
+                        core_module.CONTROL,
+                        timeout=120,
+                        log_commands=False,
+                        environment=environment,
+                    )
+                    if push["exit_code"] != 0:
+                        raise RuntimeError(push["output"])
 
-        push = storage.run_git_with_network_retry(
-            core_module,
-            ["git", "push", "origin", core_module.CONTROL_BRANCH],
-            core_module.CONTROL,
-            timeout=120,
-            log_commands=False,
-            environment=environment,
-        )
-        if push["exit_code"] != 0:
-            raise RuntimeError(push["output"])
+        try:
+            history = _compact_control_history_locked(core_module)
+        except Exception as exc:
+            history = {
+                "changed": False,
+                "reason": "error",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
 
     logger = getattr(core_module, "log", None)
     if callable(logger):
-        logger(f"runtime GC pruned {len(paths)} control artifacts")
-    return {"changed": True, "deleted": len(paths), "paths": paths}
+        if paths:
+            logger(f"runtime GC pruned {len(paths)} control artifacts")
+        if history.get("changed"):
+            logger(
+                "runtime GC compacted control history "
+                f"from {history['visible_commits_before']} visible commits"
+            )
+        elif history.get("reason") == "error":
+            logger(f"control history compaction skipped: {history['error']}")
+
+    return {
+        "changed": bool(paths) or bool(history.get("changed")),
+        "deleted": len(paths),
+        "paths": paths,
+        "history": history,
+    }
