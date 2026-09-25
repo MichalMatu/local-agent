@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import Path
 
@@ -77,10 +78,35 @@ class CurrentDocumentationContractTests(unittest.TestCase):
         )
         self.assertIn("preserved physical workspace paths", bootstrap)
 
-    def test_golden_standard_names_released_source_as_current_production(self) -> None:
+    def test_golden_standard_distinguishes_candidate_source_from_production(self) -> None:
         golden = (REPO_ROOT / "docs" / "GOLDEN_STANDARD.md").read_text(encoding="utf-8")
-        self.assertIn(f"source release is `v{RELEASE_VERSION}`", golden)
-        self.assertIn(f"current production release is `v{RELEASE_VERSION}`", golden)
+        source_match = re.search(r"source release is `v([^`]+)`", golden)
+        production_match = re.search(r"current production release is `v([^`]+)`", golden)
+        self.assertIsNotNone(source_match, "missing source release declaration")
+        self.assertIsNotNone(production_match, "missing production release declaration")
+        assert source_match is not None
+        assert production_match is not None
+
+        source_release = source_match.group(1)
+        production_release = production_match.group(1)
+        self.assertEqual(source_release, RELEASE_VERSION)
+
+        if production_release != source_release:
+            self.assertIn(f"The {source_release} candidate", golden)
+            self.assertIn(
+                f"deployed production release remains `v{production_release}` until the explicit release decision advances `main`",
+                golden,
+            )
+            self.assertIn(
+                "Candidate source must not be described as current production before the explicit release decision advances `main`.",
+                golden,
+            )
+        else:
+            self.assertNotIn(
+                f"deployed production release remains `v{production_release}` until the explicit release decision advances `main`",
+                golden,
+            )
+
         self.assertNotIn("is still a candidate on this branch", golden)
 
     def test_release_version_has_matching_release_notes_and_changelog_entry(self) -> None:
