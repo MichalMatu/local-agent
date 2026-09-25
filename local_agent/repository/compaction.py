@@ -9,10 +9,11 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from local_agent.foundation import storage
 from local_agent.repository import admin
 from local_agent.repository.context import RepositoryContext, load_repository_registry
 
-DEFAULT_COMPACTION_THRESHOLD = 256
+DEFAULT_COMPACTION_THRESHOLD = storage.CONTROL_HISTORY_DEPTH
 
 
 @dataclass(frozen=True)
@@ -238,13 +239,21 @@ def backup_control_history(
     if bundle_path.exists():
         raise RuntimeError(f"backup bundle already exists: {bundle_path}")
 
-    with tempfile.TemporaryDirectory(prefix=f"local-agent-{safe_id}-mirror-") as tmp:
-        mirror = Path(tmp) / "mirror.git"
+    with tempfile.TemporaryDirectory(prefix=f"local-agent-{safe_id}-backup-") as tmp:
+        mirror = Path(tmp) / "control.git"
         clone = admin.run_git(
-            ["clone", "--mirror", admin.clone_url(repository), str(mirror)],
+            [
+                "clone",
+                "--bare",
+                "--single-branch",
+                "--branch",
+                repository.control_branch,
+                admin.clone_url(repository),
+                str(mirror),
+            ],
             timeout=3600,
         )
-        _require_git(clone, "clone full repository history for backup")
+        _require_git(clone, "clone full control branch history for backup")
 
         backup_head = _git_output(
             mirror,
