@@ -68,6 +68,17 @@ class ControlRepositoryFixture:
         git(self.seed, "push", "origin", "agent-control")
         return self.remote_head()
 
+    def advance_rewritten_remote(self) -> str:
+        writer = self.root / "post-compact-writer"
+        git(self.root, "clone", "--branch", "agent-control", str(self.remote), str(writer))
+        configure_identity(writer)
+        path = writer / ".agent" / "status" / "post-compact.json"
+        path.write_text('{"source":"post-compact"}\n', encoding="utf-8")
+        git(writer, "add", ".agent/status/post-compact.json")
+        git(writer, "commit", "-m", "Post-compaction remote update")
+        git(writer, "push", "origin", "agent-control")
+        return self.remote_head()
+
 
 class AgentControlCompactionTests(unittest.TestCase):
     def test_dry_run_plan_does_not_mutate_local_or_remote_history(self) -> None:
@@ -144,6 +155,47 @@ class AgentControlCompactionTests(unittest.TestCase):
             self.assertEqual(fixture.remote_head(), concurrent_head[0])
             self.assertTrue((fixture.seed / ".agent" / "status" / "external.json").exists())
             self.assertEqual(fixture.remote_commit_count(), 6)
+
+    def test_lost_push_response_with_immediate_remote_advance_is_reconciled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = ControlRepositoryFixture(Path(tmp))
+            old_head = git(fixture.control, "rev-parse", "HEAD")
+            original_run_git = admin.run_git
+            injected = False
+            advanced_head = ""
+
+            def ambiguous_run_git(args, *, cwd=None, timeout=300):
+                nonlocal injected, advanced_head
+                if args and args[0] == "push" and not injected:
+                    injected = True
+                    accepted = original_run_git(args, cwd=cwd, timeout=timeout)
+                    self.assertEqual(accepted.returncode, 0, accepted.stdout)
+                    advanced_head = fixture.advance_rewritten_remote()
+                    return subprocess.CompletedProcess(
+                        args=["git", *args],
+                        returncode=1,
+                        stdout="simulated lost push response\n",
+                        stderr=None,
+                    )
+                return original_run_git(args, cwd=cwd, timeout=timeout)
+
+            with mock.patch.object(admin, "run_git", side_effect=ambiguous_run_git):
+                result = compaction.compact_control_history(
+                    fixture.control,
+                    "agent-control",
+                    threshold=3,
+                    expected_head=old_head,
+                )
+
+            self.assertTrue(injected)
+            self.assertTrue(result["changed"])
+            self.assertTrue(result["push_reconciled"])
+            self.assertTrue(result["remote_advanced"])
+            self.assertEqual(result["head_sha"], advanced_head)
+            self.assertEqual(fixture.remote_head(), advanced_head)
+            self.assertEqual(fixture.remote_commit_count(), 2)
+            self.assertEqual(git(fixture.control, "rev-parse", "HEAD"), advanced_head)
+            self.assertTrue((fixture.control / ".agent/status/post-compact.json").exists())
 
     def test_backup_bundle_contains_full_control_history_at_expected_head(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
