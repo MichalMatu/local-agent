@@ -42,21 +42,86 @@ def _git_output(control: Path, args: list[str], operation: str, *, timeout: int 
     return _require_git(admin.run_git(args, cwd=control, timeout=timeout), operation)
 
 
-def _remote_branch_sha(control: Path, branch: str) -> str:
-    output = _git_output(
-        control,
-        ["ls-remote", "--heads", "origin", f"refs/heads/{branch}"],
-        "read remote control branch",
-    )
+def _parse_remote_branch_sha(output: str, branch: str) -> str:
     lines = [line for line in output.splitlines() if line.strip()]
     if len(lines) != 1:
         raise RuntimeError(
             f"expected exactly one remote ref for {branch!r}, got {len(lines)}"
         )
     fields = lines[0].split()
-    if len(fields) < 2 or fields[1] != f"refs/heads/{branch}":
+    expected_ref = f"refs/heads/{branch}"
+    if len(fields) < 2 or fields[1] != expected_ref:
         raise RuntimeError(f"unexpected ls-remote output for {branch!r}: {lines[0]!r}")
     return fields[0]
+
+
+def _remote_branch_sha(control: Path, branch: str) -> str:
+    output = _git_output(
+        control,
+        ["ls-remote", "--heads", "origin", f"refs/heads/{branch}"],
+        "read remote control branch",
+    )
+    return _parse_remote_branch_sha(output, branch)
+
+
+def _fetch_remote_tip(control: Path, branch: str) -> str:
+    remote_ref = f"refs/remotes/origin/{branch}"
+    fetch = admin.run_git(
+        [
+            "fetch",
+            "--depth",
+            str(storage.CONTROL_HISTORY_DEPTH),
+            "--no-tags",
+            "origin",
+            f"+refs/heads/{branch}:{remote_ref}",
+        ],
+        cwd=control,
+        timeout=300,
+    )
+    _require_git(fetch, "fetch remote control branch for reconciliation")
+    return _git_output(control, ["rev-parse", remote_ref], "read reconciled remote tip", timeout=30)
+
+
+def _is_ancestor(control: Path, ancestor: str, descendant: str) -> bool:
+    result = admin.run_git(
+        ["merge-base", "--is-ancestor", ancestor, descendant],
+        cwd=control,
+        timeout=30,
+    )
+    if result.returncode == 0:
+        return True
+    if result.returncode == 1:
+        return False
+    raise RuntimeError(f"inspect control ancestry failed: {result.stdout.strip()}")
+
+
+def _realign_control_checkout(
+    control: Path,
+    branch: str,
+    target_sha: str,
+    *,
+    expected_tree: str | None = None,
+) -> None:
+    reset = admin.run_git(["reset", "--hard", target_sha], cwd=control, timeout=120)
+    _require_git(reset, "reset compacted control checkout")
+    update_ref = admin.run_git(
+        ["update-ref", f"refs/remotes/origin/{branch}", target_sha],
+        cwd=control,
+        timeout=30,
+    )
+    _require_git(update_ref, "update compacted remote-tracking ref")
+    final_head = _git_output(control, ["rev-parse", "HEAD"], "verify compacted HEAD", timeout=30)
+    if final_head != target_sha:
+        raise RuntimeError("local control checkout did not converge on reconciled remote tip")
+    if expected_tree is not None:
+        final_tree = _git_output(
+            control,
+            ["rev-parse", "HEAD^{tree}"],
+            "verify compacted tree",
+            timeout=30,
+        )
+        if final_tree != expected_tree:
+            raise RuntimeError("control tree changed during compaction")
 
 
 def plan_control_compaction(
@@ -181,47 +246,59 @@ def compact_control_history(
         cwd=control,
         timeout=300,
     )
-    _require_git(push, "publish compacted control history")
+    push_succeeded = push.returncode == 0
+    reconciled_tip = new_sha
+    remote_advanced = False
 
-    fetch = admin.run_git(
-        [
-            "fetch",
-            "--depth",
-            "1",
-            "--no-tags",
-            "origin",
-            f"+refs/heads/{branch}:refs/remotes/origin/{branch}",
-        ],
-        cwd=control,
-        timeout=300,
-    )
-    _require_git(fetch, "refresh compacted control checkout")
-    reset = admin.run_git(
-        ["reset", "--hard", f"refs/remotes/origin/{branch}"],
-        cwd=control,
-        timeout=120,
-    )
-    _require_git(reset, "reset compacted control checkout")
+    if push_succeeded:
+        _realign_control_checkout(
+            control,
+            branch,
+            new_sha,
+            expected_tree=plan.tree_sha,
+        )
+        observed_remote = _remote_branch_sha(control, branch)
+        if observed_remote != new_sha:
+            fetched_remote = _fetch_remote_tip(control, branch)
+            if not _is_ancestor(control, new_sha, fetched_remote):
+                raise RuntimeError(
+                    "remote control branch moved to a non-descendant after compaction"
+                )
+            reconciled_tip = fetched_remote
+            remote_advanced = fetched_remote != new_sha
+            _realign_control_checkout(control, branch, reconciled_tip)
+    else:
+        observed_remote = _remote_branch_sha(control, branch)
+        if observed_remote == new_sha:
+            _realign_control_checkout(
+                control,
+                branch,
+                new_sha,
+                expected_tree=plan.tree_sha,
+            )
+        else:
+            fetched_remote = _fetch_remote_tip(control, branch)
+            if not _is_ancestor(control, new_sha, fetched_remote):
+                raise RuntimeError(
+                    "publish compacted control history failed: "
+                    f"{push.stdout.strip()}; remote now {fetched_remote}"
+                )
+            reconciled_tip = fetched_remote
+            remote_advanced = fetched_remote != new_sha
+            _realign_control_checkout(control, branch, reconciled_tip)
 
-    final_head = _git_output(control, ["rev-parse", "HEAD"], "verify compacted HEAD", timeout=30)
-    final_tree = _git_output(
-        control,
-        ["rev-parse", "HEAD^{tree}"],
-        "verify compacted tree",
-        timeout=30,
-    )
-    final_remote = _remote_branch_sha(control, branch)
-    if final_head != new_sha or final_remote != new_sha:
-        raise RuntimeError("compacted control branch did not converge on the new root commit")
-    if final_tree != plan.tree_sha:
-        raise RuntimeError("control tree changed during compaction")
+    if reconciled_tip != new_sha and not _is_ancestor(control, new_sha, reconciled_tip):
+        raise RuntimeError("reconciled control tip does not descend from compacted root")
 
     return {
         "changed": True,
         "old_head": plan.head_sha,
         "new_head": new_sha,
-        "tree_sha": final_tree,
+        "head_sha": reconciled_tip,
+        "tree_sha": plan.tree_sha,
         "visible_commits_before": plan.visible_commits,
+        "push_reconciled": not push_succeeded,
+        "remote_advanced": remote_advanced,
     }
 
 
