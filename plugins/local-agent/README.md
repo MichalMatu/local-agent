@@ -1,6 +1,6 @@
 # Local Agent ChatGPT plugin prototype
 
-This directory contains the private-plugin prototype for using the connected GitHub app as the durable source/control plane while routing execution to the cheapest safe worker.
+This directory contains the private-plugin prototype for using the connected GitHub app as the durable source/control plane while routing execution to the least-cost safe worker.
 
 ## Architecture
 
@@ -14,7 +14,24 @@ ChatGPT planner
        `-> repository agent-control -> Local Agent on the user's computer
 ```
 
-There is no Local Agent MCP server in this design. GitHub provides the authenticated durable transport. The user's own GitHub account and repositories are used; product users never route their projects through the maintainer's GitHub account.
+There is no Local Agent MCP execution server in this design. GitHub provides the authenticated durable transport. The user's own GitHub account and repositories are used; product users never route their projects through the maintainer's GitHub account.
+
+The core flow also does not require exposing the user's computer through an inbound remote shell, tunnel, or maintainer-operated execution broker.
+
+## Product boundaries
+
+The prototype is intentionally strict about a few boundaries:
+
+- GitHub is the repository source of truth; sandbox/Library state is cache or execution evidence only.
+- Each customer uses their own GitHub authorization and repository control branches.
+- Exact source SHA or exact `agent_binding` must ground execution before work starts.
+- Sandbox/Library capabilities are used only when the active ChatGPT surface actually exposes them.
+- Local Agent is not the default build worker when sandbox or canonical CI can provide equivalent evidence.
+- Secrets, credentials, signing material, production data and private machine state do not belong in reusable Library packs.
+- Missing GitHub access, stale packs, unsupported worker capabilities or binding mismatches fail closed.
+- Current non-Codex-executor behavior is proven for the operator's existing setup only; public quota/model claims require validation on the exact customer-facing surface.
+
+The canonical planning document is `docs/CHATGPT_PLUGIN_PLAN.md`.
 
 ## Worker selection
 
@@ -80,7 +97,7 @@ That means the current product plan has two distinct tracks:
 1. **Private/local validation:** package the Local Agent skills together with the required existing GitHub connector reference.
 2. **Public directory candidate:** keep the Local Agent workflow as a skills-only public plugin and require the user to install/connect GitHub separately, unless OpenAI adds public dependency-by-reference support before submission.
 
-The second track preserves the no-MCP architecture.
+The second track preserves the no-MCP architecture. Re-check current OpenAI platform rules immediately before public submission.
 
 ## Monetization constraint
 
@@ -90,10 +107,10 @@ A license/entitlement service, if added later, is separate from the execution tr
 
 ## Prototype scope
 
-The first milestone now covers both execution lanes:
+The first milestone covers both execution lanes:
 
 - require the connected GitHub app;
-- select the cheapest safe worker;
+- select the least-cost safe worker;
 - use exact-SHA sandbox snapshots and compatible Library dependency packs for software-only work;
 - resolve exact repository identity and `agent_binding` before any Local Agent task;
 - inspect daemon/run/result evidence;
