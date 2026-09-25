@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from local_agent.foundation import storage
 import local_agent.repository.cleanup as cleanup
 from local_agent.repository.history_policy import (
     CONTROL_HISTORY_INITIAL_ROOT_MESSAGE,
@@ -126,6 +127,16 @@ class ControlFixture:
 
 
 class AutomaticControlHistoryCompactionTests(unittest.TestCase):
+    def test_runtime_default_threshold_keeps_half_window_policy_margin(self) -> None:
+        self.assertEqual(
+            cleanup.CONTROL_HISTORY_COMPACTION_THRESHOLD,
+            storage.CONTROL_HISTORY_DEPTH // 2,
+        )
+        self.assertGreater(
+            storage.CONTROL_HISTORY_DEPTH,
+            cleanup.CONTROL_HISTORY_COMPACTION_THRESHOLD,
+        )
+
     def test_below_threshold_is_a_noop(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fixture = ControlFixture(Path(tmp), commits=3)
@@ -151,6 +162,18 @@ class AutomaticControlHistoryCompactionTests(unittest.TestCase):
             self.assertEqual(fixture.remote_head(), old_head)
             self.assertEqual(fixture.remote_tree(), old_tree)
             self.assertEqual(fixture.remote_count(), 5)
+
+    def test_policy_marker_older_than_threshold_still_enables_compaction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = ControlFixture(Path(tmp), commits=6)
+            old_tree = fixture.remote_tree()
+
+            result = cleanup.compact_control_history(fixture.core, threshold=3)
+
+            self.assertTrue(result["changed"])
+            self.assertEqual(result["visible_commits_before"], 6)
+            self.assertEqual(fixture.remote_count(), 1)
+            self.assertEqual(fixture.remote_tree(), old_tree)
 
     def test_threshold_compaction_preserves_exact_tree_and_leaves_one_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
