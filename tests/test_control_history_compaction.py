@@ -5,6 +5,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import local_agent.repository.cleanup as cleanup
 
@@ -200,6 +201,29 @@ class AutomaticControlHistoryCompactionTests(unittest.TestCase):
             self.assertEqual(fixture.remote_count(), 1)
             self.assertEqual(fixture.remote_tree(), old_tree)
             self.assertEqual(git_output(fixture.control, "rev-parse", "HEAD"), result["new_sha"])
+
+    def test_runtime_gc_checks_history_even_when_no_artifacts_need_pruning(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = ControlFixture(Path(tmp), commits=3)
+            history = {
+                "changed": False,
+                "reason": "below_threshold",
+                "visible_commits": 3,
+                "threshold": cleanup.CONTROL_HISTORY_COMPACTION_THRESHOLD,
+            }
+
+            with mock.patch.object(
+                cleanup,
+                "_compact_control_history_locked",
+                return_value=history,
+            ) as compact:
+                result = cleanup.prune_control_runtime(fixture.core)
+
+            compact.assert_called_once_with(fixture.core)
+            self.assertEqual(result["deleted"], 0)
+            self.assertEqual(result["paths"], ())
+            self.assertEqual(result["history"], history)
+            self.assertFalse(result["changed"])
 
 
 if __name__ == "__main__":
