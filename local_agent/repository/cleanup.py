@@ -437,6 +437,14 @@ def control_cleanup_plan(
 
 def prune_control_runtime(core_module: Any) -> dict[str, Any]:
     """Prune runtime artifacts and keep remote control history bounded."""
+    if not (core_module.CONTROL / ".git").exists():
+        return {
+            "changed": False,
+            "deleted": 0,
+            "paths": (),
+            "history": {"changed": False, "reason": "not_git_checkout"},
+        }
+
     paths: tuple[str, ...] = ()
     with core_module.CONTROL_GIT_LOCK:
         paths = control_cleanup_plan(core_module.CONTROL)
