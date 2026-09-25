@@ -56,7 +56,7 @@ def test_control_skill_keeps_core_executor_safety_invariants() -> None:
         "cancel_task",
         "Do not guess",
         "ChatGPT sandbox",
-        "user's own connected GitHub account",
+        "their own connected GitHub account",
     )
 
     for fragment in required_fragments:
