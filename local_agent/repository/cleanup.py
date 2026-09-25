@@ -149,38 +149,81 @@ def _remote_control_sha(core_module: Any) -> str:
     return _parse_remote_branch_sha(output, branch)
 
 
-def _realign_compacted_control_checkout(
+def _fetch_remote_control_tip(core_module: Any) -> str:
+    branch = core_module.CONTROL_BRANCH
+    remote_ref = f"refs/remotes/origin/{branch}"
+    environment = _control_git_environment(core_module)
+    fetch = storage.run_git_with_network_retry(
+        core_module,
+        [
+            "git",
+            "fetch",
+            "--depth",
+            str(storage.CONTROL_HISTORY_DEPTH),
+            "--no-tags",
+            "origin",
+            f"+refs/heads/{branch}:{remote_ref}",
+        ],
+        core_module.CONTROL,
+        timeout=120,
+        log_commands=False,
+        environment=environment,
+    )
+    _require_control_git(fetch, "fetch remote control branch for reconciliation")
+    return _control_output(
+        core_module,
+        ["rev-parse", remote_ref],
+        "read reconciled remote control tip",
+    )
+
+
+def _is_ancestor(core_module: Any, ancestor: str, descendant: str) -> bool:
+    result = _control_process(
+        core_module,
+        ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+        timeout=30,
+        log_commands=False,
+    )
+    if result["exit_code"] == 0:
+        return True
+    if result["exit_code"] == 1:
+        return False
+    raise RuntimeError(storage.git_failure_diagnostic(result))
+
+
+def _realign_control_checkout(
     core_module: Any,
     *,
-    new_sha: str,
-    tree_sha: str,
+    target_sha: str,
+    expected_tree: str | None = None,
 ) -> None:
     branch = core_module.CONTROL_BRANCH
     reset = _control_process(
         core_module,
-        ["git", "reset", "--hard", new_sha],
+        ["git", "reset", "--hard", target_sha],
         timeout=120,
         log_commands=False,
     )
     _require_control_git(reset, "reset compacted control checkout")
     update_ref = _control_process(
         core_module,
-        ["git", "update-ref", f"refs/remotes/origin/{branch}", new_sha],
+        ["git", "update-ref", f"refs/remotes/origin/{branch}", target_sha],
         timeout=30,
         log_commands=False,
     )
     _require_control_git(update_ref, "update compacted remote-tracking ref")
 
     final_head = _control_output(core_module, ["rev-parse", "HEAD"], "verify compacted HEAD")
-    final_tree = _control_output(
-        core_module,
-        ["rev-parse", "HEAD^{tree}"],
-        "verify compacted control tree",
-    )
-    if final_head != new_sha:
-        raise RuntimeError("local control checkout did not converge on compacted root")
-    if final_tree != tree_sha:
-        raise RuntimeError("local control tree changed during history compaction")
+    if final_head != target_sha:
+        raise RuntimeError("local control checkout did not converge on reconciled remote tip")
+    if expected_tree is not None:
+        final_tree = _control_output(
+            core_module,
+            ["rev-parse", "HEAD^{tree}"],
+            "verify compacted control tree",
+        )
+        if final_tree != expected_tree:
+            raise RuntimeError("local control tree changed during history compaction")
 
 
 def _compact_control_history_locked(
@@ -268,30 +311,41 @@ def _compact_control_history_locked(
         log_commands=False,
     )
     push_succeeded = push["exit_code"] == 0
+    reconciled_tip = new_sha
+    remote_advanced = False
     if not push_succeeded:
         observed_remote = _remote_control_sha(core_module)
         if observed_remote != new_sha:
-            return {
-                "changed": False,
-                "reason": "lease_or_push_failed",
-                "old_sha": old_sha,
-                "new_sha": new_sha,
-                "remote_sha": observed_remote,
-                "diagnostic": storage.git_failure_diagnostic(push),
-            }
+            fetched_remote = _fetch_remote_control_tip(core_module)
+            if _is_ancestor(core_module, new_sha, fetched_remote):
+                reconciled_tip = fetched_remote
+                remote_advanced = fetched_remote != new_sha
+            else:
+                return {
+                    "changed": False,
+                    "reason": "lease_or_push_failed",
+                    "old_sha": old_sha,
+                    "new_sha": new_sha,
+                    "remote_sha": fetched_remote,
+                    "diagnostic": storage.git_failure_diagnostic(push),
+                }
 
-    _realign_compacted_control_checkout(
+    _realign_control_checkout(
         core_module,
-        new_sha=new_sha,
-        tree_sha=tree_sha,
+        target_sha=reconciled_tip,
+        expected_tree=tree_sha if reconciled_tip == new_sha else None,
     )
+    if reconciled_tip != new_sha and not _is_ancestor(core_module, new_sha, reconciled_tip):
+        raise RuntimeError("reconciled control tip does not descend from compacted root")
     return {
         "changed": True,
         "old_sha": old_sha,
         "new_sha": new_sha,
+        "head_sha": reconciled_tip,
         "tree_sha": tree_sha,
         "visible_commits_before": visible_commits,
         "push_reconciled": not push_succeeded,
+        "remote_advanced": remote_advanced,
     }
 
 
