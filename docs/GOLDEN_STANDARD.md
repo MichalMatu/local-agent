@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.25` and the current production release is `v4.18.24`. The 4.18.25 candidate bounds remote `agent-control` ancestry with exact-tree/exact-lease compaction and verified one-time migration backups while leaving Local Agent executor, repository admission, task schema, hard-binding schema, resource scheduling, supervisor process lifecycle and Chat Bridge behavior unchanged. The deployed production release remains `v4.18.24` until the explicit release decision advances `main`; `v4.18.24` is therefore the immediate rollback point for this candidate.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.26` and the current production release is `v4.18.25`. The 4.18.26 candidate adds `MichalMatu/hardware-lab` as a canonical execution-enabled hard-bound repository while leaving Local Agent executor, repository admission, task schema, hard-binding schema, resource scheduling, supervisor process lifecycle and Chat Bridge protocol behavior unchanged. The deployed production release remains `v4.18.25` until the explicit release decision advances `main`; `v4.18.25` is therefore the immediate rollback point for this candidate.
 
 ## Release/runtime invariants
 

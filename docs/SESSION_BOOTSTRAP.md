@@ -13,7 +13,8 @@ When the established Local Agent flow is requested, derive the target repository
 - `shelly-link` -> `MichalMatu/shelly-link`;
 - `photomap` -> `MichalMatu/photomap`;
 - `ai-calls` -> `MichalMatu/ai-calls`;
-- `host-ops` -> `MichalMatu/host-ops`.
+- `host-ops` -> `MichalMatu/host-ops`;
+- `hardware-lab` -> `MichalMatu/hardware-lab`.
 
 The machine-local registry remains the authority for which of those identities are provisioned on a particular Mac and for their exact workspace paths. Inspect it rather than inferring local provisioning from the source catalog.
 

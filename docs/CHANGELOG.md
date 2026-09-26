@@ -2,6 +2,13 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.26
+
+- Onboarded `MichalMatu/hardware-lab` as a canonical execution-enabled hard-bound repository with immutable binding `fa3dc1d7-5ee2-4b59-841c-e41918610df1`.
+- Mirrored the same identity in the Chat Bridge runtime example and added dedicated regression coverage without changing scheduler, executor, task schema, resource semantics or Bridge protocol.
+- Defined the fail-closed deployment path for machine-local registry append, workspace provisioning, committed `agent-control` binding, live `chat-bridge-state` publication and explicit conversation rebind.
+- Kept Kobra-specific code/CAD/calibration in `hardware-lab/projects/kobra2-neo`; `host-ops` remains the generic machine/device capability layer. See `RELEASE_NOTES_V4.18.26.md`.
+
 ## v4.18.25
 
 - Bound remote `agent-control` ancestry by compacting eligible control history to one root commit that reuses and verifies the exact current `.agent/` Git tree.
