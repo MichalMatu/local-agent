@@ -2,6 +2,14 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.18.25
+
+- Bound remote `agent-control` ancestry by compacting eligible control history to one root commit that reuses and verifies the exact current `.agent/` Git tree.
+- Publish compaction only with an exact `--force-with-lease` against the observed remote SHA; competing old-lineage writes fail closed, while an accepted push with a lost client response is reconciled against the remote rather than blindly retried.
+- Preserve a fresh task/status commit that lands immediately after compaction by recognizing descendants of the new root and realigning the local control checkout to the newer remote tip.
+- Gate automatic rewrites behind the versioned `bounded-v1` history trailer so legacy branches remain untouched until explicit backed-up migration; managed branches compact automatically at 128 commits inside the existing 256-commit shallow window.
+- Require apply-mode daemon exclusion and a verified full-history branch-only Git bundle before each one-time administrative rewrite; project source branches, task/result schemas, binding, resources, executor and Chat Bridge contracts remain unchanged. See `RELEASE_NOTES_V4.18.25.md` and `AGENT_CONTROL_COMPACTION.md`.
+
 ## v4.18.24
 
 - Released Chat Bridge 0.5.10 recovery for ChatGPT assistant-side `Message delivery timed out. Please try again.` failures by using the native Retry control instead of resubmitting the accepted user prompt.

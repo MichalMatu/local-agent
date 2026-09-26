@@ -9,6 +9,7 @@ from typing import Iterable
 import local_agent.foundation.core as core
 from local_agent.foundation import storage
 from local_agent.repository.context import RepositoryContext, load_repository_registry
+from local_agent.repository.history_policy import CONTROL_HISTORY_INITIAL_ROOT_MESSAGE
 
 _AGENT_CONTROL_DIRS = (
     ".agent/tasks",
@@ -180,7 +181,7 @@ def initialize_control_branch(repository: RepositoryContext) -> None:
     add = run_git(["add", ".agent"], cwd=repository.control, timeout=120)
     _require_git_success(add, "stage control branch skeleton")
     commit = run_git(
-        ["commit", "-m", "Initialize local-agent control branch"],
+        ["commit", "-m", CONTROL_HISTORY_INITIAL_ROOT_MESSAGE],
         cwd=repository.control,
         timeout=120,
     )
