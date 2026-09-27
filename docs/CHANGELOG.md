@@ -2,6 +2,13 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.19.0
+
+- Added generic Local Agent-owned MCP support through the official Python SDK with loopback-only Streamable HTTP and no application-specific runtime adapters.
+- Added a versioned machine-local MCP registry with fail-closed server/tool policy, explicit `read` / `write` / `arbitrary_code` risk classification, and matching explicit intent requirements for consequential calls.
+- Added bounded discovery, textual results, MIME-validated binary artifact persistence with SHA-256 metadata, and a packaged JSON CLI usable from ordinary Local Agent tasks without changing task schema or scheduler behavior.
+- Added focused negative/positive coverage plus a real hermetic HTTP MCP integration suite in full tests and macOS smoke. Production remains v4.18.26 until exact-candidate CI/macOS and live read-only application evidence satisfy the existing release gate. See `RELEASE_NOTES_V4.19.0.md` and `MCP_INTEGRATION.md`.
+
 ## v4.18.26
 
 - Onboarded `MichalMatu/hardware-lab` as a canonical execution-enabled hard-bound repository with immutable binding `fa3dc1d7-5ee2-4b59-841c-e41918610df1`.
