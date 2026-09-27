@@ -14,6 +14,7 @@ CATALOG_VERSION = 1
 CONTROL_BINDING_VERSION = 1
 CONTROL_BINDING_RELATIVE = ".agent/binding.json"
 DEFAULT_CATALOG_PATH = repository_root() / "config" / "agent_bindings.json"
+PLANNER_SCOPES = frozenset({"repository", "multirepo"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,7 @@ class AgentBindingRecord:
     repository: str
     agent_binding: str
     execution_enabled: bool
+    planner_scope: str
 
 
 def canonical_agent_binding(value: Any, *, field: str = "agent_binding") -> str:
@@ -56,12 +58,17 @@ def load_binding_catalog(path: Path | None = None) -> list[AgentBindingRecord]:
         repository_id = item.get("id")
         repository = item.get("repository")
         execution_enabled = item.get("execution_enabled", True)
+        planner_scope = item.get("planner_scope", "repository")
         if not isinstance(repository_id, str) or not repository_id:
             raise ValueError("agent binding catalog id must be a non-empty string")
         if not isinstance(repository, str) or "/" not in repository:
             raise ValueError("agent binding catalog repository must be owner/name")
         if not isinstance(execution_enabled, bool):
             raise ValueError("execution_enabled must be a boolean")
+        if not isinstance(planner_scope, str) or planner_scope not in PLANNER_SCOPES:
+            raise ValueError("planner_scope must be repository or multirepo")
+        if planner_scope == "multirepo" and not execution_enabled:
+            raise ValueError("multirepo planner_scope requires execution_enabled=true")
         binding = canonical_agent_binding(item.get("agent_binding"))
         id_key = repository_id.casefold()
         repo_key = repository.casefold()
@@ -80,6 +87,7 @@ def load_binding_catalog(path: Path | None = None) -> list[AgentBindingRecord]:
                 repository=repository,
                 agent_binding=binding,
                 execution_enabled=execution_enabled,
+                planner_scope=planner_scope,
             )
         )
     return records
