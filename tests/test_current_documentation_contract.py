@@ -80,6 +80,16 @@ class CurrentDocumentationContractTests(unittest.TestCase):
         )
         self.assertIn("preserved physical workspace paths", bootstrap)
 
+    def test_session_bootstrap_requires_portable_first_inspection(self) -> None:
+        bootstrap = (REPO_ROOT / "docs" / "SESSION_BOOTSTRAP.md").read_text(encoding="utf-8")
+        self.assertIn("## Portable first inspection", bootstrap)
+        self.assertIn("command -v rg >/dev/null 2>&1", bootstrap)
+        self.assertIn("fall back to `grep` for content search or `find` for file discovery", bootstrap)
+        self.assertIn(
+            "A missing optional inspection binary must not be the sole reason",
+            bootstrap,
+        )
+
     def test_host_ops_multirepo_scope_is_canonical_and_documented(self) -> None:
         catalog = json.loads(
             (REPO_ROOT / "config" / "agent_bindings.json").read_text(encoding="utf-8")
