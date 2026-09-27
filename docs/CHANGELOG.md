@@ -2,6 +2,14 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.19.2
+
+- Fixed Chat Bridge `Run now` and automatic content activation when an already-open ChatGPT tab retained a same-version Bridge global after its old extension context/receiver became unusable.
+- Centralized hard stale-content recovery in the worker: dispose and clear retained Bridge/guard globals, inject the complete ordered content bundle, then re-probe readiness; `LAB:RELOAD=CONTENT` now reuses that owner.
+- Kept guard-only recovery narrow so a stale exhaustion guard does not replace otherwise healthy current content.
+- Added deterministic Node regression/race coverage and a real isolated Chromium smoke that reproduces a protocol-v7 stale global with a dead receiver and proves `Run now` recovers and submits exactly once.
+- Advanced Chat Bridge to 0.5.12 while retaining content protocol v7 and assistant timeout/exhaustion guard protocol v3. Task schema, planner scope, repository binding, scheduler/resources and executor behavior are unchanged. See `RELEASE_NOTES_V4.19.2.md`.
+
 ## v4.19.1
 
 - Added explicit fail-closed Chat Bridge `planner_scope` with `repository` as the default and the canonical `host-ops` binding authorized as the multirepo operator workspace.
@@ -212,7 +220,6 @@ This changelog records operationally relevant Local Agent releases. The release 
 - Extracted external-resource flock/FD handling and directly tested pure scheduling policy under `local_agent/supervisor/`.
 - Replaced machine-specific tracked macOS plist files with portable generated LaunchAgent configuration and separated non-disruptive install from explicit restart.
 - Added targeted regression coverage for parallel worker admission, guarded entrypoint lifecycle, remote fail-closed operator control and diagnostics.
-- Added architecture/contributor/review documentation for the new ownership boundaries.
 - Preserved the existing planner/task, hard-binding, resource and Chat Bridge control contracts; no downstream task-contract migration is required.
 
 ## v4.15.0
