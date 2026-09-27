@@ -134,6 +134,25 @@ async function reloadContentScripts(tabId) {
   }
 }
 
+async function reloadExhaustionGuard(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: () => {
+        try { globalThis.__localAgentChatExhaustionGuard?.dispose?.(); } catch (_error) {}
+        globalThis.__localAgentChatExhaustionGuard = null;
+      }
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      files: ["control_protocol.js", "dom_contract.js", "exhaustion_guard.js"]
+    });
+    return { ok: true, reason: "exhaustion_guard_reloaded" };
+  } catch (error) {
+    return { ok: false, reason: "exhaustion_guard_unavailable", error: String(error) };
+  }
+}
+
 async function ensureContentScript(tab, expectedUrl) {
   let content = await probeContentScript(tab.id, expectedUrl);
   if (
@@ -148,10 +167,8 @@ async function ensureContentScript(tab, expectedUrl) {
 
   let guard = await probeExhaustionGuard(tab.id, expectedUrl);
   if (!guard.ok && guard.reason === "exhaustion_guard_unavailable") {
-    const reload = await reloadContentScripts(tab.id);
-    if (!reload.ok) return { ...reload, reason: "exhaustion_guard_unavailable" };
-    content = await probeContentScript(tab.id, expectedUrl);
-    if (!content.ok) return content;
+    const reload = await reloadExhaustionGuard(tab.id);
+    if (!reload.ok) return reload;
     guard = await probeExhaustionGuard(tab.id, expectedUrl);
   }
   if (!guard.ok) return guard;
