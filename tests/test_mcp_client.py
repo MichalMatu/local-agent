@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import http.server
 import socket
+import tempfile
 import threading
 import time
-import tempfile
 import unittest
 from pathlib import Path
 
 import uvicorn
+from mcp import types
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
 
 from local_agent.mcp.client import call_tool, discover_tools
 from local_agent.mcp.errors import (
+    MCPArtifactError,
     MCPCallTimeoutError,
     MCPConnectionTimeoutError,
     MCPResultTooLargeError,
@@ -25,6 +28,7 @@ from local_agent.mcp.registry import MCPServerRegistry
 
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\nlocal-agent-mcp"
+BLOB_BYTES = b"local-agent-mcp-blob"
 
 
 def _free_port() -> int:
@@ -41,6 +45,7 @@ def _server_record(
     call_timeout: float = 1.0,
     max_text_bytes: int = 32768,
     max_artifact_bytes: int = 4096,
+    allowed_mimes: list[str] | None = None,
 ) -> dict[str, object]:
     return {
         "id": server_id,
@@ -53,7 +58,11 @@ def _server_record(
         "max_artifact_bytes": max_artifact_bytes,
         "max_tools": 32,
         "max_artifacts": 4,
-        "allowed_artifact_mime_types": ["image/png"],
+        "allowed_artifact_mime_types": (
+            ["image/png", "application/octet-stream"]
+            if allowed_mimes is None
+            else allowed_mimes
+        ),
         "tools": [
             {"name": "read_tool", "risk": "read", "enabled": True},
             {"name": "write_tool", "risk": "write", "enabled": True},
@@ -61,6 +70,7 @@ def _server_record(
             {"name": "slow_tool", "risk": "read", "enabled": True},
             {"name": "large_tool", "risk": "read", "enabled": True},
             {"name": "image_tool", "risk": "read", "enabled": True},
+            {"name": "blob_tool", "risk": "read", "enabled": True},
         ],
     }
 
@@ -142,6 +152,18 @@ class MCPHTTPIntegrationTests(unittest.TestCase):
             """Return a small binary image block."""
             return Image(data=PNG_BYTES, format="png")
 
+        @mcp.tool()
+        def blob_tool() -> types.EmbeddedResource:
+            """Return a small embedded binary resource."""
+            return types.EmbeddedResource(
+                type="resource",
+                resource=types.BlobResourceContents(
+                    uri="test://local-agent/blob",
+                    mime_type="application/octet-stream",
+                    blob=base64.b64encode(BLOB_BYTES).decode("ascii"),
+                ),
+            )
+
         cls.mcp = mcp
         cls.port = _free_port()
         cls.uvicorn = uvicorn.Server(
@@ -170,7 +192,7 @@ class MCPHTTPIntegrationTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertRegex(result["protocol_version"], r"^\d{4}-\d{2}-\d{2}$")
         names = {tool["name"] for tool in result["tools"]}
-        self.assertTrue({"read_tool", "write_tool", "image_tool"}.issubset(names))
+        self.assertTrue({"read_tool", "write_tool", "image_tool", "blob_tool"}.issubset(names))
         policies = {tool["name"]: tool["local_policy"] for tool in result["tools"]}
         self.assertEqual(policies["write_tool"]["risk"], "write")
 
@@ -235,6 +257,45 @@ class MCPHTTPIntegrationTests(unittest.TestCase):
             self.assertEqual(metadata["size"], len(PNG_BYTES))
             self.assertEqual(metadata["sha256"], hashlib.sha256(PNG_BYTES).hexdigest())
             self.assertNotIn("data", image)
+
+    def test_blob_resource_is_persisted_without_base64_in_output(self) -> None:
+        registry = _registry(_server_record(self.port))
+        with tempfile.TemporaryDirectory() as tmp:
+            result = asyncio.run(
+                call_tool(
+                    registry,
+                    "http-test",
+                    "blob_tool",
+                    {},
+                    artifact_dir=Path(tmp),
+                )
+            )
+            blob = next(item for item in result["content"] if item["type"] == "resource_blob")
+            metadata = blob["artifact"]
+            path = Path(metadata["path"])
+            self.assertEqual(blob["uri"], "test://local-agent/blob")
+            self.assertEqual(path.read_bytes(), BLOB_BYTES)
+            self.assertEqual(metadata["mime_type"], "application/octet-stream")
+            self.assertEqual(metadata["size"], len(BLOB_BYTES))
+            self.assertEqual(metadata["sha256"], hashlib.sha256(BLOB_BYTES).hexdigest())
+            self.assertNotIn("blob", blob)
+
+    def test_disallowed_artifact_mime_is_rejected_before_persistence(self) -> None:
+        registry = _registry(
+            _server_record(self.port, allowed_mimes=["application/octet-stream"])
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(MCPArtifactError):
+                asyncio.run(
+                    call_tool(
+                        registry,
+                        "http-test",
+                        "image_tool",
+                        {},
+                        artifact_dir=Path(tmp),
+                    )
+                )
+            self.assertEqual(list(Path(tmp).iterdir()), [])
 
     def test_image_size_limit_is_fail_closed_before_persistence(self) -> None:
         registry = _registry(_server_record(self.port, max_artifact_bytes=4))
