@@ -133,3 +133,50 @@ The currently registered downstream repositories are:
 Do not hard-code downstream release numbers unless a repository intentionally documents a historical baseline. Runtime compatibility instructions should prefer `.agent/status/daemon.json` plus canonical `MichalMatu/local-agent/main`.
 
 The release audit is incomplete when these downstream instructions materially contradict the candidate runtime. Update downstream docs before moving `main` or explicitly document why no downstream change is required.
+
+## Verification policy
+
+Verification is impact-driven:
+
+- run the narrowest test/build that can detect a realistic regression from the current diff;
+- add broader coverage for shared/cross-cutting changes, uncertain dependency impact, explicit repository requirements or user requests;
+- new binding/control/progress/watchdog/process-lifecycle behavior requires unit coverage;
+- scheduler, isolation, provisioning or resource-arbitration changes require real temporary-Git integration coverage;
+- repository lease/process-lifecycle changes require real SIGTERM/SIGKILL process tests;
+- bounded parallel changes require real overlap and exclusivity evidence, not only mocks;
+- hard binding must have positive and negative admission evidence on both the production parallel worker and serial fallback;
+- package ownership moves require `tests/test_package_layout.py` plus the normal full suite;
+- MCP boundary changes require real loopback Streamable HTTP integration coverage in addition to policy/unit tests;
+- current operational documentation and release metadata must pass automated drift checks.
+
+Use `workflow_policy: "efficient-verification-v1"` for staged coding tasks that must make verification cost explicit. Use `work` for implementation, `focused` for affected regression/static checks and exactly one final `full` verification stage.
+
+For repository-wide daemon verification, the executable source of truth is:
+
+```bash
+python scripts/verify.py
+```
+
+CI additionally runs branch-aware coverage, Python 3.14 compatibility and the macOS smoke suite. Do not recreate static compile/Ruff file lists in documentation or workflows; extend `scripts/verify.py` when verification scope changes.
+
+For v4.18.14/BUG-002, the exact final SHA must have three independent pre-merge verification layers recorded: focused control-admission policy/integration evidence, the complete CI matrix, and macOS ARM64 smoke/recheck including the new control-admission tests.
+
+## Documentation
+
+- Canonical workflow: `docs/OPERATIONS.md`.
+- Current package/dependency map: `docs/ARCHITECTURE.md`.
+- Generic local MCP boundary: `docs/MCP_INTEGRATION.md`.
+- Autonomous ChatGPT planner/Chat Bridge loop: `docs/AUTONOMOUS_CHAT_LOOP.md`.
+- Multi-repository architecture: `docs/MULTI_REPOSITORY.md`.
+- Emergency controls: `docs/EMERGENCY_CONTROLS.md`.
+- v4.11 parallel design/audit/live evidence: `docs/PARALLEL_EXECUTION_PLAN.md`.
+- Established Mac/ESP32 setup: `docs/SESSION_BOOTSTRAP.md`.
+- Current release/runtime invariants: `docs/GOLDEN_STANDARD.md`.
+- Frozen v4.18.13 rollback baseline and BUG-002 evidence: `docs/PRODUCTION_BASELINE_V4.18.13.md`.
+- Historical notes under `docs/history/` are non-canonical.
+
+## Verification output policy
+
+- Structured `steps` and `verify_steps` may declare `output_policy: "stream"` or `"summary"`.
+- `summary` suppresses routine live command lines but preserves bounded raw output in terminal result evidence.
+- Failed summary stages emit a bounded diagnostic tail; explicit progress markers remain visible and heartbeat, timeout, RSS and process cleanup behavior remains unchanged.
