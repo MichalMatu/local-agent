@@ -120,6 +120,14 @@ For a firmware change that requires bench validation:
 
 Publishing source to `main` is not proof that the connected board is running that source revision.
 
+## Portable first inspection
+
+Planner-generated repository inspection must not assume optional developer tools are installed on the execution host. The first read-only inspection should use baseline tools such as `git`, `find`, `grep`, `sed` and `awk`, or guard every optional tool with an explicit availability check and an equivalent fallback in the same shell stage.
+
+In particular, never emit an unguarded `rg` command for initial discovery. When ripgrep materially improves the inspection, use `command -v rg >/dev/null 2>&1` before invoking it and fall back to `grep` for content search or `find` for file discovery. Do not use `rg ... || grep ...` as the guard because ripgrep exit status `1` can simply mean that no matches were found.
+
+A missing optional inspection binary must not be the sole reason an otherwise valid inspection task exits nonzero or consumes a retry/planner turn. This portability rule does not hide real project dependencies: if a repository build, test or documented project command genuinely requires a specific external executable, validate that dependency explicitly and fail with a precise diagnostic.
+
 ## Session startup
 
 For future work using this deployment:
@@ -131,8 +139,9 @@ For future work using this deployment:
 5. when Chrome Chat Bridge autonomy is active, also read `docs/AUTONOMOUS_CHAT_LOOP.md` and follow one active task for the current conversation goal while allowing unrelated repository work to use normal resource-aware executor concurrency;
 6. follow an existing active attempt instead of queuing a duplicate;
 7. use `resources: []` for current registered project execution, detect/verify the intended device inside hardware commands, and reserve named/`machine` resources only for genuine shared/global conflicts;
-8. derive verification from the actual diff and affected integration boundaries;
-9. prefer `efficient-verification-v1` with focused incremental verification before any broad final gate;
-10. publish only the exact validated target changes.
+8. keep the first repository inspection portable: use baseline tools or guard optional tools such as `rg` with `command -v` plus an equivalent fallback in the same stage;
+9. derive verification from the actual diff and affected integration boundaries;
+10. prefer `efficient-verification-v1` with focused incremental verification before any broad final gate;
+11. publish only the exact validated target changes.
 
 The user should not need to paste live daemon logs during normal operation when remote run/status/result evidence is available.
