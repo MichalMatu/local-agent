@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.18.26` and the current production release is `v4.18.25`. The 4.18.26 candidate adds `MichalMatu/hardware-lab` as a canonical execution-enabled hard-bound repository while leaving Local Agent executor, repository admission, task schema, hard-binding schema, resource scheduling, supervisor process lifecycle and Chat Bridge protocol behavior unchanged. The deployed production release remains `v4.18.25` until the explicit release decision advances `main`; `v4.18.25` is therefore the immediate rollback point for this candidate.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.0` and the current production release is `v4.18.26`. The 4.19.0 candidate adds a generic fail-closed local MCP client boundary with loopback-only Streamable HTTP, explicit machine-local tool policy and bounded results/artifacts while leaving Local Agent task schema, repository admission, resource scheduling, supervisor process lifecycle and Chat Bridge protocol behavior unchanged. The deployed production release remains `v4.18.26` until the explicit release decision advances `main`; `v4.18.26` is therefore the immediate rollback point for this candidate.
 
 ## Release/runtime invariants
 
@@ -35,6 +35,20 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - Self-update validation explicitly compiles the production entrypoints and runs the bounded full test suite before restart.
 - Terminal Git failures produce actionable diagnostics even when Git itself emitted no text.
 - Control checkout recovery may remove only daemon-owned control artifacts plus explicitly allowlisted untracked host metadata (`.DS_Store`); every other unknown local change remains fatal.
+
+## Local MCP invariants
+
+- Generic MCP protocol ownership belongs to `local_agent/mcp/`; `host-ops` and project repositories do not own the transport/runtime boundary.
+- The first supported transport is official-SDK Streamable HTTP to an endpoint whose host is exactly `127.0.0.1`, `::1`, or `localhost`. Non-loopback endpoints fail closed during registry parsing.
+- MCP server configuration and tool policy are machine-local state under `~/Library/Application Support/local-agent/mcp/`; cwd is never trusted as server identity.
+- Discovery never grants invocation authority. Unknown or disabled servers, unknown or disabled tools and policy/intent mismatches fail closed before tool execution.
+- Every allowed tool has an explicit local risk class: `read`, `write`, or `arbitrary_code`. Server-provided names, descriptions and annotations are not trusted to assign that class.
+- `write` and `arbitrary_code` calls require exact matching explicit invocation intent in addition to an enabled local policy.
+- The official MCP Python SDK owns JSON-RPC/framing, discovery/initialize compatibility and protocol negotiation. Local Agent does not manually pin one protocol revision.
+- MCP stdio remains unsupported unless a future implementation routes the child through Local Agent's registered spawn/process-group lifecycle contract or an equally strong owner.
+- Tool count, discovery metadata, textual/structured results, binary aggregate size and artifact count remain bounded.
+- Binary content is MIME-validated and written atomically to an explicit Local Agent artifact directory; normal task output contains path/MIME/size/SHA-256 metadata rather than base64 blobs.
+- MCP integration remains outside task schema and scheduler policy: an ordinary task invokes the packaged MCP CLI/client and its bounded JSON flows through the existing task/result mechanism.
 
 ## Operator observability invariants
 
@@ -99,6 +113,7 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - `local_agent.supervisor.scheduling` owns deterministic scheduling state and pure decisions: due/retry/backoff, max-worker policy and control-probe retry/admission classification.
 - `local_agent.supervisor.orchestrator` coordinates side effects: reading probe outcomes, starting/reaping workers, invoking global drain/service, status publication and shutdown.
 - Scheduling policy must not import daemon, Git/storage, subprocess/process management or repository worker implementations.
+- `local_agent.mcp` is an independent packaged boundary and must not grow application-specific Fusion/KiCad/Blender adapters when the MCP standard suffices.
 - Do not solve a focused scheduler defect by adding another embedded state machine to `orchestrator.py` or by creating a new miscellaneous helper module without a stable ownership boundary.
 - Refactors must preserve hard binding, claims/results, resource exclusion, emergency controls, self-update and process lifecycle semantics.
 
@@ -138,16 +153,18 @@ A non-trivial runtime release requires:
 4. real SIGTERM/SIGKILL process coverage when lifecycle/lease behavior changes;
 5. real overlap, machine-exclusion and inherited-resource-lock coverage for parallel changes;
 6. for BUG-002, a real temporary-Git control-repository task that crosses the six-consecutive-`LEASE_BUSY` threshold and proves another `resources: []` repository starts before the control task ends;
-7. exact `main...candidate` diff and architecture/dependency review;
-8. full GitHub CI on the exact candidate SHA: compile/Ruff/full unittest, coverage, Python 3.14 and Bridge browser;
-9. macOS ARM64 smoke on the exact candidate SHA containing both pure control-admission policy coverage and the real BUG-002 overlap regression;
-10. current-documentation drift/release-metadata contract checks;
-11. downstream planner-documentation audit for every registered repository when Local Agent contract/flow changed;
-12. three independent pre-merge verification passes recorded for the exact final SHA: focused policy/integration evidence, full cross-platform CI matrix, and macOS exact-SHA smoke/recheck;
-13. only then an explicit decision to advance `main`;
-14. matching `vX.Y.Z` tag on released `main`;
-15. production restart/self-update from `~/local-agent` on `main` and live version/revision/task verification;
-16. candidate branch/worktree cleanup after the release is established.
+7. for MCP changes, a real hermetic loopback Streamable HTTP MCP server exercising SDK negotiation, discovery, invocation, timeout and bounded-result/artifact paths; mocks alone are insufficient;
+8. for the first live application target in a release, read-only live endpoint/discovery/tool-call evidence with the actual discovered tool list and no write/arbitrary-code smoke;
+9. exact `main...candidate` diff and architecture/dependency review;
+10. full GitHub CI on the exact candidate SHA: compile/Ruff/full unittest, coverage, Python 3.14 and Bridge browser;
+11. macOS ARM64 smoke on the exact candidate SHA containing both pure control-admission policy coverage and the real BUG-002 overlap regression; MCP-changing candidates also include the hermetic MCP HTTP suite;
+12. current-documentation drift/release-metadata contract checks;
+13. downstream planner-documentation audit for every registered repository when Local Agent contract/flow changed;
+14. three independent pre-merge verification passes recorded for the exact final SHA: focused policy/integration evidence, full cross-platform CI matrix, and macOS exact-SHA smoke/recheck;
+15. only then an explicit decision to advance `main`;
+16. matching `vX.Y.Z` tag on released `main`;
+17. production restart/self-update from `~/local-agent` on `main` and live version/revision/task verification;
+18. candidate branch/worktree cleanup after the release is established.
 
 ## Downstream contract
 
