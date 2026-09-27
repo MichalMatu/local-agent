@@ -107,34 +107,51 @@ async function kickAssistantRecovery(tabId, expectedUrl) {
   }
 }
 
+async function reloadContentScripts(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      func: () => {
+        try { globalThis.__localAgentChatBridgeState?.dispose?.(); } catch (_error) {}
+        try { globalThis.__localAgentChatExhaustionGuard?.dispose?.(); } catch (_error) {}
+        globalThis.__localAgentChatBridgeState = null;
+        globalThis.__localAgentChatExhaustionGuard = null;
+      }
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      files: [
+        "control_protocol.js",
+        "content_retry.js",
+        "content.js",
+        "dom_contract.js",
+        "exhaustion_guard.js"
+      ]
+    });
+    return { ok: true, reason: "content_reloaded" };
+  } catch (error) {
+    return { ok: false, reason: "content_script_unavailable", error: String(error) };
+  }
+}
+
 async function ensureContentScript(tab, expectedUrl) {
   let content = await probeContentScript(tab.id, expectedUrl);
   if (
     !content.ok &&
     (content.reason === "content_script_unavailable" || content.reason === "content_script_protocol_mismatch")
   ) {
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id, frameIds: [0] },
-        files: ["control_protocol.js", "content_retry.js", "content.js"]
-      });
-    } catch (error) {
-      return { ok: false, reason: "content_script_unavailable", error: String(error) };
-    }
+    const reload = await reloadContentScripts(tab.id);
+    if (!reload.ok) return reload;
     content = await probeContentScript(tab.id, expectedUrl);
   }
   if (!content.ok) return content;
 
   let guard = await probeExhaustionGuard(tab.id, expectedUrl);
   if (!guard.ok && guard.reason === "exhaustion_guard_unavailable") {
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id, frameIds: [0] },
-        files: ["control_protocol.js", "dom_contract.js", "exhaustion_guard.js"]
-      });
-    } catch (error) {
-      return { ok: false, reason: "exhaustion_guard_unavailable", error: String(error) };
-    }
+    const reload = await reloadContentScripts(tab.id);
+    if (!reload.ok) return { ...reload, reason: "exhaustion_guard_unavailable" };
+    content = await probeContentScript(tab.id, expectedUrl);
+    if (!content.ok) return content;
     guard = await probeExhaustionGuard(tab.id, expectedUrl);
   }
   if (!guard.ok) return guard;
