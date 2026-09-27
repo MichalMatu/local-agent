@@ -2,7 +2,7 @@
 
 ## Scope
 
-This audit reviews the generic MCP boundary introduced for Local Agent 4.19.0 after the first successful live Autodesk Fusion 360 interoperability proof. It covers ownership, transport, authorization, input/output bounds, artifact persistence, dependency/deployment impact, tests, documentation, and release gates.
+This audit reviews the generic MCP boundary introduced for Local Agent 4.19.0 after the first successful live Autodesk Fusion 360 interoperability proof and after the final hardening pass. It covers ownership, transport, authorization, input/output bounds, artifact persistence, dependency/deployment impact, tests, documentation, and release gates.
 
 The reviewed boundary is `local_agent/mcp/` plus `requirements-runtime.txt`, MCP-focused tests, CI/macOS-smoke wiring, and the canonical MCP/release documentation. The Local Agent task schema, repository binding, scheduler, resource admission, daemon control, supervisor process lifecycle, and Chat Bridge protocol are intentionally outside the MCP implementation and remain behaviorally unchanged.
 
@@ -17,7 +17,7 @@ The architecture remains generic and appropriately isolated.
 - Stdio remains unsupported because allowing the SDK to spawn a child would bypass Local Agent's registered spawn/process-group lifecycle.
 - Server identity and tool authorization come only from explicit machine-local configuration; server discovery metadata is never authority.
 
-No architecture split or application adapter is required for the current release.
+No architecture split or application adapter is required for this release.
 
 ## Security and boundedness review
 
@@ -65,7 +65,7 @@ The original candidate returned full SHA-256 metadata but used only the first 16
 
 **Resolution:** canonical MCP documentation now shows exact examples for both option positions, and CLI regression coverage asserts `call --help` exposes `--artifact-dir` and `--intent`.
 
-## Live application evidence before final hardening
+## Initial live application evidence
 
 The first real application proof used Autodesk Fusion 360's local MCP server on `127.0.0.1:27182/mcp` with candidate `2292e69ee4ef346b8fed3f15bed3c65ffbdbc84b`.
 
@@ -80,11 +80,28 @@ Only `fusion_mcp_read` was enabled locally with risk `read`. A read-only `active
 
 No `fusion_mcp_execute` or `fusion_mcp_update` call was made.
 
-Because AUD-MCP-001 and AUD-MCP-002 changed the MCP runtime after that proof, one final read-only Fusion discovery/text/image recheck is required against the frozen hardened runtime before release.
+## Final hardened live recheck
+
+Because AUD-MCP-001 and AUD-MCP-002 changed the MCP runtime after the initial proof, the same read-only boundary was rechecked on the hardened runtime candidate `143e0c8817400b2bf993fe33eef4b21da2c356b7` before release.
+
+The final live smoke completed all five stages successfully:
+
+- Fusion listened on `127.0.0.1:27182`;
+- the isolated checkout was verified at exact SHA `143e0c8817400b2bf993fe33eef4b21da2c356b7` with the pinned runtime dependency installed in an isolated Python 3.13 virtual environment;
+- SDK discovery negotiated MCP `2025-11-25` and returned the same four Fusion tools;
+- local policy reported `fusion_mcp_read` as configured/enabled risk `read`, while `fusion_mcp_execute` and `fusion_mcp_update` remained unconfigured and disabled;
+- read-only `activeCommand` succeeded and returned Fusion's default `SelectCommand`;
+- read-only screenshot succeeded as a real PNG, 256 x 256, 878 bytes, SHA-256 `f6c9aed9c97ee674686aed4fdb8333683df232d559a817d2e4178f41e0f9ca46`;
+- the returned image contained artifact metadata instead of base64 payload data;
+- the persisted filename contained the complete SHA-256 digest, proving AUD-MCP-002 on the real application path.
+
+No write or arbitrary-code Fusion tool was invoked during either live proof.
 
 ## Automated verification status
 
-The pre-hardening exact candidate `2292e69ee4ef346b8fed3f15bed3c65ffbdbc84b` passed GitHub Actions run `36282861569`, including:
+The pre-hardening candidate `2292e69ee4ef346b8fed3f15bed3c65ffbdbc84b` passed GitHub Actions run `36282861569`.
+
+After AUD-MCP-001/002/003, hardened candidate `143e0c8817400b2bf993fe33eef4b21da2c356b7` passed GitHub Actions run `36288336646` across the complete matrix:
 
 - compile, Ruff, Bridge validation, and full unittest/integration suite;
 - coverage;
@@ -92,7 +109,13 @@ The pre-hardening exact candidate `2292e69ee4ef346b8fed3f15bed3c65ffbdbc84b` pas
 - Chromium Bridge browser smoke;
 - macOS smoke including the real hermetic MCP Streamable HTTP tests.
 
-The hardened candidate must pass the same matrix again after AUD-MCP-001/002/003. This document must not be used to infer success until the final run is recorded below.
+The runtime code is therefore frozen and verified. Documentation-only release-evidence commits after `143e0c...` must receive one final exact-SHA CI pass before `main` advances, as required by the repository release contract.
+
+## Diff and ownership review
+
+`main...candidate` remains a one-way fast-forward candidate from production base `c281204977b5dd0153959cb804d468c7b0f25836` with no divergence. The changed runtime surface is limited to the generic `local_agent/mcp/` package, the pinned MCP runtime dependency, verification wiring, and MCP/release documentation. No application-specific adapter, scheduler field, task-schema field, repository-binding change, resource change, supervisor-control change, or Chat Bridge protocol change is introduced.
+
+Because no planner/executor contract or downstream repository contract changed, no downstream planner-documentation mutation is required for 4.19.0.
 
 ## Residual boundaries accepted for 4.19.0
 
@@ -106,17 +129,19 @@ The hardened candidate must pass the same matrix again after AUD-MCP-001/002/003
 
 Before advancing `main`:
 
-- [ ] hardened candidate CI matrix passes on the exact final source/docs SHA;
-- [ ] macOS smoke passes on that exact SHA;
-- [ ] final read-only Fusion discovery/text/image recheck passes on the frozen hardened runtime;
-- [ ] no write or arbitrary-code live smoke is performed;
-- [ ] exact `main...candidate` diff is rechecked for unexpected files or application-specific code;
-- [ ] canonical MCP, architecture, operations, Golden Standard, changelog, and release notes are mutually consistent;
-- [ ] downstream planner-documentation audit confirms no downstream change is required because task schema/scheduler/Bridge contracts are unchanged;
+- [x] hardened runtime candidate CI matrix passed on exact runtime SHA `143e0c8817400b2bf993fe33eef4b21da2c356b7`;
+- [x] macOS smoke passed on that exact runtime SHA;
+- [x] final read-only Fusion discovery/text/image recheck passed on that exact hardened runtime SHA;
+- [x] no write or arbitrary-code live smoke was performed;
+- [x] exact `main...candidate` diff was rechecked for unexpected files and application-specific runtime code;
+- [x] canonical MCP, architecture, operations, Golden Standard, changelog, and release notes were reconciled;
+- [x] downstream planner-documentation audit found no downstream change required because task schema/scheduler/Bridge contracts are unchanged;
+- [ ] final documentation-only candidate SHA passes the full CI matrix;
 - [ ] production virtualenv has the pinned runtime dependency before self-update/restart;
-- [ ] explicit release decision advances `main`, creates tag `v4.19.0`, and restarts/verifies production;
+- [ ] explicit release decision advances `main` and creates tag `v4.19.0`;
+- [ ] production restarts/self-updates from `~/local-agent` on `main` and live version/revision/task verification passes;
 - [ ] obsolete candidate worktree/branch is removed only after production is established.
 
 ## Release decision
 
-**Current status:** candidate hardening complete; final hardened CI and final read-only Fusion recheck pending. Production remains `v4.18.26`.
+**Current status:** runtime implementation, hardening, architecture/security re-audit, full runtime CI/macOS verification, and final read-only Fusion interoperability proof are complete. The candidate is release-ready subject only to the final documentation-only exact-SHA CI pass and the explicit production deployment sequence. Production remains `v4.18.26` until `main` advances.
