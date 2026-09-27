@@ -11,6 +11,7 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - `local_agent/supervisor/serial.py` owns the direct serial fallback with global concurrency one.
 - `local_agent/version.py` owns the release version.
 - `local_agent/config.py` owns startup-loaded timeout configuration.
+- `local_agent/mcp/` owns generic machine-local MCP registry validation, loopback Streamable HTTP client sessions, explicit tool policy, bounded discovery/execution, artifact persistence and the packaged MCP CLI. Application-specific MCP workflows do not belong in Local Agent.
 - `local_agent/foundation/core.py` owns deterministic task execution, workspace preparation/checkpointing and result publication.
 - `local_agent/foundation/process.py` owns registered spawning, bounded stdout transport, process groups, durable text writes and inherited execution-lease descriptors.
 - `local_agent/foundation/storage.py` owns bounded control Git sync, transient-network retry and storage diagnostics.
@@ -45,6 +46,10 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - Global operator `disabled` state takes precedence over repository binding admission so emergency stop remains authoritative during partial migrations or broken binding state.
 - Chat Bridge conversations must not infer or switch repository identity from model context. A binding change is an explicit operator Rebind only.
 - The `local-agent` catalog binding is bridge/operator-only (`execution_enabled: false`) and must never be used to queue project work.
+- MCP server identity and authorization are machine-local explicit configuration. Discovery never grants execution permission; unknown servers/tools, disabled policies and non-loopback endpoints fail closed.
+- MCP `write` and `arbitrary_code` tools require both a matching local risk policy and matching explicit invocation intent. Server-provided tool names, descriptions and annotations are not authorization evidence.
+- MCP stdio is unsupported until it can use the existing registered spawn/process-group lifecycle contract; an SDK must never spawn an unregistered daemon child.
+- MCP textual results and binary artifacts must remain bounded. Binary content must be MIME-validated and persisted as bounded artifact metadata rather than unbounded base64 task output.
 - Never automatically replay a task after daemon/process interruption.
 - Never silently reuse a task id for a different payload within one repository.
 - Task/result/claim identity is repository-scoped; identical task ids in different repositories must not collide.
@@ -107,6 +112,7 @@ Repository isolation, hard agent binding and external-resource isolation are sep
 - Candidate branches are validation infrastructure, not long-lived production branches.
 - Behavior-changing releases must update `local_agent.version.RELEASE_VERSION` and have matching release notes/changelog before the final suite can pass.
 - Require exact-candidate focused positive/negative tests, full CI matrix and macOS smoke before advancing `main`.
+- MCP boundary changes additionally require a real hermetic loopback HTTP MCP integration test; a release enabling a new live MCP target also requires read-only live discovery/invocation evidence before merge.
 - Scheduler/control changes additionally require real temporary-Git overlap/control tests; mocks alone are insufficient.
 - Hard-binding releases additionally require negative missing/wrong-binding coverage on parallel and serial paths plus real E2E of active `cancel_task` and global `disable` before execution is left enabled.
 - Advance `main` only after an explicit release decision and successful exact-candidate validation.
@@ -127,48 +133,3 @@ The currently registered downstream repositories are:
 Do not hard-code downstream release numbers unless a repository intentionally documents a historical baseline. Runtime compatibility instructions should prefer `.agent/status/daemon.json` plus canonical `MichalMatu/local-agent/main`.
 
 The release audit is incomplete when these downstream instructions materially contradict the candidate runtime. Update downstream docs before moving `main` or explicitly document why no downstream change is required.
-
-## Verification policy
-
-Verification is impact-driven:
-
-- run the narrowest test/build that can detect a realistic regression from the current diff;
-- add broader coverage for shared/cross-cutting changes, uncertain dependency impact, explicit repository requirements or user requests;
-- new binding/control/progress/watchdog/process-lifecycle behavior requires unit coverage;
-- scheduler, isolation, provisioning or resource-arbitration changes require real temporary-Git integration coverage;
-- repository lease/process-lifecycle changes require real SIGTERM/SIGKILL process tests;
-- bounded parallel changes require real overlap and exclusivity evidence, not only mocks;
-- hard binding must have positive and negative admission evidence on both the production parallel worker and serial fallback;
-- package ownership moves require `tests/test_package_layout.py` plus the normal full suite;
-- current operational documentation and release metadata must pass automated drift checks.
-
-Use `workflow_policy: "efficient-verification-v1"` for staged coding tasks that must make verification cost explicit. Use `work` for implementation, `focused` for affected regression/static checks and exactly one final `full` verification stage.
-
-For repository-wide daemon verification, the executable source of truth is:
-
-```bash
-python scripts/verify.py
-```
-
-CI additionally runs branch-aware coverage, Python 3.14 compatibility and the macOS smoke suite. Do not recreate static compile/Ruff file lists in documentation or workflows; extend `scripts/verify.py` when verification scope changes.
-
-For v4.18.14/BUG-002, the exact final SHA must have three independent pre-merge verification layers recorded: focused control-admission policy/integration evidence, the complete CI matrix, and macOS ARM64 smoke/recheck including the new control-admission tests.
-
-## Documentation
-
-- Canonical workflow: `docs/OPERATIONS.md`.
-- Current package/dependency map: `docs/ARCHITECTURE.md`.
-- Autonomous ChatGPT planner/Chat Bridge loop: `docs/AUTONOMOUS_CHAT_LOOP.md`.
-- Multi-repository architecture: `docs/MULTI_REPOSITORY.md`.
-- Emergency controls: `docs/EMERGENCY_CONTROLS.md`.
-- v4.11 parallel design/audit/live evidence: `docs/PARALLEL_EXECUTION_PLAN.md`.
-- Established Mac/ESP32 setup: `docs/SESSION_BOOTSTRAP.md`.
-- Current release/runtime invariants: `docs/GOLDEN_STANDARD.md`.
-- Frozen v4.18.13 rollback baseline and BUG-002 evidence: `docs/PRODUCTION_BASELINE_V4.18.13.md`.
-- Historical notes under `docs/history/` are non-canonical.
-
-## Verification output policy
-
-- Structured `steps` and `verify_steps` may declare `output_policy: "stream"` or `"summary"`.
-- `summary` suppresses routine live command lines but preserves bounded raw output in terminal result evidence.
-- Failed summary stages emit a bounded diagnostic tail; explicit progress markers remain visible and heartbeat, timeout, RSS and process cleanup behavior remains unchanged.
