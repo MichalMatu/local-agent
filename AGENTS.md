@@ -15,7 +15,7 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - `local_agent/foundation/core.py` owns deterministic task execution, workspace preparation/checkpointing and result publication.
 - `local_agent/foundation/process.py` owns registered spawning, bounded stdout transport, process groups, durable text writes and inherited execution-lease descriptors.
 - `local_agent/foundation/storage.py` owns bounded control Git sync, transient-network retry and storage diagnostics.
-- `local_agent/repository/binding.py` owns canonical immutable agent/repository binding identities, control-binding validation and registry migration.
+- `local_agent/repository/binding.py` owns canonical immutable agent/repository binding identities, planner-scope catalog policy, control-binding validation and registry migration.
 - `local_agent/repository/context.py` owns repository registry parsing, workspace identity/config digests and repository lease keys.
 - `local_agent/repository/admin.py` owns explicit repository provisioning and checkout validation.
 - `local_agent/repository/cleanup.py` owns bounded runtime/control metadata cleanup.
@@ -44,8 +44,10 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - Before claim/execution, both parallel and serial repository workers require local registry `agent_binding == .agent/binding.json agent_binding == task.agent_binding`.
 - Missing repository binding is fail-closed `unbound`; invalid/mismatched control binding is fail-closed `binding_error`; missing/wrong task binding is a terminal pre-claim rejection and must execute no task command.
 - Global operator `disabled` state takes precedence over repository binding admission so emergency stop remains authoritative during partial migrations or broken binding state.
-- Chat Bridge conversations must not infer or switch repository identity from model context. A binding change is an explicit operator Rebind only.
-- The `local-agent` catalog binding is bridge/operator-only (`execution_enabled: false`) and must never be used to queue project work.
+- Chat Bridge conversations must never infer repository identities or binding UUIDs from model context. A normal `planner_scope=repository` binding remains single-repository and changes repository only through an explicit operator Rebind.
+- A catalog entry with explicit `planner_scope=multirepo` authorizes that conversation to work across repositories present in the current validated runtime catalog without rebinding. The conversation binding is planner authorization only: every Local Agent task still uses the exact canonical binding of its target repository, and executor binding/lease/resource checks are unchanged. See `docs/HOST_OPS_MULTIREPO.md`.
+- `planner_scope` defaults to `repository`; unknown values fail closed and `multirepo` requires an execution-enabled operator binding. The canonical `host-ops` entry is the multirepo operator workspace.
+- The `local-agent` catalog binding is bridge/operator-only (`execution_enabled: false`) and must never be used to queue project work. A multirepo planner may still inspect or edit `MichalMatu/local-agent` through direct GitHub operations without changing the conversation binding.
 - MCP server identity and authorization are machine-local explicit configuration. Discovery never grants execution permission; unknown servers/tools, disabled policies and non-loopback endpoints fail closed.
 - MCP `write` and `arbitrary_code` tools require both a matching local risk policy and matching explicit invocation intent. Server-provided tool names, descriptions and annotations are not authorization evidence.
 - MCP stdio is unsupported until it can use the existing registered spawn/process-group lifecycle contract; an SDK must never spawn an unregistered daemon child.
@@ -114,14 +116,14 @@ Repository isolation, hard agent binding and external-resource isolation are sep
 - Require exact-candidate focused positive/negative tests, full CI matrix and macOS smoke before advancing `main`.
 - MCP boundary changes additionally require a real hermetic loopback HTTP MCP integration test; a release enabling a new live MCP target also requires read-only live discovery/invocation evidence before merge.
 - Scheduler/control changes additionally require real temporary-Git overlap/control tests; mocks alone are insufficient.
-- Hard-binding releases additionally require negative missing/wrong-binding coverage on parallel and serial paths plus real E2E of active `cancel_task` and global `disable` before execution is left enabled.
+- Hard-binding or planner-scope releases additionally require positive/negative coverage proving normal repository scope remains isolated, multirepo scope resolves only catalog targets, target task bindings remain exact, and parallel/serial executor binding admission is unchanged.
 - Advance `main` only after an explicit release decision and successful exact-candidate validation.
 - Tag the released main commit with `vX.Y.Z` and keep `local_agent.version.RELEASE_VERSION` synchronized with that tag.
 - After live verification from `main`, remove obsolete candidate worktrees/branches instead of accumulating them.
 
 ## Downstream documentation synchronization
 
-Planner-facing Local Agent behavior is a cross-repository contract. Any change that materially affects task fields, control-plane paths, status/result fields, execution model, agent binding, resource classification, concurrency, launchd deployment, self-update behavior, release flow or planner instructions must include a downstream documentation audit before release.
+Planner-facing Local Agent behavior is a cross-repository contract. Any change that materially affects task fields, control-plane paths, status/result fields, execution model, agent binding, planner scope, resource classification, concurrency, launchd deployment, self-update behavior, release flow or planner instructions must include a downstream documentation audit before release.
 
 The currently registered downstream repositories are:
 
@@ -144,7 +146,7 @@ Verification is impact-driven:
 - scheduler, isolation, provisioning or resource-arbitration changes require real temporary-Git integration coverage;
 - repository lease/process-lifecycle changes require real SIGTERM/SIGKILL process tests;
 - bounded parallel changes require real overlap and exclusivity evidence, not only mocks;
-- hard binding must have positive and negative admission evidence on both the production parallel worker and serial fallback;
+- hard binding and planner-scope policy must have positive and negative admission/routing evidence while executor binding validation remains covered on both the production parallel worker and serial fallback;
 - package ownership moves require `tests/test_package_layout.py` plus the normal full suite;
 - MCP boundary changes require real loopback Streamable HTTP integration coverage in addition to policy/unit tests;
 - current operational documentation and release metadata must pass automated drift checks.
@@ -167,6 +169,7 @@ For v4.18.14/BUG-002, the exact final SHA must have three independent pre-merge 
 - Current package/dependency map: `docs/ARCHITECTURE.md`.
 - Generic local MCP boundary: `docs/MCP_INTEGRATION.md`.
 - Autonomous ChatGPT planner/Chat Bridge loop: `docs/AUTONOMOUS_CHAT_LOOP.md`.
+- Host Ops multirepo planner scope: `docs/HOST_OPS_MULTIREPO.md`.
 - Multi-repository architecture: `docs/MULTI_REPOSITORY.md`.
 - Emergency controls: `docs/EMERGENCY_CONTROLS.md`.
 - v4.11 parallel design/audit/live evidence: `docs/PARALLEL_EXECUTION_PLAN.md`.
