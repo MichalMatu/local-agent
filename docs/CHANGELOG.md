@@ -2,12 +2,20 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.19.1
+
+- Added explicit fail-closed Chat Bridge `planner_scope` with `repository` as the default and the canonical `host-ops` binding authorized as the multirepo operator workspace.
+- Allowed a `host-ops` conversation to target repositories from the current validated runtime catalog without changing its immutable conversation binding; normal repository-bound conversations retain their existing single-repository/Rebind behavior.
+- Preserved executor isolation: every Local Agent task still uses the exact canonical binding of its target repository, and repository binding admission, leases, resources, watchdogs, cancellation and durable evidence remain unchanged.
+- Kept `local-agent` self-execution disabled while allowing a host-ops multirepo planner to inspect or edit the Local Agent repository through direct GitHub operations.
+- Advanced Chat Bridge to 0.5.11 for the service-worker planner-scope change while retaining content protocol v7 and assistant timeout/exhaustion guard protocol v3. See `RELEASE_NOTES_V4.19.1.md` and `HOST_OPS_MULTIREPO.md`.
+
 ## v4.19.0
 
-- Added generic Local Agent-owned MCP support through the official Python SDK with loopback-only Streamable HTTP and no application-specific runtime adapters.
+- Released generic Local Agent-owned MCP support through the official Python SDK with loopback-only Streamable HTTP and no application-specific runtime adapters.
 - Added a versioned machine-local MCP registry with fail-closed server/tool policy, explicit `read` / `write` / `arbitrary_code` risk classification, and matching explicit intent requirements for consequential calls.
 - Added bounded discovery, textual results, MIME-validated binary artifact persistence with SHA-256 metadata, and a packaged JSON CLI usable from ordinary Local Agent tasks without changing task schema or scheduler behavior.
-- Added focused negative/positive coverage plus a real hermetic HTTP MCP integration suite in full tests and macOS smoke. Production remains v4.18.26 until exact-candidate CI/macOS and live read-only application evidence satisfy the existing release gate. See `RELEASE_NOTES_V4.19.0.md` and `MCP_INTEGRATION.md`.
+- Added focused negative/positive coverage plus a real hermetic HTTP MCP integration suite in full tests and macOS smoke. Release `v4.19.0` is tagged at `1ea863d06a20e766f9fe0fa5589cc59aa0e2671a`, and live repository status has confirmed a production daemon running version 4.19.0 at that revision. See `RELEASE_NOTES_V4.19.0.md` and `MCP_INTEGRATION.md`.
 
 ## v4.18.26
 
