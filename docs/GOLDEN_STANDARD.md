@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.1` and the current production release is `v4.19.0`. The 4.19.1 candidate adds explicit fail-closed Chat Bridge planner scope so the canonical `host-ops` binding can operate across repositories in the validated runtime catalog without changing the conversation binding, while preserving exact target-repository executor admission. The deployed production release remains `v4.19.0` until the explicit release decision advances `main`; `v4.19.0` is therefore the immediate rollback point for this candidate.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.2` and the current production release is `v4.19.1`. The 4.19.2 candidate fixes fail-closed Chat Bridge stale-content recovery so automatic `Run now`/worker activation can replace a retained same-version page global whose old extension receiver is no longer usable, without changing the content wire protocol or planner/executor contracts. The deployed production release remains `v4.19.1` until the explicit release decision advances `main`; `v4.19.1` is therefore the immediate rollback point for this candidate.
 
 ## Release/runtime invariants
 
@@ -141,7 +141,9 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - Chat Bridge content protocol version is owned only by `control_protocol.js`; worker, content, popup and test harness must consume that shared value rather than declare independent versions.
 - Popup tab activation and stale-content replacement are worker-owned; popup must not maintain a second `chrome.scripting.executeScript`/protocol-mismatch implementation.
 - Chat Bridge content protocol upgrades must be replaceable in already-open tabs without requiring a normal manual ChatGPT reload when the older content script is still reachable.
-- Service-worker activation probes configured open ChatGPT tabs and re-injects content only when unavailable or protocol-mismatched; activation itself must not send a wake, mutate binding/schedule state, or act as a scheduling event.
+- Automatic content recovery must also replace a retained same-version Bridge global when the receiver is unavailable: dispose and clear stale Bridge/guard globals before ordered bundle reinjection and readiness re-probe.
+- A stale exhaustion guard with otherwise healthy current content uses a guard-only refresh and must not replace healthy content unnecessarily.
+- Service-worker activation probes configured open ChatGPT tabs and repairs content only when unavailable/protocol-mismatched or when the assistant guard is unavailable; activation itself must not send a wake, mutate binding/schedule state, or act as a scheduling event.
 - Transient assistant-control delivery failures use bounded retry/backoff and must not permanently exhaust after a fixed small number of attempts.
 - A Bridge-owned prompt retained after `send_button_not_ready` or `delivery_unconfirmed` may be reused only when the composer still matches the exact prompt; any operator edit blocks automatic reuse.
 - Immediately before submission Bridge must re-resolve the current enabled ChatGPT Send button and use its live DOM `click()` path as the primary action; `form.requestSubmit()` may be used only as a last-resort fallback and never with a stale button reference.
