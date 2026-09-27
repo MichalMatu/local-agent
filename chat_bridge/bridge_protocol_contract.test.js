@@ -32,32 +32,108 @@ assert.ok(retryIndex < contentIndex, "content retry policy must load before cont
 const transport = read("worker_transport.js");
 assert.match(
   transport,
-  /files: \["control_protocol\.js", "content_retry\.js", "content\.js"\]/,
-  "dynamic worker reinjection must include content retry policy before content.js"
+  /async function reloadContentScripts\(tabId\)/,
+  "worker transport must own centralized stale-content reload"
 );
+assert.match(
+  transport,
+  /globalThis\.__localAgentChatBridgeState\?\.dispose\?\.\(\)/,
+  "automatic stale-content reload must dispose the previous Bridge instance"
+);
+assert.match(
+  transport,
+  /globalThis\.__localAgentChatExhaustionGuard\?\.dispose\?\.\(\)/,
+  "automatic stale-content reload must dispose the previous exhaustion guard"
+);
+assert.match(
+  transport,
+  /globalThis\.__localAgentChatBridgeState = null/,
+  "automatic stale-content reload must clear the previous Bridge global"
+);
+assert.match(
+  transport,
+  /globalThis\.__localAgentChatExhaustionGuard = null/,
+  "automatic stale-content reload must clear the previous exhaustion guard global"
+);
+
+const reinjectionStart = transport.indexOf("async function reloadContentScripts(tabId)");
+const reinjectionEnd = transport.indexOf("async function ensureContentScript", reinjectionStart);
+assert.ok(reinjectionStart >= 0 && reinjectionEnd > reinjectionStart);
+const reinjection = transport.slice(reinjectionStart, reinjectionEnd);
+const reinjectedFiles = [
+  "control_protocol.js",
+  "content_retry.js",
+  "content.js",
+  "dom_contract.js",
+  "exhaustion_guard.js"
+];
+let previousFileIndex = -1;
+for (const filename of reinjectedFiles) {
+  const fileIndex = reinjection.indexOf(`"${filename}"`);
+  assert.ok(fileIndex >= 0, `dynamic worker reinjection must include ${filename}`);
+  assert.ok(
+    fileIndex > previousFileIndex,
+    `dynamic worker reinjection must preserve dependency order through ${filename}`
+  );
+  previousFileIndex = fileIndex;
+}
 assert.match(
   transport,
   /content_script_unavailable" \|\| content\.reason === "content_script_protocol_mismatch/,
   "stale reachable content protocols must be refreshable"
 );
+assert.match(
+  transport,
+  /const reload = await reloadContentScripts\(tab\.id\)/,
+  "automatic content recovery must use the centralized hard reload"
+);
 
 const popup = read("popup.js");
-assert.doesNotMatch(popup, /older Bridge content script/i, "popup must not require a manual tab reload for protocol mismatch");
-assert.match(popup, /type: "bridge:ensure-tab-content"/, "popup must delegate content activation to the worker");
-assert.doesNotMatch(popup, /chrome\.scripting\.executeScript/, "popup must not maintain a second reinjection implementation");
+assert.doesNotMatch(
+  popup,
+  /older Bridge content script/i,
+  "popup must not require a manual tab reload for protocol mismatch"
+);
+assert.match(
+  popup,
+  /type: "bridge:ensure-tab-content"/,
+  "popup must delegate content activation to the worker"
+);
+assert.doesNotMatch(
+  popup,
+  /chrome\.scripting\.executeScript/,
+  "popup must not maintain a second reinjection implementation"
+);
 
 const events = read("worker_events.js");
-assert.match(events, /"bridge:ensure-tab-content"/, "worker must expose centralized popup content activation");
-assert.match(events, /"bridge:operator-control"/, "worker must expose user-authored operator controls");
+assert.match(
+  events,
+  /"bridge:ensure-tab-content"/,
+  "worker must expose centralized popup content activation"
+);
+assert.match(
+  events,
+  /"bridge:operator-control"/,
+  "worker must expose user-authored operator controls"
+);
 
 const serviceWorker = read("service_worker.js");
-assert.match(serviceWorker, /"worker_lab_commands\.js"/, "service worker must load LAB command control plane");
+assert.match(
+  serviceWorker,
+  /"worker_lab_commands\.js"/,
+  "service worker must load LAB command control plane"
+);
 
 const labCommands = read("worker_lab_commands.js");
 assert.match(
   labCommands,
-  /globalThis\.__localAgentChatExhaustionGuard\?\.dispose\?\.\(\)/,
-  "force content reload must dispose the actual exhaustion guard instance"
+  /const reload = await reloadContentScripts\(tabId\)/,
+  "explicit content reload must reuse the centralized stale-content reload"
+);
+assert.doesNotMatch(
+  labCommands,
+  /chrome\.scripting\.executeScript/,
+  "LAB controls must not maintain a second reinjection implementation"
 );
 assert.doesNotMatch(
   labCommands,
