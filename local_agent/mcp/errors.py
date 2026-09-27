@@ -19,6 +19,10 @@ class MCPConfigError(MCPBoundaryError):
     code = "invalid_registry"
 
 
+class MCPArgumentsError(MCPBoundaryError):
+    code = "invalid_arguments"
+
+
 class MCPUnknownServerError(MCPBoundaryError):
     code = "unknown_server"
 
