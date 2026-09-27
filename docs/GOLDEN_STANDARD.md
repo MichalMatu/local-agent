@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.0` and the current production release is `v4.18.26`. The 4.19.0 candidate adds a generic fail-closed local MCP client boundary with loopback-only Streamable HTTP, explicit machine-local tool policy and bounded inputs/results/artifacts while leaving Local Agent task schema, repository admission, resource scheduling, supervisor process lifecycle and Chat Bridge protocol behavior unchanged. The deployed production release remains `v4.18.26` until the explicit release decision advances `main`; `v4.18.26` is therefore the immediate rollback point for this candidate.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.1` and the current production release is `v4.19.0`. The 4.19.1 candidate adds explicit fail-closed Chat Bridge planner scope so the canonical `host-ops` binding can operate across repositories in the validated runtime catalog without changing the conversation binding, while preserving exact target-repository executor admission. The deployed production release remains `v4.19.0` until the explicit release decision advances `main`; `v4.19.0` is therefore the immediate rollback point for this candidate.
 
 ## Release/runtime invariants
 
@@ -104,7 +104,7 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - Six consecutive `LEASE_BUSY` outcomes with no matching known active control worker retain the defensive **global drain** for unexplained/stale lease ownership.
 - A confirmed `PENDING` global request always stops new admission and drains active workers immediately.
 - `CLEAR`, successful full control service, explicit disable/re-enable recovery, or a configured control-repository identity change clears stale retry/lease-busy/pause evidence as appropriate.
-- Reordering the registry so a different first enabled repository becomes global control invalidates the previous control-poll clock so the new source is checked promptly.
+- Reordering the registry so a different first enabled repository becomes global control invalidates the previous normal control-poll clock so the new source is checked promptly.
 - A control ACK is durable only when it is visible on the fetched remote `agent-control` branch; a local-only ACK commit never suppresses replay of the remote request.
 - Global control acquires all configured repository execution identities before running.
 - Ordinary self-update waits for natural idle.
@@ -116,20 +116,26 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - `local_agent.supervisor.orchestrator` coordinates side effects: reading probe outcomes, starting/reaping workers, invoking global drain/service, status publication and shutdown.
 - Scheduling policy must not import daemon, Git/storage, subprocess/process management or repository worker implementations.
 - `local_agent.mcp` is an independent packaged boundary and must not grow application-specific Fusion/KiCad/Blender adapters when the MCP standard suffices.
+- `local_agent.repository.binding` owns the canonical binding catalog including fail-closed `planner_scope` validation; Chat Bridge consumes scope policy, while executor repository binding remains independent and exact.
 - Do not solve a focused scheduler defect by adding another embedded state machine to `orchestrator.py` or by creating a new miscellaneous helper module without a stable ownership boundary.
-- Refactors must preserve hard binding, claims/results, resource exclusion, emergency controls, self-update and process lifecycle semantics.
+- Refactors must preserve target-repository hard binding, claims/results, resource exclusion, emergency controls, self-update and process lifecycle semantics.
 
 ## Planner and Chat Bridge invariants
 
 - The Chrome Chat Bridge is wake-up/control transport only; ChatGPT remains the planner and Local Agent remains the deterministic executor.
+- Every conversation keeps one immutable canonical Bridge binding. `planner_scope` defaults to `repository`; only explicit validated `multirepo` authorization may widen planner targets without changing that conversation binding.
+- Normal `planner_scope=repository` conversations remain limited to the bound repository and use explicit Rebind to change conversation binding.
+- The canonical `host-ops` binding is the multirepo operator workspace. It may target only repositories listed in the current validated runtime catalog, must never guess identities, and does not Rebind merely to move among valid catalog targets.
+- Planner multirepo authorization never replaces executor identity: every Local Agent task carries the exact canonical `agent_binding` of its target repository; repository control binding, leases, resources, watchdogs and evidence remain target-repository scoped.
+- An execution-disabled catalog target may be inspected or edited through direct GitHub operations but may not receive a Local Agent task. `local-agent` remains intentionally self-execution-disabled.
 - A planner must never use Local Agent to invoke or delegate work to a local Codex CLI. Bridge prompts also forbid delegation to other local coding-agent/LLM CLIs; planning and coding decisions remain in ChatGPT.
-- One autonomous conversation follows one active task at a time for its current goal and never queues a duplicate while that task is active.
+- One autonomous conversation follows one active task at a time for its current goal and never queues a duplicate for the same target while that task is active.
 - Planner sequencing is not global executor serialization: unrelated conversations/repositories may overlap when the parallel resource contract permits it.
-- Every bridge wake-up re-reads repository-specific status/run/result evidence before deciding whether to wait, queue one next bounded task, cancel one exact doomed active task, pause for user action or stop a completed goal.
+- Every bridge wake-up re-reads target-repository-specific status/run/result evidence before deciding whether to wait, queue one next bounded task, cancel one exact doomed active task, pause for user action or stop a completed goal.
 - Bridge `STOP`/`PAUSE` markers control the conversation loop only; they do not stop or reconfigure the Local Agent supervisor.
 - `NEXT=30s` remains protocol-compatible for explicit operator/emergency use, but autonomous polling of a healthy active task must not use 30-second cadence.
 - The first healthy-task liveness re-check should be no sooner than about two minutes; multi-minute builds/tests should normally use 5-10 minute `NEXT` pacing unless exact evidence supports a nearer completion.
-- If exact run/status evidence already proves an active task cannot achieve its intended outcome, the planner should publish repository-scoped `cancel_task` for that exact task id and wait for cancellation/result evidence before replacing it.
+- If exact run/status evidence already proves an active task cannot achieve its intended outcome, the planner should publish repository-scoped `cancel_task` for that exact target task id and wait for cancellation/result evidence before replacing it.
 - An unfinished autonomous turn ends with `NEXT=<duration>`; `NEXT` arms or re-arms that conversation and schedules its next wake without overriding the global master switch.
 - Resource/capacity waiting is a continuation state and must use `NEXT`, never `STOP`.
 - Chat Bridge content protocol version is owned only by `control_protocol.js`; worker, content, popup and test harness must consume that shared value rather than declare independent versions.
@@ -139,7 +145,7 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - Transient assistant-control delivery failures use bounded retry/backoff and must not permanently exhaust after a fixed small number of attempts.
 - A Bridge-owned prompt retained after `send_button_not_ready` or `delivery_unconfirmed` may be reused only when the composer still matches the exact prompt; any operator edit blocks automatic reuse.
 - Immediately before submission Bridge must re-resolve the current enabled ChatGPT Send button and use its live DOM `click()` path as the primary action; `form.requestSubmit()` may be used only as a last-resort fallback and never with a stale button reference.
-- Assistant LAB inspection/diagnostic commands are read-only; repository binding changes require an explicit exact-id `[LAB:ADD=<repository-id>]`, `[LAB:REBIND=<repository-id>]`, or `[LAB:REMOVE]` control and create a fresh bootstrap boundary before work may continue under a new binding.
+- Assistant LAB inspection/diagnostic commands are read-only. Explicit `[LAB:ADD=<repository-id>]`, `[LAB:REBIND=<repository-id>]`, or `[LAB:REMOVE]` controls change the conversation binding and create a fresh bootstrap boundary as applicable; normal target changes inside authorized multirepo scope do not use those controls.
 - `LAB:OP:*` mutations remain accepted only from user-authored ChatGPT messages in the exact top-frame conversation; assistant messages use the non-`OP` control namespace instead.
 - Global `CHATS`/cross-chat routing inspection is available only from the `local-agent` infrastructure binding; ordinary project chats remain current-chat scoped.
 - Assistant and operator binding-control dedupe is persistent and bounded independently from conversation state so onboarding/removal/reload controls do not replay across extension/content reloads.
@@ -158,20 +164,21 @@ A non-trivial runtime release requires:
 7. for MCP changes, a real hermetic loopback Streamable HTTP MCP server exercising SDK negotiation, discovery, bounded arguments, invocation, timeout and bounded-result/artifact paths; mocks alone are insufficient;
 8. for the first live application target in a release, read-only live endpoint/discovery/tool-call evidence with the actual discovered tool list, plus binary artifact verification when the target exposes a read-only binary result; no write/arbitrary-code smoke;
 9. if MCP runtime code changes after that live application proof, repeat the affected read-only live proof against the frozen runtime candidate before release;
-10. exact `main...candidate` diff and architecture/dependency review;
-11. full GitHub CI on the exact candidate SHA: compile/Ruff/full unittest, coverage, Python 3.14 and Bridge browser;
-12. macOS ARM64 smoke on the exact candidate SHA containing both pure control-admission policy coverage and the real BUG-002 overlap regression; MCP-changing candidates also include the hermetic MCP HTTP suite;
-13. current-documentation drift/release-metadata contract checks;
-14. downstream planner-documentation audit for every registered repository when Local Agent contract/flow changed;
-15. three independent pre-merge verification passes recorded for the exact final SHA: focused policy/integration evidence, full cross-platform CI matrix, and macOS exact-SHA smoke/recheck;
-16. only then an explicit decision to advance `main`;
-17. matching `vX.Y.Z` tag on released `main`;
-18. production restart/self-update from `~/local-agent` on `main` and live version/revision/task verification;
-19. candidate branch/worktree cleanup after the release is established.
+10. for planner-scope changes, focused Bridge coverage must prove repository-scope regression behavior, explicit multirepo authorization, fail-closed invalid scope, exact target binding selection and execution-disabled target handling;
+11. exact `main...candidate` diff and architecture/dependency review;
+12. full GitHub CI on the exact candidate SHA: compile/Ruff/full unittest, coverage, Python 3.14 and Bridge browser;
+13. macOS ARM64 smoke on the exact candidate SHA containing both pure control-admission policy coverage and the real BUG-002 overlap regression; MCP-changing candidates also include the hermetic MCP HTTP suite;
+14. current-documentation drift/release-metadata contract checks;
+15. downstream planner-documentation audit for every registered repository when Local Agent contract/flow changed;
+16. three independent pre-merge verification passes recorded for the exact final SHA: focused policy/integration evidence, full cross-platform CI matrix, and macOS exact-SHA smoke/recheck;
+17. only then an explicit decision to advance `main`;
+18. matching `vX.Y.Z` tag on released `main`;
+19. production restart/self-update from `~/local-agent` on `main` and live version/revision/task verification;
+20. candidate branch/worktree cleanup after the release is established.
 
 ## Downstream contract
 
-`AGENTS.md` defines the currently registered downstream documentation targets. A release is not operationally complete when those repositories materially describe an obsolete task schema, execution model, concurrency/resource contract, status/control surface or deployment flow.
+`AGENTS.md` defines the currently registered downstream documentation targets. A release is not operationally complete when those repositories materially describe an obsolete task schema, execution model, concurrency/resource contract, status/control surface or deployment flow. `docs/HOST_OPS_MULTIREPO.md` is the canonical planner-scope extension; ordinary project-bound conversations retain their existing one-repository semantics.
 
 Historical design notes remain references only and are not runtime contracts.
 

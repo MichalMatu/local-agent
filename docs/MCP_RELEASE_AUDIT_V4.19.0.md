@@ -2,146 +2,92 @@
 
 ## Scope
 
-This audit reviews the generic MCP boundary introduced for Local Agent 4.19.0 after the first successful live Autodesk Fusion 360 interoperability proof and after the final hardening pass. It covers ownership, transport, authorization, input/output bounds, artifact persistence, dependency/deployment impact, tests, documentation, and release gates.
+This audit records the generic MCP boundary released in Local Agent 4.19.0 after the first successful live Autodesk Fusion 360 interoperability proof and the final hardening pass. It covers ownership, transport, authorization, input/output bounds, artifact persistence, dependency/deployment impact, tests and release evidence.
 
-The reviewed boundary is `local_agent/mcp/` plus `requirements-runtime.txt`, MCP-focused tests, CI/macOS-smoke wiring, and the canonical MCP/release documentation. The Local Agent task schema, repository binding, scheduler, resource admission, daemon control, supervisor process lifecycle, and Chat Bridge protocol are intentionally outside the MCP implementation and remain behaviorally unchanged.
+The reviewed boundary is `local_agent/mcp/` plus `requirements-runtime.txt`, MCP-focused tests, CI/macOS-smoke wiring, and canonical MCP/release documentation. Local Agent task schema, repository binding, scheduler, resource admission, daemon control, supervisor process lifecycle and Chat Bridge protocol remained unchanged in 4.19.0.
 
 ## Architecture conclusion
 
-The architecture remains generic and appropriately isolated.
+The released architecture is generic and isolated:
 
-- `local_agent/mcp/` is the only protocol owner.
-- There is no Fusion-, Autodesk-, KiCad-, Blender-, host-ops-, or project-specific runtime branch.
-- Streamable HTTP uses the official MCP Python SDK rather than local JSON-RPC/framing code.
-- MCP is invoked through a packaged client/CLI from ordinary Local Agent commands; no MCP-specific task or scheduler field was added.
-- Stdio remains unsupported because allowing the SDK to spawn a child would bypass Local Agent's registered spawn/process-group lifecycle.
-- Server identity and tool authorization come only from explicit machine-local configuration; server discovery metadata is never authority.
+- `local_agent/mcp/` is the only MCP protocol owner;
+- there is no Fusion-, Autodesk-, KiCad-, Blender-, host-ops-, or project-specific runtime branch;
+- Streamable HTTP uses the official MCP Python SDK instead of local JSON-RPC/framing code;
+- ordinary Local Agent commands invoke the packaged client/CLI, so no MCP-specific task or scheduler field was added;
+- stdio remains unsupported because an SDK-spawned child would bypass Local Agent's registered process lifecycle;
+- server identity and tool authorization come only from explicit machine-local configuration; discovery metadata is never authority.
 
-No architecture split or application adapter is required for this release.
+No application adapter or architecture split was required for this release.
 
-## Security and boundedness review
+## Security and boundedness
 
-The re-audit confirms the following fail-closed properties:
+The released boundary is fail closed:
 
-- endpoints are accepted only for exact loopback hosts `127.0.0.1`, `::1`, or `localhost`;
-- the HTTP client runs with environment proxy inheritance disabled;
-- unknown or disabled servers fail before connection;
-- unknown or disabled tool policies fail before invocation;
-- every allowed tool is locally classified as `read`, `write`, or `arbitrary_code`;
+- only exact loopback hosts `127.0.0.1`, `::1`, and `localhost` are accepted;
+- HTTP proxy inheritance is disabled;
+- unknown or disabled servers and tools fail before invocation;
+- every allowed tool is locally classified `read`, `write`, or `arbitrary_code`;
 - `write` and `arbitrary_code` require exact matching explicit invocation intent;
-- discovered tool names, descriptions, schemas, and annotations do not assign risk;
-- tool discovery count, discovery metadata, text/structured results, artifact count, and aggregate binary bytes are bounded;
-- raw CLI argument JSON is bounded before parsing;
-- direct library arguments are independently required to be a JSON object, JSON-serializable, and at most 64 KiB in canonical serialized form before network access;
-- image/audio/blob base64 is validated, decoded under configured bounds, MIME allowlisted, and excluded from normal textual output;
-- artifacts are written atomically and return absolute path, MIME type, byte size, and full SHA-256 metadata;
-- deterministic artifact filenames include the complete SHA-256 digest so the persisted path and returned digest use the same content identity;
-- connection and call timeouts remain separately bounded;
-- malformed/unsupported protocol content fails closed rather than being guessed or silently coerced.
+- server-provided names, descriptions, schemas and annotations do not assign risk;
+- discovery count/metadata, textual/structured output, artifact count and aggregate binary bytes are bounded;
+- CLI and direct-library tool arguments are independently bounded before network access;
+- image/audio/blob data is MIME-validated, bounded, atomically persisted and represented in normal output by path/MIME/size/SHA-256 metadata rather than base64;
+- deterministic artifact filenames include the complete SHA-256 digest;
+- connection and call timeouts are separately bounded;
+- malformed or unsupported protocol content is rejected rather than guessed.
 
-## Findings closed during re-audit
+## Findings closed before release
 
-### AUD-MCP-001 — library callers could bypass the CLI argument-size guard
+### AUD-MCP-001 — direct library callers could bypass the CLI argument-size guard
 
-**Severity:** medium defense-in-depth gap.
+The original candidate bounded raw CLI arguments but did not independently bound an already-built Python argument object. `call_tool()` now requires a JSON object whose canonical serialized form is at most 64 KiB before opening a connection. Invalid programmatic input uses the `invalid_arguments` boundary error, with regression coverage proving failure before network access.
 
-The original candidate capped raw CLI `--arguments` input at 64 KiB, but `call_tool()` accepted an already-built Python dictionary without independently serializing and bounding it. A direct library caller could therefore create a request larger than the CLI contract.
+### AUD-MCP-002 — artifact path used a shortened digest prefix
 
-**Resolution:** the shared client now validates that arguments are a JSON object, JSON-serializable, and no larger than 64 KiB in canonical serialized form before opening an MCP connection. Invalid arguments use the dedicated `invalid_arguments` boundary error. Tests prove oversized and non-serializable programmatic inputs fail before network access.
+The original candidate returned full SHA-256 metadata but used only the first 16 hexadecimal characters in deterministic filenames. The final implementation uses the complete digest in the persisted filename and metadata; tests verify that identity.
 
-### AUD-MCP-002 — deterministic artifact path used a shortened hash prefix
+### AUD-MCP-003 — CLI option placement was ambiguous
 
-**Severity:** low defense-in-depth gap.
+`--registry` is global while `--artifact-dir` belongs to the `call` subcommand. Canonical documentation and CLI regression coverage now make this placement explicit.
 
-The original candidate returned full SHA-256 metadata but used only the first 16 hexadecimal characters in the filename. The server/tool/index namespace and content prefix made accidental collision unlikely, but the persisted path did not use the same full content identity as the metadata.
+## Live Fusion 360 evidence
 
-**Resolution:** artifact filenames now include the complete SHA-256 digest. Tests assert the full digest is present in the persisted PNG filename.
-
-### AUD-MCP-003 — CLI option placement was easy to misuse
-
-**Severity:** documentation/usability.
-
-`--registry` is a global option while `--artifact-dir` belongs to the `call` subcommand. The first live binary smoke attempted the artifact option at the wrong parser level and was rejected before any Fusion call.
-
-**Resolution:** canonical MCP documentation now shows exact examples for both option positions, and CLI regression coverage asserts `call --help` exposes `--artifact-dir` and `--intent`.
-
-## Initial live application evidence
-
-The first real application proof used Autodesk Fusion 360's local MCP server on `127.0.0.1:27182/mcp` with candidate `2292e69ee4ef346b8fed3f15bed3c65ffbdbc84b`.
-
-The client negotiated MCP `2025-11-25` with `MCP Server Adapter` 1.0.0 and discovered four tools:
+The first real application proof used Autodesk Fusion 360's local MCP server at `127.0.0.1:27182/mcp`. The client negotiated MCP `2025-11-25` with `MCP Server Adapter` 1.0.0 and discovered four tools:
 
 1. `fusion_mcp_electronics_read`;
 2. `fusion_mcp_execute`;
 3. `fusion_mcp_read`;
 4. `fusion_mcp_update`.
 
-Only `fusion_mcp_read` was enabled locally with risk `read`. A read-only `activeCommand` invocation returned the active/default Fusion `SelectCommand` with `ok=true` and `is_error=false`. A second read-only screenshot invocation returned MCP image content that was persisted as a 256 x 256 PNG, 878 bytes, SHA-256 `f6c9aed9c97ee674686aed4fdb8333683df232d559a817d2e4178f41e0f9ca46`, without base64 in normal output.
+Only `fusion_mcp_read` was enabled locally with risk `read`. A read-only `activeCommand` call succeeded. A read-only screenshot returned MCP image content persisted as a 256 x 256 PNG, 878 bytes, SHA-256 `f6c9aed9c97ee674686aed4fdb8333683df232d559a817d2e4178f41e0f9ca46`, without base64 in normal output. No execute/update write smoke was performed.
 
-No `fusion_mcp_execute` or `fusion_mcp_update` call was made.
+Because the argument and artifact hardening changed runtime code after the initial proof, the same read-only boundary was rechecked on exact hardened runtime SHA `143e0c8817400b2bf993fe33eef4b21da2c356b7`. Discovery returned the same four tools; policy still enabled only `fusion_mcp_read`; `activeCommand` succeeded; the PNG screenshot succeeded with the same byte size and digest; and the complete digest appeared in the persisted filename.
 
-## Final hardened live recheck
+## Automated verification
 
-Because AUD-MCP-001 and AUD-MCP-002 changed the MCP runtime after the initial proof, the same read-only boundary was rechecked on the hardened runtime candidate `143e0c8817400b2bf993fe33eef4b21da2c356b7` before release.
+The hardened candidate `143e0c8817400b2bf993fe33eef4b21da2c356b7` passed GitHub Actions run `36288336646` across compile/Ruff/full tests, coverage, Python 3.14, Chromium Bridge browser smoke and macOS smoke including the hermetic MCP Streamable HTTP suite.
 
-The final live smoke completed all five stages successfully:
+The final release source commit `1ea863d06a20e766f9fe0fa5589cc59aa0e2671a` also received a successful full pull-request workflow run (`36290273277`) before release.
 
-- Fusion listened on `127.0.0.1:27182`;
-- the isolated checkout was verified at exact SHA `143e0c8817400b2bf993fe33eef4b21da2c356b7` with the pinned runtime dependency installed in an isolated Python 3.13 virtual environment;
-- SDK discovery negotiated MCP `2025-11-25` and returned the same four Fusion tools;
-- local policy reported `fusion_mcp_read` as configured/enabled risk `read`, while `fusion_mcp_execute` and `fusion_mcp_update` remained unconfigured and disabled;
-- read-only `activeCommand` succeeded and returned Fusion's default `SelectCommand`;
-- read-only screenshot succeeded as a real PNG, 256 x 256, 878 bytes, SHA-256 `f6c9aed9c97ee674686aed4fdb8333683df232d559a817d2e4178f41e0f9ca46`;
-- the returned image contained artifact metadata instead of base64 payload data;
-- the persisted filename contained the complete SHA-256 digest, proving AUD-MCP-002 on the real application path.
+## Release record
 
-No write or arbitrary-code Fusion tool was invoked during either live proof.
+Local Agent 4.19.0 is released.
 
-## Automated verification status
+- `main` release commit: `1ea863d06a20e766f9fe0fa5589cc59aa0e2671a`;
+- annotated release tag: `v4.19.0`;
+- published live Local Agent repository status observed daemon version `4.19.0` at that exact self revision, using the parallel multi-repository worker and reporting idle state;
+- v4.19.0 is the production baseline immediately preceding the 4.19.1 planner-scope candidate.
 
-The pre-hardening candidate `2292e69ee4ef346b8fed3f15bed3c65ffbdbc84b` passed GitHub Actions run `36282861569`.
-
-After AUD-MCP-001/002/003, hardened candidate `143e0c8817400b2bf993fe33eef4b21da2c356b7` passed GitHub Actions run `36288336646` across the complete matrix:
-
-- compile, Ruff, Bridge validation, and full unittest/integration suite;
-- coverage;
-- Python 3.14 compatibility;
-- Chromium Bridge browser smoke;
-- macOS smoke including the real hermetic MCP Streamable HTTP tests.
-
-The runtime code is therefore frozen and verified. Documentation-only release-evidence commits after `143e0c...` must receive one final exact-SHA CI pass before `main` advances, as required by the repository release contract.
-
-## Diff and ownership review
-
-`main...candidate` remains a one-way fast-forward candidate from production base `c281204977b5dd0153959cb804d468c7b0f25836` with no divergence. The changed runtime surface is limited to the generic `local_agent/mcp/` package, the pinned MCP runtime dependency, verification wiring, and MCP/release documentation. No application-specific adapter, scheduler field, task-schema field, repository-binding change, resource change, supervisor-control change, or Chat Bridge protocol change is introduced.
-
-Because no planner/executor contract or downstream repository contract changed, no downstream planner-documentation mutation is required for 4.19.0.
+The historical post-release push workflow on the same `main` SHA later reported a documentation/release-state failure; that does not invalidate the previously successful exact-source candidate verification or the observed deployed runtime, but it exposed stale release-state prose. The 4.19.1 checkpoint corrects that documentation drift rather than rewriting runtime history.
 
 ## Residual boundaries accepted for 4.19.0
 
-- Only local Streamable HTTP is supported. Remote MCP, OAuth, secret storage, public endpoints, SSE compatibility transport, and stdio remain out of scope.
-- Machine-local registry integrity is an operator/host responsibility; Local Agent treats its explicit policy as authority and the MCP server as untrusted data/behavior within that policy.
-- A locally authorized `read` tool is trusted not to mutate the application because risk classification is an operator policy decision. Local Agent deliberately does not infer safety from server-provided names or annotations.
-- Artifact files persist in Local Agent machine state until normal operator/host cleanup; this release does not add an artifact-retention daemon.
-- Runtime dependency deployment remains explicit: `requirements-runtime.txt` must be installed into the production Local Agent virtual environment before advancing production to 4.19.0.
+- Only local Streamable HTTP is supported. Remote MCP, OAuth, secret storage, public endpoints, SSE compatibility transport and stdio remain out of scope.
+- Machine-local registry integrity remains an operator/host responsibility.
+- A locally authorized `read` tool is trusted not to mutate the application because risk classification is explicit operator policy; Local Agent does not infer safety from server metadata.
+- Artifact retention remains ordinary machine-state cleanup; 4.19.0 does not add an artifact-retention daemon.
+- Runtime dependencies remain explicit production installation state through `requirements-runtime.txt`.
 
-## Final release checklist
+## Final status
 
-Before advancing `main`:
-
-- [x] hardened runtime candidate CI matrix passed on exact runtime SHA `143e0c8817400b2bf993fe33eef4b21da2c356b7`;
-- [x] macOS smoke passed on that exact runtime SHA;
-- [x] final read-only Fusion discovery/text/image recheck passed on that exact hardened runtime SHA;
-- [x] no write or arbitrary-code live smoke was performed;
-- [x] exact `main...candidate` diff was rechecked for unexpected files and application-specific runtime code;
-- [x] canonical MCP, architecture, operations, Golden Standard, changelog, and release notes were reconciled;
-- [x] downstream planner-documentation audit found no downstream change required because task schema/scheduler/Bridge contracts are unchanged;
-- [ ] final documentation-only candidate SHA passes the full CI matrix;
-- [ ] production virtualenv has the pinned runtime dependency before self-update/restart;
-- [ ] explicit release decision advances `main` and creates tag `v4.19.0`;
-- [ ] production restarts/self-updates from `~/local-agent` on `main` and live version/revision/task verification passes;
-- [ ] obsolete candidate worktree/branch is removed only after production is established.
-
-## Release decision
-
-**Current status:** runtime implementation, hardening, architecture/security re-audit, full runtime CI/macOS verification, and final read-only Fusion interoperability proof are complete. The candidate is release-ready subject only to the final documentation-only exact-SHA CI pass and the explicit production deployment sequence. Production remains `v4.18.26` until `main` advances.
+The 4.19.0 release gate is closed. Runtime implementation, hardening, architecture/security review, full candidate CI/macOS verification, final read-only Fusion interoperability proof, release tag and deployed daemon identity are established. Subsequent planner-scope behavior is versioned separately as the 4.19.1 candidate.

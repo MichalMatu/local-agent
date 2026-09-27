@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -16,6 +17,7 @@ CURRENT_OPERATIONAL_DOCS = (
     "docs/AUTONOMOUS_CHAT_LOOP.md",
     "docs/EMERGENCY_CONTROLS.md",
     "docs/GOLDEN_STANDARD.md",
+    "docs/HOST_OPS_MULTIREPO.md",
     "docs/MULTI_REPOSITORY.md",
     "docs/OPERATIONS.md",
     "docs/SECURITY_MODEL.md",
@@ -78,9 +80,36 @@ class CurrentDocumentationContractTests(unittest.TestCase):
         )
         self.assertIn("preserved physical workspace paths", bootstrap)
 
+    def test_host_ops_multirepo_scope_is_canonical_and_documented(self) -> None:
+        catalog = json.loads(
+            (REPO_ROOT / "config" / "agent_bindings.json").read_text(encoding="utf-8")
+        )
+        runtime = json.loads(
+            (REPO_ROOT / "chat_bridge" / "runtime.example.json").read_text(encoding="utf-8")
+        )
+        catalog_host_ops = next(item for item in catalog["agents"] if item["id"] == "host-ops")
+        runtime_host_ops = next(
+            item for item in runtime["agents"] if item["repository_id"] == "host-ops"
+        )
+        self.assertEqual(catalog_host_ops["planner_scope"], "multirepo")
+        self.assertEqual(runtime_host_ops["planner_scope"], "multirepo")
+        for relative in (
+            "AGENTS.md",
+            "docs/AUTONOMOUS_CHAT_LOOP.md",
+            "docs/GOLDEN_STANDARD.md",
+            "docs/HOST_OPS_MULTIREPO.md",
+        ):
+            with self.subTest(path=relative):
+                text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+                self.assertIn("host-ops", text)
+                self.assertIn("multirepo", text)
+
     def test_golden_standard_distinguishes_candidate_source_from_production(self) -> None:
         golden = (REPO_ROOT / "docs" / "GOLDEN_STANDARD.md").read_text(encoding="utf-8")
-        source_match = re.search(r"source release is `v([^`]+)`", golden)
+        source_match = re.search(
+            r"(?:source release|base source release marker) is `v([^`]+)`",
+            golden,
+        )
         production_match = re.search(r"current production release is `v([^`]+)`", golden)
         self.assertIsNotNone(source_match, "missing source release declaration")
         self.assertIsNotNone(production_match, "missing production release declaration")
@@ -92,7 +121,10 @@ class CurrentDocumentationContractTests(unittest.TestCase):
         self.assertEqual(source_release, RELEASE_VERSION)
 
         if production_release != source_release:
-            self.assertIn(f"The {source_release} candidate", golden)
+            self.assertTrue(
+                f"The {source_release} candidate" in golden
+                or f"The {source_release} base candidate" in golden
+            )
             self.assertIn(
                 f"deployed production release remains `v{production_release}` until the explicit release decision advances `main`",
                 golden,

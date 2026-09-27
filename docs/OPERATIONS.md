@@ -22,7 +22,7 @@ v4.18.13
 = rollback/v4.18.13-known-working
 ```
 
-Current deployed production source identifies itself as v4.18.26. The BUG-002 scheduler repair introduced with v4.18.14 behavior is established production behavior; v4.18.13 is retained only as the explicit pre-fix rollback baseline. See [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) for historical pre-fix context before changing scheduler/control admission behavior.
+Current deployed production source identifies itself as v4.19.0 at `1ea863d06a20e766f9fe0fa5589cc59aa0e2671a`. The BUG-002 scheduler repair introduced with v4.18.14 behavior is established production behavior; v4.18.13 is retained only as the explicit pre-fix rollback baseline. See [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) for historical pre-fix context before changing scheduler/control admission behavior.
 
 The remote tag set has historically contained release-tag gaps. Do not fabricate or back-date a release tag during unrelated housekeeping. The release-flow invariant below remains the rule for future releases; repairing historical tag metadata requires an explicit release-metadata decision against an exact commit.
 
@@ -64,9 +64,9 @@ The parallel worker and serial fallback both enforce this. Failure is fail-close
 
 The global operator `disabled` marker is checked before repository binding admission. Emergency stop therefore remains authoritative even during a partial/broken migration.
 
-Repository binding is operational identity. Do not rotate a UUID to repair a task or switch a chat. A Chat Bridge conversation can change repository only through explicit **Rebind**; executor configuration changes require an intentional disabled migration.
+Repository binding is operational identity. Do not rotate a UUID to repair a task or switch a chat. Every Chat Bridge conversation keeps one immutable conversation binding. Normal `planner_scope=repository` conversations may change that binding only through explicit **Rebind**/remove-add. An explicitly catalog-authorized `planner_scope=multirepo` conversation may select another current runtime-catalog target without changing its conversation binding; every Local Agent task still uses the exact canonical binding of the selected target repository. Executor configuration changes require an intentional disabled migration.
 
-The `local-agent` catalog entry is `execution_enabled: false`. It is reserved for bridge/operator infrastructure conversations and must not be used to queue project tasks.
+The canonical `host-ops` binding is the multirepo operator workspace. The `local-agent` catalog entry remains `execution_enabled: false`: a host-ops multirepo conversation may inspect or edit `MichalMatu/local-agent` through direct GitHub operations, but it must not queue a Local Agent task targeting the execution-disabled `local-agent` entry. See [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md).
 
 ## Binding migration while disabled
 
@@ -106,19 +106,19 @@ bindingRevision
 bindingSetAt
 ```
 
-Legacy/unbound conversations migrate disabled with `binding_required`; they receive no alarm. Normal conversation edits cannot alter binding fields. Explicit Rebind is the only supported route change and forces a new bootstrap.
+Legacy/unbound conversations migrate disabled with `binding_required`; they receive no alarm. Normal conversation edits cannot alter binding fields. Explicit Rebind changes the conversation binding and forces a new bootstrap. It is not required merely to change target repositories inside a validated `planner_scope=multirepo` conversation.
 
-Remote runtime schema 3 publishes the canonical agent catalog. Production runtime is served from branch `chat-bridge-state`, file `chat_bridge/runtime.json`. Rollout order matters:
+Remote runtime schema 3 publishes the canonical agent catalog plus optional `planner_scope`. The default scope is `repository`; only `repository` and `multirepo` are valid, and `multirepo` requires an execution-enabled operator binding. Production runtime is served from branch `chat-bridge-state`, file `chat_bridge/runtime.json`. Rollout order matters:
 
 1. keep Local Agent globally disabled;
 2. release/fast-forward Local Agent code and validate exact-candidate CI;
 3. update/reload the matching Chat Bridge when the bridge contract changed;
-4. publish runtime schema 3 with the matching catalog when catalog/runtime data changed;
-5. verify migrated chats are fail-closed and intended chats have exact bindings;
-6. run binding-negative E2E plus emergency-control E2E when those boundaries changed;
+4. publish runtime schema 3 with the matching catalog/scope data when runtime data changed;
+5. verify migrated chats are fail-closed, normal chats preserve repository scope, and intended multirepo chats receive only their explicit catalog authorization;
+6. run binding/planner-scope negative E2E plus emergency-control E2E when those boundaries changed;
 7. enable Local Agent only after required checks are green.
 
-Publishing a new bridge runtime before an old bridge is replaced is not a reason to enable execution. The kill switch remains the safety boundary during rollout. Detailed current planner/Bridge semantics live in [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md).
+Publishing a new bridge runtime before an old bridge is replaced is not a reason to enable execution. Older Bridge code ignores the optional scope field and therefore retains its existing stricter repository-only behavior until the matching worker code is loaded. The kill switch remains the safety boundary during rollout. Detailed current planner/Bridge semantics live in [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) and [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md).
 
 ## Control data
 
@@ -210,13 +210,13 @@ The first live integration proof for a new application is read-only: record the 
 ## Development workflow
 
 1. Read `AGENTS.md`, this file and target-repository planner instructions.
-2. Establish the exact repository/binding identity before queueing anything.
-3. Inspect `.agent/status/daemon.json` and exact run/result evidence for that repository.
+2. Establish the exact target repository/binding identity before queueing anything. A multirepo planner resolves it only from the current validated runtime catalog.
+3. Inspect `.agent/status/daemon.json` and exact run/result evidence for that target repository.
 4. Confirm the intended `work_branch` when it differs from the default.
 5. Prepare the smallest deterministic change.
 6. Classify resources explicitly; current registered project repositories use `resources: []` and detect/verify devices inside task commands.
-7. Queue one new unique task containing the exact `agent_binding` and explicit `resources`.
-8. For Chat Bridge work, perform one early liveness check around 30 seconds.
+7. Queue one new unique task containing the target repository's exact `agent_binding` and explicit `resources`.
+8. For healthy Chat Bridge/Local Agent work, perform the first liveness re-check no sooner than about two minutes; normally use 5-10 minute `NEXT` pacing for multi-minute builds/tests unless exact evidence supports a nearer completion.
 9. Follow the same digest/attempt until terminal evidence exists.
 10. Diagnose exact output; never infer success from submission.
 11. Run focused verification first and one final broad gate when warranted.
@@ -233,7 +233,7 @@ python scripts/verify.py --only tests
 python scripts/verify.py --profile macos-smoke
 ```
 
-An autonomous conversation follows one active task at a time for its own goal. Independent repositories/conversations may overlap when executor resource admission permits it.
+An autonomous conversation follows one active task at a time for its current target/goal. Independent repositories/conversations may overlap when executor resource admission permits it.
 
 ## Multi-repository administration
 
@@ -283,7 +283,7 @@ Current production behavior separates retry evidence from the lease-busy starvat
 - on the sixth consecutive `LEASE_BUSY` with no corresponding known active control worker, the existing defensive **global drain** remains;
 - a confirmed `PENDING` global request always triggers immediate global drain regardless of these counters.
 
-This policy lives in pure `local_agent.supervisor.scheduling` state/decision helpers. `orchestrator.py` applies the resulting side effects; resource locks, claims, hard binding, self-update and emergency-disable mechanisms are unchanged.
+This policy lives in pure `local_agent.supervisor.scheduling` state/decision helpers. `orchestrator.py` applies the resulting side effects; resource locks, claims, target-repository hard binding, self-update and emergency-disable mechanisms are unchanged.
 
 ## Runtime bounds
 
@@ -334,9 +334,9 @@ Only when it is safe to interrupt active work, explicitly regenerate and restart
 
 All modes use the same `com.michal.local-agent` label and are replacement configurations, never additional concurrent services. `parallel` is the production default, `multirepo` is the serial fallback and `single` is the direct daemon mode.
 
-Cold-start rollout should begin disabled when the release changes binding/emergency/process-lifecycle boundaries. Verify the relevant release gates before leaving execution enabled.
+Cold-start rollout should begin disabled when the release changes binding/planner-scope/emergency/process-lifecycle boundaries. Verify the relevant release gates before leaving execution enabled.
 
-Rollback to `agent_multirepo.py` does not weaken hard binding: the serial repository worker enforces the same registry/control/task equality. Do not roll back to a pre-hard-binding binary while bound task queues are considered trusted.
+Rollback to `agent_multirepo.py` does not weaken target-repository hard binding: the serial repository worker enforces the same registry/control/task equality. Do not roll back to a pre-hard-binding binary while bound task queues are considered trusted.
 
 ## Release flow
 
@@ -359,24 +359,25 @@ For non-trivial runtime changes:
 5. for scheduler/control admission changes, require a real long-running control-repository overlap regression that crosses the six-consecutive-`LEASE_BUSY` threshold;
 6. for MCP changes, require a real hermetic loopback Streamable HTTP MCP server test covering official-SDK negotiation, discovery, invocation, timeout and bounded artifact/result paths;
 7. for the first live MCP application target, preserve actual endpoint/tool-list evidence and run only explicit read-only smoke calls before release;
-8. review `main...candidate` for architecture, unintended behavior and serial/resource/emergency/self-update regressions;
-9. require full exact-SHA CI: compile, Ruff, full unittest/integration, coverage, Python 3.14 and Bridge browser;
-10. require exact-SHA macOS ARM64 smoke containing changed scheduler policy and integration tests, including MCP HTTP tests when that boundary changes;
-11. run current-documentation/release-metadata contract checks and audit all current operational docs, not just touched files;
-12. audit planner-facing Local Agent docs in every registered downstream repository when their contract changed;
-13. record three independent pre-merge verification passes on the exact final SHA;
-14. advance `main` only after an explicit release decision;
-15. tag released `main` `vX.Y.Z` matching `local_agent.version.RELEASE_VERSION`;
-16. verify the running production version/revision and at least one real repository task after rollout;
-17. remove obsolete candidate branches/worktrees after release is established.
+8. for planner-scope changes, prove normal repository scope remains isolated, invalid scope fails closed, the authorized multirepo workspace resolves only current catalog targets, and Local Agent tasks retain each target repository's exact canonical binding;
+9. review `main...candidate` for architecture, unintended behavior and serial/resource/emergency/self-update regressions;
+10. require full exact-SHA CI: compile, Ruff, full unittest/integration, coverage, Python 3.14 and Bridge browser;
+11. require exact-SHA macOS ARM64 smoke containing changed scheduler policy and integration tests, including MCP HTTP tests when that boundary changes;
+12. run current-documentation/release-metadata contract checks and audit all current operational docs, not just touched files;
+13. audit planner-facing Local Agent docs in every registered downstream repository when their contract changed;
+14. record three independent pre-merge verification passes on the exact final SHA;
+15. advance `main` only after an explicit release decision;
+16. tag released `main` `vX.Y.Z` matching `local_agent.version.RELEASE_VERSION`;
+17. verify the running production version/revision and at least one real repository task after rollout;
+18. remove obsolete candidate branches/worktrees after release is established.
 
-Hard-binding releases additionally require missing/wrong binding rejection on both parallel and serial execution paths, control-binding mismatch admission failure, Chat Bridge unbound/rebind tests, active `cancel_task`, and global `disable` E2E.
+Binding/planner-scope releases additionally require missing/wrong target binding rejection on both parallel and serial execution paths, control-binding mismatch admission failure, normal-scope and multirepo Bridge tests, active `cancel_task`, and global `disable` E2E.
 
 ## Downstream documentation gate
 
-The canonical execution-enabled target set is defined by `config/agent_bindings.json`; do not maintain a second hand-written repository list here. Changes to task schema, planner flow, status/control or execution model require a downstream documentation audit before release. `AGENTS.md` defines the exact downstream files/branches that must remain synchronized.
+The canonical target set is defined by `config/agent_bindings.json`; do not maintain a second hand-written repository list here. Changes to task schema, planner flow, status/control or execution model require a downstream documentation audit before release. `AGENTS.md` defines the exact downstream files/branches that must remain synchronized.
 
-Downstream task examples must include `agent_binding` for executable Chat Bridge/Local Agent work and must not instruct a conversation to select/switch repositories from model context.
+Downstream task examples must include `agent_binding` for executable Chat Bridge/Local Agent work. Normal repository-scoped conversations must not select/switch repositories from model context; explicitly authorized multirepo conversations may change targets only through the current validated runtime catalog.
 
 ## Source of truth
 

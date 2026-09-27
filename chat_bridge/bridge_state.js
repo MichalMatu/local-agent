@@ -15,9 +15,9 @@
   const DEFAULT_RUNTIME_URL =
     "https://raw.githubusercontent.com/MichalMatu/local-agent/chat-bridge-state/chat_bridge/runtime.json";
   const DEFAULT_BOOTSTRAP_PROMPT =
-    "Local Agent Chat Bridge is enabled for this hard-bound conversation. Continue only its active goal from exact bound-repository evidence. Use direct GitHub edits when the exact diff and relevant CI can verify them; use Local Agent for Mac command execution, local builds/tests and devices. Check active local tasks before editing the same branch. For hybrid work verify the exact committed SHA. Follow MichalMatu/local-agent docs/AUTONOMOUS_CHAT_LOOP.md and docs/OPERATIONS.md. Never infer or switch repository identity.";
+    "Local Agent Chat Bridge is enabled for this bound conversation. Continue only its active goal using the repository scope authorized by the Bridge binding policy. Use direct GitHub edits when the exact diff and relevant CI can verify them; use Local Agent for Mac command execution, local builds/tests and devices. Check active local tasks before editing the same branch. For hybrid work verify the exact committed SHA. Follow MichalMatu/local-agent docs/AUTONOMOUS_CHAT_LOOP.md and docs/OPERATIONS.md. Never infer repository identity outside the scope explicitly authorized by the Bridge binding policy.";
   const DEFAULT_WAKE_PROMPT =
-    "[LA_WAKE] Continue the active goal from exact bound-repository evidence. Choose direct GitHub work or bounded local execution as appropriate; verify the exact commit/result. Do not recap unchanged state; keep this wake terse.";
+    "[LA_WAKE] Continue the active goal using the repository scope authorized by the Bridge binding policy. Choose direct GitHub work or bounded local execution as appropriate; verify the exact commit/result. Do not recap unchanged state; keep this wake terse.";
   const DEFAULT_SETTINGS = Object.freeze({
     masterEnabled: true,
     runtimeUrl: DEFAULT_RUNTIME_URL,

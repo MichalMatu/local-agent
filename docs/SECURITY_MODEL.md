@@ -27,10 +27,11 @@ flowchart LR
 
 The important boundaries are:
 
-1. **Planner → control state** — planner intent becomes immutable task data. Local Agent does not infer repository identity from natural-language context.
-2. **Control state → executor** — schema, digest, repository identity, hard binding and resource admission are checked before execution.
-3. **Supervisor → worker** — repository work runs in short-lived isolated worker processes with process-group tracking and inherited execution/resource leases.
-4. **Operator control → all work** — repository-independent emergency disable has precedence over normal task admission.
+1. **Bridge → planner authorization** — one immutable conversation binding carries a validated planner scope. Normal scope is one repository; explicit `multirepo` scope may select only current runtime-catalog targets. Repository identities and binding UUIDs are never inferred from natural-language context.
+2. **Planner → control state** — planner intent becomes immutable task data for one exact target repository. A multirepo conversation still uses that target repository's canonical binding.
+3. **Control state → executor** — schema, digest, repository identity, hard target binding and resource admission are checked before execution.
+4. **Supervisor → worker** — repository work runs in short-lived isolated worker processes with process-group tracking and inherited execution/resource leases.
+5. **Operator control → all work** — repository-independent emergency disable has precedence over normal task admission.
 
 ## What Local Agent protects
 
@@ -38,7 +39,9 @@ The important boundaries are:
 
 One executable repository has one canonical opaque `agent_binding` UUID. Before claim/execution, the executor requires agreement between the machine-local registry, `.agent/binding.json` and the task binding. Missing or mismatched binding fails closed before task commands execute.
 
-Chat Bridge conversation binding is not inferred from model context. Changing repository identity is an explicit operator **Rebind** operation.
+Chat Bridge conversation identity is not inferred from model context. A normal `planner_scope=repository` binding authorizes only its bound repository and changing the conversation binding requires an explicit operator Rebind/remove-add boundary. An explicitly catalog-authorized `planner_scope=multirepo` binding may select another current runtime-catalog repository without changing the conversation binding, but that selection does **not** weaken executor identity: the resulting task still has to carry the selected target repository's exact binding and pass the same registry/control/task equality checks.
+
+The canonical `host-ops` binding is the multirepo operator workspace. Unknown planner scopes fail closed, target identities must come from the validated runtime catalog, and execution-disabled targets cannot receive Local Agent tasks. See [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md).
 
 ### Task identity and replay
 
@@ -92,6 +95,8 @@ The executor intentionally refuses or terminally rejects work when identity or t
 - changed repository configuration between scheduling and dispatch;
 - malformed persistent disable state.
 
+The Bridge likewise fails closed on unknown planner scopes, invalid multirepo authorization or runtime-catalog mismatch. Multirepo planner authorization is not accepted as substitute evidence for a target repository binding.
+
 Unexpected checkout state is not automatically overwritten. Self-update must validate before restart and roll back on validation failure.
 
 ## Operator checklist
@@ -99,7 +104,7 @@ Unexpected checkout state is not automatically overwritten. Self-update must val
 Before enabling autonomous execution:
 
 - verify the running daemon revision/status rather than relying only on the checkout;
-- keep repository bindings and the local registry intentional and unique;
+- keep repository bindings, planner scopes and the local registry intentional and unique;
 - keep `operator-control` available as an independent stop path;
 - do not share control-plane write access with untrusted principals;
 - treat credentials available to the Local Agent OS user as potentially available to executed tasks;
@@ -108,7 +113,7 @@ Before enabling autonomous execution:
 
 ## Security changes
 
-A change to binding, task validation, process lifecycle, emergency controls, Git publication, resource locking, self-update, global control admission/drain policy or command execution is security-relevant even when it is not branded as a security feature. Such changes require targeted positive and negative regression coverage plus the broader release checks described in [`../AGENTS.md`](../AGENTS.md).
+A change to binding, planner scope, task validation, process lifecycle, emergency controls, Git publication, resource locking, self-update, global control admission/drain policy or command execution is security-relevant even when it is not branded as a security feature. Such changes require targeted positive and negative regression coverage plus the broader release checks described in [`../AGENTS.md`](../AGENTS.md).
 
 > [!IMPORTANT]
 > When a safety property matters, encode it in the executor and test it. Planner instructions and documentation are supporting controls, not enforcement boundaries.
