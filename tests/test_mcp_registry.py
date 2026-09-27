@@ -80,6 +80,17 @@ class MCPRegistryTests(unittest.TestCase):
                 {"version": 1, "servers": [server_payload(tools=tools)]}
             )
 
+    def test_non_finite_timeouts_are_rejected(self) -> None:
+        for field, value in (
+            ("connect_timeout_seconds", float("nan")),
+            ("call_timeout_seconds", float("inf")),
+        ):
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(MCPConfigError, "must be finite"):
+                    MCPServerRegistry.from_payload(
+                        {"version": 1, "servers": [server_payload(**{field: value})]}
+                    )
+
     def test_only_explicit_loopback_hosts_are_accepted(self) -> None:
         self.assertEqual(
             validate_loopback_endpoint("http://localhost:8000/mcp"),
