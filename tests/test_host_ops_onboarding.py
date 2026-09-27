@@ -11,7 +11,7 @@ HOST_OPS_BINDING = "16d688b6-b0ef-4905-a5bd-24e59c99cfb4"
 
 
 class HostOpsOnboardingTests(unittest.TestCase):
-    def test_host_ops_is_execution_enabled_in_canonical_catalog(self) -> None:
+    def test_host_ops_is_execution_enabled_multirepo_binding_in_canonical_catalog(self) -> None:
         matches = [record for record in load_binding_catalog() if record.repository_id == "host-ops"]
 
         self.assertEqual(len(matches), 1)
@@ -19,8 +19,9 @@ class HostOpsOnboardingTests(unittest.TestCase):
         self.assertEqual(record.repository, "MichalMatu/host-ops")
         self.assertEqual(record.agent_binding, HOST_OPS_BINDING)
         self.assertTrue(record.execution_enabled)
+        self.assertEqual(record.planner_scope, "multirepo")
 
-    def test_bridge_runtime_example_matches_host_ops_canonical_identity(self) -> None:
+    def test_bridge_runtime_example_matches_host_ops_canonical_identity_and_scope(self) -> None:
         runtime = json.loads(
             (REPO_ROOT / "chat_bridge" / "runtime.example.json").read_text(encoding="utf-8")
         )
@@ -36,6 +37,7 @@ class HostOpsOnboardingTests(unittest.TestCase):
                     "repository": "MichalMatu/host-ops",
                     "agent_binding": HOST_OPS_BINDING,
                     "execution_enabled": True,
+                    "planner_scope": "multirepo",
                 }
             ],
         )
