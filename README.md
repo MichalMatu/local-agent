@@ -39,7 +39,7 @@ flowchart LR
     Worker -->|progress / status / result| Control
 ```
 
-A ChatGPT conversation can be hard-bound to one canonical repository identity. The runtime independently validates the registry binding, control binding and task binding before work may be claimed.
+A ChatGPT conversation always keeps one canonical Bridge binding. Normal bindings authorize only that repository; an explicitly catalog-authorized multirepo planner binding may target other repositories from the validated runtime catalog without changing the conversation binding. Local Agent independently validates the target repository's registry binding, control binding and task binding before work may be claimed.
 
 ## Core capabilities
 
@@ -54,7 +54,7 @@ A ChatGPT conversation can be hard-bound to one canonical repository identity. T
 - transient Git-network retry with actionable terminal diagnostics;
 - validated fast-forward self-update from a clean `main` checkout;
 - repository-scoped task cancellation and persistent global emergency disable;
-- hard Chat Bridge conversation-to-repository binding;
+- immutable Chat Bridge conversation binding with fail-closed repository or explicit multirepo planner scope;
 - generated, user-portable macOS `launchd` deployment.
 
 ## Production execution model
@@ -110,7 +110,7 @@ Resource admission is independent from the per-task RSS watchdog.
 - every subprocess is registered and commands run in process groups;
 - successful commands may not leave background descendants;
 - stale-claim recovery is blocked while any matching inherited repository lease remains alive;
-- missing or mismatched hard binding fails closed before task commands execute;
+- missing or mismatched target-repository binding fails closed before task commands execute;
 - global operator disable takes precedence over normal repository admission;
 - restart, status and self-update wait for a quiescent worker set and all configured repository identities.
 
@@ -238,7 +238,8 @@ Recommended reading order for runtime changes:
 4. [`docs/GOLDEN_STANDARD.md`](docs/GOLDEN_STANDARD.md) — current production invariants.
 5. [`docs/EMERGENCY_CONTROLS.md`](docs/EMERGENCY_CONTROLS.md) — cancellation, disable and recovery.
 6. [`docs/AUTONOMOUS_CHAT_LOOP.md`](docs/AUTONOMOUS_CHAT_LOOP.md) — Chat Bridge planner loop.
-7. [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — operational release history.
+7. [`docs/HOST_OPS_MULTIREPO.md`](docs/HOST_OPS_MULTIREPO.md) — cross-repository `host-ops` planner scope.
+8. [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — operational release history.
 
 Historical material under `docs/history/` is non-canonical.
 
