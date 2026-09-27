@@ -40,16 +40,17 @@ Write and arbitrary-code calls require the matching `--intent` value. Existing L
 
 ## Re-audit hardening
 
-The pre-release architecture/security re-audit found no need for an application-specific MCP adapter and no scheduler/task-schema change. It did identify two defense-in-depth gaps and closed both before release:
+The pre-release architecture/security re-audit found no need for an application-specific MCP adapter and no scheduler/task-schema change. It identified two defense-in-depth gaps and one usability ambiguity, all closed before release:
 
 1. the 64 KiB tool-argument bound had been enforced by the CLI but not by direct library callers;
-2. deterministic artifact filenames used only the first 16 hexadecimal SHA-256 characters even though full SHA-256 metadata was already returned.
+2. deterministic artifact filenames used only the first 16 hexadecimal SHA-256 characters even though full SHA-256 metadata was already returned;
+3. CLI documentation did not make the global/subcommand placement of `--registry` and `--artifact-dir` sufficiently explicit.
 
-The final boundary now enforces the argument bound inside `call_tool()` before connecting and uses the full SHA-256 digest in artifact filenames. Regression coverage verifies oversized and non-JSON-serializable programmatic arguments fail before network access and verifies full-digest artifact naming.
+The final boundary enforces the argument bound inside `call_tool()` before connecting, returns the dedicated `invalid_arguments` boundary error for invalid programmatic input, and uses the full SHA-256 digest in artifact filenames. Regression coverage verifies oversized and non-JSON-serializable programmatic arguments fail before network access, full-digest artifact naming, and CLI option placement.
 
 ## Live Fusion 360 evidence
 
-A real Autodesk Fusion 360 MCP server was used as the first external application proof without adding Fusion-specific runtime code. The server listened only on `127.0.0.1:27182`; `/mcp` negotiated MCP protocol `2025-11-25` and identified itself as `MCP Server Adapter` 1.0.0.
+Autodesk Fusion 360's local MCP server was used as the first real external application proof without adding Fusion-specific runtime code. The server listened only on `127.0.0.1:27182`; `/mcp` negotiated MCP protocol `2025-11-25` and identified itself as `MCP Server Adapter` 1.0.0.
 
 Live discovery exposed exactly four tools:
 
@@ -58,15 +59,24 @@ Live discovery exposed exactly four tools:
 - `fusion_mcp_read` — read geometric/model/document/project/licensing/screenshot data;
 - `fusion_mcp_update` — update the active Fusion model.
 
-Only `fusion_mcp_read` was locally enabled with risk `read`. No write or arbitrary-code smoke was performed. A live `activeCommand` call succeeded with `ok=true`, `is_error=false` and returned Fusion's default `SelectCommand`. A separate 256 x 256 screenshot call returned MCP image content that Local Agent persisted as a real PNG rather than base64 output; the proof file was 878 bytes and its SHA-256 was `f6c9aed9c97ee674686aed4fdb8333683df232d559a817d2e4178f41e0f9ca46`.
+Only `fusion_mcp_read` was locally enabled with risk `read`. No write or arbitrary-code smoke was performed.
 
-That live proof was performed on the generic candidate before the final argument-bound/full-filename hardening. Because those hardening changes touch the same MCP boundary, the release gate requires one final read-only Fusion recheck on the frozen runtime candidate before `main` advances.
+After final hardening, the full read-only proof was repeated on exact runtime SHA `143e0c8817400b2bf993fe33eef4b21da2c356b7`:
+
+- discovery again negotiated MCP `2025-11-25` and returned the same four tools;
+- local policy showed `fusion_mcp_read` configured/enabled as risk `read`, with `fusion_mcp_execute` and `fusion_mcp_update` unconfigured/disabled;
+- `activeCommand` succeeded with `ok=true`, `is_error=false` and returned Fusion's default `SelectCommand`;
+- a 256 x 256 screenshot returned MCP image content that Local Agent persisted as a real PNG rather than base64 output;
+- the PNG was 878 bytes with SHA-256 `f6c9aed9c97ee674686aed4fdb8333683df232d559a817d2e4178f41e0f9ca46`;
+- the complete SHA-256 appeared in the persisted filename, proving the hardened artifact identity path on a real application.
 
 ## Verification
 
-The candidate adds focused positive/negative registry and policy tests plus a real hermetic Streamable HTTP server integration suite. The HTTP suite exercises SDK discovery/protocol negotiation, read invocation, explicit write/arbitrary-code intent, bounded arguments, connection/call timeouts, malformed responses, oversized text, image artifact persistence, deterministic full-digest naming and size rejection. The MCP suites are included in macOS smoke.
+The candidate includes focused positive/negative registry and policy tests plus a real hermetic Streamable HTTP server integration suite. The HTTP suite exercises SDK discovery/protocol negotiation, read invocation, explicit write/arbitrary-code intent, bounded arguments, connection/call timeouts, malformed responses, oversized text, image/blob artifact persistence, deterministic full-digest naming and size/MIME rejection. The MCP suites are included in macOS smoke.
 
-Before release, the exact final candidate still requires the existing full CI matrix and exact-SHA macOS smoke. After runtime hardening is frozen, repeat the live Fusion 360 proof with discovery plus read-only text and image invocation. No application-specific runtime exception is permitted.
+Hardened runtime SHA `143e0c8817400b2bf993fe33eef4b21da2c356b7` passed GitHub Actions run `36288336646` across compile/Ruff/full tests, coverage, Python 3.14, Chromium Bridge browser smoke, and macOS smoke. The final live Fusion read-only recheck also passed on that exact runtime SHA.
+
+Documentation-only release-evidence commits after the frozen runtime SHA require one final exact-SHA CI pass before `main` advances. See `MCP_RELEASE_AUDIT_V4.19.0.md` for the complete release gate record.
 
 ## Deployment
 
