@@ -206,29 +206,8 @@ async function labInspectionFeedback(parsed, message, sender) {
 }
 
 async function labForceReloadContent(tabId, expectedUrl) {
-  try {
-    await chrome.scripting.executeScript({
-      target: { tabId, frameIds: [0] },
-      func: () => {
-        try { globalThis.__localAgentChatBridgeState?.dispose?.(); } catch (_error) {}
-        try { globalThis.__localAgentChatExhaustionGuard?.dispose?.(); } catch (_error) {}
-        globalThis.__localAgentChatBridgeState = null;
-        globalThis.__localAgentChatExhaustionGuard = null;
-      }
-    });
-    await chrome.scripting.executeScript({
-      target: { tabId, frameIds: [0] },
-      files: [
-        "control_protocol.js",
-        "content_retry.js",
-        "content.js",
-        "dom_contract.js",
-        "exhaustion_guard.js"
-      ]
-    });
-  } catch (error) {
-    return { ok: false, reason: "content_script_unavailable", error: String(error) };
-  }
+  const reload = await reloadContentScripts(tabId);
+  if (!reload.ok) return reload;
   const content = await probeContentScript(tabId, expectedUrl);
   if (!content.ok) return content;
   const guard = await probeExhaustionGuard(tabId, expectedUrl);
