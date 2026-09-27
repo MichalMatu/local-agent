@@ -135,7 +135,7 @@ Bridge intentionally does **not** keep a durable ambiguous-delivery journal for 
 
 Content protocol v7 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available and the LAB operator-control baseline. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
 
-Chat Bridge 0.5.10 keeps content protocol v7 because the ordinary submission protocol is unchanged. Assistant terminal-error observation has an independent guard protocol, currently v3. Worker activation probes both the content protocol and the assistant guard; a reachable stale guard is replaced even when `content.js` itself is already current.
+Chat Bridge 0.5.11 keeps content protocol v7 because the ordinary submission protocol is unchanged. Assistant terminal-error observation has an independent guard protocol, currently v3. Worker activation probes both the content protocol and the assistant guard; a reachable stale guard is replaced even when `content.js` itself is already current.
 
 Popup and scheduled-wake paths share worker-owned content activation. Popup does not maintain a second protocol version or `chrome.scripting.executeScript` implementation. When a tab must be refreshed, the worker disposes current Bridge/guard listeners, injects the required scripts, then probes readiness again. A reachable older content script or assistant guard therefore must not require a normal manual ChatGPT page reload.
 
@@ -236,7 +236,7 @@ The parallel worker and serial fallback enforce the same contract before task ex
 6. Select `host-ops` when one conversation should be the cross-repository operator workspace; normal repository selections remain single-repository.
 7. Use a chat control or `Run now` for an end-to-end test.
 
-After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to replace a reachable older content protocol **and** a reachable older assistant guard automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Chat Bridge 0.5.10 requires Chrome 120 or newer.
+After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to replace a reachable older content protocol **and** a reachable older assistant guard automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Chat Bridge 0.5.11 requires Chrome 120 or newer.
 
 ## Development validation
 
