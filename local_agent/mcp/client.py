@@ -6,8 +6,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+import httpx2
 from mcp import Client
 from mcp import types
+from mcp.client.streamable_http import streamable_http_client
 
 from local_agent.mcp.artifacts import PendingArtifact, commit_artifact, prepare_artifact
 from local_agent.mcp.config import MCPServerConfig
@@ -50,32 +52,37 @@ def _bounded_payload(payload: dict[str, Any], max_bytes: int) -> dict[str, Any]:
     return payload
 
 
+def _looks_like_timeout(exc: BaseException) -> bool:
+    return isinstance(exc, TimeoutError) or "Timeout" in type(exc).__name__
+
+
 @asynccontextmanager
 async def _connected(server: MCPServerConfig) -> AsyncIterator[Client]:
-    client = Client(server.endpoint)
     entered = False
     try:
-        try:
-            async with asyncio.timeout(server.connect_timeout_seconds):
-                await client.__aenter__()
-        except TimeoutError:
+        async with httpx2.AsyncClient(
+            timeout=httpx2.Timeout(server.connect_timeout_seconds),
+            trust_env=False,
+        ) as http_client:
+            transport = streamable_http_client(server.endpoint, http_client=http_client)
+            async with Client(transport) as client:
+                entered = True
+                http_client.timeout = httpx2.Timeout(
+                    server.call_timeout_seconds,
+                    connect=server.connect_timeout_seconds,
+                )
+                yield client
+    except MCPBoundaryError:
+        raise
+    except Exception as exc:
+        if not entered and _looks_like_timeout(exc):
             raise MCPConnectionTimeoutError(
                 f"MCP connection to {server.server_id!r} exceeded "
                 f"{server.connect_timeout_seconds:g}s"
             ) from None
-        except Exception as exc:
-            raise MCPTransportError(
-                f"MCP connection to {server.server_id!r} failed: {type(exc).__name__}: {exc}"
-            ) from None
-        entered = True
-        yield client
-    finally:
-        if entered:
-            try:
-                async with asyncio.timeout(server.connect_timeout_seconds):
-                    await client.__aexit__(None, None, None)
-            except Exception:
-                pass
+        raise MCPTransportError(
+            f"MCP transport for {server.server_id!r} failed: {type(exc).__name__}: {exc}"
+        ) from None
 
 
 async def _list_all_tools(client: Client, server: MCPServerConfig) -> list[Any]:
