@@ -81,9 +81,7 @@ def prepare_artifact(
 
     digest = hashlib.sha256(data).hexdigest()
     extension = _EXTENSIONS.get(mime_type, ".bin")
-    filename = (
-        f"{server.server_id}--{_safe_component(tool_name)}--{index:03d}--{digest[:16]}{extension}"
-    )
+    filename = f"{server.server_id}--{_safe_component(tool_name)}--{index:03d}--{digest}{extension}"
     root = artifact_dir.expanduser().resolve()
     path = root / filename
     return PendingArtifact(
