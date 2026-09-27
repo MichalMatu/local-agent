@@ -135,9 +135,9 @@ Bridge intentionally does **not** keep a durable ambiguous-delivery journal for 
 
 Content protocol v7 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available and the LAB operator-control baseline. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
 
-Chat Bridge 0.5.11 keeps content protocol v7 because the ordinary submission protocol is unchanged. Assistant terminal-error observation has an independent guard protocol, currently v3. Worker activation probes both the content protocol and the assistant guard; a reachable stale guard is replaced even when `content.js` itself is already current.
+Chat Bridge 0.5.12 keeps content protocol v7 because the ordinary submission protocol is unchanged. Assistant terminal-error observation has an independent guard protocol, currently v3. Worker activation probes both the content protocol and the assistant guard; a reachable stale guard is replaced even when `content.js` itself is already current.
 
-Popup and scheduled-wake paths share worker-owned content activation. Popup does not maintain a second protocol version or `chrome.scripting.executeScript` implementation. When a tab must be refreshed, the worker disposes current Bridge/guard listeners, injects the required scripts, then probes readiness again. A reachable older content script or assistant guard therefore must not require a normal manual ChatGPT page reload.
+Popup, scheduled-wake and `Run now` paths share worker-owned content activation. Popup does not maintain a second protocol version or `chrome.scripting.executeScript` implementation. When content is unavailable or protocol-mismatched, the worker disposes and clears retained Bridge/guard globals, injects the complete content bundle in dependency order, then probes readiness again. This also repairs the same-version stale-global case where an old extension context left `__localAgentChatBridgeState` present but its message receiver no longer works. When only the exhaustion guard is stale while current content remains healthy, the worker refreshes only the guard dependency set. `LAB:RELOAD=CONTENT` reuses the same centralized hard content reload.
 
 After insertion/submission:
 
@@ -236,7 +236,7 @@ The parallel worker and serial fallback enforce the same contract before task ex
 6. Select `host-ops` when one conversation should be the cross-repository operator workspace; normal repository selections remain single-repository.
 7. Use a chat control or `Run now` for an end-to-end test.
 
-After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to replace a reachable older content protocol **and** a reachable older assistant guard automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Chat Bridge 0.5.11 requires Chrome 120 or newer.
+After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to repair unavailable/same-version stale receivers, replace reachable older content protocols and refresh stale assistant guards automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Chat Bridge 0.5.12 requires Chrome 120 or newer.
 
 ## Development validation
 
@@ -247,4 +247,4 @@ npx playwright install chromium
 python scripts/verify.py --profile bridge-browser
 ```
 
-Browser smoke uses a disposable offline Chromium profile and the actual unpacked extension. It covers confirmed submission, composer replacement, draft preservation, SPA navigation, overlapping sends, retained/non-blocking `delivery_unconfirmed` recovery, popup behavior, service-worker restart, operator-control replay baselining, stale protocol/guard refresh, the captured assistant-timeout DOM, stale-timeout rejection and same-node long-generation three-attempt fail-closed recovery without contacting the operator's real ChatGPT session.
+Browser smoke uses a disposable offline Chromium profile and the actual unpacked extension. It covers confirmed submission, composer replacement, draft preservation, SPA navigation, overlapping sends, retained/non-blocking `delivery_unconfirmed` recovery, popup behavior, service-worker restart, operator-control replay baselining, stale protocol/guard refresh, same-version stale-content receiver recovery, the captured assistant-timeout DOM, stale-timeout rejection and same-node long-generation three-attempt fail-closed recovery without contacting the operator's real ChatGPT session.
