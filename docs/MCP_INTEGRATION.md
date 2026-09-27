@@ -63,6 +63,8 @@ Server-provided names, descriptions and MCP tool annotations are discovery metad
 
 Before an authorized call, Local Agent lists the server tools and requires the exact configured tool to be exposed. Discovery count and serialized metadata are bounded before invocation.
 
+Tool arguments are also a protocol-boundary input, not merely a CLI concern. The CLI rejects raw argument JSON above 64 KiB before parsing, and the library client independently requires a JSON-serializable object whose canonical serialized form is at most 64 KiB before any MCP network call. Direct Python callers therefore cannot bypass the CLI bound.
+
 ## Bounded results and artifacts
 
 Text and structured JSON remain inline only when the complete structured Local Agent result fits `max_text_bytes`. Oversized discovery or tool results fail closed rather than being silently truncated.
@@ -75,7 +77,7 @@ The default artifact root is:
 ~/Library/Application Support/local-agent/mcp/artifacts/
 ```
 
-Each artifact uses a deterministic filename derived from server id, tool name, content index and SHA-256. It is written atomically and returned only as metadata containing absolute path, MIME type, byte size and full SHA-256 digest.
+Each artifact uses a deterministic filename derived from server id, tool name, content index and the full SHA-256 digest. It is written atomically and returned only as metadata containing absolute path, MIME type, byte size and the same full SHA-256 digest. Using the complete digest in both path and metadata avoids a shortened-hash path collision becoming an overwrite identity.
 
 ## CLI contract
 
@@ -88,7 +90,19 @@ python -m local_agent.mcp.cli call <server-id> <tool-name> --arguments '{"key":"
 python -m local_agent.mcp.cli call <server-id> <tool-name> --intent write --arguments '{}'
 ```
 
-Use `--registry <path>` only for an explicit alternate machine-local registry. `call` also accepts `--artifact-dir <path>`; otherwise the canonical Local Agent artifact directory is used.
+Use `--registry <path>` only for an explicit alternate machine-local registry. Because it is a global CLI option it precedes the subcommand, for example:
+
+```bash
+python -m local_agent.mcp.cli --registry /path/to/servers.json tools <server-id>
+```
+
+`call` accepts `--artifact-dir <path>` as a subcommand option, for example:
+
+```bash
+python -m local_agent.mcp.cli --registry /path/to/servers.json call --artifact-dir /path/to/artifacts <server-id> <tool-name> --arguments '{}'
+```
+
+Otherwise the canonical Local Agent artifact directory is used.
 
 This interface intentionally does not alter the Local Agent task schema or scheduler. The normal path is:
 
@@ -102,10 +116,10 @@ Local Agent task
 
 ## Verification
 
-Focused coverage must preserve registry validation, duplicate ids, loopback rejection, unknown/disabled server and tool policy, explicit write/arbitrary-code intent, connection and call timeouts, malformed responses, bounded discovery, bounded text, binary artifact persistence, MIME/size rejection, normal invocation, and SDK protocol negotiation.
+Focused coverage must preserve registry validation, duplicate ids, loopback rejection, unknown/disabled server and tool policy, explicit write/arbitrary-code intent, bounded JSON-serializable arguments at both CLI and client boundaries, connection and call timeouts, malformed responses, bounded discovery, bounded text, binary artifact persistence, MIME/size rejection, full-digest deterministic artifact naming, normal invocation, and SDK protocol negotiation.
 
 Transport evidence uses a real hermetic loopback Streamable HTTP MCP server from the official SDK, not only mocks. The same tests are included in the macOS smoke profile.
 
-A live application smoke is separate evidence. For the first Fusion 360 proof, configure its discovered loopback endpoint in the machine-local registry, run discovery, preserve the real tool list as evidence, and invoke only policy-classified read tools. If an image is returned, verify the artifact metadata and digest. Do not run write or arbitrary-code tools during that first smoke. No Fusion-specific exception belongs in `local_agent.mcp`.
+A live application smoke is separate evidence. For the first Fusion 360 proof, configure its discovered loopback endpoint in the machine-local registry, run discovery, preserve the real tool list as evidence, and invoke only policy-classified read tools. If an image is returned, verify the persisted artifact MIME, byte size and full SHA-256 digest. Do not run write or arbitrary-code tools during that first smoke. No Fusion-specific exception belongs in `local_agent.mcp`.
 
 A second standards-compliant application such as KiCad should require only another registry entry and policy; needing runtime application code is evidence that this generic boundary should be re-evaluated.
