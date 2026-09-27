@@ -15,6 +15,8 @@ flowchart LR
     Supervisor["Supervisor"]
     Worker["Repository worker"]
     Runtime["Task runtime"]
+    MCP["Generic local MCP client"]
+    LocalApp["Configured loopback MCP server"]
     Repo["Project repository"]
     Results["Durable result / status"]
     Operator["Local + remote operator controls"]
@@ -27,11 +29,13 @@ flowchart LR
     Supervisor --> Worker
     Worker --> Runtime
     Runtime --> Repo
+    Runtime -->|packaged CLI/client| MCP
+    MCP -->|Streamable HTTP, loopback only| LocalApp
     Runtime --> Results
     Results --> Control
 ```
 
-The planner chooses intent. The executor independently owns repository identity, hard binding, resource admission, process lifecycle, watchdogs, checkpoints, publication and emergency stop.
+The planner chooses intent. The executor independently owns repository identity, hard binding, resource admission, process lifecycle, watchdogs, checkpoints, publication and emergency stop. Optional MCP access is a separate Local Agent-owned boundary: machine-local configuration chooses an exact loopback server and exact tool policy; discovery metadata never grants execution authority.
 
 ## Package map
 
@@ -51,6 +55,15 @@ local_agent/
 │   ├── core.py
 │   ├── process.py
 │   └── storage.py
+├── mcp/
+│   ├── __init__.py
+│   ├── artifacts.py
+│   ├── cli.py
+│   ├── client.py
+│   ├── config.py
+│   ├── errors.py
+│   ├── policy.py
+│   └── registry.py
 ├── operator/
 │   ├── local.py
 │   └── remote.py
@@ -91,6 +104,7 @@ The package is the implementation home for reusable code. New implementation mus
 | Checkout paths | `local_agent/paths.py` | explicit source checkout resolution, independent of cwd |
 | Release version | `local_agent/version.py` | one release version constant |
 | Runtime configuration | `local_agent/config.py` | startup-loaded timeout policy |
+| Generic local MCP | `local_agent/mcp/` | typed machine-local server registry, loopback Streamable HTTP sessions, explicit per-tool policy, bounded discovery/results/artifacts and MCP CLI |
 | Execution core | `local_agent/foundation/core.py` | deterministic task execution, workspace preparation/checkpointing and result publication |
 | Process foundation | `local_agent/foundation/process.py` | registered spawning, process groups, bounded stdout, durable writes and inherited lease FDs |
 | Storage foundation | `local_agent/foundation/storage.py` | bounded control Git sync, resilient network retry and storage diagnostics |
@@ -113,6 +127,8 @@ The package is the implementation home for reusable code. New implementation mus
 | Resource admission | `local_agent/supervisor/resources.py` | machine/named-resource flock arbitration and inherited resource FDs |
 | Parallel repository worker | `local_agent/supervisor/worker.py` | resource-aware parallel task admission and dispatch |
 | macOS integration | `local_agent/platform/macos_launchd.py` | portable LaunchAgent generation/lifecycle helpers |
+
+The MCP boundary is deliberately parallel to, not embedded in, the task executor. An ordinary task may invoke the packaged MCP CLI, which performs its own server/policy/bounds checks and returns structured bounded output through the existing command/result mechanism. `host-ops` is not a protocol owner and the task schema/scheduler do not gain MCP-specific fields.
 
 The control-admission boundary is deliberate: `scheduling.py` owns deterministic state transitions and policy decisions and has no Git/process/daemon side effects. `orchestrator.py` observes real probe outcomes and executes the chosen side effect. This keeps BUG-002 handling directly testable without embedding another policy state machine in the supervisor loop.
 
@@ -145,16 +161,18 @@ flowchart TD
     Root --> Repo["local_agent.repository"]
     Root --> Runtime["local_agent.runtime"]
     Root --> Operator["local_agent.operator"]
+    Runtime --> MCP["local_agent.mcp CLI/client"]
     Supervisor --> Repo
     Supervisor --> Runtime
     Supervisor --> Foundation["local_agent.foundation"]
     Repo --> Foundation
     Runtime --> Foundation
+    MCP --> Foundation
     Operator --> Repo
     Operator --> Foundation
 ```
 
-Packaged modules and tests import packaged owners directly. Imports of root launcher names are unsupported and prohibited.
+Packaged modules and tests import packaged owners directly. Imports of root launcher names are unsupported and prohibited. MCP does not import scheduler, task-contract, repository-worker or host-ops application code; its only low-level Local Agent dependency is the durable filesystem helper used for artifact publication.
 
 ## Remaining decomposition opportunities
 
@@ -176,6 +194,9 @@ The scheduling extraction remains direct: production calls `scheduling.py` and s
 - interrupted claimed work is never silently replayed;
 - publication retry may republish evidence but may not rerun commands;
 - command output, task time and RSS remain bounded;
+- MCP endpoint identity remains explicit loopback-only machine configuration and MCP discovery remains separate from execution authorization;
+- MCP write/arbitrary-code execution requires matching machine policy plus matching explicit invocation intent;
+- MCP stdio remains unavailable until its process is owned by the registered spawn/process-group lifecycle contract;
 - repository and resource lease FDs remain inherited through descendants;
 - resource contention occurs before claim and remains durable waiting;
 - global maintenance drains active workers and acquires repository identities;
@@ -203,9 +224,10 @@ flowchart LR
     CI --> Coverage["branch-aware coverage"]
     CI --> Py314["Python 3.14"]
     CI --> Mac["macOS smoke"]
+    Mac --> MCPHTTP["real loopback MCP HTTP smoke"]
 ```
 
-Package-layout changes additionally require `tests/test_package_layout.py` to stay green so moved implementations cannot silently grow back into root shims.
+Package-layout changes additionally require `tests/test_package_layout.py` to stay green so moved implementations cannot silently grow back into root shims. MCP changes additionally require the hermetic Streamable HTTP tests because mocks cannot prove the transport and SDK negotiation boundary.
 
 Coverage remains a risk map, not a vanity gate. Lower-covered orchestration and shutdown paths deserve targeted tests before cosmetic decomposition. Current-documentation and release-metadata contract tests prevent operational examples and release identity from silently drifting behind runtime behavior.
 
