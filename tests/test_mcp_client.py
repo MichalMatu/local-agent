@@ -17,7 +17,9 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Image
 
 from local_agent.mcp.client import call_tool, discover_tools
+from local_agent.mcp.config import MAX_ARGUMENT_BYTES
 from local_agent.mcp.errors import (
+    MCPArgumentsError,
     MCPArtifactError,
     MCPCallTimeoutError,
     MCPConnectionTimeoutError,
@@ -209,6 +211,30 @@ class MCPHTTPIntegrationTests(unittest.TestCase):
         self.assertEqual(result["risk"], "read")
         self.assertTrue(any(item.get("text") == "read:hello" for item in result["content"]))
 
+    def test_programmatic_arguments_are_bounded_before_network(self) -> None:
+        registry = _registry(_server_record(_free_port()))
+        with self.assertRaisesRegex(MCPArgumentsError, "arguments exceed"):
+            asyncio.run(
+                call_tool(
+                    registry,
+                    "http-test",
+                    "read_tool",
+                    {"value": "x" * MAX_ARGUMENT_BYTES},
+                )
+            )
+
+    def test_programmatic_arguments_must_be_json_serializable(self) -> None:
+        registry = _registry(_server_record(_free_port()))
+        with self.assertRaisesRegex(MCPArgumentsError, "not JSON-serializable"):
+            asyncio.run(
+                call_tool(
+                    registry,
+                    "http-test",
+                    "read_tool",
+                    {"value": object()},
+                )
+            )
+
     def test_write_and_arbitrary_code_succeed_only_with_matching_intent(self) -> None:
         registry = _registry(_server_record(self.port))
         write = asyncio.run(
@@ -251,11 +277,13 @@ class MCPHTTPIntegrationTests(unittest.TestCase):
             image = next(item for item in result["content"] if item["type"] == "image")
             metadata = image["artifact"]
             path = Path(metadata["path"])
+            digest = hashlib.sha256(PNG_BYTES).hexdigest()
             self.assertTrue(path.is_file())
             self.assertEqual(path.read_bytes(), PNG_BYTES)
             self.assertEqual(metadata["mime_type"], "image/png")
             self.assertEqual(metadata["size"], len(PNG_BYTES))
-            self.assertEqual(metadata["sha256"], hashlib.sha256(PNG_BYTES).hexdigest())
+            self.assertEqual(metadata["sha256"], digest)
+            self.assertTrue(path.name.endswith(f"--{digest}.png"))
             self.assertNotIn("data", image)
 
     def test_blob_resource_is_persisted_without_base64_in_output(self) -> None:
