@@ -76,3 +76,9 @@ Multirepo scope deliberately changes planner authorization, not executor trust b
 - global emergency controls, repository leases and task/resource limits are unchanged.
 
 This separation allows a `host-ops` chat to behave as one practical operator workspace without turning `host-ops` into a scheduler or weakening Local Agent's repository isolation.
+
+## Downstream documentation audit
+
+The registered project repositories keep `planner_scope=repository`, so their existing project-chat contract remains unchanged: a directly project-bound conversation is still single-repository and every Local Agent task still carries that project's exact binding.
+
+The release audit therefore does not require project-document rewrites merely to introduce the `host-ops` operator scope. The reviewed downstream instructions continue to describe target-repository task binding and repository-scoped execution correctly. If a downstream repository later gains its own `multirepo` scope or begins documenting the `host-ops` operator workspace, that repository's planner documentation must be updated explicitly.
