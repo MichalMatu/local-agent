@@ -16,7 +16,20 @@ function sanitizeRuntimeAgent(raw) {
   if (typeof raw.execution_enabled !== "boolean") {
     throw new Error("runtime execution_enabled must be a boolean");
   }
-  return { repositoryId, repository, agentBinding, executionEnabled: raw.execution_enabled };
+  const plannerScope = raw.planner_scope === undefined ? "repository" : String(raw.planner_scope).trim();
+  if (!["repository", "multirepo"].includes(plannerScope)) {
+    throw new Error("runtime planner_scope must be repository or multirepo");
+  }
+  if (plannerScope === "multirepo" && raw.execution_enabled === false) {
+    throw new Error("runtime multirepo planner scope requires execution_enabled=true");
+  }
+  return {
+    repositoryId,
+    repository,
+    agentBinding,
+    executionEnabled: raw.execution_enabled,
+    plannerScope
+  };
 }
 
 function validateRuntimeAgents(rawAgents) {
