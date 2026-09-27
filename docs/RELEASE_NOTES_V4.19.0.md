@@ -72,12 +72,12 @@ After final hardening, the full read-only proof was repeated on exact runtime SH
 
 ## Verification
 
-The candidate includes focused positive/negative registry and policy tests plus a real hermetic Streamable HTTP server integration suite. The HTTP suite exercises SDK discovery/protocol negotiation, read invocation, explicit write/arbitrary-code intent, bounded arguments, connection/call timeouts, malformed responses, oversized text, image/blob artifact persistence, deterministic full-digest naming and size/MIME rejection. The MCP suites are included in macOS smoke.
+The candidate included focused positive/negative registry and policy tests plus a real hermetic Streamable HTTP server integration suite. The HTTP suite exercised SDK discovery/protocol negotiation, read invocation, explicit write/arbitrary-code intent, bounded arguments, connection/call timeouts, malformed responses, oversized text, image/blob artifact persistence, deterministic full-digest naming and size/MIME rejection. The MCP suites are included in macOS smoke.
 
 Hardened runtime SHA `143e0c8817400b2bf993fe33eef4b21da2c356b7` passed GitHub Actions run `36288336646` across compile/Ruff/full tests, coverage, Python 3.14, Chromium Bridge browser smoke, and macOS smoke. The final live Fusion read-only recheck also passed on that exact runtime SHA.
 
-Documentation-only release-evidence commits after the frozen runtime SHA require one final exact-SHA CI pass before `main` advances. See `MCP_RELEASE_AUDIT_V4.19.0.md` for the complete release gate record.
+Release `v4.19.0` was subsequently tagged on production `main` at commit `1ea863d06a20e766f9fe0fa5589cc59aa0e2671a`. Published Local Agent repository status has confirmed daemon version `4.19.0`, that exact self revision, parallel execution and an idle worker. See `MCP_RELEASE_AUDIT_V4.19.0.md` for the release record.
 
 ## Deployment
 
-Production remains v4.18.26 until the explicit release decision. Before installing 4.19.0 on the production checkout, install `requirements-runtime.txt` into the Local Agent virtual environment so self-update/full verification can execute the MCP tests. Configure MCP servers only in the machine-local registry; no server endpoints or policies belong in Git.
+Local Agent 4.19.0 is the production baseline preceding 4.19.1. Production installations require `requirements-runtime.txt` in the Local Agent virtual environment so self-update/full verification can execute the MCP tests. MCP servers remain machine-local configuration only; no server endpoints or policies belong in Git.
