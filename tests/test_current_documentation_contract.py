@@ -106,7 +106,10 @@ class CurrentDocumentationContractTests(unittest.TestCase):
 
     def test_golden_standard_distinguishes_candidate_source_from_production(self) -> None:
         golden = (REPO_ROOT / "docs" / "GOLDEN_STANDARD.md").read_text(encoding="utf-8")
-        source_match = re.search(r"source release is `v([^`]+)`", golden)
+        source_match = re.search(
+            r"(?:source release|base source release marker) is `v([^`]+)`",
+            golden,
+        )
         production_match = re.search(r"current production release is `v([^`]+)`", golden)
         self.assertIsNotNone(source_match, "missing source release declaration")
         self.assertIsNotNone(production_match, "missing production release declaration")
@@ -118,7 +121,10 @@ class CurrentDocumentationContractTests(unittest.TestCase):
         self.assertEqual(source_release, RELEASE_VERSION)
 
         if production_release != source_release:
-            self.assertIn(f"The {source_release} candidate", golden)
+            self.assertTrue(
+                f"The {source_release} candidate" in golden
+                or f"The {source_release} base candidate" in golden
+            )
             self.assertIn(
                 f"deployed production release remains `v{production_release}` until the explicit release decision advances `main`",
                 golden,
