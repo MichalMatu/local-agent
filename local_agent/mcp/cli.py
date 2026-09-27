@@ -6,10 +6,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from local_agent.mcp.errors import MCPBoundaryError, MCPConfigError
+from local_agent.mcp.config import MAX_ARGUMENT_BYTES
+from local_agent.mcp.errors import MCPArgumentsError, MCPBoundaryError
 from local_agent.mcp.registry import MCPServerRegistry, default_registry_path
-
-MAX_ARGUMENT_BYTES = 64 * 1024
 
 
 def _print_json(payload: Any) -> None:
@@ -66,13 +65,13 @@ def command_tools(args: argparse.Namespace) -> int:
 
 def _arguments(raw: str) -> dict[str, Any]:
     if len(raw.encode("utf-8")) > MAX_ARGUMENT_BYTES:
-        raise MCPConfigError(f"tool arguments exceed {MAX_ARGUMENT_BYTES} bytes")
+        raise MCPArgumentsError(f"tool arguments exceed {MAX_ARGUMENT_BYTES} bytes")
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise MCPConfigError(f"tool arguments are not valid JSON: {exc}") from None
+        raise MCPArgumentsError(f"tool arguments are not valid JSON: {exc}") from None
     if not isinstance(value, dict):
-        raise MCPConfigError("tool arguments must be a JSON object")
+        raise MCPArgumentsError("tool arguments must be a JSON object")
     return value
 
 
