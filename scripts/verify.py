@@ -49,6 +49,8 @@ MACOS_SMOKE_TESTS = (
     "tests.test_supervisor_modules",
     "tests.test_emergency_controls",
     "tests.test_entrypoint_guard",
+    "tests.test_mcp_registry",
+    "tests.test_mcp_client",
 )
 
 
