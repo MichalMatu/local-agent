@@ -23,6 +23,18 @@ async function add(harness, overrides = {}) {
   return result.conversation.id;
 }
 
+function assertSingleHardReload(harness) {
+  assert.equal(harness.injectedScripts.length, 2);
+  assert.equal(harness.injectedScripts[0].hasFunction, true);
+  assert.deepEqual(harness.injectedScripts[1].files, [
+    "control_protocol.js",
+    "content_retry.js",
+    "content.js",
+    "dom_contract.js",
+    "exhaustion_guard.js"
+  ]);
+}
+
 (async () => {
   // Alarm/manual overlap cannot authorize two sends or rebind/remove an in-flight wake.
   {
@@ -96,7 +108,7 @@ async function add(harness, overrides = {}) {
     assert.equal(removed.ok, true);
   }
 
-  // A missing content script is re-injected before delivery.
+  // A missing content script is hard-reloaded once before delivery.
   {
     let probes = 0;
     const h = createHarness({
@@ -109,12 +121,12 @@ async function add(harness, overrides = {}) {
     const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
     assert.equal(result.reason, "content_script_unavailable");
     assert.equal(probes, 2);
-    assert.equal(h.injectedScripts.length, 1);
+    assertSingleHardReload(h);
     assert.equal(h.sentMessages.length, 0);
     assert.equal(h.storage.bridgeState.conversations[id].enabled, true);
   }
 
-  // A stale reachable 0.5.5/protocol-v4 content script is replaced once and the wake continues.
+  // A stale reachable 0.5.5/protocol-v4 content script is hard-reloaded once and the wake continues.
   {
     let probes = 0;
     const h = createHarness({ contentScriptProbe: async ({ injectedScripts }) => {
@@ -128,7 +140,7 @@ async function add(harness, overrides = {}) {
     const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
     assert.equal(result.reason, "sent");
     assert.equal(probes, 2);
-    assert.equal(h.injectedScripts.length, 1);
+    assertSingleHardReload(h);
     assert.equal(h.sentMessages.length, 1);
     assert.equal(h.storage.bridgeState.conversations[id].enabled, true);
   }
