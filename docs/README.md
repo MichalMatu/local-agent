@@ -13,6 +13,7 @@
 | Understand repository scheduling | [`MULTI_REPOSITORY.md`](MULTI_REPOSITORY.md) |
 | Understand current production invariants | [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) |
 | Use the ChatGPT / Chat Bridge autonomous loop | [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) |
+| Use the host-ops cross-repository operator workspace | [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md) |
 | Design the higher-level Superchat supervisor and rollover | [`superchat/`](superchat/) |
 | Stop, cancel or recover autonomous execution | [`EMERGENCY_CONTROLS.md`](EMERGENCY_CONTROLS.md) |
 | Recreate the established macOS environment | [`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md) |
@@ -43,7 +44,7 @@ flowchart LR
     Result --> Control
 ```
 
-The planner decides **what** should change. Local Agent owns deterministic, bounded and observable execution of that exact task. Repository identity, resource admission and emergency controls remain executor-side safety contracts.
+The planner decides **what** should change. Local Agent owns deterministic, bounded and observable execution of that exact task. Repository identity, resource admission and emergency controls remain executor-side safety contracts. Normal Chat Bridge bindings are repository-scoped; explicitly catalog-authorized multirepo planner bindings may target multiple catalog repositories while every Local Agent task still uses the target repository's own canonical binding.
 
 ## Current operational documentation
 
@@ -60,8 +61,9 @@ The planner decides **what** should change. Local Agent owns deterministic, boun
 ### Planner and bridge
 
 - [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) — planner/executor loop and continuation rules.
+- [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md) — explicit `host-ops` multirepo planner authorization and target-binding rules.
 - [`superchat/`](superchat/) — higher-level Superchat architecture, roadmap, implementation plan and research log.
-- [`../chat_bridge/README.md`](../chat_bridge/README.md) — extension installation, hard binding and conversation controls.
+- [`../chat_bridge/README.md`](../chat_bridge/README.md) — extension installation, binding policy and conversation controls.
 
 ### Development and verification
 
