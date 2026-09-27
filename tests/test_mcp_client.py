@@ -139,7 +139,7 @@ class MCPHTTPIntegrationTests(unittest.TestCase):
         @mcp.tool()
         async def slow_tool() -> str:
             """Sleep long enough to exercise the client call timeout."""
-            await asyncio.sleep(0.25)
+            await asyncio.sleep(0.4)
             return "slow"
 
         @mcp.tool()
@@ -227,7 +227,7 @@ class MCPHTTPIntegrationTests(unittest.TestCase):
         self.assertTrue(code["ok"])
 
     def test_call_timeout_is_bounded(self) -> None:
-        registry = _registry(_server_record(self.port, call_timeout=0.05))
+        registry = _registry(_server_record(self.port, call_timeout=0.1))
         with self.assertRaises(MCPCallTimeoutError):
             asyncio.run(call_tool(registry, "http-test", "slow_tool", {}))
 
@@ -313,12 +313,12 @@ class MCPHTTPIntegrationTests(unittest.TestCase):
             self.assertEqual(list(Path(tmp).iterdir()), [])
 
     def test_connection_timeout_is_bounded(self) -> None:
-        raw = _RawHTTPServer(delay=0.3)
+        raw = _RawHTTPServer(delay=0.4)
         try:
             record = _server_record(
                 raw.port,
                 server_id="slow-connect",
-                connect_timeout=0.05,
+                connect_timeout=0.1,
             )
             with self.assertRaises(MCPConnectionTimeoutError):
                 asyncio.run(discover_tools(_registry(record), "slow-connect"))
