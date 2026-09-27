@@ -5,7 +5,10 @@ const stateModel = require("./bridge_state.js");
 const catalog = require("../config/agent_bindings.json").agents;
 const runtimeAgents = require("./runtime.example.json").agents;
 assert.equal(new Set(catalog.map((agent) => agent.id)).size, catalog.length);
-assert.deepEqual(runtimeAgents, catalog.map(({ id, ...agent }) => ({ repository_id: id, ...agent })));
+const runtimeIdentityAgents = runtimeAgents.map(({ planner_scope: _plannerScope, ...agent }) => agent);
+assert.deepEqual(runtimeIdentityAgents, catalog.map(({ id, ...agent }) => ({ repository_id: id, ...agent })));
+const scopedAgents = runtimeAgents.filter((agent) => agent.planner_scope !== undefined);
+assert.deepEqual(scopedAgents.map((agent) => [agent.repository_id, agent.planner_scope]), [["host-ops", "multirepo"]]);
 
 const MATRIX_BINDING = "033327ab-700d-43b4-9b3b-caff1acaa2c7";
 const TRACKER_BINDING = "be481b25-9d97-4205-b93f-95f5c5827441";
