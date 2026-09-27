@@ -52,8 +52,27 @@ def _bounded_payload(payload: dict[str, Any], max_bytes: int) -> dict[str, Any]:
     return payload
 
 
-def _looks_like_timeout(exc: BaseException) -> bool:
-    return isinstance(exc, TimeoutError) or "Timeout" in type(exc).__name__
+def _nested_exceptions(exc: BaseException) -> tuple[BaseException, ...]:
+    children = getattr(exc, "exceptions", ())
+    if not isinstance(children, (tuple, list)):
+        return ()
+    return tuple(child for child in children if isinstance(child, BaseException))
+
+
+def _find_boundary_error(exc: BaseException) -> MCPBoundaryError | None:
+    if isinstance(exc, MCPBoundaryError):
+        return exc
+    for child in _nested_exceptions(exc):
+        found = _find_boundary_error(child)
+        if found is not None:
+            return found
+    return None
+
+
+def _contains_timeout(exc: BaseException) -> bool:
+    if isinstance(exc, TimeoutError) or "Timeout" in type(exc).__name__:
+        return True
+    return any(_contains_timeout(child) for child in _nested_exceptions(exc))
 
 
 @asynccontextmanager
@@ -67,15 +86,20 @@ async def _connected(server: MCPServerConfig) -> AsyncIterator[Client]:
             transport = streamable_http_client(server.endpoint, http_client=http_client)
             async with Client(transport) as client:
                 entered = True
+                # Local Agent owns call timeout semantics. Keep the HTTP read timeout
+                # slightly looser so asyncio.timeout below wins deterministically.
                 http_client.timeout = httpx2.Timeout(
-                    server.call_timeout_seconds,
+                    server.call_timeout_seconds + 1.0,
                     connect=server.connect_timeout_seconds,
                 )
                 yield client
     except MCPBoundaryError:
         raise
     except Exception as exc:
-        if not entered and _looks_like_timeout(exc):
+        boundary_error = _find_boundary_error(exc)
+        if boundary_error is not None:
+            raise boundary_error
+        if not entered and _contains_timeout(exc):
             raise MCPConnectionTimeoutError(
                 f"MCP connection to {server.server_id!r} exceeded "
                 f"{server.connect_timeout_seconds:g}s"
