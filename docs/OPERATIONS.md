@@ -22,9 +22,9 @@ v4.18.13
 = rollback/v4.18.13-known-working
 ```
 
-Current production source identifies itself as v4.18.24. The BUG-002 scheduler repair introduced with v4.18.14 behavior is established production behavior; v4.18.13 is retained only as the explicit pre-fix rollback baseline. See [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) for historical pre-fix context before changing scheduler/control admission behavior.
+Current deployed production source identifies itself as v4.18.26. The BUG-002 scheduler repair introduced with v4.18.14 behavior is established production behavior; v4.18.13 is retained only as the explicit pre-fix rollback baseline. See [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) for historical pre-fix context before changing scheduler/control admission behavior.
 
-The remote tag set currently has no `v4.18.24` tag. Do not fabricate or back-date a release tag during unrelated housekeeping. The release-flow invariant below remains the rule for future releases; repairing historical tag metadata requires an explicit release-metadata decision against an exact commit.
+The remote tag set has historically contained release-tag gaps. Do not fabricate or back-date a release tag during unrelated housekeeping. The release-flow invariant below remains the rule for future releases; repairing historical tag metadata requires an explicit release-metadata decision against an exact commit.
 
 ## Hard agent-binding contract
 
@@ -165,6 +165,47 @@ Full-host exclusivity is explicit:
 `memory_limit_mb` remains an independent per-task RSS watchdog and never implies machine exclusivity. The supervisor does not sum requested memory limits or perform aggregate host-RAM admission.
 
 Resource acquisition is non-blocking before claim. Contention leaves the immutable task pending, reports `waiting_resource`, and retries with bounded backoff. Contention is WAIT, not task failure.
+
+## Local MCP operations
+
+Generic local MCP configuration is independent from the repository registry and is never committed to Git. The default file is:
+
+```text
+~/Library/Application Support/local-agent/mcp/servers.json
+```
+
+Before using MCP on a Local Agent installation, install the pinned runtime dependency into that checkout's virtual environment:
+
+```bash
+cd ~/local-agent
+.venv/bin/python -m pip install --disable-pip-version-check -r requirements-runtime.txt
+```
+
+The initial MCP boundary supports only `streamable_http` endpoints whose host is exactly `127.0.0.1`, `::1`, or `localhost`. Remote/public-network MCP, OAuth and stdio are not supported. Stdio must not be introduced unless its child process is owned by the existing registered spawn/process-group lifecycle contract.
+
+Inspect static machine policy without connecting:
+
+```bash
+.venv/bin/python -m local_agent.mcp.cli servers
+```
+
+Discover one configured server through the official SDK:
+
+```bash
+.venv/bin/python -m local_agent.mcp.cli tools <server-id>
+```
+
+Invoke a locally authorized read tool:
+
+```bash
+.venv/bin/python -m local_agent.mcp.cli call <server-id> <tool-name> --arguments '{}'
+```
+
+`write` and `arbitrary_code` policies additionally require exact matching `--intent write` or `--intent arbitrary_code`. Discovery metadata and MCP annotations never substitute for that local policy.
+
+Text/structured output, discovery count, binary aggregate size and artifact count are bounded per server. Binary content is written under `~/Library/Application Support/local-agent/mcp/artifacts/` by default and normal output contains only path/MIME/size/SHA-256 metadata. Artifact MIME types must be explicitly allowed by machine policy.
+
+The first live integration proof for a new application is read-only: record the actual loopback endpoint and `tools/list` evidence, enable only known safe read policies, invoke only read tools, and validate image/blob artifact metadata if present. Do not use the first smoke for write or arbitrary-code execution. See [`MCP_INTEGRATION.md`](MCP_INTEGRATION.md).
 
 ## Development workflow
 
@@ -316,16 +357,18 @@ For non-trivial runtime changes:
 3. bump the release version and add matching release notes/changelog before final verification;
 4. run focused positive/negative tests for changed policy/state transitions;
 5. for scheduler/control admission changes, require a real long-running control-repository overlap regression that crosses the six-consecutive-`LEASE_BUSY` threshold;
-6. review `main...candidate` for architecture, unintended behavior and serial/resource/emergency/self-update regressions;
-7. require full exact-SHA CI: compile, Ruff, full unittest/integration, coverage, Python 3.14 and Bridge browser;
-8. require exact-SHA macOS ARM64 smoke containing changed scheduler policy and integration tests;
-9. run current-documentation/release-metadata contract checks and audit all current operational docs, not just touched files;
-10. audit planner-facing Local Agent docs in every registered downstream repository;
-11. record three independent pre-merge verification passes on the exact final SHA;
-12. advance `main` only after an explicit release decision;
-13. tag released `main` `vX.Y.Z` matching `local_agent.version.RELEASE_VERSION`;
-14. verify the running production version/revision and at least one real repository task after rollout;
-15. remove obsolete candidate branches/worktrees after release is established.
+6. for MCP changes, require a real hermetic loopback Streamable HTTP MCP server test covering official-SDK negotiation, discovery, invocation, timeout and bounded artifact/result paths;
+7. for the first live MCP application target, preserve actual endpoint/tool-list evidence and run only explicit read-only smoke calls before release;
+8. review `main...candidate` for architecture, unintended behavior and serial/resource/emergency/self-update regressions;
+9. require full exact-SHA CI: compile, Ruff, full unittest/integration, coverage, Python 3.14 and Bridge browser;
+10. require exact-SHA macOS ARM64 smoke containing changed scheduler policy and integration tests, including MCP HTTP tests when that boundary changes;
+11. run current-documentation/release-metadata contract checks and audit all current operational docs, not just touched files;
+12. audit planner-facing Local Agent docs in every registered downstream repository when their contract changed;
+13. record three independent pre-merge verification passes on the exact final SHA;
+14. advance `main` only after an explicit release decision;
+15. tag released `main` `vX.Y.Z` matching `local_agent.version.RELEASE_VERSION`;
+16. verify the running production version/revision and at least one real repository task after rollout;
+17. remove obsolete candidate branches/worktrees after release is established.
 
 Hard-binding releases additionally require missing/wrong binding rejection on both parallel and serial execution paths, control-binding mismatch admission failure, Chat Bridge unbound/rebind tests, active `cancel_task`, and global `disable` E2E.
 
