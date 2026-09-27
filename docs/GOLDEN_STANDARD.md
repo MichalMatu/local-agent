@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.0` and the current production release is `v4.18.26`. The 4.19.0 candidate adds a generic fail-closed local MCP client boundary with loopback-only Streamable HTTP, explicit machine-local tool policy and bounded results/artifacts while leaving Local Agent task schema, repository admission, resource scheduling, supervisor process lifecycle and Chat Bridge protocol behavior unchanged. The deployed production release remains `v4.18.26` until the explicit release decision advances `main`; `v4.18.26` is therefore the immediate rollback point for this candidate.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.0` and the current production release is `v4.18.26`. The 4.19.0 candidate adds a generic fail-closed local MCP client boundary with loopback-only Streamable HTTP, explicit machine-local tool policy and bounded inputs/results/artifacts while leaving Local Agent task schema, repository admission, resource scheduling, supervisor process lifecycle and Chat Bridge protocol behavior unchanged. The deployed production release remains `v4.18.26` until the explicit release decision advances `main`; `v4.18.26` is therefore the immediate rollback point for this candidate.
 
 ## Release/runtime invariants
 
@@ -44,10 +44,12 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - Discovery never grants invocation authority. Unknown or disabled servers, unknown or disabled tools and policy/intent mismatches fail closed before tool execution.
 - Every allowed tool has an explicit local risk class: `read`, `write`, or `arbitrary_code`. Server-provided names, descriptions and annotations are not trusted to assign that class.
 - `write` and `arbitrary_code` calls require exact matching explicit invocation intent in addition to an enabled local policy.
+- Tool arguments are bounded at both entry layers: the CLI rejects raw JSON above 64 KiB before parsing and the library independently requires a JSON-serializable object whose canonical serialized form is at most 64 KiB before any MCP network call.
 - The official MCP Python SDK owns JSON-RPC/framing, discovery/initialize compatibility and protocol negotiation. Local Agent does not manually pin one protocol revision.
 - MCP stdio remains unsupported unless a future implementation routes the child through Local Agent's registered spawn/process-group lifecycle contract or an equally strong owner.
 - Tool count, discovery metadata, textual/structured results, binary aggregate size and artifact count remain bounded.
 - Binary content is MIME-validated and written atomically to an explicit Local Agent artifact directory; normal task output contains path/MIME/size/SHA-256 metadata rather than base64 blobs.
+- Deterministic artifact filenames include the complete SHA-256 digest, not a shortened digest prefix; path identity and returned digest metadata therefore use the same collision-resistant content identity.
 - MCP integration remains outside task schema and scheduler policy: an ordinary task invokes the packaged MCP CLI/client and its bounded JSON flows through the existing task/result mechanism.
 
 ## Operator observability invariants
@@ -153,18 +155,19 @@ A non-trivial runtime release requires:
 4. real SIGTERM/SIGKILL process coverage when lifecycle/lease behavior changes;
 5. real overlap, machine-exclusion and inherited-resource-lock coverage for parallel changes;
 6. for BUG-002, a real temporary-Git control-repository task that crosses the six-consecutive-`LEASE_BUSY` threshold and proves another `resources: []` repository starts before the control task ends;
-7. for MCP changes, a real hermetic loopback Streamable HTTP MCP server exercising SDK negotiation, discovery, invocation, timeout and bounded-result/artifact paths; mocks alone are insufficient;
-8. for the first live application target in a release, read-only live endpoint/discovery/tool-call evidence with the actual discovered tool list and no write/arbitrary-code smoke;
-9. exact `main...candidate` diff and architecture/dependency review;
-10. full GitHub CI on the exact candidate SHA: compile/Ruff/full unittest, coverage, Python 3.14 and Bridge browser;
-11. macOS ARM64 smoke on the exact candidate SHA containing both pure control-admission policy coverage and the real BUG-002 overlap regression; MCP-changing candidates also include the hermetic MCP HTTP suite;
-12. current-documentation drift/release-metadata contract checks;
-13. downstream planner-documentation audit for every registered repository when Local Agent contract/flow changed;
-14. three independent pre-merge verification passes recorded for the exact final SHA: focused policy/integration evidence, full cross-platform CI matrix, and macOS exact-SHA smoke/recheck;
-15. only then an explicit decision to advance `main`;
-16. matching `vX.Y.Z` tag on released `main`;
-17. production restart/self-update from `~/local-agent` on `main` and live version/revision/task verification;
-18. candidate branch/worktree cleanup after the release is established.
+7. for MCP changes, a real hermetic loopback Streamable HTTP MCP server exercising SDK negotiation, discovery, bounded arguments, invocation, timeout and bounded-result/artifact paths; mocks alone are insufficient;
+8. for the first live application target in a release, read-only live endpoint/discovery/tool-call evidence with the actual discovered tool list, plus binary artifact verification when the target exposes a read-only binary result; no write/arbitrary-code smoke;
+9. if MCP runtime code changes after that live application proof, repeat the affected read-only live proof against the frozen runtime candidate before release;
+10. exact `main...candidate` diff and architecture/dependency review;
+11. full GitHub CI on the exact candidate SHA: compile/Ruff/full unittest, coverage, Python 3.14 and Bridge browser;
+12. macOS ARM64 smoke on the exact candidate SHA containing both pure control-admission policy coverage and the real BUG-002 overlap regression; MCP-changing candidates also include the hermetic MCP HTTP suite;
+13. current-documentation drift/release-metadata contract checks;
+14. downstream planner-documentation audit for every registered repository when Local Agent contract/flow changed;
+15. three independent pre-merge verification passes recorded for the exact final SHA: focused policy/integration evidence, full cross-platform CI matrix, and macOS exact-SHA smoke/recheck;
+16. only then an explicit decision to advance `main`;
+17. matching `vX.Y.Z` tag on released `main`;
+18. production restart/self-update from `~/local-agent` on `main` and live version/revision/task verification;
+19. candidate branch/worktree cleanup after the release is established.
 
 ## Downstream contract
 
