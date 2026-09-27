@@ -12,8 +12,9 @@ from mcp import types
 from mcp.client.streamable_http import streamable_http_client
 
 from local_agent.mcp.artifacts import PendingArtifact, commit_artifact, prepare_artifact
-from local_agent.mcp.config import MCPServerConfig
+from local_agent.mcp.config import MAX_ARGUMENT_BYTES, MCPServerConfig
 from local_agent.mcp.errors import (
+    MCPArgumentsError,
     MCPArtifactError,
     MCPBoundaryError,
     MCPCallTimeoutError,
@@ -50,6 +51,23 @@ def _bounded_payload(payload: dict[str, Any], max_bytes: int) -> dict[str, Any]:
             f"MCP textual result is {len(encoded)} bytes; configured bound is {max_bytes} bytes"
         )
     return payload
+
+
+def _bounded_arguments(arguments: Any) -> dict[str, Any]:
+    if not isinstance(arguments, dict):
+        raise MCPArgumentsError("tool arguments must be a JSON object")
+    try:
+        encoded = json.dumps(
+            arguments,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise MCPArgumentsError(f"tool arguments are not JSON-serializable: {exc}") from None
+    if len(encoded) > MAX_ARGUMENT_BYTES:
+        raise MCPArgumentsError(f"tool arguments exceed {MAX_ARGUMENT_BYTES} bytes")
+    return arguments
 
 
 def _nested_exceptions(exc: BaseException) -> tuple[BaseException, ...]:
@@ -325,6 +343,7 @@ async def call_tool(
 ) -> dict[str, Any]:
     server = registry.get(server_id)
     policy = authorize_tool(server, tool_name, intent=intent)
+    bounded_arguments = _bounded_arguments(arguments)
     output_dir = default_artifact_dir() if artifact_dir is None else artifact_dir
 
     async with _connected(server) as client:
@@ -345,7 +364,7 @@ async def call_tool(
 
         try:
             async with asyncio.timeout(server.call_timeout_seconds):
-                result = await client.call_tool(tool_name, arguments)
+                result = await client.call_tool(tool_name, bounded_arguments)
         except TimeoutError:
             raise MCPCallTimeoutError(
                 f"MCP tool {tool_name!r} exceeded {server.call_timeout_seconds:g}s"
