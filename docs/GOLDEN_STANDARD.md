@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The base source release marker is `v4.19.0` and the current production release is `v4.18.26`. The 4.19.0 base candidate adds a generic fail-closed local MCP client boundary with loopback-only Streamable HTTP, explicit machine-local tool policy and bounded inputs/results/artifacts. A behavior-changing planner-scope candidate layered on that source is not release-ready until its own release version, release notes and changelog are finalized. The deployed production release remains `v4.18.26` until an explicit release decision advances `main`; `v4.18.26` is therefore the immediate rollback point.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.1` and the current production release is `v4.19.0`. The 4.19.1 candidate adds explicit fail-closed Chat Bridge planner scope so the canonical `host-ops` binding can operate across repositories in the validated runtime catalog without changing the conversation binding, while preserving exact target-repository executor admission. The deployed production release remains `v4.19.0` until the explicit release decision advances `main`; `v4.19.0` is therefore the immediate rollback point for this candidate.
 
 ## Release/runtime invariants
 
