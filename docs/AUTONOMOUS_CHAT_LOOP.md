@@ -1,16 +1,28 @@
 # Autonomous Chat Planner Loop
 
-This document defines the optional autonomous planning loop connecting one ChatGPT conversation to one deterministic `local-agent` repository through Chat Bridge 0.5 and the Git-backed control plane.
+This document defines the optional autonomous planning loop connecting one ChatGPT conversation to deterministic `local-agent` repository execution through Chat Bridge 0.5 and the Git-backed control plane.
 
-## Hard identity invariant
+## Conversation binding and planner scope
 
-Chat Bridge 0.5 is fail-closed and enforces:
+Chat Bridge 0.5 is fail-closed. Every configured conversation stores one immutable canonical binding identity:
 
 ```text
-one ChatGPT conversation == one immutable agent_binding == one repository id == one GitHub repository
+one ChatGPT conversation
+    == one immutable agent_binding
+    == one bound repository id
+    == one bound GitHub repository
 ```
 
-A normal wake must never infer or switch repository identity from model context. Every bound wake carries all four identity fields:
+The binding catalog also defines the planner scope attached to that binding:
+
+```text
+planner_scope=repository   -> work only on the bound repository
+planner_scope=multirepo    -> work across validated runtime-catalog repositories
+```
+
+`repository` is the default. `multirepo` is explicit catalog authorization, not a repository-name heuristic. The canonical `host-ops` binding is the multirepo operator workspace. See `docs/HOST_OPS_MULTIREPO.md`.
+
+Every bound wake carries the immutable conversation identity:
 
 ```text
 [LA_AGENT=<canonical UUID>]
@@ -19,11 +31,13 @@ A normal wake must never infer or switch repository identity from model context.
 [LA_CHAT=<conversation id>]
 ```
 
-The stored binding is immutable during normal conversation updates. The normal popup changes repository identity by removing the conversation and adding it again with the intended binding. The privileged operator Rebind path remains binding-revision aware for migration/testing: it increments `bindingRevision`, records a new `bindingSetAt`, clears conversation control dedupe state and forces a fresh bootstrap.
+For repository scope, that identity is also the only allowed target repository. For multirepo scope, the envelope identifies the operator conversation while the target repository for each action is resolved separately from the current validated runtime catalog. The planner must never infer repository ids or binding UUIDs from prose, filesystem names, prior chats or model memory.
 
-Unbound migrated conversations are disabled with `binding_required` and have no alarm. A runtime-catalog mismatch disables the conversation with `binding_catalog_mismatch`. The bridge must never guess a replacement binding.
+The stored conversation binding is immutable during normal conversation updates. The normal popup changes the conversation binding by removing the conversation and adding it again with the intended binding. The privileged operator Rebind path remains binding-revision aware for migration/testing: it increments `bindingRevision`, records a new `bindingSetAt`, clears conversation control dedupe state and forces a fresh bootstrap. Normal cross-repository work inside an authorized multirepo conversation does not use Rebind.
 
-`local-agent` independently enforces the executor side of the same identity. Before claim/execution, both the production parallel worker and the serial fallback require:
+Unbound migrated conversations are disabled with `binding_required` and have no alarm. A runtime-catalog mismatch disables the conversation with `binding_catalog_mismatch`. The bridge must never guess a replacement binding or target identity.
+
+`local-agent` independently enforces target-repository identity. Before claim/execution, both the production parallel worker and the serial fallback require:
 
 ```text
 registry agent_binding
@@ -31,7 +45,7 @@ registry agent_binding
     == task.agent_binding
 ```
 
-A missing repository binding blocks admission as `unbound`. A control-branch mismatch blocks admission as `binding_error`. A missing/wrong task binding produces a terminal pre-claim failure (`agent_binding_missing` or `agent_binding_mismatch`) and executes no task command.
+A missing repository binding blocks admission as `unbound`. A control-branch mismatch blocks admission as `binding_error`. A missing/wrong task binding produces a terminal pre-claim failure (`agent_binding_missing` or `agent_binding_mismatch`) and executes no task command. Multirepo planner scope does not alter this executor contract.
 
 The global operator `disabled` state has higher priority than repository binding admission, so the emergency kill switch remains effective during migration or broken binding state.
 
@@ -43,30 +57,32 @@ user goal in one ChatGPT conversation
         v
 Chat Bridge 0.5
 - stores exact immutable conversation binding
-- sends binding envelope + bootstrap/wake prompt
+- loads validated planner scope + runtime catalog
+- sends binding envelope + bootstrap/wake policy
 - schedules only bound conversations
 - never chooses repository work
         |
         v
 ChatGPT planner
-- works only on the bound repository
+- stays inside the authorized planner scope
+- resolves multirepo targets only from the current runtime catalog
 - reads exact status/run/result/source evidence
 - edits directly through GitHub when diff/CI evidence is sufficient
-- creates local tasks with the bound agent_binding when execution is needed
+- creates local tasks with the target repository's exact agent_binding
         |
         v
 local-agent
-- verifies registry/control/task binding equality
+- verifies target registry/control/task binding equality
 - validates immutable task payload
 - executes deterministic commands under runtime limits
-- publishes status/run/result evidence
+- publishes repository-scoped status/run/result evidence
         |
         +----> bridge wakes the same bound conversation
 ```
 
 The bridge is transport and scheduling only. ChatGPT remains the planner. `local-agent` remains the deterministic executor; no LLM or heuristic planning layer belongs inside the executor.
 
-The `local-agent` binding is deliberately `execution_enabled: false`. A conversation bound to it is bridge/operator-only: it may inspect/operate Local Agent infrastructure, but it must not create project task files for Growbox, MatrixHub, LiteGraph, Tracker or any other repository.
+The `local-agent` catalog entry is deliberately `execution_enabled: false`. A repository-scoped conversation bound directly to it is bridge/operator-only. A multirepo `host-ops` conversation may inspect and edit `MichalMatu/local-agent` through direct GitHub operations without rebinding, but it still must not create a Local Agent task targeting the execution-disabled `local-agent` entry. Self-execution is a separate security decision.
 
 ## Runtime schema 3
 
@@ -85,16 +101,23 @@ Chat Bridge 0.5 state uses schema version 3. The remote runtime also uses schema
       "repository": "MichalMatu/MatrixHub",
       "agent_binding": "033327ab-700d-43b4-9b3b-caff1acaa2c7",
       "execution_enabled": true
+    },
+    {
+      "repository_id": "host-ops",
+      "repository": "MichalMatu/host-ops",
+      "agent_binding": "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
+      "execution_enabled": true,
+      "planner_scope": "multirepo"
     }
   ]
 }
 ```
 
-Repository ids, repository names and binding UUIDs must each be unique. A binding UUID must be canonical lowercase UUID text. Only runtime schema 3 is accepted and `execution_enabled` must be a JSON boolean. Missing, invalid or unavailable runtime configuration prevents sending (`runtime_unavailable`); there is no replacement identity catalog.
+Repository ids, repository names and binding UUIDs must each be unique. A binding UUID must be canonical lowercase UUID text. Only runtime schema 3 is accepted and `execution_enabled` must be a JSON boolean. `planner_scope` is optional and defaults to `repository`; only `repository` and `multirepo` are accepted, and an execution-disabled binding may not advertise `multirepo`. Missing, invalid or unavailable runtime configuration prevents sending (`runtime_unavailable`); there is no replacement identity catalog.
 
 ## Bootstrap, baseline and compact wakes
 
-A newly added or explicitly rebound conversation receives one bootstrap prompt on its first actual wake. Later alarms send a compact wake prompt. Every prompt is prefixed with the binding envelope and hard-binding policy.
+A newly added or explicitly rebound conversation receives one bootstrap prompt on its first actual wake. Later alarms send a compact wake prompt. Every prompt is prefixed with the binding envelope and the policy derived from the validated planner scope.
 
 When the operator adds a chat, Bridge records the identity of the latest assistant answer already present in the conversation as `assistantBaseline`. That existing answer cannot become a control after the chat is added. Any **new** assistant answer after the add can use the complete `[LAB:*]` assistant control protocol immediately, even while the first bootstrap is still pending. This means a freshly added chat can be paused, resumed, stopped, paced or armed with `NEXT` without requiring `Run now` first.
 
@@ -104,15 +127,16 @@ A privileged Rebind uses a new `bindingRevision` and still blocks old/pre-rebind
 
 On every wake, the planner must:
 
-1. trust the bridge envelope as the conversation's routing identity;
-2. inspect only that repository's latest daemon status and exact task evidence;
-3. never inspect, queue, cancel or execute work for another repository as a substitute;
-4. avoid queueing a second task for the same active goal while its current task is running;
-5. inspect the exact terminal result before deciding the next bounded action;
-6. pause instead of switching repository when the goal appears to require another binding;
-7. keep no-change wake turns terse.
+1. trust the Bridge envelope and planner-scope policy as the conversation's authorization boundary;
+2. for `repository` scope, inspect and act only on the bound repository;
+3. for `multirepo` scope, resolve every target from the current runtime catalog and use that target's repository identity, execution state and canonical binding;
+4. never substitute an unlisted repository or guessed binding for a catalog target;
+5. avoid queueing a second task for the same target/goal while its current task is running;
+6. inspect the exact terminal result before deciding the next bounded action;
+7. pause when the required target is outside the authorized scope/catalog or requires unavailable authority;
+8. keep no-change wake turns terse.
 
-A conversation still needs a stated active goal. The binding identifies where work may happen; it does not invent scope.
+A conversation still needs a stated active goal. Planner scope defines where that goal may act; it does not invent work.
 
 ## Control-plane locations
 
@@ -128,36 +152,36 @@ Each executable repository has its own `agent-control` branch:
 .agent/daemon/acks/*.json         maintenance/status acknowledgements
 ```
 
-Local execution is queued by committing a new unique task file to the bound repository's `agent-control` branch. Never hand-edit the daemon's local control clone.
+Local execution is queued by committing a new unique task file to the **target repository's** `agent-control` branch. Never hand-edit the daemon's local control clone.
 
 ## Choose GitHub or local execution
 
-The planner may read and edit the bound repository directly through an available GitHub tool with the required permissions. Use this path for bounded source, configuration or documentation changes when review of the exact diff and relevant CI checks can verify the result. A GitHub commit proves a change, not successful execution; report the exact commit and completed checks.
+The planner may read and edit any repository allowed by the current planner scope through an available GitHub tool with the required permissions. Use this path for bounded source, configuration or documentation changes when review of the exact diff and relevant CI checks can verify the result. A GitHub commit proves a change, not successful execution; report the exact commit and completed checks.
 
-Use Local Agent when the action needs command execution on the Mac, local build/test tools, device access or other machine-specific evidence. A hybrid flow may commit through GitHub and then queue a read-only verification task for that exact source SHA. Check the bound repository's active task first and avoid concurrent writes to the same branch while a local task is modifying it. Follow the repository's own branch policy.
+Use Local Agent when the action needs command execution on the Mac, local build/test tools, device access or other machine-specific evidence and the target repository is execution-enabled. A hybrid flow may commit through GitHub and then queue a read-only verification task for that exact source SHA. Check the target repository's active task before editing the same branch while a local task is modifying it. Follow the target repository's own branch policy.
 
-Every local task still requires a unique immutable id, the exact `agent_binding`, explicit `resources` and bounded execution. Direct GitHub edits do not require an artificial executor task merely to record that they happened. The immutable conversation binding applies to both paths. The `local-agent` catalog entry remains unavailable for project execution; infrastructure edits follow its release policy.
+Every local task still requires a unique immutable id, the **target repository's exact `agent_binding`**, explicit `resources` and bounded execution. Direct GitHub edits do not require an artificial executor task merely to record that they happened. A multirepo conversation's own binding must never be copied into a task for a different target repository. The `local-agent` catalog entry remains unavailable for Local Agent self-execution; infrastructure source edits follow its release policy.
 
 ## Autonomous turn algorithm
 
 For every bridge wake:
 
-1. Parse and retain `LA_AGENT`, `LA_REPO`, `LA_REPOSITORY` and `LA_CHAT` from the bridge prompt.
-2. Do not derive a different target repository from conversation history.
-3. Read the bound repository's current `.agent/status/daemon.json` and exact run/result evidence for the active goal.
-4. If the relevant task is active and healthy, queue nothing else for that goal. If exact live evidence already proves that the active task cannot achieve its intended outcome, publish one repository-scoped `cancel_task` request for that exact task id instead of waiting for its timeout; then wait for the terminal cancellation/result evidence before replacing it.
+1. Parse and retain `LA_AGENT`, `LA_REPO`, `LA_REPOSITORY` and `LA_CHAT` plus the planner-scope policy supplied by Bridge.
+2. Resolve the repository needed for the next action: the bound repository for normal scope, or one exact runtime-catalog target for multirepo scope. Never derive target identity from conversation history.
+3. Read that target repository's current `.agent/status/daemon.json` and exact run/result evidence when local execution is relevant.
+4. If the relevant target task is active and healthy, queue nothing else for that goal. If exact live evidence already proves that the active task cannot achieve its intended outcome, publish one repository-scoped `cancel_task` request for that exact task id instead of waiting for its timeout; then wait for the terminal cancellation/result evidence before replacing it.
 5. If a terminal result exists, inspect its exact digest/result/command evidence.
-6. Choose direct GitHub work or local execution using the rules above. If local execution is needed, create one new bounded task with a unique id and exactly the wake's `agent_binding`.
+6. Choose direct GitHub work or local execution using the rules above. If local execution is needed, create one new bounded task with a unique id and exactly the **target repository's** canonical `agent_binding`.
 7. If the task fails deterministically, diagnose the evidence and create a new task only when the failure supports a specific fix. Never replay or mutate the old payload.
-8. If another repository is required, use `PAUSE`; do not switch/rebind automatically.
+8. If the required repository is outside the authorized scope/catalog, use `PAUSE`; a normal repository-scoped conversation may explicitly Rebind, while multirepo work across listed targets must not Rebind merely to change targets.
 9. If the goal is complete with relevant exact-commit CI or terminal local execution evidence, use `STOP`.
 10. Otherwise use a suitable one-shot `NEXT` or allow normal pacing to resume.
 
-The planner loop is sequential per active conversation goal, not globally serial. Independent bound conversations may proceed concurrently; `local_agent/supervisor/orchestrator.py` owns repository/resource concurrency.
+The planner loop is sequential per active conversation goal, not globally serial. Independent repositories may proceed concurrently; `local_agent/supervisor/orchestrator.py` owns repository/resource concurrency.
 
 ## Active-task cancellation
 
-`cancel_task` already exists as executor control; it is not a Chat Bridge UI shortcut. The planner may publish it only in the same bound repository and only for the exact task id supported by current run/status evidence:
+`cancel_task` already exists as executor control; it is not a Chat Bridge UI shortcut. The planner may publish it only in the exact **target repository** that owns the active task and only for the exact task id supported by current run/status evidence:
 
 ```json
 {
@@ -171,7 +195,7 @@ Use cancellation when current evidence makes failure unavoidable or proves that 
 
 ## Task contract
 
-Every task created by an executable bound conversation must include its exact `agent_binding`:
+Every Local Agent task must include the exact canonical `agent_binding` of its target executable repository:
 
 ```json
 {
@@ -189,19 +213,19 @@ Every task created by an executable bound conversation must include its exact `a
 }
 ```
 
-`resources` remains mandatory and follows `docs/OPERATIONS.md`. Task ids/payloads are immutable within a repository. A new continuation uses a new id. The planner must never consider queueing itself proof of success; terminal result evidence is authoritative.
+For a normal repository-scoped conversation, the target binding equals the conversation binding. For a multirepo conversation, it normally differs whenever work targets another repository. `resources` remains mandatory and follows `docs/OPERATIONS.md`. Task ids/payloads are immutable within a repository. A new continuation uses a new id. The planner must never consider queueing itself proof of success; terminal result evidence is authoritative.
 
 ## Evidence order
 
 For local execution, use evidence in this order:
 
-1. terminal result for exact task id/digest;
+1. terminal result for exact target repository + task id/digest;
 2. live run/progress for the exact attempt;
-3. current bound-repository daemon status;
+3. current target-repository daemon status;
 4. source/diff/test evidence referenced by the result;
 5. planner analysis.
 
-Binding failures are terminal safety evidence, not retry candidates with altered routing. Correct the operator/catalog/control configuration or explicitly change the conversation binding instead.
+Binding failures are terminal safety evidence, not retry candidates with altered routing. Correct the target repository/catalog/control configuration or explicitly change the conversation binding when its planner scope itself is wrong; never bypass the target binding because a multirepo conversation exists.
 
 ## Post-queue liveness
 
@@ -265,7 +289,7 @@ User-authored Bridge mutations use a distinct namespace:
 [LAB:OP:RELOAD=BRIDGE]
 ```
 
-The assistant parser rejects `LAB:OP:*`. The operator scanner reads only the latest `data-message-author-role="user"` DOM message and the worker independently requires the same extension id, top frame and exact normalized conversation URL. `OP:ADD` resolves one exact repository id from the runtime catalog and creates the current chat disabled; it never guesses or implicitly rebinds. To change an existing binding, the operator removes the current chat and explicitly adds it with the desired repository id.
+The assistant parser rejects `LAB:OP:*`. The operator scanner reads only the latest `data-message-author-role="user"` DOM message and the worker independently requires the same extension id, top frame and exact normalized conversation URL. `OP:ADD` resolves one exact repository id from the runtime catalog and creates the current chat disabled; it never guesses or implicitly rebinds. To change an existing conversation binding, the operator removes the current chat and explicitly adds it with the desired repository id. Multirepo target changes are not conversation-binding changes.
 
 Already executed operator controls are persistently deduplicated in a bounded cache. Separately, the latest user message present when content protocol v5 activates/reinjects is baseline-only and is not executed; SPA navigation establishes a new baseline before scanning the destination conversation. These rules prevent install/reload/reinjection/navigation from replaying historical `LAB:OP:*` mutations.
 
@@ -286,32 +310,36 @@ Per-chat operator settings are ordinary conversation state rather than a permane
 
 Stop only when the requested outcome is supported by execution evidence. Executor `idle` means capacity is free; it does not create new scope.
 
-Pause rather than guess when progress requires user action, external approval, unavailable credentials/hardware, a materially unresolved product choice, or work in another repository.
+Pause rather than guess when progress requires user action, external approval, unavailable credentials/hardware, a materially unresolved product choice, or a repository outside the conversation's authorized planner scope/current validated catalog. A multirepo conversation does not pause merely because the next valid target is a different listed repository.
 
 Cancel an active task instead of passively waiting for its timeout only when exact current evidence already proves that the task cannot produce the intended result. Cancellation is a bounded executor action, not a substitute for impatience or ordinary progress polling.
 
-## Required end-to-end validation for hard binding
+## Required end-to-end validation for binding and planner scope
 
-A hard-binding rollout is complete only after all of these are demonstrated:
+A binding/planner-scope rollout is complete only after all of these are demonstrated:
 
-1. schema-3 runtime/catalog loads and a newly configured conversation stores one exact binding;
+1. schema-3 runtime/catalog loads and a newly configured conversation stores one exact immutable binding;
 2. normal edits cannot change that conversation's repository/binding;
 3. a privileged binding revision change forces bootstrap and rejects old-revision controls;
 4. an unbound/migrated conversation has no scheduled wake;
-5. a task with the correct binding executes and publishes terminal evidence;
-6. a task with a missing binding is terminally rejected before claim/command execution;
-7. a task with another repository's binding is terminally rejected before claim/command execution;
-8. registry/control binding mismatch blocks repository admission;
-9. the serial fallback preserves the same binding enforcement;
-10. active `cancel_task` is observed through a remote-grounded ACK and terminates the targeted active task;
-11. global `disable` prevents admission and can terminate active execution according to the emergency-control contract;
-12. two conversations retain independent alarms/control state and cannot alter each other's binding through assistant controls;
-13. assistant controls can overwrite operator-set per-chat pause/interval/timing state, but cannot change the global Bridge Master switch; Master-off suspends alarms without erasing per-chat desired timing;
-14. assistant LAB controls cannot execute `LAB:OP:*` mutations;
-15. content activation/reinjection and SPA navigation do not replay a historical user-authored operator marker;
-16. a `local-agent` infrastructure conversation may inspect global Bridge chat routing metadata while a project-bound conversation remains current-chat-only.
+5. normal `planner_scope=repository` still emits single-repository policy and requires Rebind for another repository;
+6. explicit `planner_scope=multirepo` permits work only across current runtime-catalog repositories without Rebind;
+7. unknown planner scopes fail closed and execution-disabled bindings cannot advertise multirepo scope;
+8. a multirepo target task uses the target repository's canonical binding rather than the conversation binding;
+9. a task with the correct target binding executes and publishes terminal evidence;
+10. a task with a missing binding is terminally rejected before claim/command execution;
+11. a task with another repository's binding is terminally rejected before claim/command execution;
+12. registry/control binding mismatch blocks repository admission;
+13. the serial fallback preserves the same executor binding enforcement;
+14. active `cancel_task` is observed through a remote-grounded ACK and terminates the targeted active task;
+15. global `disable` prevents admission and can terminate active execution according to the emergency-control contract;
+16. two conversations retain independent alarms/control state and cannot alter each other's binding through assistant controls;
+17. assistant controls can overwrite operator-set per-chat pause/interval/timing state, but cannot change the global Bridge Master switch; Master-off suspends alarms without erasing per-chat desired timing;
+18. assistant LAB controls cannot execute `LAB:OP:*` mutations;
+19. content activation/reinjection and SPA navigation do not replay a historical user-authored operator marker;
+20. a `local-agent` infrastructure conversation may inspect global Bridge chat routing metadata while a normal project-bound conversation remains current-chat-only.
 
-Canonical executor and rollout rules remain in `AGENTS.md` and `docs/OPERATIONS.md`.
+Canonical executor and rollout rules remain in `AGENTS.md`, `docs/HOST_OPS_MULTIREPO.md` and `docs/OPERATIONS.md`.
 
 ## Delivery behavior in Bridge 0.5
 
