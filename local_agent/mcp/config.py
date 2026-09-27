@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from enum import Enum
@@ -70,8 +71,8 @@ def _bounded_number(value: Any, field: str, *, minimum: float, maximum: float) -
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise MCPConfigError(f"{field} must be a number")
     result = float(value)
-    if result < minimum or result > maximum:
-        raise MCPConfigError(f"{field} must be between {minimum} and {maximum}")
+    if not math.isfinite(result) or result < minimum or result > maximum:
+        raise MCPConfigError(f"{field} must be finite and between {minimum} and {maximum}")
     return result
 
 
