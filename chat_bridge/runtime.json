@@ -2,8 +2,8 @@
   "schema_version": 3,
   "interval_minutes": 10,
   "busy_retry_minutes": 1,
-  "bootstrap_prompt": "Continue only this conversation's active goal from exact bound-repository evidence. Use direct GitHub edits when diff/CI evidence is sufficient and Local Agent only for local commands, builds, tests, or devices. Check active task evidence before writing the same branch. For healthy Local Agent work, do not poll it at 30-second cadence: recheck no sooner than at least 2 minutes and normally use 5-10 minutes for multi-minute builds/tests. If exact evidence proves the active task cannot succeed, cancel that exact task. Read repository Local Agent instructions when the contract is uncertain. Never launch local Codex from a Local Agent task. Do not recap unchanged state.",
-  "wake_prompt": "[LA_WAKE] Continue the active goal from current bound-repository evidence. Inspect only the state and exact run/result needed for the next decision; do not queue duplicates or recap unchanged state. For healthy Local Agent work, do not poll it at 30-second cadence: recheck no sooner than at least 2 minutes and normally use 5-10 minutes for multi-minute builds/tests. If exact evidence proves the active task cannot succeed, cancel that exact task. Use an evidence-based NEXT only while work is unfinished.",
+  "bootstrap_prompt": "Continue only this conversation's active goal using the repository scope authorized by the Bridge binding policy. Use direct GitHub edits when diff/CI evidence is sufficient and Local Agent only for local commands, builds, tests, or devices. Check active task evidence before writing the same branch. For healthy Local Agent work, do not poll it at 30-second cadence: recheck no sooner than at least 2 minutes and normally use 5-10 minutes for multi-minute builds/tests. If exact evidence proves the active task cannot succeed, cancel that exact task. Read repository Local Agent instructions when the contract is uncertain. Never launch local Codex from a Local Agent task. Never infer repository identity outside the scope explicitly authorized by the Bridge binding policy. Do not recap unchanged state.",
+  "wake_prompt": "[LA_WAKE] Continue the active goal using current evidence and the repository scope authorized by the Bridge binding policy. Inspect only the state and exact run/result needed for the next decision; do not queue duplicates or recap unchanged state. For healthy Local Agent work, do not poll it at 30-second cadence: recheck no sooner than at least 2 minutes and normally use 5-10 minutes for multi-minute builds/tests. If exact evidence proves the active task cannot succeed, cancel that exact task. Use an evidence-based NEXT only while work is unfinished.",
   "agents": [
     {
       "repository_id": "local-agent",
@@ -57,7 +57,8 @@
       "repository_id": "host-ops",
       "repository": "MichalMatu/host-ops",
       "agent_binding": "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
-      "execution_enabled": true
+      "execution_enabled": true,
+      "planner_scope": "multirepo"
     },
     {
       "repository_id": "hardware-lab",
