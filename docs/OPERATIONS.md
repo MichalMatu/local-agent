@@ -22,7 +22,7 @@ v4.18.13
 = rollback/v4.18.13-known-working
 ```
 
-Current deployed production source identifies itself as v4.19.0 at `1ea863d06a20e766f9fe0fa5589cc59aa0e2671a`. The BUG-002 scheduler repair introduced with v4.18.14 behavior is established production behavior; v4.18.13 is retained only as the explicit pre-fix rollback baseline. See [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) for historical pre-fix context before changing scheduler/control admission behavior.
+The released production line is v4.19.1. Read the exact installed `daemon_version` and `self_revision` from live daemon status instead of pinning a post-release self-update SHA in this document. The BUG-002 scheduler repair introduced with v4.18.14 behavior is established production behavior; v4.18.13 is retained only as the explicit pre-fix rollback baseline. See [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) for historical pre-fix context before changing scheduler/control admission behavior.
 
 The remote tag set has historically contained release-tag gaps. Do not fabricate or back-date a release tag during unrelated housekeeping. The release-flow invariant below remains the rule for future releases; repairing historical tag metadata requires an explicit release-metadata decision against an exact commit.
 
