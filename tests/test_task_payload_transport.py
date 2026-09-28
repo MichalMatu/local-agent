@@ -1,0 +1,177 @@
+from __future__ import annotations
+
+import copy
+import json
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from local_agent.foundation import core
+from local_agent.repository.cleanup import control_cleanup_plan
+from local_agent.runtime import task_contract, task_transport
+
+
+class TaskPayloadTransportTests(unittest.TestCase):
+    def _task(self) -> dict[str, object]:
+        return {
+            "id": "escape-heavy",
+            "resources": [],
+            "allow_write": True,
+            "patch": (
+                "diff --git a/ui.js b/ui.js\n"
+                "--- a/ui.js\n"
+                "+++ b/ui.js\n"
+                '@@ -1 +1 @@\n-old\n+const x = {"path": "C:\\\\tmp\\\\x"};\n'
+            ),
+            "writes": [
+                {
+                    "path": "generated/layout.json",
+                    "content": '{\n  "layout": "a\\\\b",\n  "quote": "\\\"ok\\\""\n}\n',
+                }
+            ],
+            "commands": [
+                "python - <<'PY'\n"
+                'value = {"path": "C:\\\\tmp\\\\x", "quote": "\\\"ok\\\""}\n'
+                "print(value)\n"
+                "PY"
+            ],
+            "verify_commands": ["python -c 'print(\"verified\")'"],
+            "command_timeout": 60,
+            "task_timeout": 180,
+        }
+
+    def test_bundle_round_trip_externalizes_escape_heavy_text(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            control = Path(temporary)
+            tasks_dir = control / ".agent/tasks"
+            task = self._task()
+            expected = copy.deepcopy(task)
+
+            manifest_path = task_transport.write_task_bundle(tasks_dir, task)
+            manifest_text = manifest_path.read_text(encoding="utf-8")
+            raw = json.loads(manifest_text)
+
+            self.assertNotIn(str(task["commands"][0]), manifest_text)
+            self.assertEqual(
+                raw["commands"][0],
+                {"payload_file": "escape-heavy.payload/commands/001.sh"},
+            )
+            self.assertEqual(
+                raw["writes"][0]["content"],
+                {"payload_file": "escape-heavy.payload/writes/001.txt"},
+            )
+            self.assertEqual(
+                raw["patch"],
+                {"payload_file": "escape-heavy.payload/patch.diff"},
+            )
+
+            with mock.patch.object(core, "CONTROL", control):
+                task_contract.validate_task(raw)
+
+            self.assertEqual(raw, expected)
+            self.assertEqual(
+                task_contract.task_digest(raw),
+                task_contract.task_digest(expected),
+            )
+
+    def test_writer_preflight_rejects_invalid_task_before_enqueue(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tasks_dir = Path(temporary) / ".agent/tasks"
+            invalid = {
+                "id": "missing-resources",
+                "commands": ["true"],
+                "command_timeout": 60,
+                "task_timeout": 180,
+            }
+
+            with self.assertRaisesRegex(ValueError, "resources must be declared"):
+                task_transport.write_task_bundle(tasks_dir, invalid)
+
+            self.assertFalse(tasks_dir.exists())
+
+    def test_payload_reference_cannot_escape_task_payload_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            control = Path(temporary)
+            task = {
+                "id": "bounded",
+                "resources": [],
+                "commands": [
+                    {"payload_file": "bounded.payload/../outside.sh"},
+                ],
+                "command_timeout": 60,
+                "task_timeout": 180,
+            }
+
+            with mock.patch.object(core, "CONTROL", control):
+                with self.assertRaisesRegex(ValueError, "canonical relative POSIX"):
+                    task_contract.validate_task(task)
+
+    def test_missing_payload_is_terminal_validation_error(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            control = Path(temporary)
+            task = {
+                "id": "missing-payload",
+                "resources": [],
+                "commands": [
+                    {"payload_file": "missing-payload.payload/commands/001.sh"},
+                ],
+                "command_timeout": 60,
+                "task_timeout": 180,
+            }
+
+            with mock.patch.object(core, "CONTROL", control):
+                with self.assertRaisesRegex(ValueError, "payload file does not exist"):
+                    task_contract.validate_task(task)
+
+    def test_legacy_inline_task_remains_unchanged(self) -> None:
+        task = {
+            "id": "legacy-inline",
+            "resources": [],
+            "commands": ["true"],
+            "command_timeout": 60,
+            "task_timeout": 180,
+        }
+        expected = copy.deepcopy(task)
+
+        task_contract.validate_task(task)
+
+        self.assertEqual(task, expected)
+
+    def test_runtime_cleanup_prunes_payload_files_with_terminal_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            control = Path(temporary)
+            tasks_dir = control / ".agent/tasks"
+            results_dir = control / ".agent/results"
+            results_dir.mkdir(parents=True)
+            task = {
+                "id": "gc-bundle",
+                "resources": [],
+                "commands": ["printf '%s\\n' 'done'"],
+                "command_timeout": 60,
+                "task_timeout": 180,
+            }
+            task_transport.write_task_bundle(tasks_dir, task)
+            (results_dir / "gc-bundle.json").write_text(
+                '{"id":"gc-bundle","finished_at":"2026-09-28T10:00:00+00:00"}\n',
+                encoding="utf-8",
+            )
+
+            plan = control_cleanup_plan(
+                control,
+                terminal_pair_retention=0,
+                run_retention=0,
+                ack_retention=0,
+                orphan_result_retention=0,
+            )
+
+            self.assertIn(".agent/tasks/gc-bundle.json", plan)
+            self.assertIn(".agent/results/gc-bundle.json", plan)
+            self.assertIn(
+                ".agent/tasks/gc-bundle.payload/commands/001.sh",
+                plan,
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

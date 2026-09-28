@@ -70,6 +70,19 @@ def _json_files(directory: Path) -> list[Path]:
     return sorted(path for path in directory.glob("*.json") if path.is_file())
 
 
+def _task_payload_files(tasks_dir: Path, task_id: str) -> list[Path]:
+    payload_dir = tasks_dir / f"{task_id}.payload"
+    if payload_dir.is_symlink():
+        return [payload_dir]
+    if not payload_dir.is_dir():
+        return []
+    return sorted(
+        path
+        for path in payload_dir.rglob("*")
+        if path.is_file() or path.is_symlink()
+    )
+
+
 def _relative(control: Path, path: Path) -> str:
     return path.relative_to(control).as_posix()
 
@@ -412,7 +425,7 @@ def control_cleanup_plan(
     deletes: set[Path] = set()
     pending_ids: set[str] = set()
     referenced_results: set[Path] = set()
-    terminal_pairs: list[tuple[tuple[float, str], Path, Path]] = []
+    terminal_pairs: list[tuple[tuple[float, str], Path, Path, str]] = []
 
     for task_path in _json_files(tasks_dir):
         task = _read_json(task_path)
@@ -425,15 +438,20 @@ def control_cleanup_plan(
                 result_path = alias_result
         if result_path.exists():
             referenced_results.add(result_path)
-            terminal_pairs.append((_sort_key(result_path), task_path, result_path))
+            terminal_pairs.append(
+                (_sort_key(result_path), task_path, result_path, task_id)
+            )
         else:
             pending_ids.add(task_id)
             pending_ids.add(task_path.stem)
 
     terminal_pairs.sort(key=lambda item: item[0], reverse=True)
-    for _key, task_path, result_path in terminal_pairs[terminal_pair_retention:]:
+    for _key, task_path, result_path, task_id in terminal_pairs[
+        terminal_pair_retention:
+    ]:
         deletes.add(task_path)
         deletes.add(result_path)
+        deletes.update(_task_payload_files(tasks_dir, task_id))
 
     orphan_results = [
         path for path in _json_files(results_dir) if path not in referenced_results

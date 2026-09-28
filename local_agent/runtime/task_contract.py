@@ -4,10 +4,11 @@ import hashlib
 import json
 import re
 import secrets
+from pathlib import PurePosixPath
 from typing import Any
 
-from local_agent.repository.binding import canonical_agent_binding
 from local_agent.config import TIMEOUTS
+from local_agent.repository.binding import canonical_agent_binding
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _RESOURCE_RE = re.compile(r"^[a-z0-9._:-]+$")
@@ -28,6 +29,9 @@ MAX_PATCH_BYTES = 2 * 1024 * 1024
 MAX_WRITE_BYTES = 2 * 1024 * 1024
 MAX_TOTAL_WRITE_BYTES = 8 * 1024 * 1024
 MAX_TASK_PATH_CHARS = 1024
+TASK_PAYLOAD_REF_KEY = "payload_file"
+MAX_TASK_PAYLOAD_FILES = 1536
+MAX_TASK_PAYLOAD_BYTES = 48 * 1024 * 1024
 
 
 def task_digest(task: dict[str, Any]) -> str:
@@ -100,6 +104,172 @@ def _reject_local_codex(command: str, *, field: str) -> None:
         )
 
 
+def _payload_reference(value: Any, *, field: str) -> str | None:
+    if not isinstance(value, dict) or TASK_PAYLOAD_REF_KEY not in value:
+        return None
+    if set(value) != {TASK_PAYLOAD_REF_KEY}:
+        raise ValueError(
+            f"{field} payload reference must contain only {TASK_PAYLOAD_REF_KEY!r}"
+        )
+    raw = value[TASK_PAYLOAD_REF_KEY]
+    if not isinstance(raw, str) or not raw:
+        raise ValueError(f"{field} payload file must be a non-empty string")
+    return raw
+
+
+def _read_payload_text(
+    task_id: str,
+    relative_path: str,
+    *,
+    field: str,
+    max_bytes: int,
+    max_chars: int | None,
+    state: dict[str, Any],
+) -> str:
+    pure = PurePosixPath(relative_path)
+    if (
+        pure.is_absolute()
+        or pure.as_posix() != relative_path
+        or any(part in {"", ".", ".."} for part in pure.parts)
+    ):
+        raise ValueError(f"{field} payload path must be canonical relative POSIX text")
+
+    payload_root_name = f"{task_id}.payload"
+    if len(pure.parts) < 2 or pure.parts[0] != payload_root_name:
+        raise ValueError(
+            f"{field} payload path must stay under {payload_root_name}/"
+        )
+
+    cache = state["cache"]
+    cached = cache.get(relative_path)
+    if cached is not None:
+        text = str(cached)
+    else:
+        from local_agent.foundation import core as core_module
+
+        tasks_root = (core_module.CONTROL / ".agent/tasks").resolve()
+        current = tasks_root
+        for part in pure.parts:
+            current = current / part
+            if current.is_symlink():
+                raise ValueError(f"{field} payload path may not contain symlinks")
+
+        payload_root = (tasks_root / payload_root_name).resolve()
+        target = current.resolve()
+        if payload_root not in target.parents:
+            raise ValueError(f"{field} payload path escapes its task payload directory")
+        if not target.is_file():
+            raise ValueError(f"{field} payload file does not exist: {relative_path}")
+
+        size = target.stat().st_size
+        if size > max_bytes:
+            raise ValueError(f"{field} payload exceeds {max_bytes} bytes")
+        if relative_path not in state["seen"]:
+            state["seen"].add(relative_path)
+            state["bytes"] += size
+            if len(state["seen"]) > MAX_TASK_PAYLOAD_FILES:
+                raise ValueError(
+                    f"task payload exceeds {MAX_TASK_PAYLOAD_FILES} files"
+                )
+            if state["bytes"] > MAX_TASK_PAYLOAD_BYTES:
+                raise ValueError(
+                    f"task payload exceeds {MAX_TASK_PAYLOAD_BYTES} total bytes"
+                )
+        try:
+            text = target.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"{field} payload must be valid UTF-8: {relative_path}"
+            ) from exc
+        cache[relative_path] = text
+
+    encoded_bytes = len(text.encode("utf-8"))
+    if encoded_bytes > max_bytes:
+        raise ValueError(f"{field} payload exceeds {max_bytes} bytes")
+    if max_chars is not None and len(text) > max_chars:
+        raise ValueError(f"{field} payload exceeds {max_chars} characters")
+    return text
+
+
+def _resolve_payload_text(
+    task_id: str,
+    value: Any,
+    *,
+    field: str,
+    max_bytes: int,
+    max_chars: int | None,
+    state: dict[str, Any],
+) -> Any:
+    relative_path = _payload_reference(value, field=field)
+    if relative_path is None:
+        return value
+    return _read_payload_text(
+        task_id,
+        relative_path,
+        field=field,
+        max_bytes=max_bytes,
+        max_chars=max_chars,
+        state=state,
+    )
+
+
+def _materialize_task_payloads(task: dict[str, Any], task_id: str) -> None:
+    state: dict[str, Any] = {"cache": {}, "seen": set(), "bytes": 0}
+
+    if "patch" in task:
+        task["patch"] = _resolve_payload_text(
+            task_id,
+            task["patch"],
+            field="patch",
+            max_bytes=MAX_PATCH_BYTES,
+            max_chars=None,
+            state=state,
+        )
+
+    writes = task.get("writes")
+    if isinstance(writes, list):
+        for index, item in enumerate(writes):
+            if isinstance(item, dict) and "content" in item:
+                item["content"] = _resolve_payload_text(
+                    task_id,
+                    item["content"],
+                    field=f"writes[{index}].content",
+                    max_bytes=MAX_WRITE_BYTES,
+                    max_chars=None,
+                    state=state,
+                )
+
+    command_bytes = MAX_COMMAND_CHARS * 4
+    for field in ("commands", "verify_commands"):
+        commands = task.get(field)
+        if not isinstance(commands, list):
+            continue
+        for index, command in enumerate(commands):
+            commands[index] = _resolve_payload_text(
+                task_id,
+                command,
+                field=f"{field}[{index}]",
+                max_bytes=command_bytes,
+                max_chars=MAX_COMMAND_CHARS,
+                state=state,
+            )
+
+    for field in ("steps", "verify_steps"):
+        steps = task.get(field)
+        if not isinstance(steps, list):
+            continue
+        for index, item in enumerate(steps):
+            if isinstance(item, dict) and "command" in item:
+                item["command"] = _resolve_payload_text(
+                    task_id,
+                    item["command"],
+                    field=f"{field}[{index}].command",
+                    max_bytes=command_bytes,
+                    max_chars=MAX_COMMAND_CHARS,
+                    state=state,
+                )
+
+
 def validate_task(task: dict[str, Any], *, require_agent_binding: bool = False) -> None:
     if not isinstance(task, dict):
         raise ValueError("task must be an object")
@@ -117,12 +287,6 @@ def validate_task(task: dict[str, Any], *, require_agent_binding: bool = False) 
     if "work_branch" in task and not isinstance(task["work_branch"], str):
         raise ValueError("work_branch must be a string")
     task_resources_for(task)
-    patch = task.get("patch")
-    if patch is not None:
-        if not isinstance(patch, str):
-            raise ValueError("patch must be a string")
-        if len(patch.encode("utf-8")) > MAX_PATCH_BYTES:
-            raise ValueError(f"patch exceeds {MAX_PATCH_BYTES} bytes")
     for field in (
         "writes",
         "deletes",
@@ -135,6 +299,15 @@ def validate_task(task: dict[str, Any], *, require_agent_binding: bool = False) 
             raise ValueError(f"{field} must be a list")
         if len(task.get(field, [])) > MAX_TASK_LIST_ITEMS:
             raise ValueError(f"{field} exceeds {MAX_TASK_LIST_ITEMS} items")
+
+    _materialize_task_payloads(task, task_id)
+
+    patch = task.get("patch")
+    if patch is not None:
+        if not isinstance(patch, str):
+            raise ValueError("patch must be a string")
+        if len(patch.encode("utf-8")) > MAX_PATCH_BYTES:
+            raise ValueError(f"patch exceeds {MAX_PATCH_BYTES} bytes")
 
     total_write_bytes = 0
     for item in task.get("writes", []):
