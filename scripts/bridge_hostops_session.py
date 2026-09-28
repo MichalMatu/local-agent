@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_DIR = ROOT / "chat_bridge"
 _ALLOWED_CHAT_HOSTS = frozenset({"chatgpt.com", "chat.openai.com"})
 _MAX_CAPTURE_CHARS = 1_048_576
+_BRANDED_MAC_CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 
 
 class BridgeHostOpsSessionError(RuntimeError):
@@ -64,6 +65,20 @@ def _validate_bridge_dir(bridge_dir: Path) -> str:
     if not resolved.is_dir() or not (resolved / "manifest.json").is_file():
         raise BridgeHostOpsSessionError("Chat Bridge extension directory is incomplete")
     return str(resolved)
+
+
+def _validate_bridge_browser_executable(raw: str) -> str:
+    value = raw.strip()
+    if not value:
+        raise BridgeHostOpsSessionError("browser executable is required for start")
+    path = Path(value).expanduser()
+    resolved = path.resolve(strict=False)
+    if resolved == _BRANDED_MAC_CHROME.resolve(strict=False):
+        raise BridgeHostOpsSessionError(
+            "branded Google Chrome cannot auto-load the unpacked Chat Bridge; "
+            "use Chrome for Testing or Chromium"
+        )
+    return str(path)
 
 
 def _validate_timeout(value: float) -> float:
@@ -145,12 +160,13 @@ def managed_bridge_session(
     if action == "start":
         if not browser_executable:
             raise BridgeHostOpsSessionError("browser executable is required for start")
+        browser = _validate_bridge_browser_executable(browser_executable)
         extension_dir = _validate_bridge_dir(bridge_dir)
         normalized_url = normalize_start_url(start_url)
         command.extend(
             [
                 "--browser-executable",
-                browser_executable,
+                browser,
                 "--extension-dir",
                 extension_dir,
                 "--url",
