@@ -1,8 +1,8 @@
 # External Chat Bridge recovery through Host Ops
 
-Chat Bridge has a normal worker-owned recovery path and an external fallback. Keep those boundaries separate.
+Chat Bridge has a normal worker-owned recovery path and an external Host Ops fallback. Keep those boundaries separate.
 
-The normal path is always preferred while Bridge can still answer its own protocol:
+The normal Bridge path is preferred whenever Bridge can still answer its own protocol:
 
 ```text
 [LAB:DEBUG]
@@ -10,76 +10,117 @@ The normal path is always preferred while Bridge can still answer its own protoc
 [LAB:RELOAD=BRIDGE]
 ```
 
-`worker_transport.js` owns content-script probing and reinjection. Host Ops must not replace that mechanism or become a second Bridge runtime.
+`worker_transport.js` owns normal content-script probing and reinjection. Host Ops must not become a second Bridge runtime.
 
-Use the external fallback only when the Bridge/content path itself is unavailable and therefore cannot execute its own maintenance controls. The fallback is intentionally limited to one already-open ChatGPT page and the current unpacked Bridge content-script files.
+## Dedicated browser profile
 
-## Dedicated managed browser
+The external path uses one persistent Chrome for Testing (CfT) or Chromium profile dedicated to Chat Bridge. Do not enable remote debugging on the operator's normal browser profile.
 
-The preferred external-fallback setup is a separate persistent Chrome for Testing (CfT) or Chromium profile dedicated to Chat Bridge. Do not enable remote debugging on the operator's normal browser profile.
+Production profile:
 
-`scripts/bridge_hostops_session.py` is a thin Chat Bridge-specific wrapper around the generic `hostops browser session` capability. It does not own a browser process manager. On `start` it supplies exactly three Bridge-specific inputs: the current `chat_bridge/` unpacked extension directory, an explicit isolated profile directory and an approved ChatGPT HTTPS start URL.
+```text
+~/.local/share/local-agent/chat-bridge-cft
+```
 
-Current branded Google Chrome releases must not be used for this automatic unpacked-extension workflow. Branded Chrome removed command-line `--load-extension` support and later `--disable-extensions-except`; Chrome for Testing and Chromium retain the testing flags. The wrapper therefore rejects the standard macOS branded Chrome executable before invoking Host Ops.
+Preferred CfT alias on macOS:
 
-A stable private CfT alias can be kept under `~/.local/share/local-agent/chrome-for-testing/current`. Start the dedicated browser on macOS with:
+```text
+~/.local/share/local-agent/chrome-for-testing/current
+```
+
+`scripts/bridge_hostops_session.py` is a thin Chat Bridge wrapper over generic `hostops browser session` capabilities. Host Ops owns browser lifecycle and exact-profile process guards.
+
+Normal managed mode loads the current unpacked `chat_bridge/` extension and uses a browser-selected loopback CDP port:
 
 ```bash
 CFT="$HOME/.local/share/local-agent/chrome-for-testing/current/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+PROFILE="$HOME/.local/share/local-agent/chat-bridge-cft"
 
 python scripts/bridge_hostops_session.py start \
-  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-cft" \
-  --browser-executable "$CFT"
+  --profile-dir "$PROFILE" \
+  --browser-executable "$CFT" \
+  --url https://chatgpt.com/
 ```
 
-An explicitly installed Chromium executable is also acceptable. The default start URL is `https://chatgpt.com/`. `--url` may instead name an exact ChatGPT conversation path, but credentials, explicit ports, query data and fragments are rejected. Host Ops loads only the current unpacked `chat_bridge/` extension through this wrapper and creates CDP on a browser-selected dynamic loopback port.
-
-Check the session:
+Check or stop only that exact profile:
 
 ```bash
-python scripts/bridge_hostops_session.py status \
-  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-cft"
+python scripts/bridge_hostops_session.py status --profile-dir "$PROFILE"
+python scripts/bridge_hostops_session.py stop --profile-dir "$PROFILE"
 ```
 
-The JSON result contains the Host Ops session evidence. When running, `result.endpoint` is the current dynamic loopback endpoint. Operators normally do not need to copy that port into recovery commands: the recovery helper can resolve it from the exact managed profile itself.
+The wrapper rejects the normal branded macOS Google Chrome executable for this automatic unpacked-extension flow. Chrome for Testing or Chromium should be used instead.
 
-Stop only that dedicated browser:
+## Manual login bootstrap
+
+Some identity providers can reject a browser while it exposes automation/debugging signals. For that case, use the **same Host Ops-owned dedicated profile** in temporary interactive mode.
+
+First stop normal managed mode for the exact profile, then start login mode:
 
 ```bash
-python scripts/bridge_hostops_session.py stop \
-  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-cft"
+python scripts/bridge_hostops_session.py stop --profile-dir "$PROFILE"
+
+python scripts/bridge_hostops_session.py login-start \
+  --profile-dir "$PROFILE" \
+  --browser-executable "$CFT" \
+  --url https://chatgpt.com/
 ```
 
-The profile persists across stop/start cycles so the operator can log in to ChatGPT once inside this isolated browser. The wrapper never adopts an existing profile, never scans for a daily browser profile and never uses process-name killing; those guards are enforced by Host Ops C5. Host Ops C5.1 additionally recognizes the macOS Chrome for Testing root process while preserving the same exact-profile and dynamic-loopback guards.
+`login-start` delegates to `hostops browser session interactive-start`. It launches the same owned profile without CDP flags and without unpacked-extension flags. The user completes authentication manually in that browser window.
 
-## Prerequisites
+Optional status:
 
-External recovery requires all of the following:
+```bash
+python scripts/bridge_hostops_session.py login-status --profile-dir "$PROFILE"
+```
 
-- the target ChatGPT conversation is already open in the dedicated browser;
-- the managed browser runtime supports command-line loading of the unpacked Bridge, normally Chrome for Testing or Chromium;
-- either the exact dedicated managed profile is known, or an explicitly authorized loopback CDP endpoint is supplied;
-- the exact sanitized conversation URL is known, with no query or fragment;
-- the current `local-agent` checkout contains the Bridge version expected to be active;
-- the installed `hostops` command provides `browser attach readiness`, `browser attach recover-content-script` and, for managed-profile targeting, `browser session status`.
+After successful authentication, finish login mode:
 
-This path does not discover or attach to ordinary Chrome implicitly. `--profile-dir` resolves only that exact Host Ops-managed profile. `--endpoint` remains available for explicitly authorized non-managed Chromium instances. The two inputs are mutually exclusive.
+```bash
+python scripts/bridge_hostops_session.py login-finish --profile-dir "$PROFILE"
+```
 
-## Operator helper
+`login-finish` stops only the exact interactive root process and requests Host Ops to remove only Chromium tab/session-restore files. Cookies, local storage, account state, extension data and the Host Ops ownership marker are retained. This prevents stale identity-provider tabs from reopening when normal managed mode starts again.
 
-`scripts/bridge_hostops_recovery.py` derives the expected content-script fingerprints directly from the current `chat_bridge/manifest.json` and referenced JavaScript files. It never stores expected hashes in planner prompts or documentation.
+Then return to normal managed mode with `start`. The login state remains in the dedicated profile.
 
-With the dedicated managed browser, read-only diagnosis is simply:
+Never copy cookies from the user's normal Chrome profile, never attach to that profile, and never add flags intended to disguise automation to an identity provider.
+
+## Readiness and current composer contract
+
+`scripts/bridge_hostops_recovery.py` derives the current Bridge content-script fingerprints from `chat_bridge/manifest.json` and the referenced JavaScript files.
+
+ChatGPT's composer DOM is not assumed to have one historical selector. Current readiness uses this bounded CSS union:
+
+```css
+#prompt-textarea,
+[data-testid="prompt-textarea"],
+div.ProseMirror[contenteditable="true"]
+```
+
+This preserves compatibility with the older `#prompt-textarea` DOM while supporting the current ProseMirror composer observed in production. Host Ops still receives only one bounded CSS selector expression and performs its normal DOM selector-count check; no page JavaScript is evaluated.
+
+A logged-out page can legitimately return `dom_not_ready`. That is not a content-script self-heal condition.
+
+## Exact-target external diagnosis
+
+For a known exact ChatGPT conversation URL:
 
 ```bash
 python scripts/bridge_hostops_recovery.py \
-  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-cft" \
+  --profile-dir "$PROFILE" \
   --conversation-url https://chatgpt.com/c/CONVERSATION_ID
 ```
 
-The helper performs exactly one `hostops browser session status` for that profile, requires `state=running` and a `http://127.0.0.1:<port>` endpoint, then uses that endpoint for the existing exact-target recovery path. A stopped/unhealthy profile or non-loopback endpoint fails closed. There is no fallback to process scanning or another browser.
+The helper:
 
-The original explicit-endpoint mode remains supported unchanged:
+1. resolves the exact managed profile to its current loopback CDP endpoint;
+2. requires exactly one `page` target whose sanitized URL equals the requested conversation URL;
+3. derives all expected Bridge script SHA-256 fingerprints locally;
+4. runs Host Ops readiness using the current composer selector contract;
+5. remains read-only unless `--recover` is explicitly supplied.
+
+The explicit endpoint form remains available for an already authorized loopback Chromium instance:
 
 ```bash
 python scripts/bridge_hostops_recovery.py \
@@ -87,57 +128,54 @@ python scripts/bridge_hostops_recovery.py \
   --conversation-url https://chatgpt.com/c/CONVERSATION_ID
 ```
 
-After endpoint resolution, the helper asks Host Ops for bounded target inventory, requires exactly one `page` target whose sanitized URL equals the requested conversation URL, then runs exact-target readiness with the Bridge manifest scripts and `#prompt-textarea` DOM readiness guard.
+No process-scanning fallback chooses another browser or another target.
 
-Allow one bounded recovery attempt only with explicit `--recover`:
+## Bounded recovery
+
+Only add `--recover` after read-only diagnosis reports `content_script_missing` or `content_script_stale`:
 
 ```bash
 python scripts/bridge_hostops_recovery.py \
-  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-cft" \
+  --profile-dir "$PROFILE" \
   --conversation-url https://chatgpt.com/c/CONVERSATION_ID \
   --recover
 ```
 
-The helper delegates mutation entirely to Host Ops C4. Only `content_script_missing` or `content_script_stale` can cause the existing guarded page reload. Host Ops performs at most one reload and requires one post-reload readiness check. The helper adds no retry loop, arbitrary JavaScript, navigation, click, fill, worker mutation or extension reload authority.
+Mutation is delegated entirely to Host Ops. At most one guarded page reload is allowed, followed by one readiness re-check.
 
-## Escalation policy
+The following conditions are **not** reasons to reload:
 
-Use this order:
+- `ready`;
+- `worker_inactive` by itself — MV3 workers are allowed to sleep;
+- `dom_not_ready`;
+- `extension_ambiguous`.
 
-1. If Bridge responds, use Bridge-native diagnostics and maintenance. Do not use external recovery merely because a normal Bridge command is available.
-2. If Bridge does not respond, run the helper without `--recover` first.
-3. If readiness reports `content_script_missing` or `content_script_stale`, one explicit `--recover` attempt is allowed.
-4. If readiness reports `dom_not_ready` or `extension_ambiguous`, do not mutate the page. Fix the underlying target/DOM/identity ambiguity first.
-5. `worker_inactive` alone is not proof of failure. Manifest V3 workers are allowed to sleep. External content recovery must not wake, restart or otherwise mutate the worker.
-6. If one bounded recovery returns `not_recovered`, `target_changed` or another non-success result, stop. Do not loop reloads. Re-inspect the browser/extension state or require explicit operator intervention.
-7. If the extension runtime itself is stale or broken, this page-level fallback is not sufficient. Use the explicit Bridge runtime reload path when it is reachable; otherwise the operator must explicitly reload the unpacked extension through the browser's extension management UI.
+If one bounded recovery returns `not_recovered`, `target_changed` or another non-success result, stop and re-inspect. Do not loop recovery.
 
-## Planner integration
+## Safety boundaries
 
-The `host-ops` multirepo conversation is the canonical planner workspace for this fallback because `host-ops` is execution-enabled and already owns the bounded browser capability. The `local-agent` catalog entry remains execution-disabled.
+The external flow does not provide arbitrary JavaScript, click/fill/press, general navigation, extension reload, worker mutation, broad process killing or implicit daily-Chrome attachment.
 
-A planner may therefore:
+Exact-profile browser lifecycle belongs to Host Ops. Local Agent scripts add only Chat Bridge-specific profile/extension/URL policy.
 
-- inspect or update `MichalMatu/local-agent` through direct GitHub operations;
-- when machine execution is required, run the helper from the installed/current `local-agent` checkout inside a task targeting the execution-enabled `host-ops` repository and using the exact `host-ops` agent binding;
-- never queue a Local Agent task against the `local-agent` repository merely to run this helper.
+The old rollback profile may remain on disk, but it is not selected implicitly:
 
-The planner must still know the exact conversation URL and either the exact managed profile or an explicit authorized CDP endpoint. It must not guess those values from history or choose among duplicate page targets.
+```text
+~/.local/share/local-agent/chat-bridge-chrome
+```
+
+## Multirepo execution
+
+`local-agent` is intentionally execution-disabled in the multirepo catalog. Machine execution for this browser workflow should be scheduled through execution-enabled `host-ops` using its exact agent binding, while Local Agent source changes may be made through GitHub operations.
+
+Before any write or browser mutation, re-check repository drift, daemon state and concurrent tasks.
 
 ## Evidence and privacy
 
-The managed-browser helper returns machine-readable JSON containing the action, explicit profile path and bounded Host Ops session result. `start` additionally reports the exact local Bridge directory and sanitized start URL. It does not return cookies, storage, page content or extension source.
+Session helpers return only bounded lifecycle evidence such as action, profile path, state, PID and loopback endpoint where applicable. Recovery returns target identity, sanitized URL, requested script basenames and bounded readiness/recovery evidence.
 
-The recovery helper returns machine-readable JSON containing:
-
-- mode (`inspect` or `recover`);
-- exact sanitized conversation URL;
-- exact selected target id;
-- the Bridge script basenames that were fingerprinted;
-- the bounded Host Ops readiness/recovery result.
-
-Expected SHA-256 values are generated locally and passed to Host Ops but are not copied into the helper's structured result. Host Ops keeps extension ids, raw extension URLs, observed script hashes, script source and private page content outside public readiness/recovery evidence.
+Cookies, storage, page text, form values, extension ids, raw extension URLs, script source and observed raw hashes are not returned by these helpers.
 
 ## Failure boundary
 
-These helpers are deliberately not daemon watchdogs and not automatic restart loops. Local Agent remains a deterministic executor and ChatGPT remains the planner. External Bridge recovery is one explicit operator/planner action backed by exact target evidence; it does not add heuristic browser monitoring to the daemon.
+These helpers are operator/planner actions, not daemon watchdogs. They do not add background restart loops. If the exact profile, target or ownership evidence is ambiguous, fail closed and require explicit intervention.
