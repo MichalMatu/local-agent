@@ -1,4 +1,6 @@
-# Local Agent 4.19.3 / Chat Bridge 0.5.12
+# Local Agent 4.19.3
+
+Chat Bridge 0.5.12 / content protocol v8 / assistant guard v4.
 
 ## Summary
 

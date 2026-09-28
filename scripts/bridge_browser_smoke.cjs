@@ -226,7 +226,7 @@ document.querySelector('form').onsubmit = (event) => {
     await page.evaluate(() => { window.dropDelivery = true; });
     assert.equal((await run(removeUnconfirmedId)).reason, "delivery_unconfirmed");
     await popup.reload();
-    await popup.waitForFunction(() => document.querySelectorAll(".conversation-card").length === 8);
+    await popup.waitForFunction(() => document.querySelectorAll(".conversation-card").length === 9);
     await popup.waitForFunction(
       (height) => document.body.getBoundingClientRect().height > height,
       compactPopup.height
