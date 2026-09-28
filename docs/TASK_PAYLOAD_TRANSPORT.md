@@ -2,6 +2,12 @@
 
 Local Agent supports an escape-safe task transport for source text that is awkward or fragile to embed directly in JSON. Legacy inline `.agent/tasks/<queue-name>.json` tasks remain valid and unchanged.
 
+## Planner rule
+
+Use the external payload form for source-like or multiline text that would otherwise require manual JSON escaping, especially generated code, HTML/CSS/JS, shell/Python snippets, large write bodies and unified diffs. Do not hand-build a giant escaped JSON string when the same bytes can be committed as a normal UTF-8 payload file.
+
+The task manifest remains the queue identity and must still be published as `.agent/tasks/<queue-name>.json`. Publish the manifest and every referenced payload file in the same `agent-control` Git commit so the executor never observes a manifest without its referenced text. Inline strings remain supported for small/simple values and do not require migration.
+
 ## Layout
 
 A task manifest stays in the existing queue location and text payloads live beside it under a task-id-scoped directory:
@@ -43,6 +49,8 @@ The JSON envelope contains only normal task metadata plus file references:
 
 Each reference must be canonical relative POSIX text under `<task-id>.payload/`. Symlinks, path traversal, missing files, invalid UTF-8 and existing task field limits fail closed during task validation.
 
+The resolved logical task remains bounded by the existing `MAX_TASK_FILE_BYTES` limit. External files remove JSON escaping fragility; they do not increase the maximum logical task size. Reusing one payload file from many fields cannot amplify a small on-disk payload into an oversized effective task.
+
 ## Producer path
 
 `local_agent.runtime.task_transport.write_task_bundle()` is the canonical local producer helper. It validates the canonical task first, writes payload files, serializes the manifest with Python's JSON encoder, and exposes the manifest last. A producer error therefore cannot enqueue a visible manifest before its payloads exist.
@@ -56,3 +64,7 @@ The runtime materializes payload references before normal contract validation an
 Malformed JSON remains terminal `invalid_task_file`. Local Agent does not guess how broken JSON should have been escaped and does not automatically replay or repair a rejected task. The payload transport prevents escape-heavy source text from entering JSON in the first place; it does not weaken the existing no-replay invariant.
 
 Missing or invalid payload files are also terminal task validation failures before claim or command execution. Runtime cleanup removes retained payload files together with an expired terminal task/result pair.
+
+## Downstream compatibility audit
+
+The registered project instructions were re-audited before merge. GrowClip and MatrixHub explicitly describe `.agent/tasks/<task-id>.json`, while BloomML and Tracker keep only repository-specific task/binding rules. Those instructions remain correct because the JSON manifest is still mandatory and legacy inline text remains valid. No downstream migration is required; the new payload directory is an additive escape-safe representation owned by the canonical Local Agent runtime documentation.

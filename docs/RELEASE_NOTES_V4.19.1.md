@@ -2,7 +2,7 @@
 
 ## Summary
 
-Release an explicit multirepository planner scope for the canonical `host-ops` Chat Bridge binding while preserving Local Agent's exact target-repository execution identity and all existing executor isolation.
+Release an explicit multirepository planner scope for the canonical `host-ops` Chat Bridge binding while preserving Local Agent's exact target-repository execution identity and all existing executor isolation. The same candidate also adds an additive escape-safe task payload transport so source-like text no longer has to be hand-escaped into one large task JSON document.
 
 The conversation itself remains immutably bound to `host-ops`. That binding now authorizes ChatGPT to move between repositories present in the current validated runtime catalog without an operator Rebind. Normal repository bindings remain single-repository and fail closed exactly as before.
 
@@ -42,11 +42,21 @@ Chat Bridge advances from 0.5.10 to 0.5.11 because the service-worker routing po
 
 Ordinary ChatGPT DOM submission behavior is unchanged, so content protocol remains v7. Assistant timeout/exhaustion guard protocol remains v3.
 
+## Escape-safe task payload transport
+
+Task manifests remain `.agent/tasks/<queue-name>.json`, but text-bearing fields may now reference ordinary UTF-8 files under `.agent/tasks/<task-id>.payload/` through a strict `payload_file` object. Supported fields are `patch`, `writes[].content`, `commands[]`, `verify_commands[]`, `steps[].command` and `verify_steps[].command`.
+
+The runtime materializes those references before normal validation and digest calculation. The resulting digest is therefore identical to the equivalent legacy inline task. References are restricted to the task-id-scoped payload directory; path traversal, symlinks, missing files and invalid UTF-8 fail closed before claim or command execution.
+
+The transport removes JSON escaping fragility but does not relax existing task bounds. The fully resolved logical task remains capped by the existing 4 MiB task-file limit, including repeated-reference amplification. Runtime GC removes retained payload files together with expired terminal task/result pairs.
+
+Malformed task JSON remains terminal `invalid_task_file`. The daemon does not guess how broken JSON should have been escaped, rewrite it or replay it automatically.
+
 ## Compatibility
 
-This release does not broaden the Local Agent task schema, scheduler, repository worker, process lifecycle, resource arbitration, self-update mechanism, MCP transport or emergency-control authority. Existing project-bound Chat Bridge conversations retain their current one-repository behavior and continue to use explicit Rebind when the conversation binding itself must change.
+This release adds an optional, backward-compatible task representation; it does not remove or reinterpret legacy inline strings. Existing task JSON remains valid without migration, and task ids, digests after materialization, hard-binding admission, scheduler/resource semantics, repository worker behavior, process lifecycle, self-update mechanism, MCP transport and emergency-control authority remain unchanged.
 
-Downstream project planner instructions that describe normal repository-scoped operation therefore remain valid. `docs/HOST_OPS_MULTIREPO.md` is the canonical extension for the privileged operator workspace.
+Registered downstream planner instructions were re-audited. GrowClip and MatrixHub explicitly describe the JSON task manifest path, while BloomML and Tracker keep repository-specific binding/task rules. Those instructions remain accurate because the manifest remains mandatory and inline payloads remain supported, so no downstream source-document migration is required. Canonical payload guidance lives in `TASK_PAYLOAD_TRANSPORT.md`.
 
 ## Verification gate
 
@@ -55,6 +65,7 @@ Before advancing `main`, the exact final candidate SHA must pass:
 - compile and Ruff;
 - full Python unit/integration suite and coverage;
 - Python 3.14 compatibility;
+- task-payload regressions covering escape-heavy round-trip, path containment, missing payloads, legacy inline compatibility, resolved-size amplification and runtime cleanup;
 - Chat Bridge static/unit tests including multirepo positive/negative routing coverage;
 - isolated real-extension Bridge browser smoke;
 - macOS smoke;
@@ -72,4 +83,5 @@ After release:
 3. keep the existing conversation binding to `host-ops`; no replacement binding is required;
 4. verify a normal repository-scoped chat still rejects cross-repository planner work;
 5. verify a `host-ops` conversation receives `planner_scope=multirepo` and can resolve another catalog repository without Rebind;
-6. for any Local Agent task created from that conversation, verify the task uses the target repository's exact canonical binding rather than the `host-ops` conversation binding.
+6. for any Local Agent task created from that conversation, verify the task uses the target repository's exact canonical binding rather than the `host-ops` conversation binding;
+7. for escape-heavy task content, publish the JSON manifest and referenced `.payload/` files together in one `agent-control` commit and verify the resolved task digest/result evidence.

@@ -124,6 +124,25 @@ class TaskPayloadTransportTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "payload file does not exist"):
                     task_contract.validate_task(task)
 
+    def test_repeated_payload_reference_cannot_expand_resolved_task_past_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            control = Path(temporary)
+            payload = control / ".agent/tasks/amplified.payload/commands/shared.sh"
+            payload.parent.mkdir(parents=True)
+            payload.write_text("x" * 20_000, encoding="utf-8")
+            reference = {"payload_file": "amplified.payload/commands/shared.sh"}
+            task = {
+                "id": "amplified",
+                "resources": [],
+                "commands": [dict(reference) for _ in range(256)],
+                "command_timeout": 60,
+                "task_timeout": 180,
+            }
+
+            with mock.patch.object(core, "CONTROL", control):
+                with self.assertRaisesRegex(ValueError, "resolved task exceeds"):
+                    task_contract.validate_task(task)
+
     def test_legacy_inline_task_remains_unchanged(self) -> None:
         task = {
             "id": "legacy-inline",

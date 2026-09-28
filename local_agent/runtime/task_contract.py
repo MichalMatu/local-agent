@@ -34,14 +34,17 @@ MAX_TASK_PAYLOAD_FILES = 1536
 MAX_TASK_PAYLOAD_BYTES = MAX_TASK_FILE_BYTES
 
 
-def task_digest(task: dict[str, Any]) -> str:
-    payload = json.dumps(
+def _serialized_task_bytes(task: dict[str, Any]) -> bytes:
+    return json.dumps(
         task,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
     ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+
+
+def task_digest(task: dict[str, Any]) -> str:
+    return hashlib.sha256(_serialized_task_bytes(task)).hexdigest()
 
 
 def task_agent_binding(
@@ -301,6 +304,12 @@ def validate_task(task: dict[str, Any], *, require_agent_binding: bool = False) 
             raise ValueError(f"{field} exceeds {MAX_TASK_LIST_ITEMS} items")
 
     _materialize_task_payloads(task, task_id)
+
+    resolved_size = len(_serialized_task_bytes(task))
+    if resolved_size > MAX_TASK_FILE_BYTES:
+        raise ValueError(
+            f"resolved task exceeds {MAX_TASK_FILE_BYTES} bytes: {resolved_size}"
+        )
 
     patch = task.get("patch")
     if patch is not None:
