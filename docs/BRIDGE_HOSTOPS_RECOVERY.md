@@ -30,14 +30,14 @@ python scripts/bridge_hostops_session.py start \
 
 The default start URL is `https://chatgpt.com/`. `--url` may instead name an exact ChatGPT conversation path, but credentials, explicit ports, query data and fragments are rejected. Host Ops loads only the current unpacked `chat_bridge/` extension through this wrapper and creates CDP on a Chrome-selected dynamic loopback port.
 
-Check the session and retrieve the current endpoint:
+Check the session:
 
 ```bash
 python scripts/bridge_hostops_session.py status \
   --profile-dir "$HOME/.local/share/local-agent/chat-bridge-chrome"
 ```
 
-The JSON result contains the Host Ops session evidence. When running, `result.endpoint` is the explicit `http://127.0.0.1:<dynamic-port>` value to pass to the recovery helper below.
+The JSON result contains the Host Ops session evidence. When running, `result.endpoint` is the current dynamic loopback endpoint. Operators normally do not need to copy that port into recovery commands: the recovery helper can resolve it from the exact managed profile itself.
 
 Stop only that dedicated browser:
 
@@ -53,18 +53,28 @@ The profile persists across stop/start cycles so the operator can log in to Chat
 External recovery requires all of the following:
 
 - the target ChatGPT conversation is already open in Chromium;
-- that Chromium instance exposes an explicitly authorized loopback CDP endpoint, preferably from the dedicated managed-browser helper above;
+- either the exact dedicated managed profile is known, or an explicitly authorized loopback CDP endpoint is supplied;
 - the exact sanitized conversation URL is known, with no query or fragment;
 - the current `local-agent` checkout contains the Bridge version expected to be active;
-- the installed `hostops` command provides `browser attach readiness`, `browser attach recover-content-script` and, for the managed-browser helper, `browser session start|status|stop`.
+- the installed `hostops` command provides `browser attach readiness`, `browser attach recover-content-script` and, for managed-profile targeting, `browser session status`.
 
-This path does not discover or attach to ordinary Chrome implicitly. The CDP endpoint is always explicit.
+This path does not discover or attach to ordinary Chrome implicitly. `--profile-dir` resolves only that exact Host Ops-managed profile. `--endpoint` remains available for explicitly authorized non-managed Chromium instances. The two inputs are mutually exclusive.
 
 ## Operator helper
 
 `scripts/bridge_hostops_recovery.py` derives the expected content-script fingerprints directly from the current `chat_bridge/manifest.json` and referenced JavaScript files. It never stores expected hashes in planner prompts or documentation.
 
-Read-only diagnosis is the default:
+With the dedicated managed browser, read-only diagnosis is simply:
+
+```bash
+python scripts/bridge_hostops_recovery.py \
+  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-chrome" \
+  --conversation-url https://chatgpt.com/c/CONVERSATION_ID
+```
+
+The helper performs exactly one `hostops browser session status` for that profile, requires `state=running` and a `http://127.0.0.1:<port>` endpoint, then uses that endpoint for the existing exact-target recovery path. A stopped/unhealthy profile or non-loopback endpoint fails closed. There is no fallback to process scanning or another browser.
+
+The original explicit-endpoint mode remains supported unchanged:
 
 ```bash
 python scripts/bridge_hostops_recovery.py \
@@ -72,13 +82,13 @@ python scripts/bridge_hostops_recovery.py \
   --conversation-url https://chatgpt.com/c/CONVERSATION_ID
 ```
 
-The helper first asks Host Ops for bounded target inventory, requires exactly one `page` target whose sanitized URL equals the requested conversation URL, then runs exact-target readiness with the Bridge manifest scripts and `#prompt-textarea` DOM readiness guard.
+After endpoint resolution, the helper asks Host Ops for bounded target inventory, requires exactly one `page` target whose sanitized URL equals the requested conversation URL, then runs exact-target readiness with the Bridge manifest scripts and `#prompt-textarea` DOM readiness guard.
 
 Allow one bounded recovery attempt only with explicit `--recover`:
 
 ```bash
 python scripts/bridge_hostops_recovery.py \
-  --endpoint http://127.0.0.1:9222 \
+  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-chrome" \
   --conversation-url https://chatgpt.com/c/CONVERSATION_ID \
   --recover
 ```
@@ -107,7 +117,7 @@ A planner may therefore:
 - when machine execution is required, run the helper from the installed/current `local-agent` checkout inside a task targeting the execution-enabled `host-ops` repository and using the exact `host-ops` agent binding;
 - never queue a Local Agent task against the `local-agent` repository merely to run this helper.
 
-The planner must still know the exact conversation URL and explicit CDP endpoint. It must not guess either value from history or choose among duplicate page targets.
+The planner must still know the exact conversation URL and either the exact managed profile or an explicit authorized CDP endpoint. It must not guess those values from history or choose among duplicate page targets.
 
 ## Evidence and privacy
 
