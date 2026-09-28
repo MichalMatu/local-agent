@@ -53,15 +53,29 @@
     );
   }
 
+  function compareDocumentOrder(left, right) {
+    if (left === right) return 0;
+    const position = left?.compareDocumentPosition?.(right) || 0;
+    if (position & 4) return -1;
+    if (position & 2) return 1;
+    return 0;
+  }
+
+  function mergeAssistantMessages(explicit, grouped) {
+    const selected = new Map();
+    for (const message of explicit) selected.set(containingTurn(message), message);
+    for (const turn of grouped) if (!selected.has(turn)) selected.set(turn, turn);
+    return Array.from(selected.values()).sort(compareDocumentOrder);
+  }
+
   function messageElements(root, role) {
     if (!root || typeof root.querySelectorAll !== "function") return [];
     const selectors = MESSAGE_SELECTORS[role] || [];
     if (!selectors.length) return [];
-    const explicit = dedupeMessagesByTurn(
-      Array.from(root.querySelectorAll(selectors.join(", ")))
-    );
-    if (role === "assistant" && !explicit.length) return groupedAssistantTurns(root);
-    return explicit;
+    const explicit = dedupeMessagesByTurn(Array.from(root.querySelectorAll(selectors.join(", "))));
+    if (role !== "assistant") return explicit;
+    const grouped = groupedAssistantTurns(root);
+    return grouped.length ? mergeAssistantMessages(explicit, grouped) : explicit;
   }
 
   function conversationMessages(root) {

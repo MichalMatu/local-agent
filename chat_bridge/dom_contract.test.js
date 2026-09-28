@@ -33,6 +33,7 @@ const message = element({
 });
 const root = {
   querySelectorAll(selector) {
+    if (selector === '[data-turn-key]') return [];
     assert.equal(selector, '[data-message-author-role="assistant"], [data-conversation-role="assistant"]');
     return [message];
   }
@@ -195,6 +196,22 @@ const currentExhaustionRoot = {
 found = dom.findConversationExhaustion(currentExhaustionRoot);
 assert.ok(found);
 assert.equal(found.assistantIdentity, "turn-current-exhaustion");
+
+const mixedGroupedOldTurn = element({ attrs: { "data-turn-key": "mixed-grouped-old" } });
+const mixedGroupedOldAssistant = element({ attrs: { "data-conversation-role": "assistant" }, text: "old" });
+mixedGroupedOldAssistant.closest = (selector) => selector === "[data-turn-key]" ? mixedGroupedOldTurn : null;
+const mixedGroupedUser = element({ attrs: { "data-user-message-bubble": "" }, text: "user" });
+const mixedGroupedNewTurn = element({ attrs: { "data-turn-key": "mixed-grouped-new" }, query: { '[data-message-author-role="user"], [data-user-message-bubble]': mixedGroupedUser } });
+mixedGroupedOldAssistant.compareDocumentPosition = (other) => other === mixedGroupedNewTurn ? 4 : 0;
+mixedGroupedNewTurn.compareDocumentPosition = (other) => other === mixedGroupedOldAssistant ? 2 : 0;
+const mixedGroupedRoot = {
+  querySelectorAll(selector) {
+    if (selector === '[data-message-author-role="assistant"], [data-conversation-role="assistant"]') return [mixedGroupedOldAssistant];
+    if (selector === '[data-turn-key]') return [mixedGroupedOldTurn, mixedGroupedNewTurn];
+    return [];
+  }
+};
+assert.deepEqual(dom.messageElements(mixedGroupedRoot, "assistant"), [mixedGroupedOldAssistant, mixedGroupedNewTurn]);
 
 const currentUser = element({
   text: "Bridge wake",
