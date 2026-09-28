@@ -6,7 +6,7 @@ import json
 import re
 from collections.abc import Mapping
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from local_agent.foundation import storage
@@ -500,6 +500,13 @@ def prune_control_runtime(core_module: Any) -> dict[str, Any]:
         if paths:
             with termination_critical_section():
                 for relative in paths:
+                    relative_path = PurePosixPath(relative)
+                    if (
+                        relative_path.is_absolute()
+                        or relative_path.as_posix() != relative
+                        or any(part in {"", ".", ".."} for part in relative_path.parts)
+                    ):
+                        raise ValueError(f"cleanup path is non-canonical: {relative!r}")
                     candidate = core_module.CONTROL / relative
                     root = core_module.CONTROL.resolve()
                     resolved_parent = candidate.parent.resolve()
