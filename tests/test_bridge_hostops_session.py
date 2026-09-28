@@ -53,15 +53,19 @@ class BridgeHostOpsSessionTests(unittest.TestCase):
                     "state": "running",
                     "pid": 4321,
                     "endpoint": "http://127.0.0.1:54321",
-                    "browser": "Chrome/153.0.8010.54",
+                    "browser": "Chrome/153.0.8010.36",
                 }
                 return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
+            browser = (
+                "/Applications/Google Chrome for Testing.app/Contents/MacOS/"
+                "Google Chrome for Testing"
+            )
             result = bridge_session.managed_bridge_session(
                 action="start",
                 hostops="/fake/hostops",
                 profile_dir="/tmp/local-agent-chat-bridge",
-                browser_executable="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                browser_executable=browser,
                 start_url="https://chatgpt.com/c/example",
                 timeout_seconds=20,
                 bridge_dir=bridge_dir,
@@ -80,7 +84,7 @@ class BridgeHostOpsSessionTests(unittest.TestCase):
             )
             self.assertEqual(
                 command[command.index("--browser-executable") + 1],
-                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                browser,
             )
             self.assertEqual(
                 command[command.index("--url") + 1],
@@ -91,6 +95,28 @@ class BridgeHostOpsSessionTests(unittest.TestCase):
             self.assertEqual(result["result"]["state"], "running")
             self.assertEqual(result["bridge_dir"], str(bridge_dir.resolve()))
 
+    def test_start_rejects_branded_macos_chrome_before_hostops(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bridge_dir = Path(temporary) / "chat_bridge"
+            bridge_dir.mkdir()
+            (bridge_dir / "manifest.json").write_text("{}\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                bridge_session.BridgeHostOpsSessionError,
+                "Chrome for Testing or Chromium",
+            ):
+                bridge_session.managed_bridge_session(
+                    action="start",
+                    hostops="/fake/hostops",
+                    profile_dir="/tmp/local-agent-chat-bridge",
+                    browser_executable=(
+                        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+                    ),
+                    timeout_seconds=20,
+                    bridge_dir=bridge_dir,
+                    runner=lambda *_args, **_kwargs: self.fail("runner must not be called"),
+                )
+
     def test_status_and_stop_are_profile_scoped_only(self) -> None:
         calls: list[list[str]] = []
         payloads = {
@@ -98,7 +124,7 @@ class BridgeHostOpsSessionTests(unittest.TestCase):
                 "state": "running",
                 "pid": 4321,
                 "endpoint": "http://127.0.0.1:54321",
-                "browser": "Chrome/153.0.8010.54",
+                "browser": "Chrome/153.0.8010.36",
             },
             "stop": {"state": "stopped", "pid": None, "endpoint": None, "browser": None},
         }
