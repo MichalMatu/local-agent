@@ -3,11 +3,13 @@ from __future__ import annotations
 import copy
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
 
 from local_agent.foundation import core
+from local_agent.repository import cleanup
 from local_agent.repository.cleanup import control_cleanup_plan
 from local_agent.runtime import task_contract, task_transport
 
@@ -190,6 +192,51 @@ class TaskPayloadTransportTests(unittest.TestCase):
                 ".agent/tasks/gc-bundle.payload/commands/001.sh",
                 plan,
             )
+
+    def test_runtime_cleanup_unlinks_payload_symlink_without_deleting_target(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            control = Path(temporary)
+            (control / ".git").mkdir()
+            tasks_dir = control / ".agent/tasks"
+            tasks_dir.mkdir(parents=True)
+            target = control / ".agent/binding.json"
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text('{"version":1}\n', encoding="utf-8")
+            link = tasks_dir / "gc-symlink.payload"
+            link.symlink_to(target)
+
+            class FakeCore:
+                CONTROL = control
+                CONTROL_BRANCH = "agent-control"
+                CONTROL_GIT_LOCK = threading.Lock()
+                ENV: dict[str, str] = {}
+
+                @staticmethod
+                def process(*_args, **_kwargs):
+                    return {"exit_code": 0, "output": ""}
+
+            with mock.patch.object(
+                cleanup,
+                "control_cleanup_plan",
+                return_value=(".agent/tasks/gc-symlink.payload",),
+            ), mock.patch.object(
+                cleanup,
+                "_compact_control_history_locked",
+                return_value={"changed": False, "reason": "below_threshold"},
+            ):
+                result = cleanup.prune_control_runtime(FakeCore)
+
+            self.assertTrue(result["changed"])
+            self.assertFalse(link.exists())
+            self.assertFalse(link.is_symlink())
+            self.assertTrue(target.is_file())
+            self.assertEqual(target.read_text(encoding="utf-8"), '{"version":1}\n')
+
+    def test_cleanup_ignores_noncanonical_payload_task_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tasks_dir = Path(temporary) / ".agent/tasks"
+            tasks_dir.mkdir(parents=True)
+            self.assertEqual(cleanup._task_payload_files(tasks_dir, "../escape"), [])
 
 
 if __name__ == "__main__":
