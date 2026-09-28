@@ -12,7 +12,7 @@ assert.ok(
   Number.isInteger(protocol.CONTENT_PROTOCOL_VERSION) && protocol.CONTENT_PROTOCOL_VERSION > 0,
   "shared CONTENT_PROTOCOL_VERSION must be a positive integer"
 );
-assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 10, "grouped-turn assistant fallback must advance the content protocol");
+assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 11, "mixed explicit/grouped assistant discovery must advance the content protocol");
 for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_harness.js"]) {
   assert.doesNotMatch(
     read(name),
@@ -29,7 +29,7 @@ const contentGuardVersion = Number(guardSource.match(/const GUARD_VERSION = (\d+
 const harnessGuardVersion = Number(harness.match(/const EXHAUSTION_GUARD_VERSION = (\d+);/)?.[1]);
 assert.equal(workerGuardVersion, contentGuardVersion, "worker and content guard protocol versions must match");
 assert.equal(harnessGuardVersion, workerGuardVersion, "test harness guard protocol must match production worker");
-assert.equal(workerGuardVersion, 6, "grouped-turn DOM contract upgrade must force replacement of the captured v5 guard");
+assert.equal(workerGuardVersion, 7, "mixed explicit/grouped DOM contract upgrade must force replacement of the captured v6 guard");
 assert.match(
   read("content.js"),
   /const stableId = latest\.getAttribute\("data-message-id"\) \|\| turnKey \|\|/,

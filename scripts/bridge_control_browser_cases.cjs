@@ -111,6 +111,29 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   assert.equal(currentDomAfter.enabled, true);
   console.log("PASS: current ChatGPT data-conversation-role assistant controls reach the worker");
 
+  const mixedAssistantBefore = await readChat(id);
+  await page.evaluate(() => {
+    const turn = document.createElement("div");
+    turn.dataset.turnKey = "mixed-current-grouped-assistant-control";
+    const answer = document.createElement("div");
+    answer.textContent = "[LAB:PAUSE]";
+    const user = document.createElement("div");
+    user.dataset.userMessageBubble = "";
+    user.textContent = "ordinary user text";
+    turn.append(answer, user);
+    document.body.append(turn);
+  });
+  const mixedAssistantDeadline = Date.now() + 5000;
+  let mixedAssistantAfter = await readChat(id);
+  while ((mixedAssistantAfter.generation !== mixedAssistantBefore.generation + 1 || mixedAssistantAfter.lastControlAction !== "[LAB:PAUSE]") && Date.now() < mixedAssistantDeadline) {
+    await page.waitForTimeout(50);
+    mixedAssistantAfter = await readChat(id);
+  }
+  assert.equal(mixedAssistantAfter.generation, mixedAssistantBefore.generation + 1);
+  assert.equal(mixedAssistantAfter.lastControlAction, "[LAB:PAUSE]");
+  assert.equal(mixedAssistantAfter.enabled, false);
+  console.log("PASS: a newer grouped assistant turn wins over older explicit assistant nodes");
+
   const groupedBefore = await readChat(id);
   await page.evaluate(() => {
     document.querySelectorAll('[data-message-author-role="assistant"], [data-conversation-role="assistant"]').forEach((node) => node.remove());
