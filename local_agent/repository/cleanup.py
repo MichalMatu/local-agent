@@ -434,7 +434,11 @@ def control_cleanup_plan(
     for task_path in _json_files(tasks_dir):
         task = _read_json(task_path)
         raw_id = task.get("id")
-        task_id = raw_id if isinstance(raw_id, str) and raw_id else task_path.stem
+        task_id = (
+            raw_id
+            if isinstance(raw_id, str) and _TASK_ID_RE.fullmatch(raw_id) is not None
+            else task_path.stem
+        )
         result_path = results_dir / f"{task_id}.json"
         if not result_path.exists() and task_id != task_path.stem:
             alias_result = results_dir / f"{task_path.stem}.json"

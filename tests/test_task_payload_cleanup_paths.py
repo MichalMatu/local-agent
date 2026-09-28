@@ -10,6 +10,39 @@ from local_agent.repository import cleanup
 
 
 class TaskPayloadCleanupPathTests(unittest.TestCase):
+    def test_cleanup_plan_uses_filename_for_noncanonical_embedded_task_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            control = Path(temporary)
+            tasks_dir = control / ".agent/tasks"
+            results_dir = control / ".agent/results"
+            tasks_dir.mkdir(parents=True)
+            results_dir.mkdir(parents=True)
+            (control / ".agent/binding.json").write_text(
+                '{"version":1}\n',
+                encoding="utf-8",
+            )
+            (tasks_dir / "safe-name.json").write_text(
+                '{"id":"../binding"}\n',
+                encoding="utf-8",
+            )
+            (results_dir / "safe-name.json").write_text(
+                '{"finished_at":"2026-09-28T10:00:00+00:00"}\n',
+                encoding="utf-8",
+            )
+
+            plan = cleanup.control_cleanup_plan(
+                control,
+                terminal_pair_retention=0,
+                run_retention=0,
+                ack_retention=0,
+                orphan_result_retention=0,
+            )
+
+            self.assertIn(".agent/tasks/safe-name.json", plan)
+            self.assertIn(".agent/results/safe-name.json", plan)
+            self.assertNotIn(".agent/binding.json", plan)
+            self.assertTrue(all(".." not in Path(path).parts for path in plan))
+
     def test_prune_rejects_parent_traversal_before_unlink(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             control = Path(temporary)
