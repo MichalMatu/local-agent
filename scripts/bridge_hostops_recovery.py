@@ -154,6 +154,41 @@ def _run_hostops_json(
     return payload
 
 
+def resolve_managed_profile_endpoint(
+    *,
+    hostops: str,
+    profile_dir: str,
+    timeout_seconds: float,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> str:
+    """Resolve one running managed profile to its exact current loopback CDP endpoint."""
+    if not 3 <= timeout_seconds <= 120:
+        raise BridgeHostOpsRecoveryError("timeout must be at least 3 and at most 120 seconds")
+    payload = _run_hostops_json(
+        [
+            hostops,
+            "browser",
+            "session",
+            "status",
+            "--profile-dir",
+            profile_dir,
+            "--timeout",
+            f"{timeout_seconds:g}",
+            "--json",
+        ],
+        timeout_seconds=timeout_seconds + 5,
+        runner=runner,
+    )
+    if payload.get("state") != "running":
+        raise BridgeHostOpsRecoveryError("managed Chat Bridge profile is not running")
+    endpoint = payload.get("endpoint")
+    if not isinstance(endpoint, str) or not endpoint.startswith("http://127.0.0.1:"):
+        raise BridgeHostOpsRecoveryError(
+            "managed Chat Bridge profile did not return a loopback CDP endpoint"
+        )
+    return endpoint
+
+
 def external_bridge_check(
     *,
     hostops: str,
@@ -230,10 +265,14 @@ def _resolve_hostops(raw: str) -> str:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument(
         "--endpoint",
-        required=True,
         help="explicit loopback Chromium CDP endpoint, for example http://127.0.0.1:9222",
+    )
+    target.add_argument(
+        "--profile-dir",
+        help="exact Host Ops managed browser profile whose current endpoint should be resolved",
     )
     parser.add_argument(
         "--conversation-url",
@@ -263,9 +302,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parse_args(argv)
+        hostops = _resolve_hostops(args.hostops)
+        endpoint = args.endpoint
+        if endpoint is None:
+            endpoint = resolve_managed_profile_endpoint(
+                hostops=hostops,
+                profile_dir=args.profile_dir,
+                timeout_seconds=args.timeout_seconds,
+            )
         payload = external_bridge_check(
-            hostops=_resolve_hostops(args.hostops),
-            endpoint=args.endpoint,
+            hostops=hostops,
+            endpoint=endpoint,
             conversation_url=args.conversation_url,
             recover=args.recover,
             timeout_seconds=args.timeout_seconds,
