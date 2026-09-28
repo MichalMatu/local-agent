@@ -127,6 +127,7 @@ Each registered repository uses its own `agent-control` branch:
 ```text
 .agent/binding.json
 .agent/tasks/<task-id>.json
+.agent/tasks/<task-id>.payload/**   optional escape-safe UTF-8 task payloads
 .agent/runs/<task-id>.json
 .agent/results/<task-id>.json
 .agent/status/daemon.json
@@ -135,6 +136,8 @@ Each registered repository uses its own `agent-control` branch:
 ```
 
 Task IDs/payloads are immutable within a repository. Interrupted claimed work is never silently replayed. Terminal results are durably spooled before publication; publication recovery may republish but may not re-execute commands.
+
+For source-like or multiline `patch`, write-content and command text, prefer the escape-safe `payload_file` representation instead of hand-constructing a large escaped JSON string. Every referenced file must remain under `<task-id>.payload/`; publish the payload files and the JSON manifest together in the same `agent-control` commit. Inline strings remain valid for small/simple values. See [`TASK_PAYLOAD_TRANSPORT.md`](TASK_PAYLOAD_TRANSPORT.md) for the exact supported fields, bounds and failure semantics.
 
 Control synchronization keeps history shallow and explicitly fetches the control branch into `refs/remotes/origin/agent-control`. ACK verification therefore remains grounded in a fetched remote-tracking tree instead of a possibly unpushed local commit. This is required for reliable active `cancel_task` and other control ACK checks.
 
@@ -215,7 +218,7 @@ The first live integration proof for a new application is read-only: record the 
 4. Confirm the intended `work_branch` when it differs from the default.
 5. Prepare the smallest deterministic change.
 6. Classify resources explicitly; current registered project repositories use `resources: []` and detect/verify devices inside task commands.
-7. Queue one new unique task containing the target repository's exact `agent_binding` and explicit `resources`.
+7. Queue one new unique task containing the target repository's exact `agent_binding` and explicit `resources`; externalize escape-heavy source/multiline text with `payload_file` references instead of manually escaping it into JSON, and publish manifest plus payload files atomically in one control-branch commit.
 8. For healthy Chat Bridge/Local Agent work, perform the first liveness re-check no sooner than about two minutes; normally use 5-10 minute `NEXT` pacing for multi-minute builds/tests unless exact evidence supports a nearer completion.
 9. Follow the same digest/attempt until terminal evidence exists.
 10. Diagnose exact output; never infer success from submission.
@@ -295,7 +298,7 @@ Canonical defaults:
 - finalization reserve 60 s;
 - normal RSS limit 4096 MiB, configurable max 16384 MiB.
 
-Command stdout capture is bounded. Runtime limits are loaded at daemon startup.
+Command stdout capture is bounded. Runtime limits are loaded at daemon startup. External task payload files do not relax task bounds: the fully materialized logical task is still limited by `MAX_TASK_FILE_BYTES` before claim/execution.
 
 ## macOS deployment
 

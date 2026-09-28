@@ -80,6 +80,7 @@ local_agent/
 │   ├── output.py
 │   ├── progress.py
 │   ├── task_contract.py
+│   ├── task_transport.py
 │   └── telemetry.py
 └── supervisor/
     ├── control.py
@@ -114,7 +115,8 @@ The package is the implementation home for reusable code. New implementation mus
 | Repository runtime cleanup | `local_agent/repository/cleanup.py` | bounded terminal metadata GC with path-exact publication |
 | Repository worker | `local_agent/repository/worker.py` | one isolated repository turn, binding admission and repository-scoped controls |
 | Task executor | `local_agent/runtime/executor.py` | staged command lifecycle, time/RSS watchdog orchestration and task-level execution budget |
-| Task contract | `local_agent/runtime/task_contract.py` | task limits, digest/binding/resource validation |
+| Task contract | `local_agent/runtime/task_contract.py` | task limits, digest/binding/resource validation and payload-reference materialization |
+| Task transport | `local_agent/runtime/task_transport.py` | escape-safe external text-payload externalization and local task-bundle publication |
 | Output | `local_agent/runtime/output.py` | bounded live/summary rendering |
 | Progress | `local_agent/runtime/progress.py` | validated progress markers and bounded async publication |
 | Telemetry | `local_agent/runtime/telemetry.py` | host/process telemetry parsing and collection |
@@ -127,6 +129,8 @@ The package is the implementation home for reusable code. New implementation mus
 | Resource admission | `local_agent/supervisor/resources.py` | machine/named-resource flock arbitration and inherited resource FDs |
 | Parallel repository worker | `local_agent/supervisor/worker.py` | resource-aware parallel task admission and dispatch |
 | macOS integration | `local_agent/platform/macos_launchd.py` | portable LaunchAgent generation/lifecycle helpers |
+
+The task transport is an additive representation boundary, not a second executor. It externalizes source-like UTF-8 text from JSON, while `task_contract.py` materializes references before normal validation and digesting so inline and externalized forms have the same logical task identity. Payload references remain confined to the task-id-scoped control directory and the fully resolved logical task stays inside the existing task-size bound.
 
 The MCP boundary is deliberately parallel to, not embedded in, the task executor. An ordinary task may invoke the packaged MCP CLI, which performs its own server/policy/bounds checks and returns structured bounded output through the existing command/result mechanism. `host-ops` is not a protocol owner and the task schema/scheduler do not gain MCP-specific fields.
 
@@ -194,6 +198,7 @@ The scheduling extraction remains direct: production calls `scheduling.py` and s
 - interrupted claimed work is never silently replayed;
 - publication retry may republish evidence but may not rerun commands;
 - command output, task time and RSS remain bounded;
+- external task payload references must remain task-id scoped, symlink/path-traversal safe and bounded by the same resolved logical task-size ceiling as inline tasks;
 - MCP endpoint identity remains explicit loopback-only machine configuration and MCP discovery remains separate from execution authorization;
 - MCP write/arbitrary-code execution requires matching machine policy plus matching explicit invocation intent;
 - MCP stdio remains unavailable until its process is owned by the registered spawn/process-group lifecycle contract;

@@ -7,8 +7,10 @@ This changelog records operationally relevant Local Agent releases. The release 
 - Added explicit fail-closed Chat Bridge `planner_scope` with `repository` as the default and the canonical `host-ops` binding authorized as the multirepo operator workspace.
 - Allowed a `host-ops` conversation to target repositories from the current validated runtime catalog without changing its immutable conversation binding; normal repository-bound conversations retain their existing single-repository/Rebind behavior.
 - Preserved executor isolation: every Local Agent task still uses the exact canonical binding of its target repository, and repository binding admission, leases, resources, watchdogs, cancellation and durable evidence remain unchanged.
+- Added optional escape-safe `.agent/tasks/<task-id>.payload/` UTF-8 references for source-like `patch`, write-content and command fields while keeping legacy inline task JSON fully compatible and preserving the same resolved task digest.
+- Kept external payload transport fail-closed and bounded: references stay under the task-id payload root, symlinks/path traversal/missing or invalid UTF-8 are rejected, the fully resolved logical task remains capped at 4 MiB, and runtime GC removes retained payload files without following symlink targets.
 - Kept `local-agent` self-execution disabled while allowing a host-ops multirepo planner to inspect or edit the Local Agent repository through direct GitHub operations.
-- Advanced Chat Bridge to 0.5.11 for the service-worker planner-scope change while retaining content protocol v7 and assistant timeout/exhaustion guard protocol v3. See `RELEASE_NOTES_V4.19.1.md` and `HOST_OPS_MULTIREPO.md`.
+- Advanced Chat Bridge to 0.5.11 for the service-worker planner-scope change while retaining content protocol v7 and assistant timeout/exhaustion guard protocol v3. See `RELEASE_NOTES_V4.19.1.md`, `TASK_PAYLOAD_TRANSPORT.md` and `HOST_OPS_MULTIREPO.md`.
 
 ## v4.19.0
 
