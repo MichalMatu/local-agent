@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""Start, inspect or stop one dedicated Chat Bridge Chromium session through Host Ops.
+
+This helper owns no browser process lifecycle itself. It only supplies Chat Bridge-specific
+inputs to the generic `hostops browser session` boundary: the current unpacked extension,
+an explicit isolated profile, and an approved ChatGPT start URL.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from collections.abc import Callable, Sequence
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit, urlunsplit
+
+ROOT = Path(__file__).resolve().parents[1]
+BRIDGE_DIR = ROOT / "chat_bridge"
+_ALLOWED_CHAT_HOSTS = frozenset({"chatgpt.com", "chat.openai.com"})
+_MAX_CAPTURE_CHARS = 1_048_576
+
+
+class BridgeHostOpsSessionError(RuntimeError):
+    """Raised when the managed Chat Bridge browser cannot be controlled safely."""
+
+
+def normalize_start_url(raw: str) -> str:
+    value = raw.strip()
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise BridgeHostOpsSessionError("start URL is invalid") from exc
+    hostname = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or hostname not in _ALLOWED_CHAT_HOSTS:
+        raise BridgeHostOpsSessionError("start URL must use an approved ChatGPT HTTPS host")
+    if parsed.username is not None or parsed.password is not None or port is not None:
+        raise BridgeHostOpsSessionError("start URL must not contain credentials or a port")
+    if parsed.query or parsed.fragment:
+        raise BridgeHostOpsSessionError("start URL must not contain query or fragment data")
+    path = parsed.path or "/"
+    return urlunsplit(("https", hostname, path, "", ""))
+
+
+def _resolve_hostops(raw: str) -> str:
+    if os.sep in raw:
+        path = Path(raw).expanduser()
+        if not path.is_file() or not os.access(path, os.X_OK):
+            raise BridgeHostOpsSessionError("explicit Host Ops executable is not executable")
+        return str(path)
+    resolved = shutil.which(raw)
+    if resolved is None:
+        raise BridgeHostOpsSessionError("Host Ops executable was not found on PATH")
+    return resolved
+
+
+def _validate_bridge_dir(bridge_dir: Path) -> str:
+    resolved = bridge_dir.resolve()
+    if not resolved.is_dir() or not (resolved / "manifest.json").is_file():
+        raise BridgeHostOpsSessionError("Chat Bridge extension directory is incomplete")
+    return str(resolved)
+
+
+def _validate_timeout(value: float) -> float:
+    if not 1 <= value <= 120:
+        raise BridgeHostOpsSessionError("timeout must be at least 1 and at most 120 seconds")
+    return float(value)
+
+
+def _run_hostops_json(
+    argv: Sequence[str],
+    *,
+    timeout_seconds: float,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> dict[str, Any]:
+    try:
+        completed = runner(
+            list(argv),
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise BridgeHostOpsSessionError("Host Ops command exceeded the operator timeout") from exc
+    stdout = completed.stdout or ""
+    stderr = completed.stderr or ""
+    if len(stdout) > _MAX_CAPTURE_CHARS or len(stderr) > _MAX_CAPTURE_CHARS:
+        raise BridgeHostOpsSessionError("Host Ops command output exceeded its bound")
+    if completed.returncode != 0:
+        detail = stderr.strip()[:512]
+        suffix = f": {detail}" if detail else ""
+        raise BridgeHostOpsSessionError(
+            f"Host Ops command failed with exit {completed.returncode}{suffix}"
+        )
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as exc:
+        raise BridgeHostOpsSessionError("Host Ops command returned invalid JSON") from exc
+    if not isinstance(payload, dict):
+        raise BridgeHostOpsSessionError("Host Ops command returned a non-object JSON value")
+    return payload
+
+
+def _validate_session_payload(payload: dict[str, Any], *, action: str) -> None:
+    state = payload.get("state")
+    allowed_states = {
+        "start": {"running"},
+        "status": {"running", "stopped", "unhealthy"},
+        "stop": {"stopped"},
+    }[action]
+    if state not in allowed_states:
+        raise BridgeHostOpsSessionError(f"Host Ops returned an invalid {action} session state")
+    endpoint = payload.get("endpoint")
+    if state == "running":
+        if not isinstance(endpoint, str) or not endpoint.startswith("http://127.0.0.1:"):
+            raise BridgeHostOpsSessionError("running session did not return a loopback CDP endpoint")
+    elif endpoint is not None and not isinstance(endpoint, str):
+        raise BridgeHostOpsSessionError("Host Ops returned an invalid endpoint value")
+
+
+def managed_bridge_session(
+    *,
+    action: str,
+    hostops: str,
+    profile_dir: str,
+    timeout_seconds: float,
+    browser_executable: str | None = None,
+    start_url: str = "https://chatgpt.com/",
+    bridge_dir: Path = BRIDGE_DIR,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> dict[str, Any]:
+    timeout = _validate_timeout(timeout_seconds)
+    if action not in {"start", "status", "stop"}:
+        raise BridgeHostOpsSessionError("unsupported managed browser action")
+
+    command = [hostops, "browser", "session", action, "--profile-dir", profile_dir]
+    extension_dir: str | None = None
+    normalized_url: str | None = None
+    if action == "start":
+        if not browser_executable:
+            raise BridgeHostOpsSessionError("browser executable is required for start")
+        extension_dir = _validate_bridge_dir(bridge_dir)
+        normalized_url = normalize_start_url(start_url)
+        command.extend(
+            [
+                "--browser-executable",
+                browser_executable,
+                "--extension-dir",
+                extension_dir,
+                "--url",
+                normalized_url,
+            ]
+        )
+    command.extend(["--timeout", f"{timeout:g}", "--json"])
+
+    payload = _run_hostops_json(
+        command,
+        timeout_seconds=timeout + 5,
+        runner=runner,
+    )
+    _validate_session_payload(payload, action=action)
+    result: dict[str, Any] = {
+        "action": action,
+        "profile_dir": profile_dir,
+        "result": payload,
+    }
+    if extension_dir is not None:
+        result["bridge_dir"] = extension_dir
+    if normalized_url is not None:
+        result["start_url"] = normalized_url
+    return result
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--hostops",
+        default="hostops",
+        help="Host Ops executable name or explicit path (default: hostops)",
+    )
+    subparsers = parser.add_subparsers(dest="action", required=True)
+
+    start = subparsers.add_parser("start", help="start one isolated Chat Bridge Chromium session")
+    start.add_argument("--profile-dir", required=True)
+    start.add_argument("--browser-executable", required=True)
+    start.add_argument("--url", default="https://chatgpt.com/", dest="start_url")
+    start.add_argument("--timeout", type=float, default=20.0, dest="timeout_seconds")
+
+    status = subparsers.add_parser("status", help="inspect one exact managed Chat Bridge profile")
+    status.add_argument("--profile-dir", required=True)
+    status.add_argument("--timeout", type=float, default=5.0, dest="timeout_seconds")
+
+    stop = subparsers.add_parser("stop", help="stop only the exact managed Chat Bridge browser")
+    stop.add_argument("--profile-dir", required=True)
+    stop.add_argument("--timeout", type=float, default=10.0, dest="timeout_seconds")
+    return parser.parse_args(argv)
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        args = parse_args(argv)
+        payload = managed_bridge_session(
+            action=args.action,
+            hostops=_resolve_hostops(args.hostops),
+            profile_dir=args.profile_dir,
+            browser_executable=getattr(args, "browser_executable", None),
+            start_url=getattr(args, "start_url", "https://chatgpt.com/"),
+            timeout_seconds=args.timeout_seconds,
+        )
+    except BridgeHostOpsSessionError as exc:
+        print(json.dumps({"error": str(exc)}, sort_keys=True), file=sys.stderr)
+        return 1
+    print(json.dumps(payload, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
