@@ -11,7 +11,7 @@ Live inspection on 2026-09-28 showed a newer ChatGPT turn shape in which the leg
 - user message content: `[data-user-message-bubble]`;
 - surrounding stable turn identity when present: `[data-turn-key]`.
 
-Bridge accepts the older `data-message-author-role="assistant|user"` family first for compatibility and falls back to the newer family only when the older role selector for that side has no matches. This avoids double-counting nested legacy/current markers during staged ChatGPT rollouts. `data-turn-key` is used only as a DOM turn identity fallback; it is never treated as Bridge or repository identity. The same user selector family is used to confirm that a just-submitted Bridge prompt actually appeared as a new user turn.
+Bridge collects both the older `data-message-author-role="assistant|user"` family and the newer role family in document order, then deduplicates nested representations by their surrounding `data-turn-key` turn when present. It must never prefer an older legacy-role turn merely because at least one legacy marker still exists during a staged ChatGPT rollout. `data-turn-key` is used only as a DOM turn identity fallback; it is never treated as Bridge or repository identity. The same combined user selector contract is used to confirm that a just-submitted Bridge prompt actually appeared as the newest user turn.
 
 ## Conversation length exhaustion
 
@@ -64,7 +64,7 @@ Observed live ChatGPT markup captured on 2026-09-22 after ChatGPT had already ac
 
 The recoverable-timeout detector deliberately requires all of these conditions:
 
-- the **latest rendered conversation turn** matching `[data-message-author-role]` is an assistant turn;
+- the **latest rendered conversation turn across both supported role families** is an assistant turn;
 - that latest turn contains `.text-token-text-error`;
 - normalized error text contains `Message delivery timed out. Please try again.`;
 - the error contains `button[data-testid="regenerate-thread-error-button"]`, or as a compatibility fallback a descendant button whose normalized visible text is exactly `Retry`;

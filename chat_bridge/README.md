@@ -88,7 +88,7 @@ Operator chat mutations use a separate namespace and are processed **only from a
 [LAB:OP:RELOAD=BRIDGE]
 ```
 
-The assistant parser rejects `LAB:OP:*`. The content script's operator scanner reads only the latest user turn from the compatible message-role contract (`data-message-author-role="user"` first, then `data-user-message-bubble`); the worker additionally requires the same extension id, top frame and exact normalized conversation URL. Operator commands are persistently deduplicated in a bounded cache after execution. Separately, the latest user message already present when the current content script activates is baseline-only and is not executed as a new operator command; the baseline is reset on SPA conversation changes. This prevents a historical `LAB:OP:*` marker from replaying merely because Bridge was installed, reloaded, reinjected or navigated to another chat.
+The assistant parser rejects `LAB:OP:*`. The content script's operator scanner reads the document-latest user turn across both compatible message-role families (`data-message-author-role="user"` and `data-user-message-bubble`), deduplicated by the surrounding `data-turn-key` turn when present; the worker additionally requires the same extension id, top frame and exact normalized conversation URL. Operator commands are persistently deduplicated in a bounded cache after execution. Separately, the latest user message already present when the current content script activates is baseline-only and is not executed as a new operator command; the baseline is reset on SPA conversation changes. This prevents a historical `LAB:OP:*` marker from replaying merely because Bridge was installed, reloaded, reinjected or navigated to another chat.
 
 `OP:ADD` resolves only an exact repository id from the current runtime catalog and creates the chat disabled, matching conservative popup onboarding. It never guesses a repository. A different repository for an already-bound chat is rejected; change the **conversation binding** by explicit remove/add rather than implicit rebind. An authorized multirepo planner may change its work target among listed repositories without changing the conversation binding.
 
@@ -133,9 +133,9 @@ Transient assistant-control failures are retried for unchanged assistant content
 
 Bridge intentionally does **not** keep a durable ambiguous-delivery journal for the normal user-message submission path.
 
-Content protocol v8 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available, the LAB operator-control baseline, and current/legacy ChatGPT message-role discovery. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
+Content protocol v9 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available, the LAB operator-control baseline, and current/legacy ChatGPT message-role discovery. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
 
-Chat Bridge 0.5.12 uses content protocol v8 so already-open tabs are refreshed onto the current ChatGPT turn selectors. Assistant terminal-error observation has an independent guard protocol, currently v4. Worker activation probes both the content protocol and the assistant guard; a reachable stale guard is replaced even when `content.js` itself is already current.
+Chat Bridge 0.5.13 uses content protocol v9 so already-open tabs are refreshed onto mixed legacy/current ChatGPT turn ordering without stale-role-family preference. Assistant terminal-error observation has an independent guard protocol, currently v4. Worker activation probes both the content protocol and the assistant guard; a reachable stale guard is replaced even when `content.js` itself is already current.
 
 Popup and scheduled-wake paths share worker-owned content activation. Popup does not maintain a second protocol version or `chrome.scripting.executeScript` implementation. When a tab must be refreshed, the worker disposes current Bridge/guard listeners, injects the required scripts, then probes readiness again. A reachable older content script or assistant guard therefore must not require a normal manual ChatGPT page reload.
 
@@ -236,7 +236,7 @@ The parallel worker and serial fallback enforce the same contract before task ex
 6. Select `host-ops` when one conversation should be the cross-repository operator workspace; normal repository selections remain single-repository.
 7. Use a chat control or `Run now` for an end-to-end test.
 
-After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to replace a reachable older content protocol **and** a reachable older assistant guard automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Chat Bridge 0.5.12 requires Chrome 120 or newer.
+After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to replace a reachable older content protocol **and** a reachable older assistant guard automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Chat Bridge 0.5.13 requires Chrome 120 or newer.
 
 ## Development validation
 

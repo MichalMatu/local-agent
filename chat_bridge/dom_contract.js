@@ -27,22 +27,36 @@
     return String(value || "").trim().replace(/\s+/g, " ");
   }
 
+  function containingTurn(message) {
+    return message?.closest?.('[data-turn-key]') || message;
+  }
+
+  function dedupeMessagesByTurn(messages) {
+    const seenTurns = new Set();
+    const result = [];
+    for (const message of messages) {
+      const turn = containingTurn(message);
+      if (seenTurns.has(turn)) continue;
+      seenTurns.add(turn);
+      result.push(message);
+    }
+    return result;
+  }
+
   function messageElements(root, role) {
     if (!root || typeof root.querySelectorAll !== "function") return [];
-    for (const selector of MESSAGE_SELECTORS[role] || []) {
-      const messages = Array.from(root.querySelectorAll(selector));
-      if (messages.length) return messages;
-    }
-    return [];
+    const selectors = MESSAGE_SELECTORS[role] || [];
+    if (!selectors.length) return [];
+    return dedupeMessagesByTurn(
+      Array.from(root.querySelectorAll(selectors.join(", ")))
+    );
   }
 
   function conversationMessages(root) {
     if (!root || typeof root.querySelectorAll !== "function") return [];
-    const legacy = Array.from(root.querySelectorAll('[data-message-author-role]'));
-    if (legacy.length) return legacy;
-    return Array.from(root.querySelectorAll(
-      '[data-conversation-role="assistant"], [data-user-message-bubble]'
-    ));
+    return dedupeMessagesByTurn(Array.from(root.querySelectorAll(
+      '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]'
+    )));
   }
 
   function messageRole(message) {
@@ -59,10 +73,10 @@
       message?.closest?.('[data-turn-key]')?.getAttribute?.("data-turn-key") ||
       "";
     return String(
+      turnKey ||
       message?.getAttribute?.("data-message-id") ||
       message?.getAttribute?.("data-testid") ||
       message?.id ||
-      turnKey ||
       ""
     );
   }
