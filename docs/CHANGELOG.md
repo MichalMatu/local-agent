@@ -2,15 +2,20 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.19.2
+
+- Added optional escape-safe `.agent/tasks/<task-id>.payload/` UTF-8 references for source-like patch, write-content and command fields while keeping legacy inline task JSON fully compatible and preserving the same resolved task digest.
+- Kept external payload transport fail-closed and bounded: references stay under the task-id payload root, symlinks/path traversal/missing or invalid UTF-8 are rejected, and the fully resolved logical task remains capped by the existing 4 MiB task-file limit.
+- Made local bundle publication collision-safe and hardened runtime GC so retained payload files are removed without following symlinks or trusting malformed embedded task ids.
+- Kept malformed JSON terminal with no guessed repair/replay, and kept scheduler, binding, resources, watchdogs, results and Chat Bridge behavior unchanged. See `RELEASE_NOTES_V4.19.2.md` and `TASK_PAYLOAD_TRANSPORT.md`.
+
 ## v4.19.1
 
 - Added explicit fail-closed Chat Bridge `planner_scope` with `repository` as the default and the canonical `host-ops` binding authorized as the multirepo operator workspace.
 - Allowed a `host-ops` conversation to target repositories from the current validated runtime catalog without changing its immutable conversation binding; normal repository-bound conversations retain their existing single-repository/Rebind behavior.
 - Preserved executor isolation: every Local Agent task still uses the exact canonical binding of its target repository, and repository binding admission, leases, resources, watchdogs, cancellation and durable evidence remain unchanged.
-- Added optional escape-safe `.agent/tasks/<task-id>.payload/` UTF-8 references for source-like `patch`, write-content and command fields while keeping legacy inline task JSON fully compatible and preserving the same resolved task digest.
-- Kept external payload transport fail-closed and bounded: references stay under the task-id payload root, symlinks/path traversal/missing or invalid UTF-8 are rejected, the fully resolved logical task remains capped at 4 MiB, and runtime GC removes retained payload files without following symlink targets.
 - Kept `local-agent` self-execution disabled while allowing a host-ops multirepo planner to inspect or edit the Local Agent repository through direct GitHub operations.
-- Advanced Chat Bridge to 0.5.11 for the service-worker planner-scope change while retaining content protocol v7 and assistant timeout/exhaustion guard protocol v3. See `RELEASE_NOTES_V4.19.1.md`, `TASK_PAYLOAD_TRANSPORT.md` and `HOST_OPS_MULTIREPO.md`.
+- Advanced Chat Bridge to 0.5.11 for the service-worker planner-scope change while retaining content protocol v7 and assistant timeout/exhaustion guard protocol v3. See `RELEASE_NOTES_V4.19.1.md` and `HOST_OPS_MULTIREPO.md`.
 
 ## v4.19.0
 
@@ -199,7 +204,7 @@ This changelog records operationally relevant Local Agent releases. The release 
 ## v4.17.0
 
 - Completed the next package-ownership phase by moving execution core/process/storage foundations, repository admin/cleanup/worker, task executor, parallel worker, diagnostics and release version under `local_agent/`.
-- Reduced historical root library modules to thin aliases/shims and added `tests/test_package_layout.py` to prevent implementation from growing back into compatibility surfaces.
+- Reduced historical root library modules to thin aliases/shims and added `tests/test_package_layout.py` to prevent implementation from growing back into root shims.
 - Standardized root compatibility modules on one-module-object aliases so monkeypatch/runtime semantics do not create a second wrapper implementation.
 - Updated `docs/ARCHITECTURE.md` and `AGENTS.md` to make packaged ownership and the root entrypoint boundary explicit.
 - Kept `agentd.py`, `agent_parallel.py` and `agent_multirepo.py` as deliberate location-sensitive root orchestrators rather than performing unsafe cosmetic moves.
