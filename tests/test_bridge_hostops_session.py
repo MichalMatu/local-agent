@@ -95,6 +95,90 @@ class BridgeHostOpsSessionTests(unittest.TestCase):
             self.assertEqual(result["result"]["state"], "running")
             self.assertEqual(result["bridge_dir"], str(bridge_dir.resolve()))
 
+    def test_login_start_uses_interactive_hostops_without_extension(self) -> None:
+        calls: list[list[str]] = []
+        browser = (
+            "/Applications/Google Chrome for Testing.app/Contents/MacOS/"
+            "Google Chrome for Testing"
+        )
+
+        def runner(argv, **_kwargs):
+            calls.append(list(argv))
+            payload = {"state": "running", "pid": 4321, "endpoint": None, "browser": "chrome"}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+
+        result = bridge_session.managed_bridge_session(
+            action="login-start",
+            hostops="/fake/hostops",
+            profile_dir="/tmp/local-agent-chat-bridge",
+            browser_executable=browser,
+            start_url="https://chatgpt.com/",
+            timeout_seconds=20,
+            runner=runner,
+        )
+
+        command = calls[0]
+        self.assertEqual(
+            command[:4], ["/fake/hostops", "browser", "session", "interactive-start"]
+        )
+        self.assertIn("--browser-executable", command)
+        self.assertIn("--url", command)
+        self.assertNotIn("--extension-dir", command)
+        self.assertEqual(result["action"], "login-start")
+        self.assertNotIn("bridge_dir", result)
+
+    def test_login_status_and_finish_map_to_interactive_lifecycle(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(argv, **_kwargs):
+            calls.append(list(argv))
+            state = "running" if argv[3] == "interactive-status" else "stopped"
+            payload = {"state": state, "pid": 4321 if state == "running" else None, "endpoint": None, "browser": "chrome" if state == "running" else None}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+
+        bridge_session.managed_bridge_session(
+            action="login-status",
+            hostops="/fake/hostops",
+            profile_dir="/tmp/profile",
+            timeout_seconds=5,
+            runner=runner,
+        )
+        bridge_session.managed_bridge_session(
+            action="login-finish",
+            hostops="/fake/hostops",
+            profile_dir="/tmp/profile",
+            timeout_seconds=10,
+            runner=runner,
+        )
+
+        self.assertEqual(calls[0][3], "interactive-status")
+        self.assertEqual(calls[1][3], "interactive-stop")
+        self.assertIn("--clear-session-restore", calls[1])
+        self.assertNotIn("--browser-executable", calls[1])
+        self.assertNotIn("--extension-dir", calls[1])
+
+    def test_interactive_running_payload_must_not_expose_cdp(self) -> None:
+        def runner(argv, **_kwargs):
+            payload = {
+                "state": "running",
+                "pid": 4321,
+                "endpoint": "http://127.0.0.1:9222",
+                "browser": "chrome",
+            }
+            return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+
+        with self.assertRaisesRegex(
+            bridge_session.BridgeHostOpsSessionError,
+            "unexpectedly exposed CDP",
+        ):
+            bridge_session.managed_bridge_session(
+                action="login-status",
+                hostops="/fake/hostops",
+                profile_dir="/tmp/profile",
+                timeout_seconds=5,
+                runner=runner,
+            )
+
     def test_start_rejects_branded_macos_chrome_before_hostops(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             bridge_dir = Path(temporary) / "chat_bridge"
