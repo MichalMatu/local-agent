@@ -165,8 +165,8 @@
     const latest = messages[messages.length - 1];
     const text = latest.innerText || latest.textContent || "";
     const turnKey = latest.closest?.('[data-turn-key]')?.getAttribute('data-turn-key') || "";
-    const stableId = latest.getAttribute("data-message-id") || latest.getAttribute("data-testid") ||
-      latest.id || turnKey || "";
+    const stableId = latest.getAttribute("data-message-id") || turnKey ||
+      latest.getAttribute("data-testid") || latest.id || "";
     return { text, identity: stableId || `${role}:${messages.length}:${fnv1a32(text)}` };
   }
 
@@ -281,7 +281,7 @@
       return { ok: false, reason: "send_button_not_ready" };
     }
 
-    const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
+    const previousUserMessages = messageElements("user").length;
     const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
     try {
       submitComposer(composer, sendButton);
@@ -291,7 +291,7 @@
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
-      const userMessages = document.querySelectorAll('[data-message-author-role="user"]');
+      const userMessages = messageElements("user");
       const lastUser = userMessages[userMessages.length - 1];
       if (
         userMessages.length > previousUserMessages &&

@@ -13,7 +13,7 @@ On 2026-09-28 the dedicated production ChatGPT tab had zero matches for the lega
 - Keep the legacy message-role selectors as the preferred compatibility family.
 - Fall back to `[data-conversation-role="assistant"]` and `[data-user-message-bubble]` when the legacy family is absent.
 - Use the nearest `[data-turn-key]` only as a stable DOM identity fallback.
-- Apply the same compatibility contract to assistant timeout/exhaustion detection.
+- Apply the same compatibility contract to normal submitted-user confirmation, operator controls and assistant timeout/exhaustion detection.
 - Advance content protocol v7 -> v8 and guard protocol v3 -> v4 so worker activation replaces already-open stale content/guard scripts without requiring a normal page reload.
 
 Repository identity, planner scope, Local Agent task binding, scheduler/resource semantics and executor behavior are unchanged.

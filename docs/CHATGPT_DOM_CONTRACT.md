@@ -11,7 +11,7 @@ Live inspection on 2026-09-28 showed a newer ChatGPT turn shape in which the leg
 - user message content: `[data-user-message-bubble]`;
 - surrounding stable turn identity when present: `[data-turn-key]`.
 
-Bridge accepts the older `data-message-author-role="assistant|user"` family first for compatibility and falls back to the newer family only when the older role selector for that side has no matches. This avoids double-counting nested legacy/current markers during staged ChatGPT rollouts. `data-turn-key` is used only as a DOM turn identity fallback; it is never treated as Bridge or repository identity.
+Bridge accepts the older `data-message-author-role="assistant|user"` family first for compatibility and falls back to the newer family only when the older role selector for that side has no matches. This avoids double-counting nested legacy/current markers during staged ChatGPT rollouts. `data-turn-key` is used only as a DOM turn identity fallback; it is never treated as Bridge or repository identity. The same user selector family is used to confirm that a just-submitted Bridge prompt actually appeared as a new user turn.
 
 ## Conversation length exhaustion
 
