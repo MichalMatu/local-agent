@@ -2,6 +2,13 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.19.5
+
+- Added a fail-closed grouped-turn assistant fallback for the live ChatGPT renderer that exposes `data-turn-key` and `data-user-message-bubble` but no assistant-role attribute.
+- Assistant LAB parsing now removes all user bubbles from a cloned grouped turn before parsing; a user-only grouped turn cannot become an assistant control.
+- Extended the same grouped-turn fallback to structured timeout/exhaustion detection, and advanced Chat Bridge to 0.5.14, content protocol to v10 and assistant guard protocol to v6 so already-open tabs replace both captured contracts.
+- Added DOM-contract and real-extension browser regressions for competing user/assistant LAB markers. See `RELEASE_NOTES_V4.19.5.md` and `CHATGPT_DOM_CONTRACT.md`.
+
 ## v4.19.4
 
 - Fixed a mixed-rollout ChatGPT DOM bug where the presence of any older `data-message-author-role` node could hide a later turn rendered only with the current role family.

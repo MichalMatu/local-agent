@@ -111,6 +111,47 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   assert.equal(currentDomAfter.enabled, true);
   console.log("PASS: current ChatGPT data-conversation-role assistant controls reach the worker");
 
+  const groupedBefore = await readChat(id);
+  await page.evaluate(() => {
+    document.querySelectorAll('[data-message-author-role="assistant"], [data-conversation-role="assistant"]').forEach((node) => node.remove());
+    const turn = document.createElement("div");
+    turn.dataset.turnKey = "grouped-assistant-control";
+    const answer = document.createElement("div");
+    answer.textContent = "[LAB:RESUME]";
+    const user = document.createElement("div");
+    user.dataset.userMessageBubble = "";
+    user.textContent = "[LAB:PAUSE]";
+    turn.append(answer, user);
+    document.body.append(turn);
+  });
+  const groupedDeadline = Date.now() + 5000;
+  let groupedAfter = await readChat(id);
+  while (
+    (groupedAfter.generation !== groupedBefore.generation + 1 ||
+      groupedAfter.lastControlAction !== "[LAB:RESUME]") &&
+    Date.now() < groupedDeadline
+  ) {
+    await page.waitForTimeout(50);
+    groupedAfter = await readChat(id);
+  }
+  assert.equal(groupedAfter.generation, groupedBefore.generation + 1);
+  assert.equal(groupedAfter.lastControlAction, "[LAB:RESUME]");
+  assert.equal(groupedAfter.enabled, true);
+
+  const userOnlyBefore = await readChat(id);
+  await page.evaluate(() => {
+    const turn = document.createElement("div");
+    turn.dataset.turnKey = "grouped-user-only";
+    const user = document.createElement("div");
+    user.dataset.userMessageBubble = "";
+    user.textContent = "[LAB:STOP]";
+    turn.append(user);
+    document.body.append(turn);
+  });
+  await page.waitForTimeout(1000);
+  assert.deepEqual(await readChat(id), userOnlyBefore, "user-only grouped turn must never become an assistant control");
+  console.log("PASS: grouped turn fallback strips user bubbles before parsing assistant controls");
+
   // Hold Send disabled long enough to observe the feedback insertion deterministically,
   // then release the same button and require the in-flight Bridge delivery to submit it.
   await add("help-feedback-submit");

@@ -167,20 +167,51 @@
     return result;
   }
 
-  function messageElements(role) {
+  const TURN_SELECTOR = '[data-turn-key]';
+  const USER_SELECTOR = MESSAGE_SELECTORS.user.join(", ");
+
+  function explicitMessageElements(role, root = document) {
     const selectors = MESSAGE_SELECTORS[role] || [];
-    if (!selectors.length) return [];
+    if (!selectors.length || !root || typeof root.querySelectorAll !== "function") return [];
     return dedupeMessagesByTurn(
-      Array.from(document.querySelectorAll(selectors.join(", ")))
+      Array.from(root.querySelectorAll(selectors.join(", ")))
     );
+  }
+
+  function groupedAssistantTurns(root = document) {
+    if (!root || typeof root.querySelectorAll !== "function") return [];
+    return Array.from(root.querySelectorAll(TURN_SELECTOR)).filter(
+      (turn) => Boolean(turn?.querySelector?.(USER_SELECTOR))
+    );
+  }
+
+  function messageElements(role) {
+    const explicit = explicitMessageElements(role);
+    if (role === "assistant" && !explicit.length) return groupedAssistantTurns();
+    return explicit;
+  }
+
+  function messageTextForRole(message, role) {
+    const text = message?.innerText || message?.textContent || "";
+    if (role !== "assistant") return text;
+    const explicitAssistant = MESSAGE_SELECTORS.assistant.some(
+      (selector) => Boolean(message?.matches?.(selector))
+    );
+    const isGroupedTurn = message?.getAttribute?.("data-turn-key") !== null;
+    if (explicitAssistant || !isGroupedTurn) return text;
+    const clone = message?.cloneNode?.(true);
+    if (!clone || typeof clone.querySelectorAll !== "function") return "";
+    for (const user of clone.querySelectorAll(USER_SELECTOR)) user.remove?.();
+    return clone.textContent || "";
   }
 
   function latestMessage(role) {
     const messages = messageElements(role);
     if (!messages.length) return null;
     const latest = messages[messages.length - 1];
-    const text = latest.innerText || latest.textContent || "";
-    const turnKey = latest.closest?.('[data-turn-key]')?.getAttribute('data-turn-key') || "";
+    const text = messageTextForRole(latest, role);
+    const turnKey = latest.getAttribute("data-turn-key") ||
+      latest.closest?.('[data-turn-key]')?.getAttribute('data-turn-key') || "";
     const stableId = latest.getAttribute("data-message-id") || turnKey ||
       latest.getAttribute("data-testid") || latest.id || "";
     return { text, identity: stableId || `${role}:${messages.length}:${fnv1a32(text)}` };

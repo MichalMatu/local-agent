@@ -1,5 +1,5 @@
 (() => {
-  const GUARD_VERSION = 5;
+  const GUARD_VERSION = 6;
   const RETRY_RECHECK_GRACE_MS = 8000;
   const existingGuard = globalThis.__localAgentChatExhaustionGuard;
   if (existingGuard?.version === GUARD_VERSION) return;
