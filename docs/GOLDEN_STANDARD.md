@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.3` and the current production release is `v4.19.2`. The 4.19.3 candidate repairs Chat Bridge compatibility with the current ChatGPT rendered turn contract while preserving repository identity, planner scope, scheduler/resource policy and executor admission. The deployed production release remains `v4.19.2` until the explicit release decision advances `main`; `v4.19.2` is therefore the immediate rollback point for this candidate.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.4` and the current production release is `v4.19.3`. The 4.19.4 candidate repairs mixed legacy/current ChatGPT turn ordering so document-latest turns win across both selector families while preserving repository identity, planner scope, scheduler/resource policy and executor admission. The deployed production release remains `v4.19.3` until the explicit release decision advances `main`; `v4.19.3` is therefore the immediate rollback point for this candidate.
 
 ## Release/runtime invariants
 

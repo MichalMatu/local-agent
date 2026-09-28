@@ -33,7 +33,7 @@ const message = element({
 });
 const root = {
   querySelectorAll(selector) {
-    assert.equal(selector, '[data-message-author-role="assistant"]');
+    assert.equal(selector, '[data-message-author-role="assistant"], [data-conversation-role="assistant"]');
     return [message];
   }
 };
@@ -99,7 +99,7 @@ const triggeringUser = element({
 });
 const timeoutRoot = {
   querySelectorAll(selector) {
-    assert.equal(selector, "[data-message-author-role]");
+    assert.equal(selector, '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]');
     return [triggeringUser, timeoutMessage];
   }
 };
@@ -120,7 +120,7 @@ const newerUser = element({
 });
 const staleAfterUserRoot = {
   querySelectorAll(selector) {
-    assert.equal(selector, "[data-message-author-role]");
+    assert.equal(selector, '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]');
     return [triggeringUser, timeoutMessage, newerUser];
   }
 };
@@ -135,7 +135,7 @@ const newerAssistant = element({
 });
 const staleAfterAssistantRoot = {
   querySelectorAll(selector) {
-    assert.equal(selector, "[data-message-author-role]");
+    assert.equal(selector, '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]');
     return [triggeringUser, timeoutMessage, newerAssistant];
   }
 };
@@ -151,7 +151,7 @@ const timeoutWithoutRetryMessage = element({
 });
 const timeoutWithoutRetryRoot = {
   querySelectorAll(selector) {
-    assert.equal(selector, "[data-message-author-role]");
+    assert.equal(selector, '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]');
     return [triggeringUser, timeoutWithoutRetryMessage];
   }
 };
@@ -171,7 +171,7 @@ const unrelatedRetryMessage = element({
 });
 const unrelatedRetryRoot = {
   querySelectorAll(selector) {
-    assert.equal(selector, "[data-message-author-role]");
+    assert.equal(selector, '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]');
     return [triggeringUser, unrelatedRetryMessage];
   }
 };
@@ -186,8 +186,9 @@ const currentExhaustionMessage = element({
 currentExhaustionMessage.closest = (selector) => selector === "[data-turn-key]" ? currentExhaustionTurn : null;
 const currentExhaustionRoot = {
   querySelectorAll(selector) {
-    if (selector === '[data-message-author-role="assistant"]') return [];
-    if (selector === '[data-conversation-role="assistant"]') return [currentExhaustionMessage];
+    if (selector === '[data-message-author-role="assistant"], [data-conversation-role="assistant"]') {
+      return [currentExhaustionMessage];
+    }
     return [];
   }
 };
@@ -207,8 +208,7 @@ const currentTimeoutMessage = element({
 currentTimeoutMessage.closest = (selector) => selector === "[data-turn-key]" ? currentTimeoutTurn : null;
 const currentTimeoutRoot = {
   querySelectorAll(selector) {
-    if (selector === "[data-message-author-role]") return [];
-    if (selector === '[data-conversation-role="assistant"], [data-user-message-bubble]') {
+    if (selector === '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]') {
       return [currentUser, currentTimeoutMessage];
     }
     return [];
@@ -219,5 +219,65 @@ assert.ok(found);
 assert.equal(found.assistantIdentity, "turn-current-timeout");
 assert.equal(dom.messageRole(currentUser), "user");
 assert.equal(dom.messageRole(currentTimeoutMessage), "assistant");
+
+
+const mixedLegacyAssistantTurn = element({ attrs: { "data-turn-key": "turn-mixed-legacy" } });
+const mixedLegacyAssistant = element({
+  text: "Older legacy answer",
+  attrs: {
+    "data-message-author-role": "assistant",
+    "data-message-id": "mixed-legacy-assistant"
+  }
+});
+mixedLegacyAssistant.closest = (selector) => selector === "[data-turn-key]" ? mixedLegacyAssistantTurn : null;
+const mixedCurrentTurn = element({ attrs: { "data-turn-key": "turn-mixed-current" } });
+const mixedCurrentTimeout = element({
+  attrs: { "data-conversation-role": "assistant" },
+  query: { ".text-token-text-error": timeoutError }
+});
+mixedCurrentTimeout.closest = (selector) => selector === "[data-turn-key]" ? mixedCurrentTurn : null;
+const mixedRoot = {
+  querySelectorAll(selector) {
+    if (selector === '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]') {
+      return [triggeringUser, mixedLegacyAssistant, mixedCurrentTimeout];
+    }
+    if (selector === '[data-message-author-role="assistant"], [data-conversation-role="assistant"]') {
+      return [mixedLegacyAssistant, mixedCurrentTimeout];
+    }
+    return [];
+  }
+};
+found = dom.findRecoverableAssistantError(mixedRoot);
+assert.ok(found, "new current-role timeout must outrank an older legacy-role assistant turn");
+assert.equal(found.assistantIdentity, "turn-mixed-current");
+assert.equal(dom.messageElements(mixedRoot, "assistant").at(-1), mixedCurrentTimeout);
+
+const duplicateTurn = element({ attrs: { "data-turn-key": "turn-duplicate" } });
+const duplicateOuter = element({ attrs: { "data-message-author-role": "assistant" } });
+const duplicateInner = element({ attrs: { "data-conversation-role": "assistant" } });
+duplicateOuter.closest = duplicateInner.closest = (selector) => selector === "[data-turn-key]" ? duplicateTurn : null;
+const duplicateRoot = {
+  querySelectorAll(selector) {
+    if (selector === '[data-message-author-role="assistant"], [data-conversation-role="assistant"]') {
+      return [duplicateOuter, duplicateInner, mixedCurrentTimeout];
+    }
+    return [];
+  }
+};
+assert.deepEqual(dom.messageElements(duplicateRoot, "assistant"), [duplicateOuter, mixedCurrentTimeout]);
+
+const persistedIdentityTurn = element({ attrs: { "data-turn-key": "turn-persisted" } });
+const persistedIdentityMessage = element({
+  attrs: {
+    "data-message-author-role": "assistant",
+    "data-message-id": "assistant-v8-persisted"
+  }
+});
+persistedIdentityMessage.closest = (selector) => selector === "[data-turn-key]" ? persistedIdentityTurn : null;
+assert.equal(
+  dom.assistantIdentity(persistedIdentityMessage, 7),
+  "assistant-v8-persisted",
+  "data-message-id must remain authoritative when present so persisted baselines/dedupe survive upgrade"
+);
 
 console.log("Chat Bridge DOM contract tests passed.");
