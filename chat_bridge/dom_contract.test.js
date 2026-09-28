@@ -266,4 +266,18 @@ const duplicateRoot = {
 };
 assert.deepEqual(dom.messageElements(duplicateRoot, "assistant"), [duplicateOuter, mixedCurrentTimeout]);
 
+const persistedIdentityTurn = element({ attrs: { "data-turn-key": "turn-persisted" } });
+const persistedIdentityMessage = element({
+  attrs: {
+    "data-message-author-role": "assistant",
+    "data-message-id": "assistant-v8-persisted"
+  }
+});
+persistedIdentityMessage.closest = (selector) => selector === "[data-turn-key]" ? persistedIdentityTurn : null;
+assert.equal(
+  dom.assistantIdentity(persistedIdentityMessage, 7),
+  "assistant-v8-persisted",
+  "data-message-id must remain authoritative when present so persisted baselines/dedupe survive upgrade"
+);
+
 console.log("Chat Bridge DOM contract tests passed.");

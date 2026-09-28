@@ -20,6 +20,21 @@ for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_har
   );
 }
 
+const workerBase = read("worker_base.js");
+const guardSource = read("exhaustion_guard.js");
+const harness = read("worker_test_harness.js");
+const workerGuardVersion = Number(workerBase.match(/const EXHAUSTION_GUARD_VERSION = (\d+);/)?.[1]);
+const contentGuardVersion = Number(guardSource.match(/const GUARD_VERSION = (\d+);/)?.[1]);
+const harnessGuardVersion = Number(harness.match(/const EXHAUSTION_GUARD_VERSION = (\d+);/)?.[1]);
+assert.equal(workerGuardVersion, contentGuardVersion, "worker and content guard protocol versions must match");
+assert.equal(harnessGuardVersion, workerGuardVersion, "test harness guard protocol must match production worker");
+assert.equal(workerGuardVersion, 5, "mixed DOM contract upgrade must force replacement of the captured v4 guard");
+assert.match(
+  read("content.js"),
+  /const stableId = latest\.getAttribute\("data-message-id"\) \|\| turnKey \|\|/,
+  "content assistant identity must preserve v8 data-message-id precedence across reinjection"
+);
+
 const manifest = JSON.parse(read("manifest.json"));
 assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
 const scripts = manifest.content_scripts?.[0]?.js || [];

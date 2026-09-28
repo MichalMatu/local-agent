@@ -181,7 +181,7 @@
     const latest = messages[messages.length - 1];
     const text = latest.innerText || latest.textContent || "";
     const turnKey = latest.closest?.('[data-turn-key]')?.getAttribute('data-turn-key') || "";
-    const stableId = turnKey || latest.getAttribute("data-message-id") ||
+    const stableId = latest.getAttribute("data-message-id") || turnKey ||
       latest.getAttribute("data-testid") || latest.id || "";
     return { text, identity: stableId || `${role}:${messages.length}:${fnv1a32(text)}` };
   }

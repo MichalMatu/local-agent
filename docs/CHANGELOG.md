@@ -6,7 +6,7 @@ This changelog records operationally relevant Local Agent releases. The release 
 
 - Fixed a mixed-rollout ChatGPT DOM bug where the presence of any older `data-message-author-role` node could hide a later turn rendered only with the current role family.
 - Collect both legacy/current role selectors in document order, deduplicate nested representations by the surrounding `data-turn-key` turn, and use the document-latest turn for assistant controls, operator controls, timeout recovery, exhaustion detection and submitted-user confirmation.
-- Advanced Chat Bridge to 0.5.13 and content protocol to v9 so already-open tabs reinject the repaired `content.js`; assistant timeout/exhaustion guard protocol remains v4.
+- Advanced Chat Bridge to 0.5.13, content protocol to v9 and assistant timeout/exhaustion guard protocol to v5 so already-open tabs replace both repaired `content.js` and the guard-captured DOM contract.
 - Added focused DOM-contract and real-extension mixed-family regression coverage. See `RELEASE_NOTES_V4.19.4.md` and `CHATGPT_DOM_CONTRACT.md`.
 
 ## v4.19.3

@@ -73,10 +73,10 @@
       message?.closest?.('[data-turn-key]')?.getAttribute?.("data-turn-key") ||
       "";
     return String(
-      turnKey ||
       message?.getAttribute?.("data-message-id") ||
       message?.getAttribute?.("data-testid") ||
       message?.id ||
+      turnKey ||
       ""
     );
   }
