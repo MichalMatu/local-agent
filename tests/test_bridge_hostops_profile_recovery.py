@@ -57,6 +57,7 @@ class BridgeHostOpsProfileRecoveryTests(unittest.TestCase):
     def test_profile_resolution_rejects_stopped_or_unhealthy_session(self) -> None:
         for state in ("stopped", "unhealthy"):
             with self.subTest(state=state):
+
                 def runner(argv, **_kwargs):
                     payload = {"state": state, "pid": None, "endpoint": None, "browser": None}
                     return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
@@ -72,25 +73,51 @@ class BridgeHostOpsProfileRecoveryTests(unittest.TestCase):
                         runner=runner,
                     )
 
-    def test_profile_resolution_rejects_non_loopback_endpoint(self) -> None:
-        def runner(argv, **_kwargs):
-            payload = {
-                "state": "running",
-                "pid": 4321,
-                "endpoint": "http://0.0.0.0:9222",
-                "browser": "Chrome/153",
-            }
-            return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+    def test_profile_resolution_requires_exact_loopback_endpoint(self) -> None:
+        invalid_endpoints = (
+            "http://0.0.0.0:9222",
+            "https://127.0.0.1:9222",
+            "http://127.0.0.1:9222/path",
+            "http://127.0.0.1:9222?token=private",
+            "http://127.0.0.1:9222#fragment",
+            "http://user@127.0.0.1:9222",
+            "http://127.0.0.1:123@evil.test",
+            "http://127.0.0.1:not-a-port",
+            None,
+        )
+        for endpoint in invalid_endpoints:
+            with self.subTest(endpoint=endpoint):
 
+                def runner(argv, **_kwargs):
+                    payload = {
+                        "state": "running",
+                        "pid": 4321,
+                        "endpoint": endpoint,
+                        "browser": "Chrome/153",
+                    }
+                    return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+
+                with self.assertRaisesRegex(
+                    bridge_recovery.BridgeHostOpsRecoveryError,
+                    "loopback CDP endpoint",
+                ):
+                    bridge_recovery.resolve_managed_profile_endpoint(
+                        hostops="/fake/hostops",
+                        profile_dir="/tmp/profile",
+                        timeout_seconds=30,
+                        runner=runner,
+                    )
+
+    def test_profile_resolution_rejects_empty_profile_before_hostops(self) -> None:
         with self.assertRaisesRegex(
             bridge_recovery.BridgeHostOpsRecoveryError,
-            "loopback CDP endpoint",
+            "profile path must not be empty",
         ):
             bridge_recovery.resolve_managed_profile_endpoint(
                 hostops="/fake/hostops",
-                profile_dir="/tmp/profile",
+                profile_dir="   ",
                 timeout_seconds=30,
-                runner=runner,
+                runner=lambda *_args, **_kwargs: self.fail("runner must not be called"),
             )
 
     def test_profile_resolution_propagates_hostops_failure_without_retry(self) -> None:
