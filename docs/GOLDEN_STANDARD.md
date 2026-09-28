@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.1` and the current production release is `v4.19.0`. The 4.19.1 candidate adds explicit fail-closed Chat Bridge planner scope so the canonical `host-ops` binding can operate across repositories in the validated runtime catalog without changing the conversation binding, while preserving exact target-repository executor admission. The deployed production release remains `v4.19.0` until the explicit release decision advances `main`; `v4.19.0` is therefore the immediate rollback point for this candidate.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.2` and the current production release is `v4.19.1`. The 4.19.2 candidate adds an escape-safe external text-payload representation for source-like task content while preserving the existing logical task identity, bounds and executor admission. The deployed production release remains `v4.19.1` until the explicit release decision advances `main`; `v4.19.1` is therefore the immediate rollback point for this candidate.
 
 ## Release/runtime invariants
 
@@ -21,6 +21,7 @@ This file records the release/runtime invariants for `MichalMatu/local-agent`. T
 - Every task has an immutable payload digest and one durable attempt claim.
 - Interrupted tasks are never automatically replayed.
 - Malformed/oversized task JSON is terminal input evidence.
+- Escape-safe `payload_file` references are additive in 4.19.2+, are materialized before normal validation/digesting, remain task-id scoped and may not increase the resolved logical task beyond the existing task-size bound.
 - Command/no-output/task/RSS limits remain bounded.
 - Already-running stages are not killed solely because the whole-task admission budget expires.
 - Command output transport/retention is bounded.
