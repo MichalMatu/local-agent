@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.5` and the current production release is `v4.19.4`. The 4.19.5 candidate adds a fail-closed grouped-turn assistant fallback for ChatGPT pages that expose `data-turn-key` and user bubbles but no assistant-role attribute, while preserving repository identity, planner scope, scheduler/resource policy and executor admission. The deployed production release remains `v4.19.4` until the explicit release decision advances `main`; `v4.19.4` is therefore the immediate rollback point for this candidate.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.5` and the current production release is `v4.19.5`. The 4.19.5 release adds a fail-closed grouped-turn assistant fallback for ChatGPT pages that expose `data-turn-key` and user bubbles but no assistant-role attribute, while preserving repository identity, planner scope, scheduler/resource policy and executor admission. `v4.19.4` is the immediate rollback point for this release.
 
 ## Release/runtime invariants
 
