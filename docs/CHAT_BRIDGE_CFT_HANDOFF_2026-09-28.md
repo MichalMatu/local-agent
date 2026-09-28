@@ -1,164 +1,162 @@
 # Chat Bridge + Host Ops handoff — 2026-09-28
 
-This document is the continuation point for the Chat Bridge / Host Ops browser-recovery work. Read this before changing code or running recovery.
+This is the current continuation point for Chat Bridge / Host Ops browser integration. Verify repository heads and daemon state before acting; do not reconstruct runtime state from chat memory alone.
 
-## Repositories and exact known-good baselines
+## Current architecture
 
-- `MichalMatu/local-agent`
-  - browser/recovery runtime code baseline: `7dde1349c610e9d6c0aea1e7a890d3309e1134ce`
-  - merge: PR #102, `Use Chrome for Testing for managed Chat Bridge sessions`
-  - production daemon self-updated to this exact runtime revision during the final verification cycle
-  - daemon version remains `4.19.1`
-  - the handoff documentation was merged later, so always re-read the current `main` ref before work
-- `MichalMatu/host-ops`
-  - browser-capability baseline at handoff: `49592183b5edf83dd1a74d492fd2439ab2ae4361`
-  - this includes managed browser sessions, readiness diagnostics, bounded content-script recovery and macOS Chrome for Testing process discovery
-
-Do not assume either baseline is still the repository head in a later session. Re-read both `main` refs first and compare before changing anything.
-
-## What is implemented
-
-### Host Ops browser capability chain
-
-The current browser flow is intentionally split into bounded generic capabilities:
-
-1. browser/process discovery;
-2. exact CDP target inventory;
-3. read-only snapshot / selector-count evidence;
-4. extension/service-worker diagnostics;
-5. exact-page readiness classification using DOM selectors and content-script SHA-256 fingerprints;
-6. bounded content-script recovery: readiness -> at most one guarded reload -> readiness re-check;
-7. managed browser session lifecycle: dedicated profile `start / status / stop`, dynamic loopback CDP, no adoption of the normal browser profile;
-8. macOS Chrome for Testing root-process discovery.
-
-Important safety properties:
-
-- no implicit attach to the normal daily Chrome profile;
-- no `Runtime.evaluate` in readiness/recovery;
-- no arbitrary JS, click, fill or worker mutation;
-- no reload loop;
-- mutation is allowed only for `content_script_missing` or `content_script_stale`;
-- `dom_not_ready`, `extension_ambiguous`, `worker_inactive` and `ready` do not trigger page mutation;
-- Host Ops owns browser process lifecycle; Local Agent wrappers do not implement another process manager.
-
-### Local Agent integration
-
-`local-agent` now contains:
-
-- `scripts/bridge_hostops_session.py`
-  - thin Chat Bridge wrapper over `hostops browser session`;
-  - `start / status / stop`;
-  - always uses the current unpacked `chat_bridge/` directory;
-  - fail-closed on the standard macOS branded Google Chrome executable;
-  - Chrome for Testing and Chromium remain supported.
-- `scripts/bridge_hostops_recovery.py`
-  - accepts either explicit `--endpoint` or exact managed `--profile-dir`;
-  - derives expected Bridge script fingerprints from the current manifest/files;
-  - resolves profile -> loopback endpoint via Host Ops;
-  - requires exactly one matching ChatGPT page target;
-  - read-only by default;
-  - `--recover` delegates the one-shot mutation to Host Ops C4.
-
-The Bridge's own native recovery remains preferred whenever the Bridge still answers its protocol. External Host Ops recovery is a fallback, not a replacement for `RELOAD=CONTENT` / `RELOAD=BRIDGE` or Bridge-owned content-script probing/reinjection.
-
-## Browser runtime decision
-
-Do not use the normal branded Google Chrome application for automatic unpacked-extension loading on current Chrome releases.
-
-The dedicated Bridge runtime is Chrome for Testing (CfT):
-
-- installed privately under `~/.local/share/local-agent/chrome-for-testing/153.0.8010.36/`;
-- stable alias: `~/.local/share/local-agent/chrome-for-testing/current`;
-- expected binary:
-  `~/.local/share/local-agent/chrome-for-testing/current/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
-- production managed profile:
-  `~/.local/share/local-agent/chat-bridge-cft`;
-- old branded-Chrome profile is retained only as rollback data:
+- The user's daily Google Chrome profile is out of scope and must remain untouched.
+- Chat Bridge uses a dedicated Chrome for Testing / Chromium profile:
+  `~/.local/share/local-agent/chat-bridge-cft`.
+- Preferred CfT alias:
+  `~/.local/share/local-agent/chrome-for-testing/current`.
+- Old rollback profile remains on disk and must not be selected implicitly:
   `~/.local/share/local-agent/chat-bridge-chrome`.
+- Host Ops owns browser process lifecycle, exact-profile guards, CDP attachment and bounded recovery.
+- Local Agent helpers are thin Chat Bridge-specific wrappers only.
+- External recovery is read-only by default and may reload once only for `content_script_missing` or `content_script_stale`.
+- `worker_inactive` alone is normal for MV3 and is not a recovery trigger.
+- `dom_not_ready` alone is not a recovery trigger.
 
-The old branded profile was stopped after the CfT cutover. Do not delete it during initial continuation work.
+## Repository state at this handoff work
 
-## Verified runtime behavior
+The work started from:
 
-A real CfT smoke on macOS confirmed:
+- `MichalMatu/local-agent/main`: `fdb7d3cf4419a4a31b65e126846895db52325635`;
+- `MichalMatu/host-ops/main`: `392b2caefdee08e54d3c972898735d842c594f37`.
 
-- managed session start/status/stop works with the dedicated profile;
-- dynamic CDP is loopback-only;
-- all five current Chat Bridge content scripts were `matched` by readiness;
-- content-script state was `ready`;
-- service worker was running with `error_count=0` during the successful smoke;
-- the old branded-Chrome profile was stopped after the successful cutover.
+Feature branches created for the final login/bootstrap fixes:
 
-The dedicated profile intentionally persists across restarts so ChatGPT login state can be retained.
+- `local-agent`: `feat/chat-bridge-login-bootstrap`;
+- `host-ops`: `feat/browser-interactive-login-bootstrap`.
 
-## Verification evidence and known flake
+Always re-read `main` and branch heads before merging or continuing.
 
-### Local Agent C8
+## What was proven in production
 
-Before merge, on exact head `473e266f4cbbfd068e6a50474a1d2a514afaf543`:
+The dedicated CfT profile was first verified with one ChatGPT page and all five current content scripts matched.
 
-- focused `bridge_hostops_session` tests: 8/8 PASS;
-- canonical `scripts/verify.py`: PASS;
-- Python unit/integration suite: 476/476 PASS;
-- Bridge JS syntax/tests and JSON validation: PASS;
-- Ruff/compile stages: PASS.
+Google login then rejected the managed browser while it exposed CDP/extension automation signals. The same exact dedicated profile was restarted manually **without CDP and without unpacked-extension flags**. Google login succeeded. The profile was then returned to normal managed mode.
 
-PR #102 merged to `7dde1349c610e9d6c0aea1e7a890d3309e1134ce`.
-The merge commit tree is exactly the same tree as the fully verified feature head.
+The login state persisted correctly. A second issue was discovered: Chromium restored stale tabs from the authentication flow. Cleaning only session/tab restore files under the dedicated profile fixed that without deleting cookies or login state.
 
-Two later full post-merge runs failed only on the same unrelated timing-sensitive integration test:
+The final production managed-mode smoke after cleanup showed:
 
-`tests.test_control_probe_parallel_admission.ControlProbeParallelAdmissionIntegrationTests.test_running_control_repository_does_not_drain_unrelated_admission`
+- exactly one `https://chatgpt.com/` page target;
+- `READINESS_DIAGNOSIS=ready`;
+- `CONTENT_SCRIPT_STATE=ready`;
+- `DOM_READY=True`;
+- all 5 Bridge content-script fingerprints `matched`;
+- worker running at that moment;
+- worker diagnostics `error_count=0`.
 
-That test uses a short 4-second admission window. The exact same test on the exact merge SHA was then run in isolation three times and passed 3/3. Do not change C8/browser code because of this known timing flake unless new evidence connects the failure to the browser work.
+A later read-only branch smoke again showed one page, `DOM_READY=True`, 5/5 matched and `WORKER_ERROR_COUNT=0`; the MV3 worker happened to be inactive during that read, which is acceptable.
 
-### Host Ops C5.1
+## DOM contract correction
 
-The Chrome for Testing process-discovery fix was verified before and after merge with the canonical Host Ops gate. The suite had 699/699 tests passing on the exact C5.1 merge path, plus a real CfT managed-session smoke.
+The historical readiness selector `#prompt-textarea` is no longer sufficient for the current ChatGPT UI.
 
-## Current continuation point
+Production probing showed the logged-in composer as:
 
-The last read-only production health check did not find a page target: the managed CfT process/CDP was alive but `attach inspect` returned `page_count=0`.
+```css
+div.ProseMirror[contenteditable="true"]
+```
 
-This is not evidence that the extension is broken. The likely state is simply that the last CfT window/tab was closed while the browser process remained alive.
+The Local Agent recovery helper now uses a bounded compatibility selector union:
 
-The next session must re-check this from scratch; do not assume `page_count=0` is still true.
+```css
+#prompt-textarea,
+[data-testid="prompt-textarea"],
+div.ProseMirror[contenteditable="true"]
+```
 
-### Next action, in order
+This keeps old UI compatibility while recognizing the current composer without `Runtime.evaluate` or arbitrary page JavaScript.
 
-1. Re-read current `local-agent/main` and `host-ops/main`; verify no drift before code changes.
-2. Read Local Agent/Host Ops daemon status and confirm the production Local Agent self revision.
-3. Run read-only status for `~/.local/share/local-agent/chat-bridge-cft`.
-4. Run Host Ops target inventory against that exact profile endpoint.
-5. If exactly one ChatGPT page exists, run read-only readiness using the current Bridge fingerprints and worker diagnostics. Do not reload a healthy page.
-6. If `page_count == 0`, perform one controlled `stop -> start` of only `chat-bridge-cft`, with the CfT `current` binary and start URL `https://chatgpt.com/`; then re-run read-only inventory/readiness.
-7. Expect five Bridge fingerprints to be `matched`. Worker `running` is nice evidence, but `worker_inactive` alone is not an error because MV3 workers may sleep.
-8. `dom_not_ready` on a fresh or logged-out ChatGPT page is not grounds for self-heal. It can simply mean there is no composer such as `#prompt-textarea` yet.
-9. Never touch the user's normal daily Chrome profile, never use a broad process kill, and never loop reload/recovery.
+## New login bootstrap flow
 
-If the controlled restart still yields zero page targets, diagnose the managed-session lifecycle rather than changing Bridge fingerprints or recovery logic.
+Host Ops feature work adds generic exact-profile interactive session commands:
 
-## Useful operator commands
+```text
+hostops browser session interactive-start
+hostops browser session interactive-status
+hostops browser session interactive-stop
+```
 
-From the installed/current `local-agent` checkout:
+Interactive mode:
+
+- requires an existing Host Ops-owned managed profile;
+- launches the exact profile without CDP and without extension flags;
+- refuses ambiguous/multiple root processes;
+- never adopts the daily Chrome profile;
+- returns no CDP endpoint;
+- stops only the exact matching root PID;
+- can optionally clear only Chromium session/tab restore files after exit.
+
+Local Agent exposes the Chat Bridge-specific thin wrapper:
+
+```text
+bridge_hostops_session.py login-start
+bridge_hostops_session.py login-status
+bridge_hostops_session.py login-finish
+```
+
+`login-finish` delegates the bounded session-restore cleanup. It does not clear cookies, local storage or account state.
+
+Normal operator sequence:
 
 ```bash
 CFT="$HOME/.local/share/local-agent/chrome-for-testing/current/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
 PROFILE="$HOME/.local/share/local-agent/chat-bridge-cft"
 
-python scripts/bridge_hostops_session.py status \
-  --profile-dir "$PROFILE"
+python scripts/bridge_hostops_session.py stop --profile-dir "$PROFILE"
+
+python scripts/bridge_hostops_session.py login-start \
+  --profile-dir "$PROFILE" \
+  --browser-executable "$CFT" \
+  --url https://chatgpt.com/
+
+# user completes login manually
+
+python scripts/bridge_hostops_session.py login-finish --profile-dir "$PROFILE"
 
 python scripts/bridge_hostops_session.py start \
   --profile-dir "$PROFILE" \
   --browser-executable "$CFT" \
   --url https://chatgpt.com/
-
-python scripts/bridge_hostops_session.py stop \
-  --profile-dir "$PROFILE"
 ```
 
-For a known exact conversation URL, read-only external diagnosis is:
+Do not attempt to bypass identity-provider security using user-agent spoofing, automation-hiding flags or copied daily-browser cookies.
+
+## Verification completed for the feature branches
+
+Host Ops focused tests for the new interactive session lifecycle:
+
+```text
+15 passed
+```
+
+Local Agent focused tests for the session wrapper + recovery selector contract:
+
+```text
+Ran 20 tests
+OK
+```
+
+A read-only live smoke using the Local Agent feature-branch selector contract against the real logged-in dedicated CfT profile passed:
+
+```text
+PAGE_COUNT=1
+CONTENT_SCRIPT_STATE=ready
+DOM_READY=True
+FINGERPRINT_COUNT=5
+WORKER_ERROR_COUNT=0
+BRANCH_LIVE_SMOKE=pass
+```
+
+No reload, restart or page mutation was performed by that branch smoke.
+
+## Recovery contract
+
+For a known exact conversation URL, diagnosis remains:
 
 ```bash
 python scripts/bridge_hostops_recovery.py \
@@ -166,24 +164,34 @@ python scripts/bridge_hostops_recovery.py \
   --conversation-url https://chatgpt.com/c/CONVERSATION_ID
 ```
 
-Only add `--recover` after read-only diagnosis reports `content_script_missing` or `content_script_stale` and the exact target/URL guards are satisfied.
+Only if the read-only diagnosis reports `content_script_missing` or `content_script_stale` may one explicit `--recover` attempt be used.
 
-## Local Agent / multirepo workflow notes
+Never reload for:
 
-- `local-agent` itself is intentionally execution-disabled in the multirepo catalog; do not queue ordinary execution tasks against the `local-agent` repository.
-- Machine execution for this browser workflow is normally scheduled through the execution-enabled `host-ops` repository using its exact binding.
-- The global parallel-supervisor control repository discovered during this work is `growclip`; do not assume `host-ops` owns global daemon control commands.
-- Task JSON must include the current schema fields, including explicit `resources` when required by the installed daemon.
-- Avoid giant inline task JSON/heredocs; an earlier parser failure was caused by task-file escaping. Prefer small scripts or short deterministic commands.
-- Re-check concurrent work before creating branches or scheduling browser resources. Other workflows (notably Kobra/plotter/Fusion) have used the same Local Agent concurrently.
+- `ready`;
+- `worker_inactive` alone;
+- `dom_not_ready`;
+- `extension_ambiguous`.
 
-## Related documentation
+Never loop recovery.
 
-- `docs/BRIDGE_HOSTOPS_RECOVERY.md` — authoritative recovery contract/runbook.
-- `scripts/bridge_hostops_session.py` — dedicated Chat Bridge browser lifecycle wrapper.
-- `scripts/bridge_hostops_recovery.py` — exact-target readiness/recovery wrapper.
-- Host Ops browser docs: `MichalMatu/host-ops`, `docs/operations/BROWSER.md`.
+## Multirepo operational rules
 
-## Handoff rule
+- `local-agent` is intentionally execution-disabled in the multirepo catalog.
+- Machine execution for this browser workflow is scheduled through execution-enabled `host-ops` using its exact binding.
+- Before writes, branch changes or browser mutation, check repo drift and concurrent tasks.
+- The global supervisor can have unrelated repositories running in parallel; do not assume an idle Host Ops worker means the whole system is idle.
+- Avoid broad process kills and giant inline task payloads.
 
-A new planner/session should verify current facts first, then continue from the `Current continuation point` above. Do not reconstruct state from old chat memory when repository/daemon evidence is available.
+## Next continuation action
+
+If these feature branches are not yet merged:
+
+1. re-read `local-agent/main`, `host-ops/main` and both feature heads;
+2. confirm no active conflicting task;
+3. run/inspect the focused test evidence and live smoke above;
+4. merge only if each feature branch still descends cleanly from the current corresponding `main`;
+5. after Local Agent `main` moves, allow the daemon to self-update and verify its reported `self_revision`;
+6. run one final read-only managed-profile health check; do not reload a healthy page.
+
+If the branches are already merged, treat the current `main` refs as authoritative and use `docs/BRIDGE_HOSTOPS_RECOVERY.md` as the runbook.
