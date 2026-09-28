@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,7 @@ _TIMESTAMP_FIELDS = (
     "started_at",
     "persisted_at",
 )
+_TASK_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -71,6 +73,8 @@ def _json_files(directory: Path) -> list[Path]:
 
 
 def _task_payload_files(tasks_dir: Path, task_id: str) -> list[Path]:
+    if _TASK_ID_RE.fullmatch(task_id) is None:
+        return []
     payload_dir = tasks_dir / f"{task_id}.payload"
     if payload_dir.is_symlink():
         return [payload_dir]
@@ -496,13 +500,14 @@ def prune_control_runtime(core_module: Any) -> dict[str, Any]:
         if paths:
             with termination_critical_section():
                 for relative in paths:
-                    target = (core_module.CONTROL / relative).resolve()
+                    candidate = core_module.CONTROL / relative
                     root = core_module.CONTROL.resolve()
-                    if root not in target.parents:
+                    resolved_parent = candidate.parent.resolve()
+                    if resolved_parent != root and root not in resolved_parent.parents:
                         raise ValueError(f"cleanup path escapes control checkout: {relative!r}")
                     if not any(relative.startswith(prefix) for prefix in _RUNTIME_PREFIXES):
                         raise ValueError(f"cleanup path is outside runtime allowlist: {relative!r}")
-                    target.unlink(missing_ok=True)
+                    candidate.unlink(missing_ok=True)
 
                 add = _control_process(
                     core_module,
