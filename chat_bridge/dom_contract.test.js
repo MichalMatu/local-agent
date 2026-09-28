@@ -177,4 +177,47 @@ const unrelatedRetryRoot = {
 };
 assert.equal(dom.findRecoverableAssistantError(unrelatedRetryRoot), null);
 
+
+const currentExhaustionTurn = element({ attrs: { "data-turn-key": "turn-current-exhaustion" } });
+const currentExhaustionMessage = element({
+  attrs: { "data-conversation-role": "assistant" },
+  query: { ".text-token-text-error": error }
+});
+currentExhaustionMessage.closest = (selector) => selector === "[data-turn-key]" ? currentExhaustionTurn : null;
+const currentExhaustionRoot = {
+  querySelectorAll(selector) {
+    if (selector === '[data-message-author-role="assistant"]') return [];
+    if (selector === '[data-conversation-role="assistant"]') return [currentExhaustionMessage];
+    return [];
+  }
+};
+found = dom.findConversationExhaustion(currentExhaustionRoot);
+assert.ok(found);
+assert.equal(found.assistantIdentity, "turn-current-exhaustion");
+
+const currentUser = element({
+  text: "Bridge wake",
+  attrs: { "data-user-message-bubble": "" }
+});
+const currentTimeoutTurn = element({ attrs: { "data-turn-key": "turn-current-timeout" } });
+const currentTimeoutMessage = element({
+  attrs: { "data-conversation-role": "assistant" },
+  query: { ".text-token-text-error": timeoutError }
+});
+currentTimeoutMessage.closest = (selector) => selector === "[data-turn-key]" ? currentTimeoutTurn : null;
+const currentTimeoutRoot = {
+  querySelectorAll(selector) {
+    if (selector === "[data-message-author-role]") return [];
+    if (selector === '[data-conversation-role="assistant"], [data-user-message-bubble]') {
+      return [currentUser, currentTimeoutMessage];
+    }
+    return [];
+  }
+};
+found = dom.findRecoverableAssistantError(currentTimeoutRoot);
+assert.ok(found);
+assert.equal(found.assistantIdentity, "turn-current-timeout");
+assert.equal(dom.messageRole(currentUser), "user");
+assert.equal(dom.messageRole(currentTimeoutMessage), "assistant");
+
 console.log("Chat Bridge DOM contract tests passed.");

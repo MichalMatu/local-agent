@@ -85,6 +85,32 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   assert.equal(await page.evaluate(() => window.submits), 0);
   console.log("PASS: trailing prose, invalid final candidates, invalid ranges and user messages leave conversation state unchanged");
 
+  const currentDomBefore = await readChat(id);
+  await page.evaluate(() => {
+    document.querySelectorAll('[data-message-author-role="assistant"]').forEach((node) => node.remove());
+    const turn = document.createElement("div");
+    turn.dataset.turnKey = "current-dom-assistant-control";
+    const answer = document.createElement("div");
+    answer.dataset.conversationRole = "assistant";
+    answer.textContent = "[LAB:RESUME]";
+    turn.append(answer);
+    document.body.append(turn);
+  });
+  const currentDomDeadline = Date.now() + 5000;
+  let currentDomAfter = await readChat(id);
+  while (
+    (currentDomAfter.generation !== currentDomBefore.generation + 1 ||
+      currentDomAfter.lastControlAction !== "[LAB:RESUME]") &&
+    Date.now() < currentDomDeadline
+  ) {
+    await page.waitForTimeout(50);
+    currentDomAfter = await readChat(id);
+  }
+  assert.equal(currentDomAfter.generation, currentDomBefore.generation + 1);
+  assert.equal(currentDomAfter.lastControlAction, "[LAB:RESUME]");
+  assert.equal(currentDomAfter.enabled, true);
+  console.log("PASS: current ChatGPT data-conversation-role assistant controls reach the worker");
+
   // Hold Send disabled long enough to observe the feedback insertion deterministically,
   // then release the same button and require the in-flight Bridge delivery to submit it.
   await add("help-feedback-submit");

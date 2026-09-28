@@ -1,5 +1,5 @@
 (() => {
-  const GUARD_VERSION = 3;
+  const GUARD_VERSION = 4;
   const RETRY_RECHECK_GRACE_MS = 8000;
   const existingGuard = globalThis.__localAgentChatExhaustionGuard;
   if (existingGuard?.version === GUARD_VERSION) return;
@@ -23,7 +23,7 @@
   let retryAwaiting = null;
 
   function latestMessage(role) {
-    const messages = document.querySelectorAll(`[data-message-author-role="${role}"]`);
+    const messages = dom.messageElements(document, role);
     if (!messages.length) return null;
     const latest = messages[messages.length - 1];
     const text = latest.innerText || latest.textContent || "";

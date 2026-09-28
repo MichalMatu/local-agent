@@ -12,23 +12,64 @@
   const MESSAGE_DELIVERY_TIMEOUT_TEXT = "Message delivery timed out. Please try again.";
   const RETRY_BUTTON_TEXT = "Retry";
   const RETRY_BUTTON_TEST_ID = "regenerate-thread-error-button";
+  const MESSAGE_SELECTORS = Object.freeze({
+    assistant: Object.freeze([
+      '[data-message-author-role="assistant"]',
+      '[data-conversation-role="assistant"]'
+    ]),
+    user: Object.freeze([
+      '[data-message-author-role="user"]',
+      '[data-user-message-bubble]'
+    ])
+  });
 
   function normalizedText(value) {
     return String(value || "").trim().replace(/\s+/g, " ");
   }
 
+  function messageElements(root, role) {
+    if (!root || typeof root.querySelectorAll !== "function") return [];
+    for (const selector of MESSAGE_SELECTORS[role] || []) {
+      const messages = Array.from(root.querySelectorAll(selector));
+      if (messages.length) return messages;
+    }
+    return [];
+  }
+
+  function conversationMessages(root) {
+    if (!root || typeof root.querySelectorAll !== "function") return [];
+    const legacy = Array.from(root.querySelectorAll('[data-message-author-role]'));
+    if (legacy.length) return legacy;
+    return Array.from(root.querySelectorAll(
+      '[data-conversation-role="assistant"], [data-user-message-bubble]'
+    ));
+  }
+
+  function messageRole(message) {
+    const legacy = String(message?.getAttribute?.("data-message-author-role") || "");
+    if (legacy === "assistant" || legacy === "user") return legacy;
+    if (message?.getAttribute?.("data-conversation-role") === "assistant") return "assistant";
+    if (message?.getAttribute?.("data-user-message-bubble") !== null) return "user";
+    return "";
+  }
+
   function assistantIdentity(message) {
+    const turnKey =
+      message?.getAttribute?.("data-turn-key") ||
+      message?.closest?.('[data-turn-key]')?.getAttribute?.("data-turn-key") ||
+      "";
     return String(
       message?.getAttribute?.("data-message-id") ||
       message?.getAttribute?.("data-testid") ||
       message?.id ||
+      turnKey ||
       ""
     );
   }
 
   function findConversationExhaustion(root) {
     if (!root || typeof root.querySelectorAll !== "function") return null;
-    const messages = Array.from(root.querySelectorAll('[data-message-author-role="assistant"]'));
+    const messages = messageElements(root, "assistant");
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
       const error = message?.querySelector?.(".text-token-text-error");
@@ -52,10 +93,10 @@
 
   function findRecoverableAssistantError(root) {
     if (!root || typeof root.querySelectorAll !== "function") return null;
-    const turns = Array.from(root.querySelectorAll("[data-message-author-role]"));
+    const turns = conversationMessages(root);
     if (!turns.length) return null;
     const message = turns[turns.length - 1];
-    if (message?.getAttribute?.("data-message-author-role") !== "assistant") return null;
+    if (messageRole(message) !== "assistant") return null;
 
     const error = message?.querySelector?.(".text-token-text-error");
     if (!error) return null;
@@ -84,6 +125,10 @@
     RETRY_BUTTON_TEXT,
     RETRY_BUTTON_TEST_ID,
     normalizedText,
+    messageElements,
+    conversationMessages,
+    messageRole,
+    assistantIdentity,
     findConversationExhaustion,
     findRecoverableAssistantError
   });

@@ -140,12 +140,33 @@
     return null;
   }
 
+  const MESSAGE_SELECTORS = Object.freeze({
+    assistant: Object.freeze([
+      '[data-message-author-role="assistant"]',
+      '[data-conversation-role="assistant"]'
+    ]),
+    user: Object.freeze([
+      '[data-message-author-role="user"]',
+      '[data-user-message-bubble]'
+    ])
+  });
+
+  function messageElements(role) {
+    for (const selector of MESSAGE_SELECTORS[role] || []) {
+      const messages = document.querySelectorAll(selector);
+      if (messages.length) return messages;
+    }
+    return [];
+  }
+
   function latestMessage(role) {
-    const messages = document.querySelectorAll(`[data-message-author-role="${role}"]`);
+    const messages = messageElements(role);
     if (!messages.length) return null;
     const latest = messages[messages.length - 1];
     const text = latest.innerText || latest.textContent || "";
-    const stableId = latest.getAttribute("data-message-id") || latest.getAttribute("data-testid") || latest.id || "";
+    const turnKey = latest.closest?.('[data-turn-key]')?.getAttribute('data-turn-key') || "";
+    const stableId = latest.getAttribute("data-message-id") || latest.getAttribute("data-testid") ||
+      latest.id || turnKey || "";
     return { text, identity: stableId || `${role}:${messages.length}:${fnv1a32(text)}` };
   }
 
