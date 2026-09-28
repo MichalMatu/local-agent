@@ -75,20 +75,25 @@ def write_task_bundle(
     payload_root = tasks_dir / f"{task_id}.payload"
     if manifest_path.exists():
         raise FileExistsError(f"task manifest already exists: {manifest_path}")
-    if payload_root.exists():
-        raise FileExistsError(f"task payload directory already exists: {payload_root}")
+    try:
+        payload_root.mkdir(parents=False, exist_ok=False)
+    except FileExistsError as exc:
+        raise FileExistsError(
+            f"task payload directory already exists: {payload_root}"
+        ) from exc
 
     try:
         for relative_path, content in payloads.items():
             target = tasks_dir / relative_path
             target.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_text(target, content)
+        if manifest_path.exists():
+            raise FileExistsError(f"task manifest already exists: {manifest_path}")
         atomic_write_text(
             manifest_path,
             json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
         )
     except Exception:
-        manifest_path.unlink(missing_ok=True)
         shutil.rmtree(payload_root, ignore_errors=True)
         raise
     return manifest_path

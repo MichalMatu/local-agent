@@ -92,6 +92,55 @@ class TaskPayloadTransportTests(unittest.TestCase):
 
             self.assertFalse(tasks_dir.exists())
 
+    def test_writer_preserves_manifest_created_during_payload_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tasks_dir = Path(temporary) / ".agent/tasks"
+            manifest_path = tasks_dir / "escape-heavy.json"
+            payload_root = tasks_dir / "escape-heavy.payload"
+            real_atomic_write = task_transport.atomic_write_text
+            injected = False
+
+            def racing_atomic_write(path: Path, text: str) -> None:
+                nonlocal injected
+                real_atomic_write(path, text)
+                if not injected and payload_root in path.parents:
+                    injected = True
+                    manifest_path.write_text("foreign-manifest\n", encoding="utf-8")
+
+            with mock.patch.object(
+                task_transport,
+                "atomic_write_text",
+                side_effect=racing_atomic_write,
+            ):
+                with self.assertRaisesRegex(
+                    FileExistsError,
+                    "task manifest already exists",
+                ):
+                    task_transport.write_task_bundle(tasks_dir, self._task())
+
+            self.assertEqual(
+                manifest_path.read_text(encoding="utf-8"),
+                "foreign-manifest\n",
+            )
+            self.assertFalse(payload_root.exists())
+
+    def test_writer_refuses_existing_payload_reservation_without_deleting_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            tasks_dir = Path(temporary) / ".agent/tasks"
+            payload_root = tasks_dir / "escape-heavy.payload"
+            payload_root.mkdir(parents=True)
+            marker = payload_root / "foreign.txt"
+            marker.write_text("keep\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                FileExistsError,
+                "task payload directory already exists",
+            ):
+                task_transport.write_task_bundle(tasks_dir, self._task())
+
+            self.assertEqual(marker.read_text(encoding="utf-8"), "keep\n")
+            self.assertFalse((tasks_dir / "escape-heavy.json").exists())
+
     def test_payload_reference_cannot_escape_task_payload_directory(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             control = Path(temporary)
