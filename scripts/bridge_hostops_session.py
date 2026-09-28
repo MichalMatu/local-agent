@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Start, inspect or stop one dedicated Chat Bridge Chromium session through Host Ops.
+"""Control one dedicated Chat Bridge Chromium profile through Host Ops.
 
-This helper owns no browser process lifecycle itself. It only supplies Chat Bridge-specific
-inputs to the generic `hostops browser session` boundary: the current unpacked extension,
-an explicit isolated profile, and an approved ChatGPT start URL.
+Normal start/status/stop use the managed loopback-CDP session and load the unpacked
+Bridge extension. login-start/login-status/login-finish are a thin wrapper around Host
+Ops interactive mode for user-driven authentication on the same owned profile. The
+interactive mode deliberately has no CDP and no extension flags; login-finish also
+clears only tab/session restore state so stale authentication tabs are not reopened
+when managed mode starts again.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ _BRANDED_MAC_CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Googl
 
 
 class BridgeHostOpsSessionError(RuntimeError):
-    """Raised when the managed Chat Bridge browser cannot be controlled safely."""
+    """Raised when the dedicated Chat Bridge browser cannot be controlled safely."""
 
 
 def normalize_start_url(raw: str) -> str:
@@ -70,12 +73,12 @@ def _validate_bridge_dir(bridge_dir: Path) -> str:
 def _validate_bridge_browser_executable(raw: str) -> str:
     value = raw.strip()
     if not value:
-        raise BridgeHostOpsSessionError("browser executable is required for start")
+        raise BridgeHostOpsSessionError("browser executable is required")
     path = Path(value).expanduser()
     resolved = path.resolve(strict=False)
     if resolved == _BRANDED_MAC_CHROME.resolve(strict=False):
         raise BridgeHostOpsSessionError(
-            "branded Google Chrome cannot auto-load the unpacked Chat Bridge; "
+            "branded Google Chrome is not allowed for the dedicated Chat Bridge profile; "
             "use Chrome for Testing or Chromium"
         )
     return str(path)
@@ -128,10 +131,17 @@ def _validate_session_payload(payload: dict[str, Any], *, action: str) -> None:
         "start": {"running"},
         "status": {"running", "stopped", "unhealthy"},
         "stop": {"stopped"},
+        "login-start": {"running"},
+        "login-status": {"running", "stopped"},
+        "login-finish": {"stopped"},
     }[action]
     if state not in allowed_states:
         raise BridgeHostOpsSessionError(f"Host Ops returned an invalid {action} session state")
     endpoint = payload.get("endpoint")
+    if action in {"login-start", "login-status", "login-finish"}:
+        if endpoint is not None:
+            raise BridgeHostOpsSessionError("interactive login session unexpectedly exposed CDP")
+        return
     if state == "running":
         if not isinstance(endpoint, str) or not endpoint.startswith("http://127.0.0.1:"):
             raise BridgeHostOpsSessionError("running session did not return a loopback CDP endpoint")
@@ -151,30 +161,38 @@ def managed_bridge_session(
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, Any]:
     timeout = _validate_timeout(timeout_seconds)
-    if action not in {"start", "status", "stop"}:
+    if action not in {
+        "start",
+        "status",
+        "stop",
+        "login-start",
+        "login-status",
+        "login-finish",
+    }:
         raise BridgeHostOpsSessionError("unsupported managed browser action")
 
-    command = [hostops, "browser", "session", action, "--profile-dir", profile_dir]
+    hostops_action = {
+        "login-start": "interactive-start",
+        "login-status": "interactive-status",
+        "login-finish": "interactive-stop",
+    }.get(action, action)
+    command = [hostops, "browser", "session", hostops_action, "--profile-dir", profile_dir]
     extension_dir: str | None = None
     normalized_url: str | None = None
-    if action == "start":
+
+    if action in {"start", "login-start"}:
         if not browser_executable:
             raise BridgeHostOpsSessionError("browser executable is required for start")
         browser = _validate_bridge_browser_executable(browser_executable)
-        extension_dir = _validate_bridge_dir(bridge_dir)
         normalized_url = normalize_start_url(start_url)
-        command.extend(
-            [
-                "--browser-executable",
-                browser,
-                "--extension-dir",
-                extension_dir,
-                "--url",
-                normalized_url,
-            ]
-        )
-    command.extend(["--timeout", f"{timeout:g}", "--json"])
+        command.extend(["--browser-executable", browser, "--url", normalized_url])
+        if action == "start":
+            extension_dir = _validate_bridge_dir(bridge_dir)
+            command.extend(["--extension-dir", extension_dir])
+    elif action == "login-finish":
+        command.append("--clear-session-restore")
 
+    command.extend(["--timeout", f"{timeout:g}", "--json"])
     payload = _run_hostops_json(
         command,
         timeout_seconds=timeout + 5,
@@ -202,19 +220,39 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     subparsers = parser.add_subparsers(dest="action", required=True)
 
-    start = subparsers.add_parser("start", help="start one isolated Chat Bridge Chromium session")
-    start.add_argument("--profile-dir", required=True)
-    start.add_argument("--browser-executable", required=True)
-    start.add_argument("--url", default="https://chatgpt.com/", dest="start_url")
-    start.add_argument("--timeout", type=float, default=20.0, dest="timeout_seconds")
+    def add_start(name: str, help_text: str) -> None:
+        command = subparsers.add_parser(name, help=help_text)
+        command.add_argument("--profile-dir", required=True)
+        command.add_argument("--browser-executable", required=True)
+        command.add_argument("--url", default="https://chatgpt.com/", dest="start_url")
+        command.add_argument("--timeout", type=float, default=20.0, dest="timeout_seconds")
+
+    add_start("start", "start one isolated managed Chat Bridge Chromium session")
+    add_start(
+        "login-start",
+        "start the same owned profile without CDP or extension flags for manual authentication",
+    )
 
     status = subparsers.add_parser("status", help="inspect one exact managed Chat Bridge profile")
     status.add_argument("--profile-dir", required=True)
     status.add_argument("--timeout", type=float, default=5.0, dest="timeout_seconds")
 
+    login_status = subparsers.add_parser(
+        "login-status", help="inspect the exact interactive login profile"
+    )
+    login_status.add_argument("--profile-dir", required=True)
+    login_status.add_argument("--timeout", type=float, default=5.0, dest="timeout_seconds")
+
     stop = subparsers.add_parser("stop", help="stop only the exact managed Chat Bridge browser")
     stop.add_argument("--profile-dir", required=True)
     stop.add_argument("--timeout", type=float, default=10.0, dest="timeout_seconds")
+
+    login_finish = subparsers.add_parser(
+        "login-finish",
+        help="stop the exact interactive login browser and discard only stale tab restore state",
+    )
+    login_finish.add_argument("--profile-dir", required=True)
+    login_finish.add_argument("--timeout", type=float, default=10.0, dest="timeout_seconds")
     return parser.parse_args(argv)
 
 
