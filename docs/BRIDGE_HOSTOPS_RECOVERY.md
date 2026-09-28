@@ -16,25 +16,29 @@ Use the external fallback only when the Bridge/content path itself is unavailabl
 
 ## Dedicated managed browser
 
-The preferred external-fallback setup is a separate persistent Chromium profile dedicated to Chat Bridge. Do not enable remote debugging on the operator's normal Chrome profile.
+The preferred external-fallback setup is a separate persistent Chrome for Testing (CfT) or Chromium profile dedicated to Chat Bridge. Do not enable remote debugging on the operator's normal browser profile.
 
 `scripts/bridge_hostops_session.py` is a thin Chat Bridge-specific wrapper around the generic `hostops browser session` capability. It does not own a browser process manager. On `start` it supplies exactly three Bridge-specific inputs: the current `chat_bridge/` unpacked extension directory, an explicit isolated profile directory and an approved ChatGPT HTTPS start URL.
 
-Start a dedicated browser on macOS:
+Current branded Google Chrome releases must not be used for this automatic unpacked-extension workflow. Branded Chrome removed command-line `--load-extension` support and later `--disable-extensions-except`; Chrome for Testing and Chromium retain the testing flags. The wrapper therefore rejects the standard macOS branded Chrome executable before invoking Host Ops.
+
+A stable private CfT alias can be kept under `~/.local/share/local-agent/chrome-for-testing/current`. Start the dedicated browser on macOS with:
 
 ```bash
+CFT="$HOME/.local/share/local-agent/chrome-for-testing/current/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+
 python scripts/bridge_hostops_session.py start \
-  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-chrome" \
-  --browser-executable '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-cft" \
+  --browser-executable "$CFT"
 ```
 
-The default start URL is `https://chatgpt.com/`. `--url` may instead name an exact ChatGPT conversation path, but credentials, explicit ports, query data and fragments are rejected. Host Ops loads only the current unpacked `chat_bridge/` extension through this wrapper and creates CDP on a Chrome-selected dynamic loopback port.
+An explicitly installed Chromium executable is also acceptable. The default start URL is `https://chatgpt.com/`. `--url` may instead name an exact ChatGPT conversation path, but credentials, explicit ports, query data and fragments are rejected. Host Ops loads only the current unpacked `chat_bridge/` extension through this wrapper and creates CDP on a browser-selected dynamic loopback port.
 
 Check the session:
 
 ```bash
 python scripts/bridge_hostops_session.py status \
-  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-chrome"
+  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-cft"
 ```
 
 The JSON result contains the Host Ops session evidence. When running, `result.endpoint` is the current dynamic loopback endpoint. Operators normally do not need to copy that port into recovery commands: the recovery helper can resolve it from the exact managed profile itself.
@@ -43,16 +47,17 @@ Stop only that dedicated browser:
 
 ```bash
 python scripts/bridge_hostops_session.py stop \
-  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-chrome"
+  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-cft"
 ```
 
-The profile persists across stop/start cycles so the operator can log in to ChatGPT once inside this isolated browser. The wrapper never adopts an existing profile, never scans for a daily Chrome profile and never uses process-name killing; those guards are enforced by Host Ops C5.
+The profile persists across stop/start cycles so the operator can log in to ChatGPT once inside this isolated browser. The wrapper never adopts an existing profile, never scans for a daily browser profile and never uses process-name killing; those guards are enforced by Host Ops C5. Host Ops C5.1 additionally recognizes the macOS Chrome for Testing root process while preserving the same exact-profile and dynamic-loopback guards.
 
 ## Prerequisites
 
 External recovery requires all of the following:
 
-- the target ChatGPT conversation is already open in Chromium;
+- the target ChatGPT conversation is already open in the dedicated browser;
+- the managed browser runtime supports command-line loading of the unpacked Bridge, normally Chrome for Testing or Chromium;
 - either the exact dedicated managed profile is known, or an explicitly authorized loopback CDP endpoint is supplied;
 - the exact sanitized conversation URL is known, with no query or fragment;
 - the current `local-agent` checkout contains the Bridge version expected to be active;
@@ -68,7 +73,7 @@ With the dedicated managed browser, read-only diagnosis is simply:
 
 ```bash
 python scripts/bridge_hostops_recovery.py \
-  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-chrome" \
+  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-cft" \
   --conversation-url https://chatgpt.com/c/CONVERSATION_ID
 ```
 
@@ -88,7 +93,7 @@ Allow one bounded recovery attempt only with explicit `--recover`:
 
 ```bash
 python scripts/bridge_hostops_recovery.py \
-  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-chrome" \
+  --profile-dir "$HOME/.local/share/local-agent/chat-bridge-cft" \
   --conversation-url https://chatgpt.com/c/CONVERSATION_ID \
   --recover
 ```
@@ -105,7 +110,7 @@ Use this order:
 4. If readiness reports `dom_not_ready` or `extension_ambiguous`, do not mutate the page. Fix the underlying target/DOM/identity ambiguity first.
 5. `worker_inactive` alone is not proof of failure. Manifest V3 workers are allowed to sleep. External content recovery must not wake, restart or otherwise mutate the worker.
 6. If one bounded recovery returns `not_recovered`, `target_changed` or another non-success result, stop. Do not loop reloads. Re-inspect the browser/extension state or require explicit operator intervention.
-7. If the extension runtime itself is stale or broken, this page-level fallback is not sufficient. Use the explicit Bridge runtime reload path when it is reachable; otherwise the operator must explicitly reload the unpacked extension through Chrome's extension management UI.
+7. If the extension runtime itself is stale or broken, this page-level fallback is not sufficient. Use the explicit Bridge runtime reload path when it is reachable; otherwise the operator must explicitly reload the unpacked extension through the browser's extension management UI.
 
 ## Planner integration
 
