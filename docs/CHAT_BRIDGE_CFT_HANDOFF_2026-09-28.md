@@ -2,18 +2,19 @@
 
 This document is the continuation point for the Chat Bridge / Host Ops browser-recovery work. Read this before changing code or running recovery.
 
-## Repositories and exact known-good heads
+## Repositories and exact known-good baselines
 
 - `MichalMatu/local-agent`
-  - `main`: `7dde1349c610e9d6c0aea1e7a890d3309e1134ce`
+  - browser/recovery runtime code baseline: `7dde1349c610e9d6c0aea1e7a890d3309e1134ce`
   - merge: PR #102, `Use Chrome for Testing for managed Chat Bridge sessions`
-  - production daemon self-updated to this exact revision during the final verification cycle
+  - production daemon self-updated to this exact runtime revision during the final verification cycle
   - daemon version remains `4.19.1`
+  - the handoff documentation was merged later, so always re-read the current `main` ref before work
 - `MichalMatu/host-ops`
-  - `main`: `49592183b5edf83dd1a74d492fd2439ab2ae4361`
+  - browser-capability baseline at handoff: `49592183b5edf83dd1a74d492fd2439ab2ae4361`
   - this includes managed browser sessions, readiness diagnostics, bounded content-script recovery and macOS Chrome for Testing process discovery
 
-Do not assume these SHAs are still current in a later session. Re-read both `main` refs first and compare before changing anything.
+Do not assume either baseline is still the repository head in a later session. Re-read both `main` refs first and compare before changing anything.
 
 ## What is implemented
 
