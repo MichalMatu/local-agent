@@ -154,6 +154,35 @@ def _run_hostops_json(
     return payload
 
 
+def _validate_managed_loopback_endpoint(raw: Any) -> str:
+    if not isinstance(raw, str):
+        raise BridgeHostOpsRecoveryError(
+            "managed Chat Bridge profile did not return a loopback CDP endpoint"
+        )
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError as exc:
+        raise BridgeHostOpsRecoveryError(
+            "managed Chat Bridge profile did not return a loopback CDP endpoint"
+        ) from exc
+    if (
+        parsed.scheme != "http"
+        or parsed.hostname != "127.0.0.1"
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is None
+        or not 1 <= port <= 65535
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise BridgeHostOpsRecoveryError(
+            "managed Chat Bridge profile did not return a loopback CDP endpoint"
+        )
+    return f"http://127.0.0.1:{port}"
+
+
 def resolve_managed_profile_endpoint(
     *,
     hostops: str,
@@ -164,6 +193,9 @@ def resolve_managed_profile_endpoint(
     """Resolve one running managed profile to its exact current loopback CDP endpoint."""
     if not 3 <= timeout_seconds <= 120:
         raise BridgeHostOpsRecoveryError("timeout must be at least 3 and at most 120 seconds")
+    profile = profile_dir.strip()
+    if not profile:
+        raise BridgeHostOpsRecoveryError("managed Chat Bridge profile path must not be empty")
     payload = _run_hostops_json(
         [
             hostops,
@@ -171,7 +203,7 @@ def resolve_managed_profile_endpoint(
             "session",
             "status",
             "--profile-dir",
-            profile_dir,
+            profile,
             "--timeout",
             f"{timeout_seconds:g}",
             "--json",
@@ -181,12 +213,7 @@ def resolve_managed_profile_endpoint(
     )
     if payload.get("state") != "running":
         raise BridgeHostOpsRecoveryError("managed Chat Bridge profile is not running")
-    endpoint = payload.get("endpoint")
-    if not isinstance(endpoint, str) or not endpoint.startswith("http://127.0.0.1:"):
-        raise BridgeHostOpsRecoveryError(
-            "managed Chat Bridge profile did not return a loopback CDP endpoint"
-        )
-    return endpoint
+    return _validate_managed_loopback_endpoint(payload.get("endpoint"))
 
 
 def external_bridge_check(
