@@ -240,10 +240,10 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await popup.locator(".brand-orb").count(), 0);
     assert.equal((await popup.locator(".brand-title").innerText()).replace(/\s+/g, " "), "Local Agent · Chat Bridge");
     assert.equal(await popup.locator(".card-editor").count(), 0);
-    assert.equal(await popup.getByRole("button", { name: "Run now", exact: true }).count(), 8);
-    assert.equal(await popup.locator(".wake-input-wrap input").count(), 8);
-    assert.equal(await popup.locator(".enable-switch input").count(), 8);
-    assert.equal(await popup.locator(".switch-control .switch-track").count(), 9);
+    assert.equal(await popup.getByRole("button", { name: "Run now", exact: true }).count(), 9);
+    assert.equal(await popup.locator(".wake-input-wrap input").count(), 9);
+    assert.equal(await popup.locator(".enable-switch input").count(), 9);
+    assert.equal(await popup.locator(".switch-control .switch-track").count(), 10);
     assert.equal(await popup.locator(".delivery-resolution").count(), 0);
     assert.equal(
       await popup.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()),
