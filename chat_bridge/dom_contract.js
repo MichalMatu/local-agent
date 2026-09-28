@@ -43,20 +43,35 @@
     return result;
   }
 
+  const TURN_SELECTOR = '[data-turn-key]';
+  const USER_SELECTOR = MESSAGE_SELECTORS.user.join(", ");
+
+  function groupedAssistantTurns(root) {
+    if (!root || typeof root.querySelectorAll !== "function") return [];
+    return Array.from(root.querySelectorAll(TURN_SELECTOR)).filter(
+      (turn) => Boolean(turn?.querySelector?.(USER_SELECTOR))
+    );
+  }
+
   function messageElements(root, role) {
     if (!root || typeof root.querySelectorAll !== "function") return [];
     const selectors = MESSAGE_SELECTORS[role] || [];
     if (!selectors.length) return [];
-    return dedupeMessagesByTurn(
+    const explicit = dedupeMessagesByTurn(
       Array.from(root.querySelectorAll(selectors.join(", ")))
     );
+    if (role === "assistant" && !explicit.length) return groupedAssistantTurns(root);
+    return explicit;
   }
 
   function conversationMessages(root) {
     if (!root || typeof root.querySelectorAll !== "function") return [];
-    return dedupeMessagesByTurn(Array.from(root.querySelectorAll(
+    const explicit = dedupeMessagesByTurn(Array.from(root.querySelectorAll(
       '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]'
     )));
+    if (explicit.some((message) => messageRole(message) === "assistant")) return explicit;
+    const grouped = groupedAssistantTurns(root);
+    return grouped.length ? grouped : explicit;
   }
 
   function messageRole(message) {
@@ -110,7 +125,11 @@
     const turns = conversationMessages(root);
     if (!turns.length) return null;
     const message = turns[turns.length - 1];
-    if (messageRole(message) !== "assistant") return null;
+    const role = messageRole(message);
+    const groupedTurnFallback = role === "" &&
+      message?.getAttribute?.("data-turn-key") !== null &&
+      Boolean(message?.querySelector?.(USER_SELECTOR));
+    if (role !== "assistant" && !groupedTurnFallback) return null;
 
     const error = message?.querySelector?.(".text-token-text-error");
     if (!error) return null;

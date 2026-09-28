@@ -113,3 +113,7 @@ The superchat layer must preserve repository identity; rollover changes the Chat
 Automatic rollover must fail closed when any of these are ambiguous: no exact Start new chat button, multiple candidate buttons in the exhausted message, navigation did not reach a new-chat composer, the first message was not confirmed, the new `/c/<id>` URL was not observed, or the stored binding changed during the transaction.
 
 Do not infer a new repository from the model's answer. Do not delete the old conversation record until the replacement conversation is durably registered. A recoverable supervisor should persist an explicit rollover journal before clicking so a browser/service-worker restart cannot silently duplicate or lose the handoff.
+
+## Grouped-turn fallback observed on 2026-09-28
+
+A later live renderer variant exposed five `[data-turn-key]` exchange containers and five `[data-user-message-bubble]` nodes while both explicit assistant-role families matched zero nodes. In this variant the turn container is the stable logical exchange boundary. Bridge 0.5.14 therefore uses grouped turns only when explicit assistant-role discovery is empty, and removes recognized user bubbles from a cloned turn before parsing assistant LAB controls. User-only turns cannot enter the assistant namespace.

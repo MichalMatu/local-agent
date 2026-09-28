@@ -220,6 +220,46 @@ assert.equal(found.assistantIdentity, "turn-current-timeout");
 assert.equal(dom.messageRole(currentUser), "user");
 assert.equal(dom.messageRole(currentTimeoutMessage), "assistant");
 
+const groupedUserSelector = '[data-message-author-role="user"], [data-user-message-bubble]';
+const groupedUser = element({ attrs: { "data-user-message-bubble": "" }, text: "[LAB:PAUSE]" });
+const groupedTimeoutTurn = element({
+  attrs: { "data-turn-key": "turn-grouped-timeout" },
+  query: {
+    [groupedUserSelector]: groupedUser,
+    ".text-token-text-error": timeoutError
+  }
+});
+const groupedTimeoutRoot = {
+  querySelectorAll(selector) {
+    if (selector === '[data-message-author-role="assistant"], [data-conversation-role="assistant"]') return [];
+    if (selector === '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]') return [groupedUser];
+    if (selector === '[data-turn-key]') return [groupedTimeoutTurn];
+    return [];
+  }
+};
+found = dom.findRecoverableAssistantError(groupedTimeoutRoot);
+assert.ok(found, "grouped turn without assistant-role marker must still expose structured timeout recovery");
+assert.equal(found.assistantIdentity, "turn-grouped-timeout");
+assert.deepEqual(dom.messageElements(groupedTimeoutRoot, "assistant"), [groupedTimeoutTurn]);
+
+const groupedExhaustionTurn = element({
+  attrs: { "data-turn-key": "turn-grouped-exhaustion" },
+  query: {
+    [groupedUserSelector]: groupedUser,
+    ".text-token-text-error": error
+  }
+});
+const groupedExhaustionRoot = {
+  querySelectorAll(selector) {
+    if (selector === '[data-message-author-role="assistant"], [data-conversation-role="assistant"]') return [];
+    if (selector === '[data-turn-key]') return [groupedExhaustionTurn];
+    return [];
+  }
+};
+found = dom.findConversationExhaustion(groupedExhaustionRoot);
+assert.ok(found, "grouped turn without assistant-role marker must still expose structured exhaustion");
+assert.equal(found.assistantIdentity, "turn-grouped-exhaustion");
+
 
 const mixedLegacyAssistantTurn = element({ attrs: { "data-turn-key": "turn-mixed-legacy" } });
 const mixedLegacyAssistant = element({
