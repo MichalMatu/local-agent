@@ -41,6 +41,12 @@ class BridgeHostOpsRecoveryTests(unittest.TestCase):
                 with self.assertRaises(bridge_recovery.BridgeHostOpsRecoveryError):
                     bridge_recovery.normalize_conversation_url(value)
 
+    def test_composer_selector_covers_legacy_and_current_chatgpt_dom(self) -> None:
+        selector = bridge_recovery._COMPOSER_SELECTOR
+        self.assertIn("#prompt-textarea", selector)
+        self.assertIn('[data-testid="prompt-textarea"]', selector)
+        self.assertIn('div.ProseMirror[contenteditable="true"]', selector)
+
     def test_fingerprints_follow_manifest_content_script_order(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -186,6 +192,10 @@ class BridgeHostOpsRecoveryTests(unittest.TestCase):
             self.assertIn("readiness", calls[1])
             self.assertNotIn("recover-content-script", calls[1])
             self.assertNotIn("--expect-url", calls[1])
+            self.assertEqual(
+                calls[1][calls[1].index("--selector") + 1],
+                bridge_recovery._COMPOSER_SELECTOR,
+            )
 
     def test_external_recovery_uses_exact_url_guard_and_all_fingerprints(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -229,7 +239,10 @@ class BridgeHostOpsRecoveryTests(unittest.TestCase):
             self.assertEqual(command[command.index("--expect-url") + 1], "https://chatgpt.com/c/a")
             self.assertEqual(command.count("--script-fingerprint"), 2)
             self.assertIn("--selector", command)
-            self.assertEqual(command[command.index("--selector") + 1], "#prompt-textarea")
+            self.assertEqual(
+                command[command.index("--selector") + 1],
+                bridge_recovery._COMPOSER_SELECTOR,
+            )
 
     def test_hostops_failure_is_not_retried_or_masked(self) -> None:
         calls = 0
