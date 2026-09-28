@@ -63,6 +63,14 @@ For `planner_scope=multirepo`, the wake additionally includes the validated runt
 
 `LAB:REBIND` remains the explicit mechanism for changing the conversation's own binding. It is not part of normal cross-repository work inside a multirepo operator conversation.
 
+## External Bridge recovery
+
+Bridge-native diagnostics and maintenance remain the primary recovery path while the extension can answer its own protocol. If the Bridge/content path itself is unavailable, the `host-ops` multirepo workspace may use the explicit external fallback documented in [External Chat Bridge recovery through Host Ops](BRIDGE_HOSTOPS_RECOVERY.md).
+
+That fallback keeps the repository boundary intact: `local-agent` remains execution-disabled, while a machine action is queued only against the execution-enabled `host-ops` repository using the exact `host-ops` binding. The helper requires an explicit loopback CDP endpoint and exact conversation URL, defaults to read-only readiness, and allows at most one Host Ops guarded page reload when `--recover` is explicitly requested and readiness classifies the content script as missing or stale.
+
+It is not a worker restart mechanism and must not become an automatic daemon watchdog or reload loop.
+
 ## Security properties
 
 Multirepo scope deliberately changes planner authorization, not executor trust boundaries:
@@ -81,4 +89,4 @@ This separation allows a `host-ops` chat to behave as one practical operator wor
 
 The registered project repositories keep `planner_scope=repository`, so their existing project-chat contract remains unchanged: a directly project-bound conversation is still single-repository and every Local Agent task still carries that project's exact binding.
 
-The release audit therefore does not require project-document rewrites merely to introduce the `host-ops` operator scope. The reviewed downstream instructions continue to describe target-repository task binding and repository-scoped execution correctly. If a downstream repository later gains its own `multirepo` scope or begins documenting the `host-ops` operator workspace, that repository's planner documentation must be updated explicitly.
+The release audit therefore does not require project-document rewrites merely to introduce the `host-ops` operator scope or its external Bridge recovery fallback. The reviewed downstream instructions continue to describe target-repository task binding and repository-scoped execution correctly. If a downstream repository later gains its own `multirepo` scope or begins documenting the `host-ops` operator workspace, that repository's planner documentation must be updated explicitly.
