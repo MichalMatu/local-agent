@@ -24,7 +24,10 @@ ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_DIR = ROOT / "chat_bridge"
 _ALLOWED_CHAT_HOSTS = frozenset({"chatgpt.com", "chat.openai.com"})
 _CHAT_MATCH_PATTERNS = frozenset({"https://chatgpt.com/*", "https://chat.openai.com/*"})
-_DEFAULT_SELECTOR = "#prompt-textarea"
+_COMPOSER_SELECTOR = (
+    '#prompt-textarea, [data-testid="prompt-textarea"], '
+    'div.ProseMirror[contenteditable="true"]'
+)
 _MAX_CAPTURE_CHARS = 1_048_576
 
 
@@ -260,7 +263,7 @@ def external_bridge_check(
     ]
     if recover:
         command.extend(["--expect-url", normalized_url])
-    command.extend(["--selector", _DEFAULT_SELECTOR])
+    command.extend(["--selector", _COMPOSER_SELECTOR])
     for name, digest in fingerprints:
         command.extend(["--script-fingerprint", f"{name}={digest}"])
     command.extend(["--timeout", f"{timeout_seconds:g}", "--json"])
