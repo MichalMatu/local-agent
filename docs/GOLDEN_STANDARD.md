@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.2` and the current production release is `v4.19.1`. The 4.19.2 candidate adds an escape-safe external text-payload representation for source-like task content while preserving the existing logical task identity, bounds and executor admission. The deployed production release remains `v4.19.1` until the explicit release decision advances `main`; `v4.19.1` is therefore the immediate rollback point for this candidate.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.3` and the current production release is `v4.19.2`. The 4.19.3 candidate repairs Chat Bridge compatibility with the current ChatGPT rendered turn contract while preserving repository identity, planner scope, scheduler/resource policy and executor admission. The deployed production release remains `v4.19.2` until the explicit release decision advances `main`; `v4.19.2` is therefore the immediate rollback point for this candidate.
 
 ## Release/runtime invariants
 

@@ -28,6 +28,7 @@ const fixture = `<!doctype html><html><body>
 window.submits = 0;
 window.dropDelivery = false;
 window.replaceComposerOnSubmit = false;
+window.currentUserDom = false;
 document.querySelector('form').onsubmit = (event) => {
   event.preventDefault();
   window.submits++;
@@ -35,7 +36,8 @@ document.querySelector('form').onsubmit = (event) => {
   const form = document.querySelector('#composer-form');
   const input = form.querySelector('#prompt-textarea');
   const message = document.createElement('div');
-  message.dataset.messageAuthorRole = 'user';
+  if (window.currentUserDom) message.dataset.userMessageBubble = '';
+  else message.dataset.messageAuthorRole = 'user';
   message.textContent = input.innerText || input.textContent || '';
   document.body.append(message);
   if (window.replaceComposerOnSubmit) {
@@ -147,6 +149,14 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal((await readChat(id)).bootstrapPending, false);
     console.log("PASS: confirmed contenteditable form delivery, capability preflight and exact repository binding");
 
+    id = await add("current-user-dom");
+    await page.evaluate(() => { window.currentUserDom = true; });
+    assert.equal((await run(id)).reason, "sent");
+    assert.equal(await page.evaluate(() => window.submits), 1);
+    assert.match(await page.locator('[data-user-message-bubble]').innerText(), /LA_REPO=tracker/);
+    assert.equal((await readChat(id)).bootstrapPending, false);
+    console.log("PASS: current ChatGPT data-user-message-bubble confirms exact user delivery");
+
     id = await add("replacement");
     await page.evaluate(() => { window.replaceComposerOnSubmit = true; });
     assert.equal((await run(id)).reason, "sent");
@@ -216,7 +226,7 @@ document.querySelector('form').onsubmit = (event) => {
     await page.evaluate(() => { window.dropDelivery = true; });
     assert.equal((await run(removeUnconfirmedId)).reason, "delivery_unconfirmed");
     await popup.reload();
-    await popup.waitForFunction(() => document.querySelectorAll(".conversation-card").length === 8);
+    await popup.waitForFunction(() => document.querySelectorAll(".conversation-card").length === 9);
     await popup.waitForFunction(
       (height) => document.body.getBoundingClientRect().height > height,
       compactPopup.height
@@ -230,10 +240,10 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await popup.locator(".brand-orb").count(), 0);
     assert.equal((await popup.locator(".brand-title").innerText()).replace(/\s+/g, " "), "Local Agent · Chat Bridge");
     assert.equal(await popup.locator(".card-editor").count(), 0);
-    assert.equal(await popup.getByRole("button", { name: "Run now", exact: true }).count(), 8);
-    assert.equal(await popup.locator(".wake-input-wrap input").count(), 8);
-    assert.equal(await popup.locator(".enable-switch input").count(), 8);
-    assert.equal(await popup.locator(".switch-control .switch-track").count(), 9);
+    assert.equal(await popup.getByRole("button", { name: "Run now", exact: true }).count(), 9);
+    assert.equal(await popup.locator(".wake-input-wrap input").count(), 9);
+    assert.equal(await popup.locator(".enable-switch input").count(), 9);
+    assert.equal(await popup.locator(".switch-control .switch-track").count(), 10);
     assert.equal(await popup.locator(".delivery-resolution").count(), 0);
     assert.equal(
       await popup.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()),

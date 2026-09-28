@@ -140,12 +140,33 @@
     return null;
   }
 
+  const MESSAGE_SELECTORS = Object.freeze({
+    assistant: Object.freeze([
+      '[data-message-author-role="assistant"]',
+      '[data-conversation-role="assistant"]'
+    ]),
+    user: Object.freeze([
+      '[data-message-author-role="user"]',
+      '[data-user-message-bubble]'
+    ])
+  });
+
+  function messageElements(role) {
+    for (const selector of MESSAGE_SELECTORS[role] || []) {
+      const messages = document.querySelectorAll(selector);
+      if (messages.length) return messages;
+    }
+    return [];
+  }
+
   function latestMessage(role) {
-    const messages = document.querySelectorAll(`[data-message-author-role="${role}"]`);
+    const messages = messageElements(role);
     if (!messages.length) return null;
     const latest = messages[messages.length - 1];
     const text = latest.innerText || latest.textContent || "";
-    const stableId = latest.getAttribute("data-message-id") || latest.getAttribute("data-testid") || latest.id || "";
+    const turnKey = latest.closest?.('[data-turn-key]')?.getAttribute('data-turn-key') || "";
+    const stableId = latest.getAttribute("data-message-id") || turnKey ||
+      latest.getAttribute("data-testid") || latest.id || "";
     return { text, identity: stableId || `${role}:${messages.length}:${fnv1a32(text)}` };
   }
 
@@ -260,7 +281,7 @@
       return { ok: false, reason: "send_button_not_ready" };
     }
 
-    const previousUserMessages = document.querySelectorAll('[data-message-author-role="user"]').length;
+    const previousUserMessages = messageElements("user").length;
     const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
     try {
       submitComposer(composer, sendButton);
@@ -270,7 +291,7 @@
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
-      const userMessages = document.querySelectorAll('[data-message-author-role="user"]');
+      const userMessages = messageElements("user");
       const lastUser = userMessages[userMessages.length - 1];
       if (
         userMessages.length > previousUserMessages &&

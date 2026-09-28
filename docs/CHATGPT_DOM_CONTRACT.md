@@ -2,6 +2,17 @@
 
 This document records observed ChatGPT DOM structures that Local Agent may use as browser-integration signals. Treat these selectors as compatibility contracts, not product guarantees: every selector must fail closed when the page shape changes.
 
+
+## Conversation turn discovery
+
+Live inspection on 2026-09-28 showed a newer ChatGPT turn shape in which the legacy `data-message-author-role` and `conversation-turn-*` markers were absent. The stable signals observed on the exact production conversation were:
+
+- assistant message content: `[data-conversation-role="assistant"]`;
+- user message content: `[data-user-message-bubble]`;
+- surrounding stable turn identity when present: `[data-turn-key]`.
+
+Bridge accepts the older `data-message-author-role="assistant|user"` family first for compatibility and falls back to the newer family only when the older role selector for that side has no matches. This avoids double-counting nested legacy/current markers during staged ChatGPT rollouts. `data-turn-key` is used only as a DOM turn identity fallback; it is never treated as Bridge or repository identity. The same user selector family is used to confirm that a just-submitted Bridge prompt actually appeared as a new user turn.
+
 ## Conversation length exhaustion
 
 Observed live ChatGPT markup on 2026-09-06 when a conversation reaches its maximum length:

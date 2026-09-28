@@ -2,6 +2,13 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.19.3
+
+- Repaired Chat Bridge control discovery and submitted-user confirmation for the current ChatGPT DOM, where live production turns expose `data-conversation-role="assistant"` and `data-user-message-bubble` instead of the legacy `data-message-author-role` family.
+- Kept legacy selectors as the first compatibility path and added `data-turn-key` only as a stable DOM identity fallback, without changing repository/binding semantics.
+- Advanced Chat Bridge to 0.5.12, content protocol to v8 and assistant timeout/exhaustion guard protocol to v4 so already-open tabs refresh onto the repaired turn contract.
+- Added DOM-contract and real-extension browser regression coverage for the current turn shape. See `RELEASE_NOTES_V4.19.3.md` and `CHATGPT_DOM_CONTRACT.md`.
+
 ## v4.19.2
 
 - Added optional escape-safe `.agent/tasks/<task-id>.payload/` UTF-8 references for source-like patch, write-content and command fields while keeping legacy inline task JSON fully compatible and preserving the same resolved task digest.
