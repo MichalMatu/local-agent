@@ -84,7 +84,7 @@ The bounded-parallel production coordinator is `local_agent/supervisor/orchestra
 - `agent_multirepo.py` remains the known-safe serial fallback and preserves the same hard binding admission contract;
 - serial and parallel supervisors share the same daemon lock and must never run simultaneously;
 - every task must declare `resources` explicitly; missing, malformed, duplicated or non-canonical declarations are terminal task-contract errors, never silent fallbacks;
-- `resources: []` means the task needs no exclusive external resource beyond its repository lease;
+- `resources: []` means the task needs no exclusive external resource beyond the repository lease;
 - the currently registered project repositories intentionally use `resources: []` for executable project work, including project-dedicated hardware operations; device/port identity is discovered and verified inside task commands rather than encoded as a scheduler resource;
 - named resources remain available for genuinely shared external resources, and serialize only tasks sharing the same concrete resource name;
 - `resources: ["machine"]` is reserved for operations that truly require the whole host and must not be used merely because a task is a build, hardware test or has a large RSS limit;
@@ -128,7 +128,7 @@ Planner-facing Local Agent behavior is a cross-repository contract. Any change t
 The currently registered downstream repositories are:
 
 - `MichalMatu/growclip` — update `LOCAL_AGENT_FLOW.md`, `LOCAL_AGENT_AUTOPILOT.md` when task construction/autonomy changes, and `AGENTS.md` when the contract is repeated there.
-- `MichalMatu/bloomml` — update root `AGENTS.md` on `main` and any active long-lived work branch that carries its own Local Agent bootstrap; currently `mvp/environment-controller` must stay synchronized.
+- `MichalMatu/bloomml` — update root `AGENTS.md` on `main` and any active long-lived work branch that carries its own Local Agent bootstrap; no additional active long-lived work branch currently requires synchronization.
 - `MichalMatu/MatrixHub` — update root `AGENTS.md` on `main` and the active long-lived development branch when it differs; currently `develop` must stay synchronized.
 - `MichalMatu/tracker` (repository id: `tracker`) — update root `AGENTS.md` on `main` when the Local Agent or planner contract changes.
 
