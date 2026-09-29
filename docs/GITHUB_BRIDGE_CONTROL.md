@@ -1,14 +1,16 @@
 # GitHub-backed Chat Bridge control plane
 
-## Goal
+## Status
 
-Conversation pacing must not depend on parsing assistant text from the ChatGPT DOM. The DOM remains a transport surface for observing generation state and submitting a wake prompt, but GitHub remote runtime state is the authoritative control plane for conversation scheduling.
+This is the canonical conversation scheduling/control contract for Chat Bridge 0.6.0 / Local Agent 4.19.9.
 
-Chat Bridge 0.6.0 keeps remote runtime `schema_version: 3` for backward compatibility and adds an optional top-level `conversation_controls` array. Older Bridge builds ignore this additional field. A 0.6.0 worker validates and reconciles it.
+Normal `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL` operations for a managed conversation are no longer transported by assistant text in the ChatGPT DOM. GitHub desired state in `chat_bridge/runtime.json` on `chat-bridge-state` is authoritative.
+
+The ChatGPT DOM remains a delivery surface only: generation-state checks, exact-conversation wake insertion/submission, submitted-user confirmation, terminal-error recovery and explicit migration/maintenance controls.
 
 ## Desired-state record
 
-One controlled conversation has one record:
+`runtime.json` keeps `schema_version: 3` for backward compatibility and adds optional `conversation_controls`:
 
 ```json
 {
@@ -17,69 +19,121 @@ One controlled conversation has one record:
   "repository": "MichalMatu/host-ops",
   "agent_binding": "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
   "binding_revision": 1,
-  "control_generation": 12,
+  "control_generation": 4,
   "enabled": false,
   "interval_minutes": 5,
   "next_wake_at": null,
-  "updated_at": "2026-09-30T00:40:00+02:00"
+  "updated_at": "2026-09-30T01:41:54+02:00"
 }
 ```
 
-`conversation_id`, repository identity, canonical `agent_binding`, and `binding_revision` must match the locally configured conversation exactly. The repository tuple must also exist in the current validated runtime agent catalog. Mismatches fail closed and do not mutate local state.
+The worker accepts a control only when conversation id, repository id/name, canonical binding and binding revision match both the validated runtime catalog and the locally configured conversation.
 
-`control_generation` is a positive monotonically increasing integer within one binding revision. A higher generation applies new desired state exactly once. Re-reading the same generation does not re-arm an already-correct one-shot wake. Applied acknowledgements are scoped by binding revision and local conversation generation, so an explicit rebind gets an independent generation space and any local pacing mutation is detectable.
+`control_generation` is a positive monotonically increasing integer within one binding revision. Every schedule mutation increments it. `STATUS` is a read and does not increment it.
 
-`enabled=false` clears the conversation alarm. `enabled=true` schedules `next_wake_at` when it is present; otherwise it uses `interval_minutes`, or the runtime default interval when that field is null. A past one-shot deadline is never replayed indefinitely: drift recovery after that deadline falls back to the normal interval.
+## Operations
 
-`updated_at` and `next_wake_at` are offset-aware ISO timestamps. `next_wake_at` may be null. `interval_minutes` may be null or use the existing Bridge interval bounds.
+For a managed chat:
+
+- `STATUS`: read the exact `conversation_controls` record from GitHub;
+- `PAUSE`: increment generation, set `enabled=false`, `next_wake_at=null`;
+- `RESUME`: increment generation, set `enabled=true`, `next_wake_at=null`;
+- `NEXT`: increment generation, set `enabled=true`, set exact future `next_wake_at`;
+- `INTERVAL`: increment generation and set `interval_minutes` or `null` for runtime default.
+
+The global Bridge Master switch is never changed by a conversation desired-state record.
+
+## Reconciliation and idempotence
+
+Applied GitHub state is tracked by `(bindingRevision, controlGeneration, localGeneration)`.
+
+- A higher GitHub generation applies new desired state.
+- Re-reading an already-correct generation does not re-arm an unchanged one-shot wake.
+- A local popup/legacy pacing mutation changes local generation and is repaired on the next reconcile.
+- A consumed/past one-shot wake falls back to normal interval scheduling instead of being replayed forever.
+- Rebind creates a new binding revision and therefore an independent generation space.
+
+Malformed controls, duplicate conversation records, stale binding revisions, invalid timestamps/ranges or identity mismatches fail closed.
 
 ## Discovery lifecycle
 
-Every Manifest V3 service-worker activation ensures a dedicated one-minute GitHub-control alarm exists; extension install/startup lifecycle performs the same idempotent initialization. This covers normal browser startup **and** a manual Reload of an unpacked extension. Chrome alarms survive subsequent service-worker suspension, so a remotely paused conversation can later discover a GitHub `RESUME` even when it has no conversation wake alarm of its own.
+Every Manifest V3 service-worker activation ensures a dedicated one-minute GitHub-control alarm exists. `onInstalled` and `onStartup` perform the same idempotent initialization. This includes manual Reload of an unpacked extension.
 
-The GitHub-control alarm only fetches the existing public remote runtime URL. The extension does not contain a GitHub token and does not write to GitHub.
+The alarm only reads the existing public remote runtime URL. No GitHub credential is stored in the extension and the extension never writes to GitHub.
 
-The worker also reconciles remote desired state before popup state reads, manual `Run now`, and ordinary scheduled wake delivery. Runtime fetch failure leaves the last local state unchanged and fails closed. If a matching GitHub control was already applied, temporary runtime/network failure does not hand schedule ownership back to DOM controls.
+The worker also reconciles GitHub desired state before popup state reads, manual `Run now` and normal scheduled wake delivery.
 
-## Control ownership
-
-For conversations present in `conversation_controls`, GitHub is authoritative for schedule state:
-
-- pause: increment `control_generation`, set `enabled=false`, `next_wake_at=null`;
-- resume: increment generation, set `enabled=true`, `next_wake_at=null`;
-- next: increment generation, set `enabled=true`, set exact future `next_wake_at`;
-- interval: increment generation and set `interval_minutes` or null;
-- status: read this desired-state record directly from GitHub; no assistant DOM marker is required.
-
-The global Master switch remains local operator state and is never changed by a conversation control record.
-
-Binding mutations (`ADD`, `REBIND`, `REMOVE`) are intentionally outside this first desired-state contract. Existing explicit binding paths remain in place until a separate GitHub binding-control design is reviewed.
+A temporary runtime/network failure leaves the last applied state unchanged. Once a conversation has GitHub ownership, network failure does not silently hand pacing authority back to DOM controls.
 
 ## Legacy LAB compatibility
 
-For a GitHub-managed conversation, assistant schedule controls (`STOP`, `PAUSE`, `RESUME`, `NEXT`, `INTERVAL`) and user `OP:ENABLE` / `OP:DISABLE` / `OP:INTERVAL` are recognized only so the scanner can terminate/dedupe them. They return `github_control_managed` and do not mutate scheduler state. Inspection, binding and Bridge-maintenance controls remain available during migration.
+The LAB parser remains for migration, diagnostics, binding and maintenance, but it is not the normal pacing transport for a GitHub-managed chat.
 
-A popup or older local build can still mutate local pacing state temporarily. The applied ACK stores `(bindingRevision, controlGeneration, localGeneration)`, so the next reconciliation detects that generation drift and restores GitHub desired state. A schedule-only legacy `NEXT` is therefore detected even when `enabled` and `interval_minutes` themselves did not change.
+Assistant schedule controls:
 
-The target architecture removes assistant-side DOM parsing from the normal pacing path entirely. ChatGPT DOM changes must not be able to change whether GitHub says a conversation is paused, resumed, or scheduled for a specific wake.
+```text
+[LAB:STOP]
+[LAB:PAUSE]
+[LAB:RESUME]
+[LAB:NEXT=...]
+[LAB:INTERVAL=...]
+```
 
-## Security and failure properties
+and user pacing controls:
 
-- no GitHub credential is shipped in the extension;
-- remote desired state is read from the already configured public runtime endpoint;
-- repository/binding identity is validated twice: against the runtime catalog and against local conversation binding state;
-- stale binding revisions fail closed;
-- stale control generations are ignored;
-- applied generations are binding-revision scoped;
-- duplicate conversation-control records are rejected;
-- malformed timestamps, ranges, identities, or booleans make remote runtime validation fail closed;
-- remote runtime unavailability does not silently substitute another control source after GitHub ownership has been established;
-- the conversation control plane cannot change global Master.
+```text
+[LAB:OP:ENABLE]
+[LAB:OP:DISABLE]
+[LAB:OP:INTERVAL=...]
+```
 
-## Rollout
+return `github_control_managed` and do not mutate scheduler state when an exact GitHub control record owns the conversation.
 
-1. Ship/test the 0.6.0 worker while `conversation_controls` is absent or empty.
-2. Add one exact conversation desired-state record on `chat-bridge-state` with an incrementing generation.
-3. Verify PAUSE, RESUME, one-shot NEXT and interval changes from GitHub without assistant LAB markers.
-4. End the live validation with the conversation paused.
-5. After stable field evidence, deprecate assistant DOM schedule controls for GitHub-managed conversations.
+The following remain explicit migration/maintenance surfaces until separately moved to GitHub state:
+
+- binding: `ADD`, `REBIND`, `REMOVE`;
+- inspection/diagnostics not replaced by the desired-state read;
+- `RELOAD=CONTENT`, `RELOAD=BRIDGE`, `RESTART=WORKER`.
+
+They must not be used for ordinary schedule/status operations.
+
+## Wake delivery boundary
+
+GitHub decides **when** the conversation is armed. Chrome still owns the browser action:
+
+```text
+GitHub desired state
+  -> one-minute remote reconcile
+  -> chrome.alarms conversation wake
+  -> exact preferred ChatGPT tab/conversation
+  -> write Bridge wake prompt
+  -> re-resolve enabled Send button
+  -> live DOM click (requestSubmit only fallback)
+  -> confirm exact user turn
+```
+
+A visible ChatGPT Stop control blocks overlapping submission. Operator edits in the composer are never overwritten. Retained Bridge text may be reused only if it still exactly matches the Bridge-owned prompt.
+
+## Live proof
+
+On 2026-09-30 the daily-Chrome conversation `chat-e8ad8275` completed the full managed flow:
+
+1. generation 1 `PAUSE`;
+2. generation 2 `RESUME`;
+3. generation 3 `NEXT` at an exact two-minute deadline;
+4. Bridge 0.6.0 discovered the new state and submitted the wake to the correct chat;
+5. the wake returned with the immutable `host-ops` binding envelope;
+6. generation 4 returned the chat to `PAUSED`.
+
+The final desired state is intentionally `enabled=false`, `next_wake_at=null`.
+
+## Source of truth
+
+- control schema/model: `chat_bridge/github_control_model.js`;
+- reconciliation: `chat_bridge/worker_github_control.js`;
+- legacy authority gate: `chat_bridge/worker_github_legacy_gate.js`;
+- runtime parser: `chat_bridge/worker_runtime.js`;
+- scheduler: `chat_bridge/worker_schedule.js`;
+- delivery: `chat_bridge/content.js` + worker delivery modules;
+- planner flow: `docs/AUTONOMOUS_CHAT_LOOP.md`;
+- release invariants: `docs/GOLDEN_STANDARD.md`.
