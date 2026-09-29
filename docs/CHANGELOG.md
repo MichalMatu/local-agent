@@ -2,6 +2,14 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.19.7
+
+- Fixed assistant LAB controls being silently shadowed when a newer user-only `data-turn-key` was appended before the bounded assistant scanner observed the preceding response.
+- Grouped turns now qualify as assistant candidates only when removing recognized user bubbles leaves non-empty assistant content; user-only turns remain outside the assistant namespace and outside latest-assistant ordering.
+- Added a real-extension race regression that appends an assistant `[LAB:PAUSE]` turn and a newer user-only turn synchronously, requiring the preceding assistant control to reach the worker.
+- Advance Chat Bridge to 0.5.16 and content protocol to v12 so already-open tabs replace `content.js`; assistant guard protocol remains v7 because the guard-captured DOM contract is unchanged.
+- Synced README/test-harness Bridge version metadata that had remained stale after 4.19.6. See `RELEASE_NOTES_V4.19.7.md` and `CHATGPT_DOM_CONTRACT.md`.
+
 ## v4.19.6
 
 - Merge explicit assistant-role nodes with grouped `data-turn-key` assistant fallbacks by logical turn and document order, instead of globally suppressing grouped turns whenever any older explicit assistant remains mounted.

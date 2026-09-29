@@ -178,10 +178,17 @@
     );
   }
 
+  function groupedAssistantText(turn) {
+    const clone = turn?.cloneNode?.(true);
+    if (!clone || typeof clone.querySelectorAll !== "function") return "";
+    for (const user of clone.querySelectorAll(USER_SELECTOR)) user.remove?.();
+    return clone.textContent || "";
+  }
+
   function groupedAssistantTurns(root = document) {
     if (!root || typeof root.querySelectorAll !== "function") return [];
     return Array.from(root.querySelectorAll(TURN_SELECTOR)).filter(
-      (turn) => Boolean(turn?.querySelector?.(USER_SELECTOR))
+      (turn) => Boolean(turn?.querySelector?.(USER_SELECTOR)) && Boolean(groupedAssistantText(turn).trim())
     );
   }
 
@@ -215,10 +222,7 @@
     );
     const isGroupedTurn = message?.getAttribute?.("data-turn-key") !== null;
     if (explicitAssistant || !isGroupedTurn) return text;
-    const clone = message?.cloneNode?.(true);
-    if (!clone || typeof clone.querySelectorAll !== "function") return "";
-    for (const user of clone.querySelectorAll(USER_SELECTOR)) user.remove?.();
-    return clone.textContent || "";
+    return groupedAssistantText(message);
   }
 
   function latestMessage(role) {
