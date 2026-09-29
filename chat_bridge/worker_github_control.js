@@ -36,6 +36,34 @@ async function ensureGithubControlPollAlarm() {
   await chrome.alarms.create(GITHUB_CONTROL_ALARM_NAME, { periodInMinutes: GITHUB_CONTROL_POLL_MINUTES });
 }
 
+async function githubScheduleAuthority(conversation, state = null) {
+  if (!conversation || !stateModel.isBoundConversation(conversation)) return null;
+  const basis = state || await getBridgeState();
+  const runtime = await fetchRuntime(basis.settings);
+  if (runtime.source === "remote") {
+    const control = githubControlModel.findConversationControl(runtime, conversation.id);
+    if (!control || !githubControlModel.controlMatchesConversation(control, conversation)) return null;
+    return {
+      managed: true,
+      source: "remote",
+      controlGeneration: control.controlGeneration,
+      bindingRevision: control.bindingRevision
+    };
+  }
+
+  // Once a matching GitHub desired state has been applied, temporary runtime/network
+  // failure must not silently hand schedule ownership back to DOM controls.
+  const applied = await readAppliedGithubControls();
+  const cached = applied[conversation.id];
+  if (!cached || cached.bindingRevision !== conversation.bindingRevision) return null;
+  return {
+    managed: true,
+    source: "cached",
+    controlGeneration: cached.generation,
+    bindingRevision: cached.bindingRevision
+  };
+}
+
 function repairedScheduleDeadline(control, runtime, nowMs = Date.now()) {
   if (!control.enabled) return null;
   const explicit = Date.parse(control.nextWakeAt || "");
