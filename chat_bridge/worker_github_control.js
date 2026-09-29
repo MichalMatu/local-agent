@@ -38,6 +38,7 @@ function repairedScheduleDeadline(control, runtime, nowMs = Date.now()) {
 }
 
 async function reconcileGithubConversationControls() {
+  await ensureGithubControlPollAlarm();
   const state = await getBridgeState();
   const runtime = await fetchRuntime(state.settings);
   if (runtime.source !== "remote") {
@@ -45,8 +46,6 @@ async function reconcileGithubConversationControls() {
   }
 
   const configured = runtime.conversationControls.length;
-  if (configured > 0) await ensureGithubControlPollAlarm();
-
   const applied = await readAppliedGithubControls();
   const appliedNow = [];
 
