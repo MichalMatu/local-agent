@@ -4,6 +4,20 @@
   "busy_retry_minutes": 1,
   "bootstrap_prompt": "Continue only this conversation's active goal using the repository scope authorized by the Bridge binding policy. Use direct GitHub edits when diff/CI evidence is sufficient and Local Agent only for local commands, builds, tests, or devices. Check active task evidence before writing the same branch. For healthy Local Agent work, do not poll it at 30-second cadence: recheck no sooner than at least 2 minutes and normally use 5-10 minutes for multi-minute builds/tests. If exact evidence proves the active task cannot succeed, cancel that exact task. Read repository Local Agent instructions when the contract is uncertain. Never launch local Codex from a Local Agent task. Never infer repository identity outside the scope explicitly authorized by the Bridge binding policy. Do not recap unchanged state.",
   "wake_prompt": "[LA_WAKE] Continue the active goal using current evidence and the repository scope authorized by the Bridge binding policy. Inspect only the state and exact run/result needed for the next decision; do not queue duplicates or recap unchanged state. For healthy Local Agent work, do not poll it at 30-second cadence: recheck no sooner than at least 2 minutes and normally use 5-10 minutes for multi-minute builds/tests. If exact evidence proves the active task cannot succeed, cancel that exact task. Use an evidence-based NEXT only while work is unfinished.",
+  "conversation_controls": [
+    {
+      "conversation_id": "chat-e8ad8275",
+      "repository_id": "host-ops",
+      "repository": "MichalMatu/host-ops",
+      "agent_binding": "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
+      "binding_revision": 1,
+      "control_generation": 1,
+      "enabled": false,
+      "interval_minutes": 5,
+      "next_wake_at": null,
+      "updated_at": "2026-09-30T01:17:28+02:00"
+    }
+  ],
   "agents": [
     {
       "repository_id": "local-agent",
