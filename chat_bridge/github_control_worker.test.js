@@ -51,11 +51,13 @@ const { createHarness } = require("./worker_test_harness.js");
   });
   assert.equal(response.ok, true);
   assert.equal(response.conversation.id, chatId);
-  assert.equal(h.alarms.has("local-agent-chat-github-control"), false);
+  assert.equal(h.systemAlarms.has("local-agent-chat-github-control"), true,
+    "worker activation must create the durable GitHub-control discovery poll");
 
-  // Chrome install/startup lifecycle creates the durable remote-control discovery poll.
+  // Chrome install/startup lifecycle is idempotent and preserves the existing poll.
   await h.installed();
-  assert.equal(h.alarms.has("local-agent-chat-github-control"), true);
+  assert.equal(h.systemAlarms.has("local-agent-chat-github-control"), true);
+  assert.equal(h.systemAlarms.size, 1);
   let conversation = h.storage.bridgeState.conversations[chatId];
   assert.equal(conversation.enabled, false);
   assert.equal(conversation.intervalOverrideMinutes, 5);
