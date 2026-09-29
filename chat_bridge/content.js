@@ -169,6 +169,7 @@
 
   const TURN_SELECTOR = '[data-turn-key]';
   const USER_SELECTOR = MESSAGE_SELECTORS.user.join(", ");
+  const GROUPED_UI_SELECTOR = 'button, [role="button"]';
 
   function explicitMessageElements(role, root = document) {
     const selectors = MESSAGE_SELECTORS[role] || [];
@@ -182,13 +183,14 @@
     const clone = turn?.cloneNode?.(true);
     if (!clone || typeof clone.querySelectorAll !== "function") return "";
     for (const user of clone.querySelectorAll(USER_SELECTOR)) user.remove?.();
+    for (const control of clone.querySelectorAll(GROUPED_UI_SELECTOR)) control.remove?.();
     return clone.textContent || "";
   }
 
   function groupedAssistantTurns(root = document) {
     if (!root || typeof root.querySelectorAll !== "function") return [];
     return Array.from(root.querySelectorAll(TURN_SELECTOR)).filter(
-      (turn) => Boolean(turn?.querySelector?.(USER_SELECTOR)) && Boolean(groupedAssistantText(turn).trim())
+      (turn) => Boolean(groupedAssistantText(turn).trim())
     );
   }
 
