@@ -94,7 +94,32 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(h.storage.bridgeState.conversations[chatId].generation, stableGeneration);
   assert.equal(h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime, stableScheduled);
 
-  // GitHub remains authoritative even if popup/legacy controls mutate pacing state.
+  // Once GitHub manages this binding, legacy assistant/operator schedule controls are no-ops.
+  response = await h.sendRuntimeMessage({
+    type: "bridge:assistant-control",
+    conversationUrl: url,
+    fingerprint: "abc00001",
+    control: { marker: "[LAB:PAUSE]" }
+  }, { tab: { id: 11, url } });
+  assert.equal(response.ok, true);
+  assert.equal(response.reason, "github_control_managed");
+  assert.equal(response.controlGeneration, 2);
+  assert.equal(h.storage.bridgeState.conversations[chatId].enabled, true);
+  assert.equal(h.storage.bridgeState.conversations[chatId].generation, stableGeneration);
+
+  response = await h.sendRuntimeMessage({
+    type: "bridge:operator-control",
+    conversationUrl: url,
+    fingerprint: "abc00002",
+    userIdentity: "legacy-user-control",
+    control: { marker: "[LAB:OP:DISABLE]" }
+  }, { tab: { id: 11, url } });
+  assert.equal(response.ok, true);
+  assert.equal(response.reason, "github_control_managed");
+  assert.equal(h.storage.bridgeState.conversations[chatId].enabled, true);
+  assert.equal(h.storage.bridgeState.conversations[chatId].generation, stableGeneration);
+
+  // GitHub remains authoritative even if popup/older code mutates pacing state directly.
   h.storage.bridgeState.conversations[chatId].enabled = false;
   h.storage.bridgeState.conversations[chatId].intervalOverrideMinutes = 3;
   h.storage.bridgeState.conversations[chatId].generation += 1;
