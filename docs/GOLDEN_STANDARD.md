@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.8` and the current production release is `v4.19.7`. The 4.19.8 candidate recognizes assistant-only grouped ChatGPT turns that expose neither a user bubble nor an explicit assistant-role marker, while stripping grouped action controls before LAB parsing and preserving fail-closed user-only handling. The deployed production release remains `v4.19.7` until the explicit release decision advances `main`. `v4.19.7` is the immediate rollback point for this candidate.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.8` and the current production release is `v4.19.7`. The 4.19.8 candidate recognizes assistant-only grouped ChatGPT turns, recovers the captured `Resume stream unavailable` Retry card through the existing Bridge-owned bounded retry policy, advances the assistant guard contract to v8 / Chat Bridge 0.5.18, and makes external recovery plus managed diagnostic-browser stop fail closed while ChatGPT generation is active. The deployed production release remains `v4.19.7` until the explicit release decision advances `main`. `v4.19.7` is the immediate rollback point for this candidate.
 
 ## Release/runtime invariants
 

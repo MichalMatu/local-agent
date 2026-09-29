@@ -49,9 +49,9 @@ The useful signals are deliberately structural and textual rather than generated
 
 Do not depend on Tailwind utility classes, SVG sprite ids, generated CSS hashes, element depth, or the complete sentence remaining byte-for-byte identical.
 
-## Assistant message-delivery timeout
+## Recoverable assistant terminal errors
 
-Observed live ChatGPT markup captured on 2026-09-22 after ChatGPT had already accepted the user message but failed to produce/deliver the assistant answer:
+Observed ChatGPT markup after the user message has already been accepted can expose a terminal assistant-side Retry card. The first captured shape on 2026-09-22 was:
 
 ```html
 <div data-message-author-role="assistant" data-message-id="<assistant-message-id>">
@@ -62,29 +62,31 @@ Observed live ChatGPT markup captured on 2026-09-22 after ChatGPT had already ac
 </div>
 ```
 
-The recoverable-timeout detector deliberately requires all of these conditions:
+A later live failure captured on 2026-09-29 used the same structured Retry interaction but the terminal text `Resume stream unavailable`. It may also appear inside an assistant-only `data-turn-key` renderer without an explicit assistant-role marker.
 
-- the **latest rendered conversation turn across both supported role families** is an assistant turn;
+The recoverable-error detector deliberately requires all of these conditions:
+
+- the **latest rendered conversation turn across both supported role families and the bounded grouped-turn fallback** is an assistant/error turn;
 - that latest turn contains `.text-token-text-error`;
-- normalized error text contains `Message delivery timed out. Please try again.`;
+- normalized error text contains one of the explicitly recognized strings: `Message delivery timed out. Please try again.` or `Resume stream unavailable`;
 - the error contains `button[data-testid="regenerate-thread-error-button"]`, or as a compatibility fallback a descendant button whose normalized visible text is exactly `Retry`;
 - the triggering user turn still exists and is the latest user turn.
 
-A matching timeout card that is followed by any newer rendered conversation turn is stale evidence and must not be retried. This prevents an old retained error node from being attached to a later user/assistant exchange.
+A matching error card that is followed by any newer rendered conversation turn is stale evidence and must not be retried. This prevents an old retained error node from being attached to a later user/assistant exchange. Unknown error text fails closed even when a Retry-looking button is present.
 
 The content guard may use the assistant DOM identity to distinguish the currently rendered error card, but the durable retry budget is keyed to the conversation, binding revision, recoverable error kind and a deterministic triggering-user identity derived from transcript position plus user text. It must not depend on a ChatGPT DOM message id remaining stable across page rehydration.
 
-Automatic Retry is narrower than detection. The worker authorizes a click only when the triggering user text begins with the exact hard-binding Bridge envelope/policy for that configured conversation. A timeout after a normal operator-authored user message is reported diagnostically but never clicked automatically.
+Automatic Retry is narrower than detection. The worker authorizes a click only when the triggering user text begins with the exact hard-binding Bridge envelope/policy for that configured conversation. An error after a normal operator-authored user message is reported diagnostically but never clicked automatically.
 
-Immediately before every click the content guard rechecks the exact conversation URL, triggering-user identity, timeout snapshot, assistant generation state and Retry-button usability. The action is ChatGPT's own Retry button; Bridge never creates a replacement user message for this failure mode.
+Immediately before every click the content guard rechecks the exact conversation URL, triggering-user identity, error snapshot, assistant generation state and Retry-button usability. The action is ChatGPT's own Retry button; Bridge never creates a replacement user message for this failure mode.
 
-Retry accounting is durable and bounded to three authorized clicks with 1.5 s, 5 s and 15 s delays. If ChatGPT reuses the same timeout DOM node while Retry is generating, the guard waits through generation and only re-evaluates the unchanged error after generation has stopped. After the third unsuccessful Retry the worker records `assistant_retry_exhausted`, disables that conversation and clears its alarm instead of layering a new wake over the failed turn.
+Retry accounting is durable and bounded to three authorized clicks with 1.5 s, 5 s and 15 s delays. If ChatGPT reuses the same error DOM node while Retry is generating, the guard waits through generation and only re-evaluates the unchanged error after generation has stopped. After the third unsuccessful Retry the worker records `assistant_retry_exhausted`, disables that conversation and clears its alarm instead of layering a new wake over the failed turn.
 
 ## Current bridge behavior
 
 Chat Bridge detects conversation-length exhaustion before attempting another wake delivery. A detected exhausted conversation is terminal for the current conversation URL: the bridge records `conversation_exhausted`, disables that conversation, and clears its scheduled alarm. It does not repeatedly type into a dead composer and does not automatically change repository binding.
 
-Assistant message-delivery timeout is a separate post-submission recovery path. It does not reuse `delivery_unconfirmed`: normal delivery is already considered transport-confirmed once the exact submitted user message appears in the DOM. A later assistant-side timeout is therefore detected and recovered independently.
+Recognized assistant terminal errors are a separate post-submission recovery path. They do not reuse `delivery_unconfirmed`: normal delivery is already considered transport-confirmed once the exact submitted user message appears in the DOM. A later assistant-side `Message delivery timed out. Please try again.` or `Resume stream unavailable` card is therefore detected and recovered independently.
 
 The existing hard-binding rule still applies:
 

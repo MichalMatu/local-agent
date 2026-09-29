@@ -4,9 +4,11 @@ This changelog records operationally relevant Local Agent releases. The release 
 
 ## v4.19.8
 
-- Fix assistant LAB control discovery for the live ChatGPT assistant-only grouped-turn renderer where `data-turn-key` carries assistant content but neither a user bubble nor an explicit assistant-role marker.
-- Strip grouped action buttons before assistant control parsing while preserving fail-closed user-only grouped-turn rejection.
-- Add real-extension regression coverage for an assistant-only grouped turn with action buttons, and advance Chat Bridge to 0.5.17 / content protocol v13 so open tabs can replace v12 content logic. Assistant guard protocol remains v7 because timeout/exhaustion guard behavior is unchanged.
+- Fix assistant LAB control discovery for assistant-only grouped `data-turn-key` turns that expose neither a user bubble nor an explicit assistant-role marker, while stripping grouped action controls and preserving fail-closed user-only handling.
+- Recover the captured ChatGPT `Resume stream unavailable` assistant Retry card through the same exact-tab, Bridge-owned, bounded native-Retry path as message-delivery timeout; unknown error kinds remain rejected.
+- Advance Chat Bridge to 0.5.18 and assistant guard protocol to v8 so reachable open tabs replace the expanded structured-error DOM contract; content protocol remains v13.
+- Make Host Ops Bridge recovery and managed diagnostic-browser stop fail closed while a ChatGPT generation Stop control is present, with explicit `--force` reserved for deliberate emergency interruption.
+- Add DOM/worker/browser regressions plus 11 recovery-helper and 13 session-helper tests for the new behavior.
 
 ## v4.19.7
 
