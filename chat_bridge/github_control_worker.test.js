@@ -53,7 +53,7 @@ const { createHarness } = require("./worker_test_harness.js");
   let reconcile = await h.evaluate("reconcileGithubConversationControls()");
   assert.equal(reconcile.ok, true);
   assert.deepEqual(JSON.parse(JSON.stringify(reconcile.applied)), [
-    { chatId, controlGeneration: 1, enabled: false }
+    { chatId, controlGeneration: 1, enabled: false, repaired: false }
   ]);
   let conversation = h.storage.bridgeState.conversations[chatId];
   assert.equal(conversation.enabled, false);
@@ -76,6 +76,7 @@ const { createHarness } = require("./worker_test_harness.js");
   h.evaluate("runtimeCache = null");
   reconcile = await h.evaluate("reconcileGithubConversationControls()");
   assert.equal(reconcile.applied.length, 1);
+  assert.equal(reconcile.applied[0].repaired, false);
   conversation = h.storage.bridgeState.conversations[chatId];
   assert.equal(conversation.enabled, true);
   assert.equal(conversation.intervalOverrideMinutes, 7);
@@ -90,6 +91,23 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(reconcile.applied.length, 0);
   assert.equal(h.storage.bridgeState.conversations[chatId].generation, stableGeneration);
   assert.equal(h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime, stableScheduled);
+
+  // GitHub remains authoritative even if a legacy DOM command or popup mutates local state.
+  h.storage.bridgeState.conversations[chatId].enabled = false;
+  h.storage.bridgeState.conversations[chatId].intervalOverrideMinutes = 3;
+  h.storage.bridgeState.conversations[chatId].nextRunAt = null;
+  h.alarms.delete(`local-agent-chat:${chatId}`);
+  reconcile = await h.evaluate("reconcileGithubConversationControls()");
+  assert.equal(reconcile.applied.length, 1);
+  assert.equal(reconcile.applied[0].repaired, true);
+  conversation = h.storage.bridgeState.conversations[chatId];
+  assert.equal(conversation.enabled, true);
+  assert.equal(conversation.intervalOverrideMinutes, 7);
+  assert.equal(conversation.lastStatus, "github_control_reconciled");
+  assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 2);
+  const repairedScheduled = h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime;
+  assert.ok(Number.isFinite(repairedScheduled));
+  assert.ok(repairedScheduled > Date.now());
 
   control = {
     ...control,
