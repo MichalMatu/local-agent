@@ -198,6 +198,40 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   await page.waitForTimeout(1000);
   assert.deepEqual(await readChat(id), userOnlyBefore, "user-only grouped turn must never become an assistant control");
 
+  const srOnlyShadowBefore = await readChat(id);
+  await page.evaluate(() => {
+    const controlTurn = document.createElement("div");
+    controlTurn.dataset.turnKey = "grouped-control-before-sr-only-user";
+    const answer = document.createElement("div");
+    answer.textContent = "[LAB:RESUME]";
+    const controlUser = document.createElement("div");
+    controlUser.dataset.userMessageBubble = "";
+    controlUser.textContent = "ordinary user text";
+    controlTurn.append(answer, controlUser);
+    document.body.append(controlTurn);
+
+    const userOnlyTurn = document.createElement("div");
+    userOnlyTurn.dataset.turnKey = "grouped-newer-sr-only-user-shadow";
+    const label = document.createElement("h5");
+    label.className = "sr-only";
+    label.textContent = "You said:";
+    const user = document.createElement("div");
+    user.dataset.userMessageBubble = "";
+    user.textContent = "new user prompt before the 600ms assistant scan";
+    userOnlyTurn.append(label, user);
+    document.body.append(userOnlyTurn);
+  });
+  const srOnlyShadowDeadline = Date.now() + 5000;
+  let srOnlyShadowAfter = await readChat(id);
+  while ((srOnlyShadowAfter.generation !== srOnlyShadowBefore.generation + 1 || srOnlyShadowAfter.lastControlAction !== "[LAB:RESUME]") && Date.now() < srOnlyShadowDeadline) {
+    await page.waitForTimeout(50);
+    srOnlyShadowAfter = await readChat(id);
+  }
+  assert.equal(srOnlyShadowAfter.generation, srOnlyShadowBefore.generation + 1, JSON.stringify(srOnlyShadowAfter));
+  assert.equal(srOnlyShadowAfter.lastControlAction, "[LAB:RESUME]");
+  assert.equal(srOnlyShadowAfter.enabled, true);
+  console.log("PASS: sr-only user chrome cannot shadow the preceding assistant control");
+
   const shadowBefore = await readChat(id);
   await page.evaluate(() => {
     const controlTurn = document.createElement("div");
