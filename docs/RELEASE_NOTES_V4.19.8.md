@@ -25,3 +25,4 @@ Harden Chat Bridge against the current ChatGPT renderer and assistant-stream fai
 - Focused Bridge verification passed for the new DOM/worker recovery contract.
 - Recovery-helper tests passed 11/11 and managed-session helper tests passed 13/13 with active-stream fail-closed and explicit-force cases.
 - PR #112 completed all five GitHub Actions gates successfully, including real-extension `bridge-browser` and macOS smoke.
+- Final candidate PR #113 also completed all five GitHub Actions gates successfully on exact candidate `3182f5b1820f44f1ca15d8e99a51e72c2692307a`.
