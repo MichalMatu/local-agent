@@ -77,8 +77,14 @@ assert.match(events, /initializeGithubControlPlane/, "extension lifecycle must e
 assert.match(events, /reconcileGithubConversationControls/, "worker lifecycle must reconcile GitHub desired state");
 
 const serviceWorker = read("service_worker.js");
-assert.match(serviceWorker, /"worker_github_control\.js"/, "service worker must load GitHub desired-state reconciliation");
-assert.match(serviceWorker, /"worker_lab_commands\.js"/, "legacy LAB control plane remains loaded only for migration compatibility");
+const githubWorkerIndex = serviceWorker.indexOf('"worker_github_control.js"');
+const labWorkerIndex = serviceWorker.indexOf('"worker_lab_commands.js"');
+const githubGateIndex = serviceWorker.indexOf('"worker_github_legacy_gate.js"');
+const eventsIndex = serviceWorker.indexOf('"worker_events.js"');
+assert.ok(githubWorkerIndex >= 0, "service worker must load GitHub desired-state reconciliation");
+assert.ok(labWorkerIndex >= 0, "legacy LAB control plane remains loaded for migration compatibility");
+assert.ok(githubGateIndex > labWorkerIndex, "GitHub legacy gate must wrap already-defined LAB handlers");
+assert.ok(eventsIndex > githubGateIndex, "worker events must bind the GitHub-aware wrapped handlers");
 
 const runtimeExample = JSON.parse(read("runtime.example.json"));
 assert.equal(runtimeExample.schema_version, 3, "GitHub control plane must remain backward-compatible with runtime schema 3");
@@ -86,8 +92,15 @@ assert.ok(Array.isArray(runtimeExample.conversation_controls), "runtime schema 3
 
 const githubWorker = read("worker_github_control.js");
 assert.match(githubWorker, /bridgeGithubControlApplied/, "GitHub control generations must be durably deduplicated");
+assert.match(githubWorker, /bindingRevision === control\.bindingRevision/, "applied generations must be scoped to binding revision");
+assert.match(githubWorker, /localGeneration/, "local generation must participate in GitHub drift detection");
 assert.match(githubWorker, /controlGeneration < appliedGeneration/, "stale GitHub control generations must fail closed");
 assert.match(githubWorker, /github_control_reconciled/, "GitHub desired state must repair local schedule drift");
+
+const githubGate = read("worker_github_legacy_gate.js");
+assert.match(githubGate, /github_control_managed/, "managed LAB schedule controls must terminate without mutating state");
+assert.match(githubGate, /validControlFingerprint/, "assistant legacy gate must preserve fingerprint validation");
+assert.match(githubGate, /labSenderUrl/, "legacy gate must preserve exact top-frame sender validation");
 
 const labCommands = read("worker_lab_commands.js");
 assert.match(
