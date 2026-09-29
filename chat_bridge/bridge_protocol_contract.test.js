@@ -12,7 +12,7 @@ assert.ok(
   Number.isInteger(protocol.CONTENT_PROTOCOL_VERSION) && protocol.CONTENT_PROTOCOL_VERSION > 0,
   "shared CONTENT_PROTOCOL_VERSION must be a positive integer"
 );
-assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 11, "mixed explicit/grouped assistant discovery must advance the content protocol");
+assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 12, "user-only grouped turns must not shadow assistant controls");
 for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_harness.js"]) {
   assert.doesNotMatch(
     read(name),

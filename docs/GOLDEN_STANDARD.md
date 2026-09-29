@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.6` and the current production release is `v4.19.6`. The 4.19.6 release merges explicit assistant-role nodes with grouped `data-turn-key` assistant fallbacks by logical turn and document order, so older explicit nodes cannot hide a newer grouped assistant turn during a mixed ChatGPT DOM rollout. `v4.19.5` is the immediate rollback point for this release.
+This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.7` and the current production release is `v4.19.6`. The 4.19.7 candidate prevents a newer user-only grouped turn from shadowing the immediately preceding assistant LAB control before the bounded scanner observes it. The deployed production release remains `v4.19.6` until the explicit release decision advances `main`. `v4.19.6` is the immediate rollback point if this candidate is released.
 
 ## Release/runtime invariants
 
