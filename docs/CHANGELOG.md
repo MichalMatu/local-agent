@@ -2,6 +2,12 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.19.8
+
+- Fix assistant LAB control discovery for the live ChatGPT assistant-only grouped-turn renderer where `data-turn-key` carries assistant content but neither a user bubble nor an explicit assistant-role marker.
+- Strip grouped action buttons before assistant control parsing while preserving fail-closed user-only grouped-turn rejection.
+- Add real-extension regression coverage for an assistant-only grouped turn with action buttons, and advance Chat Bridge to 0.5.17 / content protocol v13 so open tabs can replace v12 content logic. Assistant guard protocol remains v7 because timeout/exhaustion guard behavior is unchanged.
+
 ## v4.19.7
 
 - Fixed assistant LAB controls being silently shadowed when a newer user-only `data-turn-key` was appended before the bounded assistant scanner observed the preceding response.
