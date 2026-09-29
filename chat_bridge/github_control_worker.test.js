@@ -49,19 +49,17 @@ const { createHarness } = require("./worker_test_harness.js");
   });
   assert.equal(response.ok, true);
   assert.equal(response.conversation.id, chatId);
+  assert.equal(h.alarms.has("local-agent-chat-github-control"), false);
 
-  let reconcile = await h.evaluate("reconcileGithubConversationControls()");
-  assert.equal(reconcile.ok, true);
-  assert.deepEqual(JSON.parse(JSON.stringify(reconcile.applied)), [
-    { chatId, controlGeneration: 1, enabled: false, repaired: false }
-  ]);
+  // Chrome install/startup lifecycle creates the durable remote-control discovery poll.
+  await h.installed();
+  assert.equal(h.alarms.has("local-agent-chat-github-control"), true);
   let conversation = h.storage.bridgeState.conversations[chatId];
   assert.equal(conversation.enabled, false);
   assert.equal(conversation.intervalOverrideMinutes, 5);
   assert.equal(conversation.lastControlAction, "github:1");
   assert.equal(conversation.lastStatus, "github_control_paused");
   assert.equal(h.alarms.has(`local-agent-chat:${chatId}`), false);
-  assert.equal(h.alarms.has("local-agent-chat-github-control"), true);
   assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 1);
 
   const targetMs = Date.now() + 120_000;
@@ -74,7 +72,7 @@ const { createHarness } = require("./worker_test_harness.js");
     updated_at: new Date().toISOString()
   };
   h.evaluate("runtimeCache = null");
-  reconcile = await h.evaluate("reconcileGithubConversationControls()");
+  let reconcile = await h.evaluate("reconcileGithubConversationControls()");
   assert.equal(reconcile.applied.length, 1);
   assert.equal(reconcile.applied[0].repaired, false);
   conversation = h.storage.bridgeState.conversations[chatId];
