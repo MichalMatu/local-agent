@@ -1,7 +1,8 @@
-importScripts("control_protocol.js", "bridge_state.js");
+importScripts("control_protocol.js", "bridge_state.js", "github_control_model.js");
 
 const protocol = globalThis.LocalAgentBridgeProtocol;
 const stateModel = globalThis.LocalAgentBridgeState;
+const githubControlModel = globalThis.LocalAgentBridgeGithubControl;
 const {
   CONTENT_PROTOCOL_VERSION,
   MIN_INTERVAL_MINUTES,
@@ -14,6 +15,8 @@ const {
 
 const LEGACY_ALARM_NAME = "local-agent-chat-bridge";
 const ALARM_PREFIX = "local-agent-chat:";
+const GITHUB_CONTROL_ALARM_NAME = "local-agent-chat-github-control";
+const GITHUB_CONTROL_POLL_MINUTES = 1;
 const RUNTIME_CACHE_MS = 30_000;
 const EXHAUSTION_GUARD_VERSION = 8;
 const CONTENT_PREFLIGHT_TIMEOUT_MS = 1500;
