@@ -29,7 +29,7 @@ const contentGuardVersion = Number(guardSource.match(/const GUARD_VERSION = (\d+
 const harnessGuardVersion = Number(harness.match(/const EXHAUSTION_GUARD_VERSION = (\d+);/)?.[1]);
 assert.equal(workerGuardVersion, contentGuardVersion, "worker and content guard protocol versions must match");
 assert.equal(harnessGuardVersion, workerGuardVersion, "test harness guard protocol must match production worker");
-assert.equal(workerGuardVersion, 7, "mixed explicit/grouped DOM contract upgrade must force replacement of the captured v6 guard");
+assert.equal(workerGuardVersion, 8, "resume-stream recovery DOM contract upgrade must force replacement of the v7 guard");
 assert.match(
   read("content.js"),
   /const stableId = latest\.getAttribute\("data-message-id"\) \|\| turnKey \|\|/,

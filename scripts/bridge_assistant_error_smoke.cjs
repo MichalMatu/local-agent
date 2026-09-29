@@ -29,13 +29,14 @@ const fixture = `<!doctype html><html><body>
 <script>
 window.submits = 0;
 window.retries = 0;
+window.assistantErrorText = 'Message delivery timed out. Please try again.';
 function addTimeout() {
   const message = document.createElement('div');
   message.dataset.messageAuthorRole = 'assistant';
   message.dataset.messageId = 'timeout-answer-' + window.submits;
   const error = document.createElement('div');
   error.className = 'text-token-text-error';
-  error.innerHTML = '<p>Message delivery timed out. Please try again.</p>';
+  error.innerHTML = '<p>' + window.assistantErrorText + '</p>';
   const retry = document.createElement('button');
   retry.dataset.testid = 'regenerate-thread-error-button';
   retry.textContent = 'Retry';
@@ -123,11 +124,27 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await page.evaluate(() => window.retries), 1);
     await page.waitForFunction(() => document.body.textContent.includes("Recovered response"));
 
-    const state = (await request({ type: "bridge:get-state" })).state;
-    const conversation = state.conversations[added.conversation.id];
+    let state = (await request({ type: "bridge:get-state" })).state;
+    let conversation = state.conversations[added.conversation.id];
     assert.equal(conversation.enabled, true);
     assert.equal(conversation.lastStatus, "assistant_retry_1");
-    console.log("PASS: assistant delivery timeout is detected and recovered with one bounded Retry click");
+
+    await page.evaluate(() => {
+      window.assistantErrorText = "Resume stream unavailable";
+    });
+    const resumeDelivery = await request({ type: "bridge:run-now", conversationId: added.conversation.id });
+    assert.equal(resumeDelivery.ok, true);
+    assert.equal(resumeDelivery.reason, "sent");
+    await page.waitForFunction(() => window.retries === 2, null, { timeout: 7000 });
+    assert.equal(await page.evaluate(() => window.submits), 2,
+      "resume-stream Retry must not create a duplicate user message");
+    assert.equal(await page.evaluate(() => window.retries), 2);
+
+    state = (await request({ type: "bridge:get-state" })).state;
+    conversation = state.conversations[added.conversation.id];
+    assert.equal(conversation.enabled, true);
+    assert.equal(conversation.lastStatus, "assistant_retry_1");
+    console.log("PASS: timeout and resume-stream assistant errors recover through bounded native Retry");
   } finally {
     await context?.close();
     await fs.rm(profile, { recursive: true, force: true });

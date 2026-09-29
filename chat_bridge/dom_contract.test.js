@@ -100,6 +100,7 @@ const triggeringUser = element({
 });
 const timeoutRoot = {
   querySelectorAll(selector) {
+    if (selector === '[data-turn-key]') return [];
     assert.equal(selector, '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]');
     return [triggeringUser, timeoutMessage];
   }
@@ -112,6 +113,52 @@ assert.equal(found.button, retryButton);
 assert.equal(found.assistantIdentity, "51eb8ef7-78e7-4143-8971-eec2b5b593c8");
 assert.match(found.errorText, /Message delivery timed out/);
 
+const resumeError = element({
+  text: "Resume stream unavailable Retry",
+  query: {
+    'button[data-testid="regenerate-thread-error-button"]': retryButton
+  },
+  queryAll: { button: [retryButton] }
+});
+const resumeMessage = element({
+  attrs: {
+    "data-message-author-role": "assistant",
+    "data-message-id": "resume-stream-answer"
+  },
+  query: { ".text-token-text-error": resumeError }
+});
+const resumeRoot = {
+  querySelectorAll(selector) {
+    if (selector === '[data-turn-key]') return [];
+    assert.equal(selector, '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]');
+    return [triggeringUser, resumeMessage];
+  }
+};
+found = dom.findRecoverableAssistantError(resumeRoot);
+assert.ok(found);
+assert.equal(found.kind, "resume_stream_unavailable");
+assert.equal(found.button, retryButton);
+assert.equal(found.assistantIdentity, "resume-stream-answer");
+assert.match(found.errorText, /Resume stream unavailable/);
+
+const groupedResumeTurn = element({
+  text: "Resume stream unavailable Retry",
+  attrs: { "data-turn-key": "turn-grouped-resume" },
+  query: { ".text-token-text-error": resumeError }
+});
+const groupedResumeRoot = {
+  querySelectorAll(selector) {
+    if (selector === '[data-message-author-role="assistant"], [data-conversation-role="assistant"]') return [];
+    if (selector === '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]') return [triggeringUser];
+    if (selector === '[data-turn-key]') return [groupedResumeTurn];
+    return [];
+  }
+};
+found = dom.findRecoverableAssistantError(groupedResumeRoot);
+assert.ok(found, "assistant-only grouped resume card must be recoverable without role or user bubble");
+assert.equal(found.kind, "resume_stream_unavailable");
+assert.equal(found.assistantIdentity, "turn-grouped-resume");
+
 const newerUser = element({
   text: "A later operator message",
   attrs: {
@@ -121,6 +168,7 @@ const newerUser = element({
 });
 const staleAfterUserRoot = {
   querySelectorAll(selector) {
+    if (selector === '[data-turn-key]') return [];
     assert.equal(selector, '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]');
     return [triggeringUser, timeoutMessage, newerUser];
   }
@@ -136,6 +184,7 @@ const newerAssistant = element({
 });
 const staleAfterAssistantRoot = {
   querySelectorAll(selector) {
+    if (selector === '[data-turn-key]') return [];
     assert.equal(selector, '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]');
     return [triggeringUser, timeoutMessage, newerAssistant];
   }
@@ -152,6 +201,7 @@ const timeoutWithoutRetryMessage = element({
 });
 const timeoutWithoutRetryRoot = {
   querySelectorAll(selector) {
+    if (selector === '[data-turn-key]') return [];
     assert.equal(selector, '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]');
     return [triggeringUser, timeoutWithoutRetryMessage];
   }
@@ -172,6 +222,7 @@ const unrelatedRetryMessage = element({
 });
 const unrelatedRetryRoot = {
   querySelectorAll(selector) {
+    if (selector === '[data-turn-key]') return [];
     assert.equal(selector, '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]');
     return [triggeringUser, unrelatedRetryMessage];
   }
@@ -211,7 +262,8 @@ const mixedGroupedRoot = {
     return [];
   }
 };
-assert.deepEqual(dom.messageElements(mixedGroupedRoot, "assistant"), [mixedGroupedOldAssistant, mixedGroupedNewTurn]);
+assert.deepEqual(dom.messageElements(mixedGroupedRoot, "assistant"), [mixedGroupedOldAssistant],
+  "user-only grouped turn must not enter the assistant namespace");
 
 const currentUser = element({
   text: "Bridge wake",
