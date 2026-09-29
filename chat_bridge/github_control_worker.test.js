@@ -7,7 +7,9 @@ const { createHarness } = require("./worker_test_harness.js");
 
 (async () => {
   const matrix = runtimeExample.agents.find((agent) => agent.repository_id === "matrixhub");
+  const tracker = runtimeExample.agents.find((agent) => agent.repository_id === "tracker");
   assert.ok(matrix);
+  assert.ok(tracker);
   const url = "https://chatgpt.com/c/a";
   const chatId = protocol.conversationId(url);
   let control = {
@@ -61,6 +63,8 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(conversation.lastStatus, "github_control_paused");
   assert.equal(h.alarms.has(`local-agent-chat:${chatId}`), false);
   assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 1);
+  assert.equal(h.storage.bridgeGithubControlApplied[chatId].bindingRevision, 1);
+  assert.equal(h.storage.bridgeGithubControlApplied[chatId].localGeneration, conversation.generation);
 
   const targetMs = Date.now() + 120_000;
   control = {
@@ -90,9 +94,10 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(h.storage.bridgeState.conversations[chatId].generation, stableGeneration);
   assert.equal(h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime, stableScheduled);
 
-  // GitHub remains authoritative even if a legacy DOM command or popup mutates local state.
+  // GitHub remains authoritative even if popup/legacy controls mutate pacing state.
   h.storage.bridgeState.conversations[chatId].enabled = false;
   h.storage.bridgeState.conversations[chatId].intervalOverrideMinutes = 3;
+  h.storage.bridgeState.conversations[chatId].generation += 1;
   h.storage.bridgeState.conversations[chatId].nextRunAt = null;
   h.alarms.delete(`local-agent-chat:${chatId}`);
   reconcile = await h.evaluate("reconcileGithubConversationControls()");
@@ -103,10 +108,30 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(conversation.intervalOverrideMinutes, 7);
   assert.equal(conversation.lastStatus, "github_control_reconciled");
   assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 2);
-  const repairedScheduled = h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime;
+  assert.equal(h.storage.bridgeGithubControlApplied[chatId].localGeneration, conversation.generation);
+  let repairedScheduled = h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime;
   assert.ok(Number.isFinite(repairedScheduled));
   assert.ok(repairedScheduled > Date.now());
 
+  // A legacy NEXT can change only generation/alarm; the same remote generation repairs it.
+  h.storage.bridgeState.conversations[chatId].generation += 1;
+  const legacyNext = Date.now() + 30_000;
+  h.storage.bridgeState.conversations[chatId].nextRunAt = new Date(legacyNext).toISOString();
+  h.alarms.set(`local-agent-chat:${chatId}`, {
+    name: `local-agent-chat:${chatId}`,
+    when: legacyNext,
+    scheduledTime: legacyNext
+  });
+  reconcile = await h.evaluate("reconcileGithubConversationControls()");
+  assert.equal(reconcile.applied.length, 1);
+  assert.equal(reconcile.applied[0].repaired, true);
+  repairedScheduled = h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime;
+  assert.ok(Number.isFinite(repairedScheduled));
+  assert.ok(Math.abs(repairedScheduled - targetMs) < 2000, JSON.stringify({ repairedScheduled, targetMs }));
+  conversation = h.storage.bridgeState.conversations[chatId];
+  assert.equal(h.storage.bridgeGithubControlApplied[chatId].localGeneration, conversation.generation);
+
+  // A desired state for a future binding revision cannot mutate the current binding.
   control = {
     ...control,
     control_generation: 3,
@@ -120,6 +145,39 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(reconcile.applied.length, 0);
   assert.equal(h.storage.bridgeState.conversations[chatId].enabled, true);
   assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 2);
+
+  // After an explicit rebind, the new binding revision gets an independent generation space.
+  response = await h.sendRuntimeMessage({
+    type: "bridge:rebind-conversation",
+    conversationId: chatId,
+    binding: { agentBinding: tracker.agent_binding }
+  });
+  assert.equal(response.ok, true);
+  assert.equal(response.conversation.bindingRevision, 2);
+  assert.equal(response.conversation.repositoryId, "tracker");
+  control = {
+    conversation_id: chatId,
+    repository_id: tracker.repository_id,
+    repository: tracker.repository,
+    agent_binding: tracker.agent_binding,
+    binding_revision: 2,
+    control_generation: 1,
+    enabled: false,
+    interval_minutes: 11,
+    next_wake_at: null,
+    updated_at: new Date().toISOString()
+  };
+  h.evaluate("runtimeCache = null");
+  reconcile = await h.evaluate("reconcileGithubConversationControls()");
+  assert.equal(reconcile.applied.length, 1);
+  assert.equal(reconcile.applied[0].repaired, false);
+  conversation = h.storage.bridgeState.conversations[chatId];
+  assert.equal(conversation.enabled, false);
+  assert.equal(conversation.intervalOverrideMinutes, 11);
+  assert.equal(conversation.lastControlAction, "github:1");
+  assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 1);
+  assert.equal(h.storage.bridgeGithubControlApplied[chatId].bindingRevision, 2);
+  assert.equal(h.storage.bridgeGithubControlApplied[chatId].localGeneration, conversation.generation);
 
   console.log("GitHub Bridge control worker tests passed.");
 })().catch((error) => {
