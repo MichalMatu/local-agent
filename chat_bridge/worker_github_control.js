@@ -29,6 +29,14 @@ async function ensureGithubControlPollAlarm() {
   await chrome.alarms.create(GITHUB_CONTROL_ALARM_NAME, { periodInMinutes: GITHUB_CONTROL_POLL_MINUTES });
 }
 
+function repairedScheduleDeadline(control, runtime, nowMs = Date.now()) {
+  if (!control.enabled) return null;
+  const explicit = Date.parse(control.nextWakeAt || "");
+  if (Number.isFinite(explicit) && explicit > nowMs + 1000) return explicit;
+  const interval = control.intervalMinutes === null ? runtime.intervalMinutes : control.intervalMinutes;
+  return nowMs + interval * 60_000;
+}
+
 async function reconcileGithubConversationControls() {
   const state = await getBridgeState();
   const runtime = await fetchRuntime(state.settings);
@@ -45,14 +53,23 @@ async function reconcileGithubConversationControls() {
   for (const conversation of Object.values(state.conversations)) {
     const control = githubControlModel.findConversationControl(runtime, conversation.id);
     if (!control || !githubControlModel.controlMatchesConversation(control, conversation)) continue;
-    if (control.controlGeneration <= Number(applied[conversation.id]?.generation || 0)) continue;
 
-    const deadline = githubControlModel.scheduleDeadline(control, runtime.intervalMinutes);
+    const appliedGeneration = Number(applied[conversation.id]?.generation || 0);
+    if (control.controlGeneration < appliedGeneration) continue;
+
     const mutation = await mutateState((currentState) => {
       const current = currentState.conversations[conversation.id];
       if (!current || !githubControlModel.controlMatchesConversation(control, current)) {
         return { state: currentState, value: { ok: false, reason: "binding_changed" } };
       }
+      const fresh = control.controlGeneration > appliedGeneration;
+      const drifted =
+        current.enabled !== control.enabled ||
+        current.intervalOverrideMinutes !== control.intervalMinutes;
+      if (!fresh && !drifted) {
+        return { state: currentState, value: { ok: true, changed: false } };
+      }
+
       const localGeneration = current.generation + 1;
       const patched = stateModel.patchConversation(currentState, current.id, {
         enabled: control.enabled,
@@ -61,24 +78,34 @@ async function reconcileGithubConversationControls() {
         nextRunAt: null,
         lastControlAction: `github:${control.controlGeneration}`,
         lastControlAt: control.updatedAt,
-        lastStatus: control.enabled ? "github_control_enabled" : "github_control_paused",
+        lastStatus: fresh
+          ? (control.enabled ? "github_control_enabled" : "github_control_paused")
+          : "github_control_reconciled",
         lastRuntimeSource: runtime.source
       });
       return {
         state: patched.state,
-        value: { ok: true, chatId: current.id, localGeneration }
+        value: { ok: true, changed: true, chatId: current.id, localGeneration, fresh }
       };
     });
 
-    if (!mutation.value?.ok) continue;
-    const { chatId, localGeneration } = mutation.value;
+    if (!mutation.value?.ok || !mutation.value.changed) continue;
+    const { chatId, localGeneration, fresh } = mutation.value;
     if (control.enabled) {
+      const deadline = fresh
+        ? githubControlModel.scheduleDeadline(control, runtime.intervalMinutes)
+        : repairedScheduleDeadline(control, runtime);
       await scheduleAt(chatId, deadline, localGeneration);
     } else {
       await clearConversationAlarm(chatId, localGeneration);
     }
-    await writeAppliedGithubControl(chatId, control.controlGeneration);
-    appliedNow.push({ chatId, controlGeneration: control.controlGeneration, enabled: control.enabled });
+    if (fresh) await writeAppliedGithubControl(chatId, control.controlGeneration);
+    appliedNow.push({
+      chatId,
+      controlGeneration: control.controlGeneration,
+      enabled: control.enabled,
+      repaired: !fresh
+    });
   }
 
   return { ok: true, reason: "reconciled", configured, applied: appliedNow };
