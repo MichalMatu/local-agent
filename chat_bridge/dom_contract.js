@@ -10,6 +10,7 @@
   const CONVERSATION_LIMIT_TEXT = "You've reached the maximum length for this conversation";
   const START_NEW_CHAT_TEXT = "Start new chat";
   const MESSAGE_DELIVERY_TIMEOUT_TEXT = "Message delivery timed out. Please try again.";
+  const RESUME_STREAM_UNAVAILABLE_TEXT = "Resume stream unavailable";
   const RETRY_BUTTON_TEXT = "Retry";
   const RETRY_BUTTON_TEST_ID = "regenerate-thread-error-button";
   const MESSAGE_SELECTORS = Object.freeze({
@@ -45,12 +46,24 @@
 
   const TURN_SELECTOR = '[data-turn-key]';
   const USER_SELECTOR = MESSAGE_SELECTORS.user.join(", ");
+  const GROUPED_UI_SELECTOR = 'button, [role="button"]';
+
+  function groupedAssistantText(turn) {
+    const clone = turn?.cloneNode?.(true);
+    if (!clone || typeof clone.querySelectorAll !== "function") {
+      return turn?.innerText || turn?.textContent || "";
+    }
+    for (const user of clone.querySelectorAll(USER_SELECTOR)) user.remove?.();
+    for (const control of clone.querySelectorAll(GROUPED_UI_SELECTOR)) control.remove?.();
+    return clone.textContent || "";
+  }
 
   function groupedAssistantTurns(root) {
     if (!root || typeof root.querySelectorAll !== "function") return [];
-    return Array.from(root.querySelectorAll(TURN_SELECTOR)).filter(
-      (turn) => Boolean(turn?.querySelector?.(USER_SELECTOR))
-    );
+    return Array.from(root.querySelectorAll(TURN_SELECTOR)).filter((turn) => {
+      if (turn?.querySelector?.(".text-token-text-error")) return true;
+      return Boolean(groupedAssistantText(turn).trim());
+    });
   }
 
   function compareDocumentOrder(left, right) {
@@ -83,9 +96,17 @@
     const explicit = dedupeMessagesByTurn(Array.from(root.querySelectorAll(
       '[data-message-author-role], [data-conversation-role="assistant"], [data-user-message-bubble]'
     )));
-    if (explicit.some((message) => messageRole(message) === "assistant")) return explicit;
-    const grouped = groupedAssistantTurns(root);
-    return grouped.length ? grouped : explicit;
+    const selected = new Map();
+    for (const message of explicit) {
+      const turn = containingTurn(message);
+      const current = selected.get(turn);
+      if (!current || messageRole(message) === "assistant") selected.set(turn, message);
+    }
+    for (const turn of groupedAssistantTurns(root)) {
+      const current = selected.get(turn);
+      if (!current || messageRole(current) !== "assistant") selected.set(turn, turn);
+    }
+    return Array.from(selected.values()).sort(compareDocumentOrder);
   }
 
   function messageRole(message) {
@@ -142,13 +163,21 @@
     const role = messageRole(message);
     const groupedTurnFallback = role === "" &&
       message?.getAttribute?.("data-turn-key") !== null &&
-      Boolean(message?.querySelector?.(USER_SELECTOR));
+      Boolean(
+        groupedAssistantText(message).trim() ||
+        message?.querySelector?.(".text-token-text-error")
+      );
     if (role !== "assistant" && !groupedTurnFallback) return null;
 
     const error = message?.querySelector?.(".text-token-text-error");
     if (!error) return null;
     const errorText = normalizedText(error.innerText || error.textContent);
-    if (!errorText.includes(MESSAGE_DELIVERY_TIMEOUT_TEXT)) return null;
+    const kind = errorText.includes(MESSAGE_DELIVERY_TIMEOUT_TEXT)
+      ? "message_delivery_timeout"
+      : errorText.includes(RESUME_STREAM_UNAVAILABLE_TEXT)
+        ? "resume_stream_unavailable"
+        : "";
+    if (!kind) return null;
     const button =
       error.querySelector?.(`button[data-testid="${RETRY_BUTTON_TEST_ID}"]`) ||
       Array.from(error.querySelectorAll?.("button") || []).find(
@@ -156,7 +185,7 @@
       );
     if (!button) return null;
     return {
-      kind: "message_delivery_timeout",
+      kind,
       message,
       error,
       button,
@@ -169,6 +198,7 @@
     CONVERSATION_LIMIT_TEXT,
     START_NEW_CHAT_TEXT,
     MESSAGE_DELIVERY_TIMEOUT_TEXT,
+    RESUME_STREAM_UNAVAILABLE_TEXT,
     RETRY_BUTTON_TEXT,
     RETRY_BUTTON_TEST_ID,
     normalizedText,

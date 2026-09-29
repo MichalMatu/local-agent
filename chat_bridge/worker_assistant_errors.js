@@ -2,7 +2,10 @@ const ASSISTANT_ERROR_RECOVERY_STORAGE_KEY = "bridgeAssistantErrorRecovery";
 const ASSISTANT_ERROR_RECOVERY_VERSION = 1;
 const ASSISTANT_ERROR_RETRY_LIMIT = 3;
 const ASSISTANT_ERROR_RETRY_DELAYS_MS = Object.freeze([1500, 5000, 15000]);
-const ASSISTANT_ERROR_KIND = "message_delivery_timeout";
+const ASSISTANT_ERROR_STATUSES = Object.freeze({
+  message_delivery_timeout: "assistant_delivery_timeout",
+  resume_stream_unavailable: "assistant_resume_stream_unavailable"
+});
 const ASSISTANT_ERROR_MAX_IDENTITY = 500;
 const ASSISTANT_ERROR_MAX_USER_TEXT = 12000;
 let assistantErrorRecoveryMutation = Promise.resolve();
@@ -17,7 +20,7 @@ function normalizeAssistantErrorPayload(message) {
   const assistantIdentity = String(message?.assistantIdentity || "").slice(0, ASSISTANT_ERROR_MAX_IDENTITY);
   const userText = String(message?.userText || "").slice(0, ASSISTANT_ERROR_MAX_USER_TEXT);
   const signature = String(message?.signature || "").slice(0, 120);
-  if (kind !== ASSISTANT_ERROR_KIND || !userIdentity || !userText || !signature) return null;
+  if (!Object.hasOwn(ASSISTANT_ERROR_STATUSES, kind) || !userIdentity || !userText || !signature) return null;
   return { kind, userIdentity, assistantIdentity, userText, signature };
 }
 
@@ -189,7 +192,8 @@ async function reportAssistantError(message, sender) {
     };
   }
 
-  const status = bridgeOwned ? "assistant_delivery_timeout" : "assistant_delivery_timeout_unowned";
+  const statusBase = ASSISTANT_ERROR_STATUSES[payload.kind];
+  const status = bridgeOwned ? statusBase : `${statusBase}_unowned`;
   await updateConversationStatus(conversation.id, { lastStatus: status }, conversation.generation);
   const retryEligible = Boolean(bridgeOwned && state.settings.masterEnabled && conversation.enabled);
   return {

@@ -111,6 +111,51 @@ const { createHarness } = require("./worker_test_harness.js");
   response = await sendRuntimeMessage({
     type: "bridge:assistant-error",
     conversationUrl: "https://chatgpt.com/c/a",
+    kind: "resume_stream_unavailable",
+    assistantIdentity: "resume-answer",
+    userIdentity: "bridge-user-resume",
+    userText: bridgePrompt,
+    signature: "resume-signature"
+  }, sender);
+  assert.equal(response.ok, true);
+  assert.equal(response.reason, "assistant_resume_stream_unavailable");
+  assert.equal(response.bridgeOwned, true);
+  assert.equal(response.retryEligible, true);
+  assert.equal(response.attempts, 0);
+  assert.equal(storage.bridgeState.conversations[chatId].lastStatus, "assistant_resume_stream_unavailable");
+
+  {
+    const conversation = storage.bridgeState.conversations[chatId];
+    response = await sendRuntimeMessage({
+      type: "bridge:authorize-assistant-retry",
+      conversationUrl: "https://chatgpt.com/c/a",
+      kind: "resume_stream_unavailable",
+      assistantIdentity: "resume-answer",
+      userIdentity: "bridge-user-resume",
+      userText: bridgePrompt,
+      signature: "resume-signature",
+      bindingRevision: conversation.bindingRevision,
+      generation: conversation.generation
+    }, sender);
+  }
+  assert.equal(response.ok, true);
+  assert.equal(response.attempt, 1);
+
+  response = await sendRuntimeMessage({
+    type: "bridge:assistant-error",
+    conversationUrl: "https://chatgpt.com/c/a",
+    kind: "unknown_error_kind",
+    assistantIdentity: "unknown-answer",
+    userIdentity: "bridge-user-unknown",
+    userText: bridgePrompt,
+    signature: "unknown-signature"
+  }, sender);
+  assert.equal(response.ok, false);
+  assert.equal(response.reason, "assistant_error_invalid");
+
+  response = await sendRuntimeMessage({
+    type: "bridge:assistant-error",
+    conversationUrl: "https://chatgpt.com/c/a",
     kind: "message_delivery_timeout",
     assistantIdentity: "timeout-answer",
     userIdentity: "bridge-user-duplicate-tab",
