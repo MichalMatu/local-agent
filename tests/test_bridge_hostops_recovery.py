@@ -214,6 +214,17 @@ class BridgeHostOpsRecoveryTests(unittest.TestCase):
                             }
                         ]
                     }
+                elif len(calls) == 2:
+                    payload = {
+                        "target_id": "page-9",
+                        "target_type": "page",
+                        "selectors": [
+                            {
+                                "selector": bridge_recovery._ACTIVE_STREAM_SELECTOR,
+                                "match_count": 0,
+                            }
+                        ],
+                    }
                 else:
                     payload = {
                         "target_id": "page-9",
@@ -232,9 +243,15 @@ class BridgeHostOpsRecoveryTests(unittest.TestCase):
                 runner=runner,
             )
 
-            command = calls[1]
+            preflight = calls[1]
+            command = calls[2]
             self.assertEqual(result["mode"], "recover")
             self.assertEqual(result["result"]["outcome"], "recovered")
+            self.assertIn("selectors", preflight)
+            self.assertEqual(
+                preflight[preflight.index("--selector") + 1],
+                bridge_recovery._ACTIVE_STREAM_SELECTOR,
+            )
             self.assertIn("recover-content-script", command)
             self.assertEqual(command[command.index("--expect-url") + 1], "https://chatgpt.com/c/a")
             self.assertEqual(command.count("--script-fingerprint"), 2)
@@ -243,6 +260,88 @@ class BridgeHostOpsRecoveryTests(unittest.TestCase):
                 command[command.index("--selector") + 1],
                 bridge_recovery._COMPOSER_SELECTOR,
             )
+
+    def test_external_recovery_refuses_while_generation_control_is_present(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bridge_dir = self._bridge_fixture(Path(temporary))
+            calls: list[list[str]] = []
+
+            def runner(argv, **_kwargs):
+                calls.append(list(argv))
+                if len(calls) == 1:
+                    payload = {
+                        "targets": [
+                            {
+                                "id": "page-1",
+                                "type": "page",
+                                "url": "https://chatgpt.com/c/a",
+                            }
+                        ]
+                    }
+                else:
+                    payload = {
+                        "target_id": "page-1",
+                        "target_type": "page",
+                        "selectors": [
+                            {
+                                "selector": bridge_recovery._ACTIVE_STREAM_SELECTOR,
+                                "match_count": 1,
+                            }
+                        ],
+                    }
+                return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+
+            with self.assertRaisesRegex(
+                bridge_recovery.BridgeHostOpsRecoveryError,
+                "refusing recovery",
+            ):
+                bridge_recovery.external_bridge_check(
+                    hostops="/fake/hostops",
+                    endpoint="http://127.0.0.1:9222",
+                    conversation_url="https://chatgpt.com/c/a",
+                    recover=True,
+                    timeout_seconds=30,
+                    bridge_dir=bridge_dir,
+                    runner=runner,
+                )
+            self.assertEqual(len(calls), 2)
+            self.assertIn("selectors", calls[1])
+
+    def test_external_recovery_force_skips_generation_preflight(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            bridge_dir = self._bridge_fixture(Path(temporary))
+            calls: list[list[str]] = []
+
+            def runner(argv, **_kwargs):
+                calls.append(list(argv))
+                payload = (
+                    {
+                        "targets": [
+                            {
+                                "id": "page-1",
+                                "type": "page",
+                                "url": "https://chatgpt.com/c/a",
+                            }
+                        ]
+                    }
+                    if len(calls) == 1
+                    else {"target_id": "page-1", "action": "reload", "outcome": "recovered"}
+                )
+                return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+
+            result = bridge_recovery.external_bridge_check(
+                hostops="/fake/hostops",
+                endpoint="http://127.0.0.1:9222",
+                conversation_url="https://chatgpt.com/c/a",
+                recover=True,
+                timeout_seconds=30,
+                force=True,
+                bridge_dir=bridge_dir,
+                runner=runner,
+            )
+            self.assertEqual(result["result"]["outcome"], "recovered")
+            self.assertEqual(len(calls), 2)
+            self.assertNotIn("selectors", calls[1])
 
     def test_hostops_failure_is_not_retried_or_masked(self) -> None:
         calls = 0

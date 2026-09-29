@@ -28,6 +28,9 @@ _COMPOSER_SELECTOR = (
     '#prompt-textarea, [data-testid="prompt-textarea"], '
     'div.ProseMirror[contenteditable="true"]'
 )
+_ACTIVE_STREAM_SELECTOR = (
+    'button[data-testid="stop-button"], button[data-testid="composer-stop-button"]'
+)
 _MAX_CAPTURE_CHARS = 1_048_576
 
 
@@ -157,6 +160,51 @@ def _run_hostops_json(
     return payload
 
 
+def _active_stream_control_count(
+    *,
+    hostops: str,
+    endpoint: str,
+    target_id: str,
+    timeout_seconds: float,
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> int:
+    payload = _run_hostops_json(
+        [
+            hostops,
+            "browser",
+            "attach",
+            "selectors",
+            "--endpoint",
+            endpoint,
+            "--target-id",
+            target_id,
+            "--selector",
+            _ACTIVE_STREAM_SELECTOR,
+            "--timeout",
+            f"{timeout_seconds:g}",
+            "--json",
+        ],
+        timeout_seconds=timeout_seconds + 5,
+        runner=runner,
+    )
+    if payload.get("target_id") != target_id or payload.get("target_type") != "page":
+        raise BridgeHostOpsRecoveryError("active-stream preflight returned wrong target evidence")
+    selectors = payload.get("selectors")
+    if not isinstance(selectors, list) or len(selectors) != 1:
+        raise BridgeHostOpsRecoveryError("active-stream preflight returned invalid selector evidence")
+    item = selectors[0]
+    count = item.get("match_count") if isinstance(item, dict) else None
+    if (
+        not isinstance(item, dict)
+        or item.get("selector") != _ACTIVE_STREAM_SELECTOR
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or count < 0
+    ):
+        raise BridgeHostOpsRecoveryError("active-stream preflight returned invalid selector evidence")
+    return count
+
+
 def _validate_managed_loopback_endpoint(raw: Any) -> str:
     if not isinstance(raw, str):
         raise BridgeHostOpsRecoveryError(
@@ -226,6 +274,7 @@ def external_bridge_check(
     conversation_url: str,
     recover: bool,
     timeout_seconds: float,
+    force: bool = False,
     bridge_dir: Path = BRIDGE_DIR,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, Any]:
@@ -250,6 +299,20 @@ def external_bridge_check(
     )
     target_id = select_exact_page_target(inspect, normalized_url)
     fingerprints = bridge_content_script_fingerprints(bridge_dir)
+
+    if recover and not force:
+        active_controls = _active_stream_control_count(
+            hostops=hostops,
+            endpoint=endpoint,
+            target_id=target_id,
+            timeout_seconds=timeout_seconds,
+            runner=runner,
+        )
+        if active_controls:
+            raise BridgeHostOpsRecoveryError(
+                "refusing recovery while ChatGPT generation control is present; "
+                "wait for the response to finish or use --force"
+            )
 
     command = [
         hostops,
@@ -315,6 +378,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="allow Host Ops bounded one-shot content-script recovery; default is read-only readiness",
     )
     parser.add_argument(
+        "--force",
+        action="store_true",
+        help="allow recovery even when a ChatGPT generation control is present",
+    )
+    parser.add_argument(
         "--hostops",
         default="hostops",
         help="Host Ops executable name or explicit path (default: hostops)",
@@ -333,6 +401,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         args = parse_args(argv)
         hostops = _resolve_hostops(args.hostops)
+        if args.force and not args.recover:
+            raise BridgeHostOpsRecoveryError("--force requires --recover")
         endpoint = args.endpoint
         if endpoint is None:
             endpoint = resolve_managed_profile_endpoint(
@@ -346,6 +416,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             conversation_url=args.conversation_url,
             recover=args.recover,
             timeout_seconds=args.timeout_seconds,
+            force=args.force,
         )
     except BridgeHostOpsRecoveryError as exc:
         print(json.dumps({"error": str(exc)}, sort_keys=True), file=sys.stderr)

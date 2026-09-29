@@ -25,6 +25,9 @@ from urllib.parse import urlsplit, urlunsplit
 ROOT = Path(__file__).resolve().parents[1]
 BRIDGE_DIR = ROOT / "chat_bridge"
 _ALLOWED_CHAT_HOSTS = frozenset({"chatgpt.com", "chat.openai.com"})
+_ACTIVE_STREAM_SELECTOR = (
+    'button[data-testid="stop-button"], button[data-testid="composer-stop-button"]'
+)
 _MAX_CAPTURE_CHARS = 1_048_576
 _BRANDED_MAC_CHROME = Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
 
@@ -149,6 +152,131 @@ def _validate_session_payload(payload: dict[str, Any], *, action: str) -> None:
         raise BridgeHostOpsSessionError("Host Ops returned an invalid endpoint value")
 
 
+def _chat_page_targets(payload: dict[str, Any]) -> tuple[str, ...]:
+    targets = payload.get("targets")
+    if not isinstance(targets, list):
+        raise BridgeHostOpsSessionError("Host Ops inspect returned invalid target evidence")
+    result: list[str] = []
+    for target in targets:
+        if not isinstance(target, dict) or target.get("type") != "page":
+            continue
+        raw_url = target.get("url")
+        if not isinstance(raw_url, str):
+            continue
+        try:
+            parsed = urlsplit(raw_url)
+        except ValueError:
+            continue
+        if parsed.scheme != "https" or (parsed.hostname or "").lower() not in _ALLOWED_CHAT_HOSTS:
+            continue
+        target_id = target.get("id")
+        if not isinstance(target_id, str) or not target_id:
+            raise BridgeHostOpsSessionError("ChatGPT page target is missing its exact target id")
+        result.append(target_id)
+    return tuple(result)
+
+
+def _active_stream_control_count(
+    *,
+    hostops: str,
+    endpoint: str,
+    target_id: str,
+    timeout_seconds: float,
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> int:
+    payload = _run_hostops_json(
+        [
+            hostops,
+            "browser",
+            "attach",
+            "selectors",
+            "--endpoint",
+            endpoint,
+            "--target-id",
+            target_id,
+            "--selector",
+            _ACTIVE_STREAM_SELECTOR,
+            "--timeout",
+            f"{timeout_seconds:g}",
+            "--json",
+        ],
+        timeout_seconds=timeout_seconds + 5,
+        runner=runner,
+    )
+    if payload.get("target_id") != target_id or payload.get("target_type") != "page":
+        raise BridgeHostOpsSessionError("active-stream preflight returned wrong target evidence")
+    selectors = payload.get("selectors")
+    if not isinstance(selectors, list) or len(selectors) != 1:
+        raise BridgeHostOpsSessionError("active-stream preflight returned invalid selector evidence")
+    item = selectors[0]
+    count = item.get("match_count") if isinstance(item, dict) else None
+    if (
+        not isinstance(item, dict)
+        or item.get("selector") != _ACTIVE_STREAM_SELECTOR
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+        or count < 0
+    ):
+        raise BridgeHostOpsSessionError("active-stream preflight returned invalid selector evidence")
+    return count
+
+
+def _guard_managed_stop(
+    *,
+    hostops: str,
+    profile_dir: str,
+    timeout_seconds: float,
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    status = _run_hostops_json(
+        [
+            hostops,
+            "browser",
+            "session",
+            "status",
+            "--profile-dir",
+            profile_dir,
+            "--timeout",
+            f"{timeout_seconds:g}",
+            "--json",
+        ],
+        timeout_seconds=timeout_seconds + 5,
+        runner=runner,
+    )
+    _validate_session_payload(status, action="status")
+    if status.get("state") != "running":
+        return
+    endpoint = status.get("endpoint")
+    assert isinstance(endpoint, str)
+    inspect = _run_hostops_json(
+        [
+            hostops,
+            "browser",
+            "attach",
+            "inspect",
+            "--endpoint",
+            endpoint,
+            "--timeout",
+            f"{timeout_seconds:g}",
+            "--json",
+        ],
+        timeout_seconds=timeout_seconds + 5,
+        runner=runner,
+    )
+    for target_id in _chat_page_targets(inspect):
+        if _active_stream_control_count(
+            hostops=hostops,
+            endpoint=endpoint,
+            target_id=target_id,
+            timeout_seconds=timeout_seconds,
+            runner=runner,
+        ):
+            raise BridgeHostOpsSessionError(
+                "refusing to stop the managed Chat Bridge browser while ChatGPT generation "
+                "control is present; wait for the response to finish or use --force"
+            )
+
+
 def managed_bridge_session(
     *,
     action: str,
@@ -158,6 +286,7 @@ def managed_bridge_session(
     browser_executable: str | None = None,
     start_url: str = "https://chatgpt.com/",
     bridge_dir: Path = BRIDGE_DIR,
+    force: bool = False,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, Any]:
     timeout = _validate_timeout(timeout_seconds)
@@ -170,6 +299,15 @@ def managed_bridge_session(
         "login-finish",
     }:
         raise BridgeHostOpsSessionError("unsupported managed browser action")
+    if force and action != "stop":
+        raise BridgeHostOpsSessionError("force is supported only for managed stop")
+    if action == "stop" and not force:
+        _guard_managed_stop(
+            hostops=hostops,
+            profile_dir=profile_dir,
+            timeout_seconds=timeout,
+            runner=runner,
+        )
 
     hostops_action = {
         "login-start": "interactive-start",
@@ -246,6 +384,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     stop = subparsers.add_parser("stop", help="stop only the exact managed Chat Bridge browser")
     stop.add_argument("--profile-dir", required=True)
     stop.add_argument("--timeout", type=float, default=10.0, dest="timeout_seconds")
+    stop.add_argument(
+        "--force",
+        action="store_true",
+        help="stop even when a ChatGPT generation control is present",
+    )
 
     login_finish = subparsers.add_parser(
         "login-finish",
@@ -266,6 +409,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             browser_executable=getattr(args, "browser_executable", None),
             start_url=getattr(args, "start_url", "https://chatgpt.com/"),
             timeout_seconds=args.timeout_seconds,
+            force=getattr(args, "force", False),
         )
     except BridgeHostOpsSessionError as exc:
         print(json.dumps({"error": str(exc)}, sort_keys=True), file=sys.stderr)

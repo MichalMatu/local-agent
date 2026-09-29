@@ -224,6 +224,7 @@ class BridgeHostOpsSessionTests(unittest.TestCase):
                 hostops="/fake/hostops",
                 profile_dir="/tmp/local-agent-chat-bridge",
                 timeout_seconds=5,
+                force=action == "stop",
                 runner=runner,
             )
             self.assertEqual(result["action"], action)
@@ -233,6 +234,104 @@ class BridgeHostOpsSessionTests(unittest.TestCase):
             self.assertNotIn("--browser-executable", command)
             self.assertNotIn("--extension-dir", command)
             self.assertNotIn("--url", command)
+
+    def test_stop_refuses_while_chatgpt_generation_control_is_present(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(argv, **_kwargs):
+            calls.append(list(argv))
+            if argv[1:4] == ["browser", "session", "status"]:
+                payload = {
+                    "state": "running",
+                    "pid": 4321,
+                    "endpoint": "http://127.0.0.1:54321",
+                    "browser": "Chrome/153",
+                }
+            elif argv[1:4] == ["browser", "attach", "inspect"]:
+                payload = {
+                    "targets": [
+                        {
+                            "id": "page-1",
+                            "type": "page",
+                            "url": "https://chatgpt.com/c/a",
+                        }
+                    ]
+                }
+            else:
+                self.assertIn("selectors", argv)
+                payload = {
+                    "target_id": "page-1",
+                    "target_type": "page",
+                    "selectors": [
+                        {
+                            "selector": bridge_session._ACTIVE_STREAM_SELECTOR,
+                            "match_count": 1,
+                        }
+                    ],
+                }
+            return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+
+        with self.assertRaisesRegex(
+            bridge_session.BridgeHostOpsSessionError,
+            "refusing to stop",
+        ):
+            bridge_session.managed_bridge_session(
+                action="stop",
+                hostops="/fake/hostops",
+                profile_dir="/tmp/local-agent-chat-bridge",
+                timeout_seconds=5,
+                runner=runner,
+            )
+        self.assertEqual(len(calls), 3)
+        self.assertFalse(any(call[1:4] == ["browser", "session", "stop"] for call in calls))
+
+    def test_stop_proceeds_after_clear_generation_preflight(self) -> None:
+        calls: list[list[str]] = []
+
+        def runner(argv, **_kwargs):
+            calls.append(list(argv))
+            if argv[1:4] == ["browser", "session", "status"]:
+                payload = {
+                    "state": "running",
+                    "pid": 4321,
+                    "endpoint": "http://127.0.0.1:54321",
+                    "browser": "Chrome/153",
+                }
+            elif argv[1:4] == ["browser", "attach", "inspect"]:
+                payload = {
+                    "targets": [
+                        {
+                            "id": "page-1",
+                            "type": "page",
+                            "url": "https://chatgpt.com/c/a",
+                        }
+                    ]
+                }
+            elif "selectors" in argv:
+                payload = {
+                    "target_id": "page-1",
+                    "target_type": "page",
+                    "selectors": [
+                        {
+                            "selector": bridge_session._ACTIVE_STREAM_SELECTOR,
+                            "match_count": 0,
+                        }
+                    ],
+                }
+            else:
+                payload = {"state": "stopped", "pid": None, "endpoint": None, "browser": None}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
+
+        result = bridge_session.managed_bridge_session(
+            action="stop",
+            hostops="/fake/hostops",
+            profile_dir="/tmp/local-agent-chat-bridge",
+            timeout_seconds=5,
+            runner=runner,
+        )
+        self.assertEqual(result["result"]["state"], "stopped")
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(calls[-1][1:4], ["browser", "session", "stop"])
 
     def test_running_payload_requires_loopback_endpoint(self) -> None:
         def runner(argv, **_kwargs):
