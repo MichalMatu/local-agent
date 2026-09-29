@@ -33,8 +33,11 @@ async function reconcileGithubConversationControls() {
   const state = await getBridgeState();
   const runtime = await fetchRuntime(state.settings);
   if (runtime.source !== "remote") {
-    return { ok: false, reason: "runtime_unavailable", applied: [] };
+    return { ok: false, reason: "runtime_unavailable", configured: 0, applied: [] };
   }
+
+  const configured = runtime.conversationControls.length;
+  if (configured > 0) await ensureGithubControlPollAlarm();
 
   const applied = await readAppliedGithubControls();
   const appliedNow = [];
@@ -78,10 +81,9 @@ async function reconcileGithubConversationControls() {
     appliedNow.push({ chatId, controlGeneration: control.controlGeneration, enabled: control.enabled });
   }
 
-  return { ok: true, reason: "reconciled", applied: appliedNow };
+  return { ok: true, reason: "reconciled", configured, applied: appliedNow };
 }
 
 async function initializeGithubControlPlane() {
-  await ensureGithubControlPollAlarm();
   return reconcileGithubConversationControls();
 }
