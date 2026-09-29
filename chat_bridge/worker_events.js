@@ -136,9 +136,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-// Service-worker activation may refresh remote desired state, but the durable minute poll
-// is created only by Chrome extension install/startup lifecycle and then survives MV3 sleep.
-reconcileGithubConversationControls().catch((error) => console.error(error));
+// Every service-worker activation ensures the durable minute poll exists. This makes a
+// manually reloaded unpacked extension and a remotely paused chat independently capable of
+// discovering a later GitHub RESUME even if Chrome does not emit another startup event.
+initializeGithubControlPlane().catch((error) => console.error(error));
 
 // A manually reloaded unpacked extension starts a fresh service worker while existing
 // ChatGPT tabs stay open. Probe configured tabs immediately so stale/unavailable content
