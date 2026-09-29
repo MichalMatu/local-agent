@@ -24,8 +24,8 @@ async function writeAppliedGithubControl(chatId, generation) {
 }
 
 async function ensureGithubControlPollAlarm() {
-  const existing = await chrome.alarms.get(GITHUB_CONTROL_ALARM_NAME);
-  if (existing) return;
+  const alarms = await chrome.alarms.getAll();
+  if (alarms.some((alarm) => alarm.name === GITHUB_CONTROL_ALARM_NAME)) return;
   await chrome.alarms.create(GITHUB_CONTROL_ALARM_NAME, { periodInMinutes: GITHUB_CONTROL_POLL_MINUTES });
 }
 
