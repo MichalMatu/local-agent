@@ -161,6 +161,30 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   assert.equal(groupedAfter.lastControlAction, "[LAB:RESUME]");
   assert.equal(groupedAfter.enabled, true);
 
+  const assistantOnlyBefore = await readChat(id);
+  await page.evaluate(() => {
+    const turn = document.createElement("div");
+    turn.dataset.turnKey = "grouped-assistant-only-control";
+    const answer = document.createElement("p");
+    answer.textContent = "[LAB:PAUSE]";
+    const copy = document.createElement("button");
+    copy.textContent = "Copy";
+    const more = document.createElement("button");
+    more.textContent = "More";
+    turn.append(answer, copy, more);
+    document.body.append(turn);
+  });
+  const assistantOnlyDeadline = Date.now() + 5000;
+  let assistantOnlyAfter = await readChat(id);
+  while ((assistantOnlyAfter.generation !== assistantOnlyBefore.generation + 1 || assistantOnlyAfter.lastControlAction !== "[LAB:PAUSE]") && Date.now() < assistantOnlyDeadline) {
+    await page.waitForTimeout(50);
+    assistantOnlyAfter = await readChat(id);
+  }
+  assert.equal(assistantOnlyAfter.generation, assistantOnlyBefore.generation + 1, JSON.stringify(assistantOnlyAfter));
+  assert.equal(assistantOnlyAfter.lastControlAction, "[LAB:PAUSE]");
+  assert.equal(assistantOnlyAfter.enabled, false);
+  console.log("PASS: assistant-only grouped turn without role/user markers reaches LAB control scanner");
+
   const userOnlyBefore = await readChat(id);
   await page.evaluate(() => {
     const turn = document.createElement("div");

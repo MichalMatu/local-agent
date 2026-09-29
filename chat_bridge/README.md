@@ -133,11 +133,11 @@ Transient assistant-control failures are retried for unchanged assistant content
 
 Bridge intentionally does **not** keep a durable ambiguous-delivery journal for the normal user-message submission path.
 
-Content protocol v12 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available, the LAB operator-control baseline, current/legacy ChatGPT message-role discovery, and fail-closed grouped-turn assistant selection. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
+Content protocol v13 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available, the LAB operator-control baseline, current/legacy ChatGPT message-role discovery, and fail-closed grouped-turn assistant selection. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
 
 When ChatGPT exposes no explicit assistant-role node, Bridge may fall back to a `data-turn-key` exchange only when it contains a recognized user bubble. Assistant LAB text is derived from a clone with all user bubbles removed, so user-authored LAB markers cannot cross into the assistant namespace.
 
-Chat Bridge 0.5.16 uses content protocol v12 so already-open tabs refresh onto assistant-control selection that ignores newer user-only grouped turns instead of allowing them to shadow the preceding assistant response. Assistant terminal-error observation has an independent guard protocol, currently v7; v7 remains unchanged because this release does not modify the guard-captured DOM contract. Worker activation probes both the content protocol and the assistant guard; a reachable stale guard is replaced even when `content.js` itself is already current.
+Chat Bridge 0.5.17 uses content protocol v13 so already-open tabs refresh onto assistant-control selection that recognizes assistant-only grouped turns without explicit role/user markers, strips grouped action controls before parsing, and still rejects user-only grouped turns. Assistant terminal-error observation has an independent guard protocol, currently v7; v7 remains unchanged because this release does not modify the guard-captured DOM contract. Worker activation probes both the content protocol and the assistant guard; a reachable stale guard is replaced even when `content.js` itself is already current.
 
 Popup and scheduled-wake paths share worker-owned content activation. Popup does not maintain a second protocol version or `chrome.scripting.executeScript` implementation. When a tab must be refreshed, the worker disposes current Bridge/guard listeners, injects the required scripts, then probes readiness again. A reachable older content script or assistant guard therefore must not require a normal manual ChatGPT page reload.
 
@@ -238,7 +238,7 @@ The parallel worker and serial fallback enforce the same contract before task ex
 6. Select `host-ops` when one conversation should be the cross-repository operator workspace; normal repository selections remain single-repository.
 7. Use a chat control or `Run now` for an end-to-end test.
 
-After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to replace a reachable older content protocol **and** a reachable older assistant guard automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Chat Bridge 0.5.16 requires Chrome 120 or newer.
+After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to replace a reachable older content protocol **and** a reachable older assistant guard automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Chat Bridge 0.5.17 requires Chrome 120 or newer.
 
 ## Development validation
 

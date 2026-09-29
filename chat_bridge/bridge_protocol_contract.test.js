@@ -12,7 +12,7 @@ assert.ok(
   Number.isInteger(protocol.CONTENT_PROTOCOL_VERSION) && protocol.CONTENT_PROTOCOL_VERSION > 0,
   "shared CONTENT_PROTOCOL_VERSION must be a positive integer"
 );
-assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 12, "user-only grouped turns must not shadow assistant controls");
+assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 13, "assistant-only grouped turns must remain visible to assistant controls");
 for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_harness.js"]) {
   assert.doesNotMatch(
     read(name),
