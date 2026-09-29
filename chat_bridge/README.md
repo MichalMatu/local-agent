@@ -1,48 +1,74 @@
 # Local Agent Chat Bridge
 
-Chrome Manifest V3 extension that schedules bounded wake-ups for explicitly configured ChatGPT conversations. The bridge is transport and scheduling only: ChatGPT plans work and `local-agent` executes deterministic tasks when the target repository is execution-enabled.
+Chrome Manifest V3 extension for binding one ChatGPT conversation to Local Agent, scheduling bounded wake-ups, exposing explicit conversation controls, and recovering a small set of typed assistant-side failures.
 
-Canonical planner/executor rules live in `docs/AUTONOMOUS_CHAT_LOOP.md`, `docs/HOST_OPS_MULTIREPO.md` and `docs/OPERATIONS.md`.
-
-## Identity model
-
-Chat Bridge state schema v3 makes conversation binding explicit. Every configured conversation stores exactly one repository id, repository name and canonical agent-binding UUID plus binding revision, pacing state and independent alarm. Normal assistant conversation controls never change those binding fields. Unbound migrated conversations stay disabled with `binding_required`, and a runtime/catalog mismatch fails closed as `binding_catalog_mismatch` instead of guessing another repository.
-
-The runtime catalog additionally assigns planner scope:
+The current production baseline is:
 
 ```text
-planner_scope=repository   -> only the bound repository may be targeted
-planner_scope=multirepo    -> current validated runtime-catalog repositories may be targeted
+Local Agent:     v4.19.8
+Chat Bridge:     0.5.18
+content protocol: v13
+assistant guard:  v8
 ```
 
-`repository` is the default. `multirepo` is explicit catalog authorization and is rejected on an execution-disabled operator binding. The canonical `host-ops` entry is the multirepo operator workspace. Its conversation stays bound to `host-ops`; changing target repositories during normal multirepo work does not change that conversation binding.
+Canonical behavior is defined by the current source plus:
 
-The `local-agent` catalog entry is intentionally `execution_enabled: false`. It is valid for Bridge/operator infrastructure and direct GitHub source work but must not receive Local Agent project task files. A `host-ops` multirepo conversation may therefore edit `MichalMatu/local-agent` without rebinding while Local Agent self-execution remains protected.
+- `docs/GOLDEN_STANDARD.md`
+- `docs/AUTONOMOUS_CHAT_LOOP.md`
+- `docs/HOST_OPS_MULTIREPO.md`
+- `docs/CHATGPT_DOM_CONTRACT.md`
+- `docs/CHAT_BRIDGE_HANDOFF_2026-09-29.md` for the field-test handoff that produced v4.19.8
 
-## Wake flow
+Historical release notes document old behavior at the time of each release. They are not the current Bridge contract.
 
-Every bootstrap and compact wake carries the exact stored conversation identity:
+## Binding model
+
+Every configured conversation stores one current Bridge binding: repository id, repository name, canonical `agent_binding`, binding revision, pacing state and alarm state.
+
+The binding is immutable **within one binding revision and wake envelope**, not immutable forever. It changes only through an explicit binding mutation:
 
 ```text
-[LA_AGENT=<canonical UUID>]
-[LA_REPO=<repository id>]
+assistant: [LAB:ADD=<repository-id>]
+assistant: [LAB:REBIND=<repository-id>]
+assistant: [LAB:REMOVE]
+operator:  [LAB:OP:ADD=<repository-id>]
+operator:  [LAB:OP:REMOVE]
+popup:     Add current chat / Remove
+```
+
+`ADD` accepts only an exact repository id from the validated runtime catalog. Assistant `ADD` creates the conversation enabled; popup and `OP:ADD` use conservative disabled onboarding. `REBIND` explicitly changes an already-configured conversation and creates a fresh binding/bootstrap boundary. `REMOVE` deletes that conversation's Bridge configuration.
+
+Normal pacing, inspection and maintenance controls do not change repository identity. The global **Master** switch is never changed by assistant controls.
+
+### Planner scope
+
+```text
+planner_scope=repository -> planner may target only the bound repository
+planner_scope=multirepo  -> planner may target repositories in the current validated runtime catalog
+```
+
+The canonical `host-ops` binding is the multirepo operator workspace. A `host-ops` conversation stays bound to `host-ops` while normal work may target another catalog repository. Every Local Agent task still carries the exact canonical binding of its **target** repository.
+
+The `local-agent` catalog entry is intentionally `execution_enabled: false`: it may be inspected or edited through direct GitHub operations, but project tasks must not be queued against that binding.
+
+## Wake envelope
+
+Every bootstrap/compact wake contains the stored conversation identity:
+
+```text
+[LA_AGENT=<conversation binding UUID>]
+[LA_REPO=<conversation repository id>]
 [LA_REPOSITORY=<owner/name>]
 [LA_CHAT=<conversation id>]
 ```
 
-The worker appends the policy for the validated planner scope. Repository scope remains fail-closed to the bound repository. Multirepo scope includes the current runtime catalog and requires the planner to resolve every target from that catalog, use the target repository's own binding for Local Agent tasks, and never guess repository ids/bindings.
+The first wake after add/rebind establishes the bootstrap boundary. Later wakes use the compact wake prompt. A configured ChatGPT conversation must remain open in Chrome; it does not need to be foregrounded.
 
-The first actual wake for a newly added conversation is a bootstrap. Later wakes use the compact wake prompt. Chrome must remain running and the configured ChatGPT conversation must remain open in a tab; it does not have to be foregrounded.
+## LAB command surface
 
-Adding a conversation captures the current latest assistant-message identity as `assistantBaseline`. That existing answer is ignored as a control source. New assistant answers written after the chat is added may use the complete conversation control protocol immediately, even while the first bootstrap is still pending. A later binding revision remains protected until its fresh bootstrap establishes the new baseline.
+`control_protocol.js` is the single command catalog and owns `CONTENT_PROTOCOL_VERSION`.
 
-Autonomous planner pacing is intentionally slower than the protocol's absolute compatibility minimum. Healthy active Local Agent work should not be polled every 30 seconds: use `NEXT` no sooner than about two minutes for an early liveness check and normally 5-10 minutes for multi-minute builds/tests unless exact evidence supports a nearer completion.
-
-## LAB command model
-
-`control_protocol.js` owns one formal command catalog. Commands are divided by privilege instead of growing as undocumented ad-hoc markers.
-
-Assistant-safe discovery/diagnostic commands:
+### Assistant inspection
 
 ```text
 [LAB:HELP]
@@ -54,17 +80,19 @@ Assistant-safe discovery/diagnostic commands:
 [LAB:CHAT=<chat-id>]
 ```
 
-Bridge-local maintenance commands:
+Successful inspections return a Bridge-generated user message beginning with `[LA_BRIDGE_FEEDBACK]`.
+
+### Assistant binding mutations
 
 ```text
-[LAB:RELOAD=CONTENT]
-[LAB:RELOAD=BRIDGE]
-[LAB:RESTART=WORKER]
+[LAB:ADD=<repository-id>]
+[LAB:REBIND=<repository-id>]
+[LAB:REMOVE]
 ```
 
-`RESTART=WORKER` is an alias for Bridge runtime reload because Chrome exposes extension reload rather than a standalone public API for restarting only one MV3 service worker.
+These are explicit state-changing controls, not read-only diagnostics. Exact sender URL, top-frame origin, catalog identity and persistent dedupe are revalidated in the worker.
 
-Existing assistant pacing controls remain:
+### Assistant pacing
 
 ```text
 [LAB:STOP]
@@ -76,7 +104,21 @@ Existing assistant pacing controls remain:
 [LAB:INTERVAL=AUTO]
 ```
 
-Operator chat mutations use a separate namespace and are processed **only from a user-authored ChatGPT message**:
+`NEXT` arms/re-arms only this conversation and changes its next wake. The wire protocol accepts 30 seconds through 24 hours, but autonomous healthy-task polling should normally use at least about two minutes, and 5-10 minutes for multi-minute builds/tests unless exact evidence justifies a nearer check.
+
+### Bridge-local maintenance
+
+```text
+[LAB:RELOAD=CONTENT]
+[LAB:RELOAD=BRIDGE]
+[LAB:RESTART=WORKER]
+```
+
+`RESTART=WORKER` aliases Bridge runtime reload because Chrome does not expose a public API to restart only one MV3 service worker.
+
+### User-authored operator namespace
+
+Processed only from a user-authored message in the exact top-frame conversation:
 
 ```text
 [LAB:OP:ADD=<repository-id>]
@@ -88,165 +130,112 @@ Operator chat mutations use a separate namespace and are processed **only from a
 [LAB:OP:RELOAD=BRIDGE]
 ```
 
-The assistant parser rejects `LAB:OP:*`. The content script's operator scanner reads the document-latest user turn across both compatible message-role families (`data-message-author-role="user"` and `data-user-message-bubble`), deduplicated by the surrounding `data-turn-key` turn when present; the worker additionally requires the same extension id, top frame and exact normalized conversation URL. Operator commands are persistently deduplicated in a bounded cache after execution. Separately, the latest user message already present when the current content script activates is baseline-only and is not executed as a new operator command; the baseline is reset on SPA conversation changes. This prevents a historical `LAB:OP:*` marker from replaying merely because Bridge was installed, reloaded, reinjected or navigated to another chat.
+The assistant parser rejects `LAB:OP:*`, and the operator parser rejects assistant controls. Operator-command dedupe is durable and bounded.
 
-`OP:ADD` resolves only an exact repository id from the current runtime catalog and creates the chat disabled, matching conservative popup onboarding. It never guesses a repository. A different repository for an already-bound chat is rejected; change the **conversation binding** by explicit remove/add rather than implicit rebind. An authorized multirepo planner may change its work target among listed repositories without changing the conversation binding.
+## Assistant-control parsing
 
-## Diagnostic feedback loop
+A control is parsed from the final supported marker in the latest assistant response. Text may precede the marker. After the marker only whitespace and a bounded set of punctuation/Markdown decorations are accepted; later letters, digits, emoji or unrelated text reject the candidate. A malformed final candidate does not fall back to an earlier marker.
 
-Assistant-safe inspect commands return a Bridge-generated user message beginning with:
+Transient assistant-control delivery failures retry unchanged assistant content with bounded backoff instead of permanently exhausting after a small fixed attempt count.
 
-```text
-[LA_BRIDGE_FEEDBACK]
-```
+## Current ChatGPT DOM contract
 
-This feedback is local read-only evidence, not operator approval. It allows the same ChatGPT conversation to diagnose Bridge without DevTools/manual log copy.
+Bridge supports three observed assistant representations:
 
-- `HELP` returns the live command catalog and privilege classes.
-- `CAPABILITIES` reports installed Bridge capabilities and explicitly unavailable authority.
-- `STATUS` returns this conversation's configured/bound/schedule state.
-- `DEBUG` returns extension version, expected and reported content protocol, exact tab/url, last delivery state, Master state and runtime source/pacing.
-- `SETTINGS` returns effective current-chat settings. The `local-agent` infrastructure binding may also see Bridge-global settings.
-- `CHATS` lists all configured chat routing metadata only from the `local-agent` infrastructure binding. Ordinary project-bound chats receive current-chat-only output.
-- `CHAT=<chat-id>` may inspect another chat only from the `local-agent` infrastructure binding.
+1. legacy `[data-message-author-role="assistant"]`;
+2. current `[data-conversation-role="assistant"]`;
+3. bounded grouped-turn fallback on `[data-turn-key]` when no explicit assistant node exists for that logical turn.
 
-Bridge diagnostics deliberately do **not** provide direct repository task cancellation or Local Agent supervisor restart authority. `CAPABILITIES` reports those as unavailable. Existing repository-scoped `cancel_task` still belongs to the Git-backed Local Agent control plane.
+The grouped fallback does **not** require a user bubble. v4.19.8 live evidence showed assistant-only turns containing assistant paragraphs/action controls with neither a user bubble nor an explicit assistant-role marker. Bridge clones the turn, removes recognized user bubbles and action controls, and accepts the turn as assistant content only when residual assistant text or a recognized structured assistant error remains. User-only shells therefore remain fail-closed.
 
-## Conversation control syntax
+When explicit and grouped representations coexist, Bridge merges them by logical turn and document order; an explicit assistant node wins only inside the same logical turn. An older explicit node must not hide a newer grouped-only assistant turn.
 
-A control is accepted from the end of the latest assistant message in that exact conversation. Text before the marker needs no separating whitespace: `Acknowledged.[LAB:PAUSE]` works. After the marker, including subsequent lines or paragraphs, only whitespace and these decorations are allowed: straight quotes/apostrophes, typographic quotes `“ ” „ ‘ ’ ‚ « » ‹ ›`, punctuation `. , ! ? ; : …`, dashes `- – —`, Markdown characters (asterisk, underscore, backtick, tilde), and closing brackets `) ] }`. Letters, numbers, emoji and other symbols after the marker cause rejection. Compatibility `LOCAL_AGENT_BRIDGE:` forms remain accepted for the assistant control namespace.
-
-Only the last candidate beginning with `[LAB:` or `[LOCAL_AGENT_BRIDGE:` is considered. A malformed or unsupported final candidate rejects the answer; the parser never falls back to an earlier command. Quotes and rendered Markdown (`code`, `pre`, `strong`, `blockquote`) do not exempt a trailing marker from execution. Put explanatory text after examples that must not execute.
-
-- `STOP` disables only that conversation and clears its persistent interval override.
-- `PAUSE` disables only that conversation while preserving its interval override.
-- `RESUME` re-enables that conversation and schedules a near-term retry wake.
-- `NEXT=<duration>` arms or re-arms that conversation, sets `enabled=true`, and changes only its next wake. The compatibility protocol accepts 30 seconds through 24 hours; autonomous healthy-task polling uses the stricter two-minute-or-longer planner policy.
-- `INTERVAL=<minutes>` sets the persistent per-conversation interval override.
-- `INTERVAL=AUTO` returns that conversation to runtime/default pacing.
-
-Per-conversation assistant pacing controls may overwrite ordinary chat enabled/paused state, next wake or interval. The global **Master** switch remains operator-only. No assistant-safe command can change repository binding.
-
-Transient assistant-control failures are retried for unchanged assistant content with bounded 5-30 second backoff and no fixed terminal-attempt exhaustion.
+See `docs/CHATGPT_DOM_CONTRACT.md` for the authoritative selectors and terminal-error rules.
 
 ## Delivery model
 
-Bridge intentionally does **not** keep a durable ambiguous-delivery journal for the normal user-message submission path.
+Bridge keeps no durable ambiguous-delivery journal for normal wake submission.
 
-Content protocol v13 protects exact conversation URL, operator-draft preservation, one active delivery per conversation, authorization immediately before normal wake submission, exact DOM confirmation when available, the LAB operator-control baseline, current/legacy ChatGPT message-role discovery, and fail-closed grouped-turn assistant selection. `CONTENT_PROTOCOL_VERSION` is owned only by `control_protocol.js`; content, worker, popup and tests consume that shared value.
+- confirmed submitted user DOM -> `sent`;
+- no usable Send button in the bounded window -> `send_button_not_ready`;
+- submission happened but the exact user message cannot be confirmed -> `delivery_unconfirmed`.
 
-When ChatGPT exposes no explicit assistant-role node, Bridge may fall back to a `data-turn-key` turn only when bounded sanitization leaves non-empty assistant text or a structured assistant error. Assistant LAB text is derived from a clone with recognized user bubbles and grouped action controls removed, so a user-only turn collapses to empty assistant text and user-authored LAB markers cannot cross into the assistant namespace.
+`delivery_unconfirmed` is diagnostic only. It does not disable the conversation or block controls.
 
-Chat Bridge 0.5.18 uses content protocol v13 and assistant guard protocol v8. Content protocol v13 keeps the assistant-only grouped-turn LAB selection contract introduced by this release. Guard v8 refreshes already-open tabs onto the expanded structured assistant-error contract that recognizes both `Message delivery timed out. Please try again.` and `Resume stream unavailable` while preserving exact-tab, Bridge-ownership and bounded-retry authorization. Worker activation probes both protocols; a reachable stale guard is replaced even when `content.js` itself is already current.
+A retained Bridge prompt may be reused only when the composer still matches it byte-for-byte. Any operator edit blocks automatic reuse.
 
-Popup and scheduled-wake paths share worker-owned content activation. Popup does not maintain a second protocol version or `chrome.scripting.executeScript` implementation. When a tab must be refreshed, the worker disposes current Bridge/guard listeners, injects the required scripts, then probes readiness again. A reachable older content script or assistant guard therefore must not require a normal manual ChatGPT page reload.
+## Recoverable assistant terminal errors
 
-After insertion/submission:
-
-- confirmed DOM insertion is `sent`;
-- a missing receiver before submission is treated as safely unsent/retryable;
-- if Bridge inserted its wake but ChatGPT does not expose a usable Send button in the bounded window, status is `send_button_not_ready` and the exact Bridge prompt remains visible;
-- if the browser cannot confirm the submitted user message in its bounded observation window, status is `delivery_unconfirmed` and any exact retained Bridge prompt remains visible instead of being erased.
-
-A later run may reuse a non-empty composer only when the previous Bridge state is recoverable and the composer text is byte-for-byte identical to the current Bridge prompt. Any operator edit, extra whitespace or unrelated draft blocks automatic reuse.
-
-`delivery_unconfirmed` is diagnostic only. It does not disable the conversation, create `pendingDelivery`, clear the schedule, block controls, require a manual resolution decision or prevent removal.
-
-## Assistant terminal-error recovery
-
-`Message delivery timed out. Please try again.` and `Resume stream unavailable` are structured post-submission failure classes: the Bridge user message has already been accepted, and ChatGPT later renders an assistant error card with Retry. Recovery therefore observes the assistant side and invokes ChatGPT's native Retry instead of resubmitting the accepted user prompt.
-
-The detector fails closed and acts only when a recognized recoverable error card is the latest rendered conversation turn. A retained older error behind any newer user or assistant turn is ignored. Automatic recovery is authorized only for the exact preferred tab and only when the triggering user message begins with the configured conversation's Bridge binding envelope/policy. A normal operator-authored message may be diagnosed with an `_unowned` assistant-error status, but Bridge never clicks Retry for it.
-
-Before each automatic click, the worker revalidates the exact tab, conversation URL, binding revision, conversation generation, Master switch, enabled state and Bridge ownership. The guard then revalidates the live timeout snapshot and Retry button immediately before clicking. Duplicate tabs cannot independently consume the same retry budget.
-
-The retry budget is durable in Chrome local storage and scoped to the conversation, binding revision, triggering user identity and error kind. It is reset on rebind, remove and re-add lifecycle boundaries. The bounded policy is:
+The assistant guard recognizes exactly these typed terminal errors:
 
 ```text
-attempt 1: 1.5 s
-attempt 2: 5 s
-attempt 3: 15 s
+Message delivery timed out. Please try again.
+Resume stream unavailable
 ```
 
-If ChatGPT keeps the same recoverable-error DOM node while Retry is generating, the guard waits through generation rather than assuming an 8-second completion deadline. After the third unsuccessful Retry, the worker records `assistant_retry_exhausted`, disables only that conversation and clears its alarm.
+Both require a structured assistant error card and ChatGPT's native Retry control. Unknown Retry-looking errors fail closed.
 
-Normal wake delivery also probes the live assistant guard first. While a recoverable assistant error remains unresolved, `Run now` and scheduled wakes return `assistant_recovery_pending` instead of placing another user message on top of the failed turn. The preflight also re-arms the same recognized error after a previous retry was cancelled by a lifecycle/Master transition. Once the error card is no longer the current live DOM state, normal wake delivery can continue.
+Automatic Retry is narrower than detection: the worker requires the exact preferred tab, exact conversation URL, current binding revision/generation, enabled Master/conversation state, and a triggering user message owned by Bridge. Manual user prompts may be diagnosed but are never automatically retried.
 
-The authoritative DOM contract is documented in `docs/CHATGPT_DOM_CONTRACT.md`.
+The durable retry budget is three authorized native Retry clicks:
 
-## Active Local Agent task cancellation
+```text
+1: 1.5 s
+2: 5 s
+3: 15 s
+```
 
-The executor already supports repository-scoped `cancel_task` for an exact task id. The ChatGPT planner should use it in the exact target repository when current run/status evidence already proves that a long-running task cannot achieve the intended outcome, rather than waiting for the task timeout. See `docs/AUTONOMOUS_CHAT_LOOP.md` and `docs/EMERGENCY_CONTROLS.md`.
+After exhaustion the conversation is disabled as `assistant_retry_exhausted` and its alarm is cleared. While a recognized error is unresolved, `Run now` and scheduled wakes return `assistant_recovery_pending` instead of stacking another user message.
 
-This is deliberately not a direct Bridge command. The extension has no repository-write credential/native executor channel. A future direct cancel command needs a separate trusted operator transport.
+## MV3 update/reload rule
+
+A ChatGPT page reload is **not** a substitute for reloading an unpacked MV3 extension runtime. During the 2026-09-29 field test, a stale service worker still reported an older protocol while freshly injected page scripts were newer, producing `content_script_protocol_mismatch`.
+
+For source/protocol upgrades:
+
+- normal worker-owned activation may replace reachable stale content/guard scripts;
+- if the MV3 service worker itself is stale, reload the Bridge runtime (`RELOAD=BRIDGE`, extension reload, or restart the dedicated diagnostic CfT profile);
+- verify worker/content/guard versions again before interpreting later failures.
+
+External recovery and managed diagnostic-browser stop are fail-closed while ChatGPT exposes an active generation Stop control. Explicit `--force` is reserved for deliberate emergency interruption.
 
 ## Popup
 
-The popup exposes per chat:
+The popup exposes:
 
-- enable/pause switch;
+- current-chat repository selection/add;
+- per-chat enable/pause;
 - wake interval override;
 - `Run now`;
-- `Remove`.
+- `Remove`;
+- global Master switch.
 
-Binding can be selected when adding the current chat. The same operator actions are also available from user-authored `LAB:OP:*` commands. To choose another **conversation binding** for an existing chat, remove it and add it again; no implicit assistant rebind exists. This is separate from target selection inside an explicitly authorized `planner_scope=multirepo` conversation.
+Popup add is conservative and initially disabled. This is independent from assistant `ADD`, which creates the exact binding enabled.
 
-The global Master switch suspends scheduled alarms without deleting per-conversation state or changing bindings.
+## Install / diagnostic profile
 
-## Worker module boundaries
-
-`service_worker.js` is composition only:
-
-- `worker_base.js` — shared protocol constants and small process-local registries;
-- `worker_state.js` — serialized Chrome storage reads/writes;
-- `worker_runtime.js` — runtime fetch/cache/validation;
-- `worker_binding.js` — catalog binding lookup and planner-scope prompt policy;
-- `worker_schedule.js` — Chrome alarms and schedule reconciliation;
-- `worker_transport.js` — tab discovery, content/assistant-guard preflight and delivery authorization;
-- `worker_controls.js` — assistant scheduling/maintenance control validation;
-- `worker_delivery.js` — one normal feedback delivery lifecycle plus unresolved-timeout wake gate;
-- `worker_assistant_errors.js` — exact-tab structured assistant-error ownership, durable retry accounting and fail-closed exhaustion;
-- `worker_conversations.js` — popup/operator conversation/global-setting mutations and timeout-recovery lifecycle reset;
-- `worker_lab_commands.js` — LAB diagnostics, command feedback, operator command dedupe/mutations and force content refresh;
-- `worker_events.js` — Chrome event/message routing only.
-
-## Runtime catalog
-
-Remote runtime schema v3 publishes pacing and the canonical agent catalog. Repository ids, repository names and binding UUIDs must each be unique. Binding UUIDs use canonical lowercase UUID text. Only runtime schema v3 is accepted and `execution_enabled` must be a JSON boolean. `planner_scope` defaults to `repository`; allowed values are `repository` and `multirepo`, and `multirepo` requires an execution-enabled operator binding. Invalid/unavailable runtime configuration blocks sending as `runtime_unavailable`; there is no guessed fallback identity catalog.
-
-The runtime catalog is authorization input. A multirepo planner may target only listed repositories, and any Local Agent task must carry the exact canonical binding of its target repository. The conversation's own binding never substitutes for a different target binding.
-
-## Executor-side protection
-
-Bridge routing is only one boundary. For executable target repositories Local Agent independently requires:
-
-```text
-local repository registry agent_binding
-    == <control checkout>/.agent/binding.json agent_binding
-    == task.agent_binding
-```
-
-The parallel worker and serial fallback enforce the same contract before task execution. The global Local Agent `disabled` marker remains higher priority than repository admission. Planner multirepo authorization does not bypass executor repository identity, leases, resource admission or watchdogs.
-
-## Install/update
+For normal manual installation:
 
 1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Click **Load unpacked** and select this repository's `chat_bridge` directory.
-4. Open a concrete ChatGPT conversation.
-5. Open the extension, select the exact conversation binding and click **Add current chat**, or type an explicit user operator command such as `[LAB:OP:ADD=host-ops]`.
-6. Select `host-ops` when one conversation should be the cross-repository operator workspace; normal repository selections remain single-repository.
-7. Use a chat control or `Run now` for an end-to-end test.
+2. Enable Developer mode.
+3. Load unpacked `chat_bridge/`.
+4. Open one concrete `/c/<id>` ChatGPT conversation.
+5. Bind it through popup, user-authored `LAB:OP:ADD`, or explicit assistant `LAB:ADD`.
 
-After pulling an extension update, click **Reload** on the extension card. Do not normally reload every open ChatGPT tab: worker-owned content refresh is expected to replace a reachable older content protocol **and** a reachable older assistant guard automatically. Reload the page only when Chrome has discarded/broken the tab or explicit diagnostics show content cannot be activated. Chat Bridge 0.5.18 requires Chrome 120 or newer.
+For the maintained diagnostic environment, use the dedicated Chrome-for-Testing profile and the repository Host Ops helpers. Do not reuse or mutate the user's daily Chrome profile merely to recover Bridge diagnostics.
 
-## Development validation
+## Verification
+
+Focused Bridge verification:
 
 ```bash
 python scripts/verify.py --only bridge
-npm install --no-save --package-lock=false playwright@1.57.0
-npx playwright install chromium
+```
+
+Real-extension browser verification:
+
+```bash
 python scripts/verify.py --profile bridge-browser
 ```
 
-Browser smoke uses a disposable offline Chromium profile and the actual unpacked extension. It covers confirmed submission, composer replacement, draft preservation, SPA navigation, overlapping sends, retained/non-blocking `delivery_unconfirmed` recovery, popup behavior, service-worker restart, operator-control replay baselining, stale protocol/guard refresh, both recognized assistant terminal-error texts, stale-error rejection and same-node long-generation three-attempt fail-closed recovery without contacting the operator's real ChatGPT session.
+A release that changes Bridge runtime behavior still requires the repository's full CI matrix and macOS smoke according to `AGENTS.md` and `docs/GOLDEN_STANDARD.md`.
