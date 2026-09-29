@@ -57,6 +57,7 @@ function validateRuntimeConfig(raw, settings) {
   if (!raw || typeof raw !== "object" || raw.schema_version !== 3) {
     throw new Error("runtime config must use schema_version=3");
   }
+  const agents = validateRuntimeAgents(raw.agents);
   return {
     intervalMinutes: clampNumber(
       raw.interval_minutes,
@@ -77,7 +78,8 @@ function validateRuntimeConfig(raw, settings) {
       2000,
       "runtime wake prompt"
     ),
-    agents: validateRuntimeAgents(raw.agents)
+    agents,
+    conversationControls: githubControlModel.validateConversationControls(raw.conversation_controls, agents)
   };
 }
 
@@ -102,7 +104,8 @@ function fallbackRuntime(settings) {
       2000,
       "fallback wake prompt"
     ),
-    agents: []
+    agents: [],
+    conversationControls: []
   };
 }
 
