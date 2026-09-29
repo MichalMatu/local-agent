@@ -40,19 +40,20 @@ def configure_control_hold_task(
     release = shlex.quote(str(release_marker))
     task["resources"] = []
     task["memory_limit_mb"] = 256
-    task["command_timeout"] = 15
-    task["idle_timeout"] = 10
+    # Hold long enough that hosted macOS startup latency cannot race the assertion.
+    task["command_timeout"] = 30
+    task["idle_timeout"] = 20
     task["task_timeout"] = 120
     task["steps"] = [
         {
             "name": "hold-control-repository",
             "command": (
                 f"touch {started}; "
-                'i=0; while [ "$i" -lt 1000 ]; do '
+                'i=0; while [ "$i" -lt 3000 ]; do '
                 f"[ -f {release} ] && exit 0; "
                 'i=$((i+1)); sleep 0.01; done; exit 7'
             ),
-            "timeout": 15,
+            "timeout": 30,
         }
     ]
     task_path.write_text(json.dumps(task, indent=2) + "\n", encoding="utf-8")
@@ -169,7 +170,8 @@ raise SystemExit(parallel.main())
                 time.sleep(0.6)
                 queue_late_task(root, late_repo, marker=late_started)
 
-                if not wait_for_path(late_started, 4):
+                # Admission is the contract; command-start latency is not a 4 s SLA.
+                if not wait_for_path(late_started, 10):
                     proc.terminate()
                     output, _ = proc.communicate(timeout=10)
                     self.fail(
