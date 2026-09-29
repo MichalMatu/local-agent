@@ -27,7 +27,7 @@ One controlled conversation has one record:
 
 `conversation_id`, repository identity, canonical `agent_binding`, and `binding_revision` must match the locally configured conversation exactly. The repository tuple must also exist in the current validated runtime agent catalog. Mismatches fail closed and do not mutate local state.
 
-`control_generation` is a positive monotonically increasing integer for that conversation. A higher generation applies new desired state exactly once. Re-reading the same generation does not re-arm an already-correct one-shot wake. If legacy DOM controls or the popup drift `enabled` or `interval_minutes`, the same GitHub generation repairs that drift back to the authoritative desired state.
+`control_generation` is a positive monotonically increasing integer within one binding revision. A higher generation applies new desired state exactly once. Re-reading the same generation does not re-arm an already-correct one-shot wake. Applied acknowledgements are scoped by binding revision and local conversation generation, so an explicit rebind gets an independent generation space and any local pacing mutation is detectable.
 
 `enabled=false` clears the conversation alarm. `enabled=true` schedules `next_wake_at` when it is present; otherwise it uses `interval_minutes`, or the runtime default interval when that field is null. A past one-shot deadline is never replayed indefinitely: drift recovery after that deadline falls back to the normal interval.
 
@@ -39,7 +39,7 @@ Chrome creates a dedicated one-minute GitHub-control alarm during extension inst
 
 The GitHub-control alarm only fetches the existing public remote runtime URL. The extension does not contain a GitHub token and does not write to GitHub.
 
-The worker also reconciles remote desired state before popup state reads, manual `Run now`, and ordinary scheduled wake delivery. Runtime fetch failure leaves the last local state unchanged and fails closed.
+The worker also reconciles remote desired state before popup state reads, manual `Run now`, and ordinary scheduled wake delivery. Runtime fetch failure leaves the last local state unchanged and fails closed. If a matching GitHub control was already applied, temporary runtime/network failure does not hand schedule ownership back to DOM controls.
 
 ## Control ownership
 
@@ -57,7 +57,9 @@ Binding mutations (`ADD`, `REBIND`, `REMOVE`) are intentionally outside this fir
 
 ## Legacy LAB compatibility
 
-Assistant/user LAB schedule controls may remain temporarily as a compatibility fallback during migration, but they are no longer authoritative for a conversation managed by `conversation_controls`. The next reconciliation repairs any local schedule drift back to GitHub desired state.
+For a GitHub-managed conversation, assistant schedule controls (`STOP`, `PAUSE`, `RESUME`, `NEXT`, `INTERVAL`) and user `OP:ENABLE` / `OP:DISABLE` / `OP:INTERVAL` are recognized only so the scanner can terminate/dedupe them. They return `github_control_managed` and do not mutate scheduler state. Inspection, binding and Bridge-maintenance controls remain available during migration.
+
+A popup or older local build can still mutate local pacing state temporarily. The applied ACK stores `(bindingRevision, controlGeneration, localGeneration)`, so the next reconciliation detects that generation drift and restores GitHub desired state. A schedule-only legacy `NEXT` is therefore detected even when `enabled` and `interval_minutes` themselves did not change.
 
 The target architecture removes assistant-side DOM parsing from the normal pacing path entirely. ChatGPT DOM changes must not be able to change whether GitHub says a conversation is paused, resumed, or scheduled for a specific wake.
 
@@ -68,9 +70,10 @@ The target architecture removes assistant-side DOM parsing from the normal pacin
 - repository/binding identity is validated twice: against the runtime catalog and against local conversation binding state;
 - stale binding revisions fail closed;
 - stale control generations are ignored;
+- applied generations are binding-revision scoped;
 - duplicate conversation-control records are rejected;
 - malformed timestamps, ranges, identities, or booleans make remote runtime validation fail closed;
-- remote runtime unavailability does not silently substitute another control source;
+- remote runtime unavailability does not silently substitute another control source after GitHub ownership has been established;
 - the conversation control plane cannot change global Master.
 
 ## Rollout
