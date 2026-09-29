@@ -13,11 +13,10 @@ function githubManagedControlResult(authority) {
 }
 
 async function githubAuthorityForControlMessage(message, sender) {
-  const senderUrl = normalizeConversationUrl(sender?.url || sender?.tab?.url || "");
-  const declaredUrl = normalizeConversationUrl(message?.conversationUrl || "");
-  if (!senderUrl || senderUrl !== declaredUrl) return null;
+  const url = labSenderUrl(message, sender);
+  if (!url) return null;
   const state = await getBridgeState();
-  const conversation = state.conversations[conversationId(declaredUrl)] || null;
+  const conversation = state.conversations[conversationId(url)] || null;
   if (!conversation) return null;
   return githubScheduleAuthority(conversation, state);
 }
@@ -25,7 +24,7 @@ async function githubAuthorityForControlMessage(message, sender) {
 applyAssistantControl = async function applyGithubAwareAssistantControl(message, sender) {
   const parsed = parseAssistantControl(String(message?.control?.marker || ""));
   const scheduleActions = new Set(["stop", "pause", "resume", "interval", "next"]);
-  if (parsed && scheduleActions.has(parsed.action)) {
+  if (parsed && scheduleActions.has(parsed.action) && validControlFingerprint(message)) {
     const authority = await githubAuthorityForControlMessage(message, sender);
     if (authority) return githubManagedControlResult(authority);
   }
@@ -35,7 +34,8 @@ applyAssistantControl = async function applyGithubAwareAssistantControl(message,
 applyOperatorLabControl = async function applyGithubAwareOperatorControl(message, sender) {
   const parsed = parseOperatorControl(String(message?.control?.marker || ""));
   const scheduleCommands = new Set(["enable", "disable", "interval"]);
-  if (parsed && scheduleCommands.has(parsed.command)) {
+  const fingerprint = String(message?.fingerprint || "");
+  if (parsed && scheduleCommands.has(parsed.command) && /^[0-9a-f]{8}$/.test(fingerprint)) {
     const authority = await githubAuthorityForControlMessage(message, sender);
     if (authority) return githubManagedControlResult(authority);
   }
