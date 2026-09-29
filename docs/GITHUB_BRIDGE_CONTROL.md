@@ -35,7 +35,7 @@ One controlled conversation has one record:
 
 ## Discovery lifecycle
 
-Chrome creates a dedicated one-minute GitHub-control alarm during extension install/startup. Chrome alarms survive Manifest V3 service-worker suspension, so a remotely paused conversation can later discover a GitHub `RESUME` even when it has no conversation wake alarm of its own.
+Every Manifest V3 service-worker activation ensures a dedicated one-minute GitHub-control alarm exists; extension install/startup lifecycle performs the same idempotent initialization. This covers normal browser startup **and** a manual Reload of an unpacked extension. Chrome alarms survive subsequent service-worker suspension, so a remotely paused conversation can later discover a GitHub `RESUME` even when it has no conversation wake alarm of its own.
 
 The GitHub-control alarm only fetches the existing public remote runtime URL. The extension does not contain a GitHub token and does not write to GitHub.
 
