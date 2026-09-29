@@ -1,121 +1,164 @@
 # ChatGPT DOM contract for Chat Bridge
 
-This document records observed ChatGPT DOM structures that Local Agent may use as browser-integration signals. Treat these selectors as compatibility contracts, not product guarantees: every selector must fail closed when the page shape changes.
+This document records the **current implemented compatibility contract** used by Local Agent Chat Bridge. It is intentionally narrow: selectors are evidence, not ChatGPT product guarantees, and every unsupported page shape must fail closed.
 
+Historical release notes under `docs/RELEASE_NOTES_*.md` describe earlier renderer assumptions. Do not use an older release note as the current DOM contract.
 
-## Conversation turn discovery
+## Current production baseline
 
-Live inspection on 2026-09-28 showed a newer ChatGPT turn shape in which the legacy `data-message-author-role` and `conversation-turn-*` markers were absent. The stable signals observed on the exact production conversation were:
-
-- assistant message content: `[data-conversation-role="assistant"]`;
-- user message content: `[data-user-message-bubble]`;
-- surrounding stable turn identity when present: `[data-turn-key]`.
-
-Bridge collects both the older `data-message-author-role="assistant|user"` family and the newer role family in document order, then deduplicates nested representations by their surrounding `data-turn-key` turn when present. Live inspection on 2026-09-29 also confirmed an assistant-only renderer variant: a `data-turn-key` can contain assistant paragraph content and action buttons while exposing neither a user bubble nor an explicit assistant-role marker. For LAB control discovery, grouped-turn fallback therefore admits residual non-empty text after cloning the turn and removing recognized user bubbles plus button/role=button action controls; a user-only grouped turn still collapses to empty text and is rejected. It must never prefer an older legacy-role turn merely because at least one legacy marker still exists during a staged ChatGPT rollout. `data-turn-key` is used only as a DOM turn identity fallback; it is never treated as Bridge or repository identity. The same combined user selector contract is used to confirm that a just-submitted Bridge prompt actually appeared as the newest user turn.
-
-## Conversation length exhaustion
-
-Observed live ChatGPT markup on 2026-09-06 when a conversation reaches its maximum length:
-
-```html
-<div
-  data-message-author-role="assistant"
-  data-message-id="<assistant-message-id>"
-  class="..."
->
-  <div class="text-token-text-error ...">
-    ...
-    <p>
-      You've reached the maximum length for this conversation, but you can keep talking by starting a new chat.
-    </p>
-    ...
-    <button class="btn ... btn-secondary">
-      <div class="...">
-        <svg ...></svg>
-        Start new chat
-      </div>
-    </button>
-  </div>
-</div>
+```text
+Local Agent:      v4.19.8
+Chat Bridge:      0.5.18
+content protocol: v13
+assistant guard:  v8
 ```
 
-The useful signals are deliberately structural and textual rather than generated class strings:
+The field evidence that led to this contract is summarized in `CHAT_BRIDGE_HANDOFF_2026-09-29.md`.
 
-- message root: `[data-message-author-role="assistant"]`;
-- error container inside that message: `.text-token-text-error`;
-- normalized error text contains `You've reached the maximum length for this conversation`;
-- a descendant `button` has normalized visible text exactly `Start new chat`;
-- `data-message-id` is useful as an observed assistant-message identity but must not be interpreted as a repository or bridge identity.
+## Logical turn discovery
 
-Do not depend on Tailwind utility classes, SVG sprite ids, generated CSS hashes, element depth, or the complete sentence remaining byte-for-byte identical.
+Supported explicit role families:
+
+```text
+assistant legacy: [data-message-author-role="assistant"]
+assistant current: [data-conversation-role="assistant"]
+user legacy:      [data-message-author-role="user"]
+user current:     [data-user-message-bubble]
+logical turn:     [data-turn-key]
+```
+
+Bridge collects compatible explicit role nodes in document order and deduplicates nested representations by the surrounding `data-turn-key` when present.
+
+### Assistant grouped-turn fallback
+
+Live inspection on 2026-09-29 confirmed an assistant-only renderer variant where a `data-turn-key` contains assistant paragraph content and action controls but exposes **neither** a user bubble **nor** an explicit assistant-role marker.
+
+Therefore grouped assistant fallback must **not** require a user bubble.
+
+For assistant LAB discovery Bridge:
+
+1. clones the logical `data-turn-key` turn;
+2. removes recognized user bubbles;
+3. removes grouped action controls (`button`, `[role="button"]`);
+4. treats the turn as assistant content only if residual text is non-empty.
+
+This preserves both sides of the boundary:
+
+- assistant-only grouped turns remain visible to the scanner;
+- user-only grouped shells collapse to empty residual assistant text and cannot execute assistant controls.
+
+When an explicit assistant node and grouped fallback refer to the same turn, keep the explicit node. A newer grouped-only assistant turn may still supersede an older explicit turn by document order.
+
+`data-turn-key` is only a DOM turn identity fallback. It is never a Bridge conversation id, repository id or agent binding.
+
+## Submitted-user confirmation
+
+The same combined user selector contract is used to confirm that a just-submitted Bridge prompt appears as the newest user turn. Do not infer successful delivery solely from a click or form submission attempt.
+
+## Assistant generation state
+
+Generation is considered active only when a visible ChatGPT Stop control is present:
+
+```text
+button[data-testid="stop-button"]
+button[data-testid="composer-stop-button"]
+```
+
+External recovery/reload and managed diagnostic-browser stop must fail closed while generation is active unless the operator explicitly requests the emergency force path.
+
+## Conversation-length exhaustion
+
+A conversation is exhausted only when the latest supported assistant turn contains:
+
+- `.text-token-text-error`;
+- normalized text containing `You've reached the maximum length for this conversation`;
+- one descendant `button` whose normalized visible text is exactly `Start new chat`.
+
+Generated CSS classes, SVG ids, exact nesting depth and complete sentence equality are not part of the contract.
+
+When detected, Bridge records `conversation_exhausted`, disables that conversation and clears its alarm. Rollover into a new ChatGPT conversation is **not** implemented by this DOM contract and is outside the current runtime behavior.
 
 ## Recoverable assistant terminal errors
 
-Observed ChatGPT markup after the user message has already been accepted can expose a terminal assistant-side Retry card. The first captured shape on 2026-09-22 was:
-
-```html
-<div data-message-author-role="assistant" data-message-id="<assistant-message-id>">
-  <div class="... text-token-text-error ...">
-    <p>Message delivery timed out. Please try again.</p>
-    <button data-testid="regenerate-thread-error-button">Retry</button>
-  </div>
-</div>
-```
-
-A later live failure captured on 2026-09-29 used the same structured Retry interaction but the terminal text `Resume stream unavailable`. It may also appear inside an assistant-only `data-turn-key` renderer without an explicit assistant-role marker.
-
-The recoverable-error detector deliberately requires all of these conditions:
-
-- the **latest rendered conversation turn across both supported role families and the bounded grouped-turn fallback** is an assistant/error turn;
-- that latest turn contains `.text-token-text-error`;
-- normalized error text contains one of the explicitly recognized strings: `Message delivery timed out. Please try again.` or `Resume stream unavailable`;
-- the error contains `button[data-testid="regenerate-thread-error-button"]`, or as a compatibility fallback a descendant button whose normalized visible text is exactly `Retry`;
-- the triggering user turn still exists and is the latest user turn.
-
-A matching error card that is followed by any newer rendered conversation turn is stale evidence and must not be retried. This prevents an old retained error node from being attached to a later user/assistant exchange. Unknown error text fails closed even when a Retry-looking button is present.
-
-The content guard may use the assistant DOM identity to distinguish the currently rendered error card, but the durable retry budget is keyed to the conversation, binding revision, recoverable error kind and a deterministic triggering-user identity derived from transcript position plus user text. It must not depend on a ChatGPT DOM message id remaining stable across page rehydration.
-
-Automatic Retry is narrower than detection. The worker authorizes a click only when the triggering user text begins with the exact hard-binding Bridge envelope/policy for that configured conversation. An error after a normal operator-authored user message is reported diagnostically but never clicked automatically.
-
-Immediately before every click the content guard rechecks the exact conversation URL, triggering-user identity, error snapshot, assistant generation state and Retry-button usability. The action is ChatGPT's own Retry button; Bridge never creates a replacement user message for this failure mode.
-
-Retry accounting is durable and bounded to three authorized clicks with 1.5 s, 5 s and 15 s delays. If ChatGPT reuses the same error DOM node while Retry is generating, the guard waits through generation and only re-evaluates the unchanged error after generation has stopped. After the third unsuccessful Retry the worker records `assistant_retry_exhausted`, disables that conversation and clears its alarm instead of layering a new wake over the failed turn.
-
-## Current bridge behavior
-
-Chat Bridge detects conversation-length exhaustion before attempting another wake delivery. A detected exhausted conversation is terminal for the current conversation URL: the bridge records `conversation_exhausted`, disables that conversation, and clears its scheduled alarm. It does not repeatedly type into a dead composer and does not automatically change repository binding.
-
-Recognized assistant terminal errors are a separate post-submission recovery path. They do not reuse `delivery_unconfirmed`: normal delivery is already considered transport-confirmed once the exact submitted user message appears in the DOM. A later assistant-side `Message delivery timed out. Please try again.` or `Resume stream unavailable` card is therefore detected and recovered independently.
-
-The existing hard-binding rule still applies:
+Bridge currently recognizes exactly two post-submission assistant terminal errors:
 
 ```text
-one ChatGPT conversation == one immutable agent_binding == one repository
+Message delivery timed out. Please try again.
+Resume stream unavailable
 ```
 
-## Future supervisor / "superchat" rollover
+A recoverable error requires all of the following:
 
-A higher-level supervisor can later use the same DOM contract to continue work across ChatGPT conversation boundaries. The expected rollover transaction should be explicit and stateful:
+- the latest rendered conversation turn across explicit role families and the bounded grouped-turn fallback is the assistant/error turn;
+- that turn contains `.text-token-text-error`;
+- normalized error text contains one of the two recognized strings above;
+- the error contains `button[data-testid="regenerate-thread-error-button"]`, or as a bounded compatibility fallback a descendant button whose normalized visible text is exactly `Retry`;
+- the triggering user turn still exists and is the latest user turn.
 
-1. Detect the exhausted assistant error using the contract above.
-2. Capture the old bridge conversation state: repository id, repository name, `agent_binding`, active goal metadata, pacing, and last verified evidence pointers.
-3. Click the exact descendant button whose normalized visible text is `Start new chat`.
-4. Wait for the new-chat UI to become ready. A root/new-chat page does not yet have a stable `/c/<id>` conversation URL.
-5. Inject one bootstrap/continuation prompt containing the old immutable repository binding plus a bounded handoff summary of the active goal and exact evidence.
-6. Wait until ChatGPT assigns the new concrete `/c/<new-id>` URL after the first submitted message.
-7. Create a new bridge conversation record for that new URL with the same repository binding, a fresh bridge conversation id, a fresh assistant baseline, and `bootstrapPending=true` or equivalent rollover state.
-8. Leave the exhausted old conversation disabled and immutable for audit/history. Never rewrite its URL into the new conversation.
-9. Resume scheduled wakes only after the new concrete URL and binding record are persisted.
+Unknown Retry-looking error cards fail closed.
 
-The superchat layer must preserve repository identity; rollover changes the ChatGPT conversation identity, not the Local Agent repository identity.
+A matching error followed by any newer user or assistant turn is stale evidence and must not be retried.
 
-## Failure policy for future rollover
+## Retry authorization boundary
 
-Automatic rollover must fail closed when any of these are ambiguous: no exact Start new chat button, multiple candidate buttons in the exhausted message, navigation did not reach a new-chat composer, the first message was not confirmed, the new `/c/<id>` URL was not observed, or the stored binding changed during the transaction.
+Detection is not authorization.
 
-Do not infer a new repository from the model's answer. Do not delete the old conversation record until the replacement conversation is durably registered. A recoverable supervisor should persist an explicit rollover journal before clicking so a browser/service-worker restart cannot silently duplicate or lose the handoff.
+Automatic native Retry requires the worker to revalidate:
 
-## Grouped-turn fallback observed on 2026-09-28
+- exact preferred tab;
+- exact normalized conversation URL;
+- current binding revision;
+- current conversation generation;
+- Master enabled state;
+- conversation enabled state;
+- Bridge ownership of the triggering user message.
 
-A later live renderer variant exposed five `[data-turn-key]` exchange containers and five `[data-user-message-bubble]` nodes while both explicit assistant-role families matched zero nodes. In this variant the turn container is the stable logical exchange boundary. Bridge 0.5.16 merges explicit assistant-role nodes and grouped turns by logical `data-turn-key` identity and document order. When an explicit assistant node and grouped fallback represent the same turn, the explicit node is retained; a newer grouped-only turn may still supersede older explicit turns only when removing recognized user bubbles leaves non-empty assistant content. A grouped turn containing only a user bubble is not an assistant candidate at all, so it cannot shadow the preceding assistant LAB control before the bounded scanner runs.
+Bridge ownership means the triggering user message begins with the exact current Bridge binding envelope/policy. A terminal error following a normal operator-authored prompt may be reported diagnostically but must not be clicked automatically.
+
+Immediately before every click the content guard rechecks the same live error snapshot, generation state and Retry-button usability. Bridge clicks ChatGPT's native Retry button; it never resubmits the already-accepted user prompt for these error classes.
+
+## Retry identity and budget
+
+Assistant DOM ids may change across rehydration and are not durable retry identity.
+
+The durable retry key is scoped to:
+
+- conversation;
+- binding revision;
+- recoverable error kind;
+- deterministic triggering-user identity derived from transcript position plus user text.
+
+The authorized retry budget is:
+
+```text
+attempt 1: 1.5 s
+attempt 2: 5 s
+attempt 3: 15 s
+```
+
+If ChatGPT reuses the same error node while Retry is generating, the guard waits through generation and re-evaluates after generation stops. After the third unsuccessful Retry, Bridge records `assistant_retry_exhausted`, disables only that conversation and clears its alarm.
+
+Normal wake delivery is blocked as `assistant_recovery_pending` while a recognized current error remains unresolved.
+
+## Binding semantics relevant to DOM handling
+
+One ChatGPT conversation has one **current Bridge binding revision**. An explicit `ADD`/`REBIND` may create a new binding revision; a wake emitted under a revision carries that exact immutable envelope.
+
+`planner_scope=multirepo` does not make the DOM binding ambiguous. The canonical `host-ops` conversation remains bound to `host-ops` while the planner may target other repositories from the validated runtime catalog; any Local Agent task still uses the exact binding of its target repository.
+
+Do not infer repository identity from DOM ids, ChatGPT text, model answers or renderer structure.
+
+## What is intentionally not part of this contract
+
+Do not depend on:
+
+- Tailwind/generated CSS class names;
+- generated SVG ids;
+- exact element depth;
+- a user bubble being present inside every assistant logical turn;
+- any one assistant role family existing globally on the page;
+- `data-message-id` remaining stable across rehydration;
+- a page reload refreshing an unpacked MV3 service worker;
+- speculative automatic cross-conversation rollover.
+
+New renderer variants must be added only from bounded live evidence plus focused DOM tests and real-extension browser regression coverage.
