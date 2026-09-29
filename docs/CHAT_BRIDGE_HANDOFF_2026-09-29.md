@@ -8,14 +8,15 @@ Do not reconstruct the debugging history from old chat messages or intermediate 
 
 ```text
 Local Agent release: v4.19.8
-production main:     7b436126cb2029d8757a38c32b31ed8e1e7430e2
+release commit:      7b436126cb2029d8757a38c32b31ed8e1e7430e2
 release tag:         v4.19.8 -> 7b436126cb2029d8757a38c32b31ed8e1e7430e2
+current main:        cb9a316333000df0ddf0b708d97084715b3ddda0 (docs-only descendant)
 Chat Bridge:         0.5.18
 content protocol:    v13
 assistant guard:     v8
 ```
 
-At handoff time the `host-ops` daemon also reports `daemon_version=4.19.8`, `self_revision=7b436126cb2029d8757a38c32b31ed8e1e7430e2`, execution model `multi_repository_worker`, and idle state.
+The docs-only `main` commit after the release does not change Bridge/runtime behavior. At release handoff the `host-ops` daemon reported `daemon_version=4.19.8`, `self_revision=7b436126cb2029d8757a38c32b31ed8e1e7430e2`, execution model `multi_repository_worker`, and idle state; a later self-update may advance `self_revision` to the docs-only descendant without changing the release version or Bridge code.
 
 Release 4.19.8 includes the final fixes from PRs #112/#113 and the macOS control-admission test stabilization that preceded final release.
 
@@ -162,7 +163,7 @@ Historical release notes remain historical evidence and should not be rewritten 
 
 ## Remaining work: final live acceptance test
 
-The final v4.19.8 source, tag and daemon are established. The remaining task is a **live E2E acceptance test on the same canonical CfT conversation** after final release.
+The final v4.19.8 source/tag/runtime behavior is established. The remaining task is a **live E2E acceptance test on the same canonical CfT conversation** after final release. The docs-only commits after the release do not change this runtime target.
 
 Do not make another runtime patch before this test fails with new evidence.
 
@@ -265,7 +266,9 @@ The v4.19.8 release notes record:
 - managed-session helper tests 13/13;
 - PR #112 full five-job CI green;
 - final candidate PR #113 full five-job CI green;
-- production tag `v4.19.8` on final main.
+- production tag `v4.19.8` on release commit `7b436126cb2029d8757a38c32b31ed8e1e7430e2`.
+
+The documentation refresh in PR #114 also passed the full five-job CI matrix before squash merge; it is documentation-only and does not change v4.19.8 runtime behavior.
 
 A separate macOS control-admission smoke race was stabilized before final release. It was a test-harness timing problem: logs showed the unrelated task had actually received `TASK START` even when the old assertion timed out waiting for a later marker. Do not treat that historical CI issue as a Chat Bridge runtime defect.
 
