@@ -169,7 +169,7 @@
 
   const TURN_SELECTOR = '[data-turn-key]';
   const USER_SELECTOR = MESSAGE_SELECTORS.user.join(", ");
-  const GROUPED_UI_SELECTOR = 'button, [role="button"]';
+  const GROUPED_UI_SELECTOR = 'button, [role="button"], .sr-only';
 
   function explicitMessageElements(role, root = document) {
     const selectors = MESSAGE_SELECTORS[role] || [];
