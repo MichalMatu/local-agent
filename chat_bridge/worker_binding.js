@@ -66,7 +66,7 @@ function githubScheduleControlPolicy(runtime, conversation) {
 function buildBootstrapPrompt(runtime, conversation) {
   const agent = runtimeAgentForConversation(runtime, conversation);
   const githubPolicy = githubScheduleControlPolicy(runtime, conversation);
-  const legacyPolicy = "Bridge binding and maintenance controls remain explicit migration paths until their GitHub control-plane equivalents are implemented; never use them for normal schedule/status operations.";
+  const legacyPolicy = "Bridge binding and maintenance controls remain explicit migration paths until their GitHub control-plane equivalents are implemented; never use them for normal schedule/status operations. Bridge conversation controls must never change the global Master switch.";
   return `${bindingPolicy(conversation, agent, runtime)}\n${runtime.bootstrapPrompt}\n${githubPolicy || "Bridge schedule control is not GitHub-managed for this conversation; use the currently supported explicit Bridge controls."}\n${legacyPolicy}`;
 }
 
