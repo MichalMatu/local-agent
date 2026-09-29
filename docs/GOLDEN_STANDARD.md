@@ -1,198 +1,201 @@
 # Local Agent Golden Standard
 
-This file records the release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.8` and the current production release is `v4.19.8`. The 4.19.8 release recognizes assistant-only grouped ChatGPT turns, recovers the captured `Resume stream unavailable` Retry card through the existing Bridge-owned bounded retry policy, advances the assistant guard contract to v8 / Chat Bridge 0.5.18, and makes external recovery plus managed diagnostic-browser stop fail closed while ChatGPT generation is active. `v4.19.7` is the immediate rollback point for this release.
+This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.9` and the current production release is `v4.19.8`. The 4.19.9 candidate moves normal Chat Bridge pacing/status authority to GitHub desired state, advances Chat Bridge to 0.6.0, keeps content protocol v13 and assistant guard v8, and has completed a daily-Chrome live E2E ending PAUSED. The deployed production release remains `v4.19.8` until the explicit release decision advances `main`. `v4.19.8` is the immediate rollback point.
+
+Candidate source must not be described as current production before the explicit release decision advances `main`.
 
 ## Release/runtime invariants
 
 - `main` is the production source of truth and normal installed runtime checkout.
-- `local_agent.version.RELEASE_VERSION` names the release prepared by the current source tree and, after release, the `vX.Y.Z` tag.
-- Candidate source must not be described as current production before the explicit release decision advances `main`.
-- A behavior-changing release must have matching `docs/RELEASE_NOTES_V<version>.md` and `docs/CHANGELOG.md` entries before verification can pass.
-- Candidate branches/worktrees are temporary validation infrastructure and are removed after a release is established.
-- Production multi-repository execution uses `agent_parallel.py --max-workers 4`; the scheduler hard cap is four and the default remains one.
-- `agent_multirepo.py` remains the serial fallback with concurrency one.
+- `local_agent.version.RELEASE_VERSION` names the prepared source release and, after release, the matching `vX.Y.Z` tag.
+- A behavior-changing release has matching release notes and a changelog entry before final verification.
+- Candidate branches/worktrees/staged runtime files are temporary validation infrastructure and are removed after production proof.
+- Production multi-repository execution uses `agent_parallel.py --max-workers 4`; scheduler hard cap is four and default concurrency remains one.
+- `agent_multirepo.py` remains serial fallback with concurrency one.
 - Only one daemon/supervisor may hold the daemon lock.
-- Shared supervisor polling/order/control primitives live under `local_agent/supervisor/`; the production parallel scheduler must not depend on the serial fallback entrypoint.
+- Shared scheduler/control/process ownership stays under the existing `local_agent` package boundaries; focused fixes must not add ad-hoc competing state machines.
 
 ## Execution and recovery invariants
 
-- The daemon is a deterministic executor, not a coding model.
-- Executable task command strings containing the `codex` token are rejected by the task contract before task execution.
+- Local Agent is a deterministic executor, not a coding model.
+- Executable task command strings containing the `codex` token are rejected before execution.
 - Every task has an immutable payload digest and one durable attempt claim.
 - Interrupted tasks are never automatically replayed.
 - Malformed/oversized task JSON is terminal input evidence.
-- Escape-safe `payload_file` references are additive in 4.19.2+, are materialized before normal validation/digesting, remain task-id scoped and may not increase the resolved logical task beyond the existing task-size bound.
-- Command/no-output/task/RSS limits remain bounded.
-- Already-running stages are not killed solely because the whole-task admission budget expires.
-- Command output transport/retention is bounded.
-- Every subprocess is registered and task commands use process groups.
-- Successful commands may not leave background descendants.
+- Escape-safe `payload_file` references remain task-id scoped, bounded and resolved before normal validation/digesting.
+- Command, no-output, whole-task and RSS limits remain bounded.
+- Already-running stages are not killed only because later admission budget expires.
+- Command output retention/transport is bounded.
+- Task subprocesses use registered process groups; successful tasks may not leave background descendants.
 - Graceful shutdown quiesces publication and terminates process groups with bounded escalation.
 - Dirty workspaces are checkpointed before destructive cleanup.
-- Final results are durably spooled before remote publication.
-- Publication recovery republishes evidence without re-executing commands.
-- Interrupted daemon-owned control metadata under status/runs/results/acks is recovered by exact path before control sync; unexpected task/control-request changes are never auto-cleaned.
-- Self-update accepts validated fast-forward updates from a clean `main` checkout and rolls back validation failure.
-- Self-update validation explicitly compiles the production entrypoints and runs the bounded full test suite before restart.
-- Terminal Git failures produce actionable diagnostics even when Git itself emitted no text.
-- Control checkout recovery may remove only daemon-owned control artifacts plus explicitly allowlisted untracked host metadata (`.DS_Store`); every other unknown local change remains fatal.
+- Final results are durably spooled before remote publication; publication recovery never re-executes commands.
+- Unexpected local control/workspace changes are never silently cleaned.
+- Self-update accepts only a validated fast-forward from a clean `main` checkout and rolls back validation failure.
+- Self-update validation compiles production entrypoints and runs the bounded verification suite before restart.
+- Control checkout recovery removes only daemon-owned control artifacts plus explicitly allowlisted host metadata.
 
-## Local MCP invariants
+## Repository/binding invariants
 
-- Generic MCP protocol ownership belongs to `local_agent/mcp/`; `host-ops` and project repositories do not own the transport/runtime boundary.
-- The first supported transport is official-SDK Streamable HTTP to an endpoint whose host is exactly `127.0.0.1`, `::1`, or `localhost`. Non-loopback endpoints fail closed during registry parsing.
-- MCP server configuration and tool policy are machine-local state under `~/Library/Application Support/local-agent/mcp/`; cwd is never trusted as server identity.
-- Discovery never grants invocation authority. Unknown or disabled servers, unknown or disabled tools and policy/intent mismatches fail closed before tool execution.
-- Every allowed tool has an explicit local risk class: `read`, `write`, or `arbitrary_code`. Server-provided names, descriptions and annotations are not trusted to assign that class.
-- `write` and `arbitrary_code` calls require exact matching explicit invocation intent in addition to an enabled local policy.
-- Tool arguments are bounded at both entry layers: the CLI rejects raw JSON above 64 KiB before parsing and the library independently requires a JSON-serializable object whose canonical serialized form is at most 64 KiB before any MCP network call.
-- The official MCP Python SDK owns JSON-RPC/framing, discovery/initialize compatibility and protocol negotiation. Local Agent does not manually pin one protocol revision.
-- MCP stdio remains unsupported unless a future implementation routes the child through Local Agent's registered spawn/process-group lifecycle contract or an equally strong owner.
-- Tool count, discovery metadata, textual/structured results, binary aggregate size and artifact count remain bounded.
-- Binary content is MIME-validated and written atomically to an explicit Local Agent artifact directory; normal task output contains path/MIME/size/SHA-256 metadata rather than base64 blobs.
-- Deterministic artifact filenames include the complete SHA-256 digest, not a shortened digest prefix; path identity and returned digest metadata therefore use the same collision-resistant content identity.
-- MCP integration remains outside task schema and scheduler policy: an ordinary task invokes the packaged MCP CLI/client and its bounded JSON flows through the existing task/result mechanism.
-
-## Operator observability invariants
-
-- Successful routine control-plane Git synchronization/publication is quiet in the operator log; failures and retry diagnostics remain visible.
-- The parallel supervisor emits a human-readable `IDLE` line after startup and after real task completion.
-- A long-idle supervisor emits a bounded periodic `IDLE` heartbeat so `tail -f ~/Library/Logs/local-agent.log` remains readable.
-- Real parallel task boundaries are visible as `TASK START` / `TASK DONE`; low-level successful Git plumbing must not drown those events.
-- Single expected control-repository lease contention is silent. Repeated known-worker contention logs the control-repository admission pause; repeated unexplained contention logs the defensive global drain.
-- Production launchd stdout/stderr logs are bounded: files above 2 MiB are compacted during an idle maintenance window to approximately the most recent 1 MiB while preserving append semantics.
-- Multiline task commands are represented by concise stage/line/character descriptors. Full command/output evidence remains in run/result JSON; `LOCAL_AGENT_VERBOSE_LOGS=1` is a temporary diagnostic override only.
-
-## Repository isolation invariants
-
-- Repository ids and remote identities are unique case-insensitively.
-- Normalized control/work/checkpoint paths are disjoint, including aliases and ancestor/descendant overlaps.
+- Repository ids and remotes are unique case-insensitively.
+- Normalized control/work/checkpoint paths are disjoint.
 - Repository path globals are bound only inside short-lived workers.
-- Claims, result spools, runs, corrupt claims and local status are repository-scoped.
-- Every repository turn owns inherited OS execution leases for its id, remote and workspace paths through the lifetime of all descendants.
-- Lease contention defers work/recovery without mutating repository state.
-- Workers reject registry-entry changes after dispatch selection.
-- Polling never implicitly clones, repairs or overwrites workspaces.
+- Claims/results/runs/status are repository-scoped.
+- Workers hold inherited OS execution leases for repository identity/workspace for the full descendant lifetime.
+- Lease contention defers without mutating repository state.
+- Workers reject registry identity changes after dispatch selection.
+- Polling never implicitly clones, repairs or overwrites project workspaces.
+- Every Local Agent task carries the exact canonical `agent_binding` of its target repository.
 
 ## Parallel resource invariants
 
-- `resources` is mandatory for every task; invalid declarations are terminal contract errors rather than compatibility fallbacks.
-- `resources: []` means no exclusive external resource beyond the repository lease.
-- The currently registered project repositories intentionally use `resources: []` for executable project work, including project-dedicated hardware operations; device and port identity is verified inside task commands.
-- Named resources remain available for genuinely shared external resources and are exclusive only among tasks sharing the same canonical name.
-- `resources: ["machine"]` is reserved for genuine whole-host exclusivity.
-- `memory_limit_mb` is an independent process-group RSS watchdog and never changes resource classification or performs aggregate host-memory admission.
-- Resource declarations are bounded to eight names and may not combine `machine` with another resource.
-- Parallel tasks hold a shared machine lock; machine-exclusive tasks hold it exclusively.
-- Machine/named resource descriptors are inherited into descendants and survive worker death until the last holder exits.
-- Resource acquisition is nonblocking and occurs before claim/execution. Contention leaves the task pending and is retried with bounded backoff.
-- Repository status exposes `waiting_resource` for blocked admission so remote planners do not mistake waiting for idle completion.
-- Machine contention gets priority/drain fairness.
-- Production concurrency is four workers; the hard cap remains four.
+- `resources` is mandatory for every task; invalid declarations are terminal.
+- `resources: []` means no exclusive external resource beyond repository lease.
+- Named resources are exclusive only among tasks sharing the same canonical resource name.
+- `resources: ["machine"]` is reserved for real whole-host exclusivity and may not be combined with another resource.
+- `memory_limit_mb` is a separate process-group RSS watchdog, not a resource-classification mechanism.
+- Resource acquisition is nonblocking and occurs before claim/execution; contention leaves the task pending.
+- `waiting_resource` remains observable remote state.
+- Machine contention retains drain/fairness semantics.
+- Production concurrency is four workers; hard cap remains four.
 
 ## Global control invariants
 
 - Repository workers never execute supervisor-wide restart/self-update.
-- While workers run, maintenance may only probe for pending global control.
-- Daemon control ids are restricted to ASCII letters, digits, `.`, `_` and `-`, with a 120-character maximum; ACK paths must remain under `.agent/daemon/acks/` after normalization.
-- Control probes have explicit `CLEAR`, `PENDING`, `LEASE_BUSY` and `DEFERRED` outcomes; only successful control recovery advances the normal control-poll clock.
-- A busy control-repository execution lease is `LEASE_BUSY`; transient sync/network/ACK-read failures are `DEFERRED`. Neither is treated as "no request".
-- Control retry uses bounded 2-15 second backoff. Overall deferred-probe count and **consecutive `LEASE_BUSY` streak** are separate state.
-- A `DEFERRED` outcome resets the consecutive lease-busy streak while preserving bounded retry/backoff. Therefore only six genuinely consecutive `LEASE_BUSY` outcomes can trigger lease-busy starvation protection.
-- Fewer than six consecutive `LEASE_BUSY` outcomes retry without changing repository admission.
-- Six consecutive `LEASE_BUSY` outcomes while the designated control repository is a known active worker pause only **new admission for that control repository**. Existing workers continue and unrelated repositories remain admissible when worker/resource capacity permits.
-- The pause prevents a continuous control-repository task queue from reacquiring its own lease forever. Once the active control worker releases the lease, the supervisor gets an opportunity to probe global control before another control-repository task starts.
-- Six consecutive `LEASE_BUSY` outcomes with no matching known active control worker retain the defensive **global drain** for unexplained/stale lease ownership.
-- A confirmed `PENDING` global request always stops new admission and drains active workers immediately.
-- `CLEAR`, successful full control service, explicit disable/re-enable recovery, or a configured control-repository identity change clears stale retry/lease-busy/pause evidence as appropriate.
-- Reordering the registry so a different first enabled repository becomes global control invalidates the previous normal control-poll clock so the new source is checked promptly.
-- A control ACK is durable only when it is visible on the fetched remote `agent-control` branch; a local-only ACK commit never suppresses replay of the remote request.
-- Global control acquires all configured repository execution identities before running.
+- While workers run, maintenance may only probe pending global control.
+- Daemon control ids are bounded/sanitized and ACK paths remain under `.agent/daemon/acks/`.
+- Global-control probes distinguish `CLEAR`, `PENDING`, `LEASE_BUSY` and `DEFERRED`.
+- Retry/backoff is bounded; only six genuinely consecutive control-repository `LEASE_BUSY` results trigger starvation protection.
+- Known active control-worker contention pauses only new admission for that repository; unexplained ownership retains defensive global drain.
+- A confirmed `PENDING` global request stops new admission and drains active workers.
+- ACK is durable only when visible on the fetched remote control branch.
 - Ordinary self-update waits for natural idle.
-- Active registry identities are not removed/mutated while workers or descendants may remain alive.
+- Active registry identities are never removed/mutated while workers or descendants may still use them.
 
-## Architecture invariants
+## MCP invariants
 
-- `local_agent.supervisor.scheduling` owns deterministic scheduling state and pure decisions: due/retry/backoff, max-worker policy and control-probe retry/admission classification.
-- `local_agent.supervisor.orchestrator` coordinates side effects: reading probe outcomes, starting/reaping workers, invoking global drain/service, status publication and shutdown.
-- Scheduling policy must not import daemon, Git/storage, subprocess/process management or repository worker implementations.
-- `local_agent.mcp` is an independent packaged boundary and must not grow application-specific Fusion/KiCad/Blender adapters when the MCP standard suffices.
-- `local_agent.repository.binding` owns the canonical binding catalog including fail-closed `planner_scope` validation; Chat Bridge consumes scope policy, while executor repository binding remains independent and exact.
-- Do not solve a focused scheduler defect by adding another embedded state machine to `orchestrator.py` or by creating a new miscellaneous helper module without a stable ownership boundary.
-- Refactors must preserve target-repository hard binding, claims/results, resource exclusion, emergency controls, self-update and process lifecycle semantics.
+- Generic MCP protocol ownership remains under `local_agent/mcp/`.
+- Supported Streamable HTTP endpoints are loopback-only (`127.0.0.1`, `::1`, `localhost`).
+- Machine-local MCP registry/policy is not inferred from cwd or server-provided metadata.
+- Discovery does not grant invocation authority.
+- Every allowed tool has an explicit local risk class (`read`, `write`, `arbitrary_code`); consequential calls require matching explicit intent.
+- Tool arguments/results/artifacts remain bounded and validated.
+- Official MCP SDK owns protocol/framing/negotiation; Local Agent does not implement competing manual JSON-RPC framing.
+- MCP stdio remains unsupported unless child-process lifecycle ownership becomes equally strong.
+- MCP use remains outside task schema/scheduler policy: ordinary tasks invoke the bounded packaged MCP client/CLI.
 
 ## Planner and Chat Bridge invariants
 
-- The Chrome Chat Bridge is wake-up/control transport only; ChatGPT remains the planner and Local Agent remains the deterministic executor.
-- Every conversation keeps one immutable canonical Bridge binding. `planner_scope` defaults to `repository`; only explicit validated `multirepo` authorization may widen planner targets without changing that conversation binding.
-- Normal `planner_scope=repository` conversations remain limited to the bound repository and use explicit Rebind to change conversation binding.
-- The canonical `host-ops` binding is the multirepo operator workspace. It may target only repositories listed in the current validated runtime catalog, must never guess identities, and does not Rebind merely to move among valid catalog targets.
-- Planner multirepo authorization never replaces executor identity: every Local Agent task carries the exact canonical `agent_binding` of its target repository; repository control binding, leases, resources, watchdogs and evidence remain target-repository scoped.
-- An execution-disabled catalog target may be inspected or edited through direct GitHub operations but may not receive a Local Agent task. `local-agent` remains intentionally self-execution-disabled.
-- A planner must never use Local Agent to invoke or delegate work to a local Codex CLI. Bridge prompts also forbid delegation to other local coding-agent/LLM CLIs; planning and coding decisions remain in ChatGPT.
-- One autonomous conversation follows one active task at a time for its current goal and never queues a duplicate for the same target while that task is active.
-- Planner sequencing is not global executor serialization: unrelated conversations/repositories may overlap when the parallel resource contract permits it.
-- Every bridge wake-up re-reads target-repository-specific status/run/result evidence before deciding whether to wait, queue one next bounded task, cancel one exact doomed active task, pause for user action or stop a completed goal.
-- Bridge `STOP`/`PAUSE` markers control the conversation loop only; they do not stop or reconfigure the Local Agent supervisor.
-- `NEXT=30s` remains protocol-compatible for explicit operator/emergency use, but autonomous polling of a healthy active task must not use 30-second cadence.
-- The first healthy-task liveness re-check should be no sooner than about two minutes; multi-minute builds/tests should normally use 5-10 minute `NEXT` pacing unless exact evidence supports a nearer completion.
-- If exact run/status evidence already proves an active task cannot achieve its intended outcome, the planner should publish repository-scoped `cancel_task` for that exact target task id and wait for cancellation/result evidence before replacing it.
-- An unfinished autonomous turn ends with `NEXT=<duration>`; `NEXT` arms or re-arms that conversation and schedules its next wake without overriding the global master switch.
-- Resource/capacity waiting is a continuation state and must use `NEXT`, never `STOP`.
-- Chat Bridge content protocol version is owned only by `control_protocol.js`; worker, content, popup and test harness must consume that shared value rather than declare independent versions.
-- Popup tab activation and stale-content replacement are worker-owned; popup must not maintain a second `chrome.scripting.executeScript`/protocol-mismatch implementation.
-- Chat Bridge content protocol upgrades must be replaceable in already-open tabs without requiring a normal manual ChatGPT reload when the older content script is still reachable.
-- Service-worker activation probes configured open ChatGPT tabs and re-injects content only when unavailable or protocol-mismatched; activation itself must not send a wake, mutate binding/schedule state, or act as a scheduling event.
-- Transient assistant-control delivery failures use bounded retry/backoff and must not permanently exhaust after a fixed small number of attempts.
-- A Bridge-owned prompt retained after `send_button_not_ready` or `delivery_unconfirmed` may be reused only when the composer still matches the exact prompt; any operator edit blocks automatic reuse.
-- Immediately before submission Bridge must re-resolve the current enabled ChatGPT Send button and use its live DOM `click()` path as the primary action; `form.requestSubmit()` may be used only as a last-resort fallback and never with a stale button reference.
-- Assistant LAB inspection/diagnostic commands are read-only. Explicit `[LAB:ADD=<repository-id>]`, `[LAB:REBIND=<repository-id>]`, or `[LAB:REMOVE]` controls change the conversation binding and create a fresh bootstrap boundary as applicable; normal target changes inside authorized multirepo scope do not use those controls.
-- `LAB:OP:*` mutations remain accepted only from user-authored ChatGPT messages in the exact top-frame conversation; assistant messages use the non-`OP` control namespace instead.
-- Global `CHATS`/cross-chat routing inspection is available only from the `local-agent` infrastructure binding; ordinary project chats remain current-chat scoped.
-- Assistant and operator binding-control dedupe is persistent and bounded independently from conversation state so onboarding/removal/reload controls do not replay across extension/content reloads.
-- The global Bridge Master switch and Local Agent emergency-disable marker remain independent manual kill switches and are not changed by assistant binding controls.
+### Role split
+
+- ChatGPT remains the planner and source of coding decisions.
+- GitHub is the durable control plane for task state and, for managed conversations, schedule desired state.
+- Chat Bridge is bounded browser wake/delivery transport.
+- Local Agent is the deterministic executor.
+- The ChatGPT DOM is never repository identity and, for GitHub-managed chats, is not pacing/status authority.
+
+### Planner scope
+
+- Every conversation has one canonical Bridge binding revision.
+- `planner_scope=repository` restricts planning to the bound repository.
+- Explicit validated `planner_scope=multirepo` may widen targets without changing conversation binding.
+- The canonical `host-ops` binding is the multirepo operator workspace and may target only repositories in the current validated runtime catalog.
+- Normal multirepo work must not Rebind merely to switch target repository.
+- Execution-disabled catalog targets may be inspected/edited through direct GitHub operations but may not receive a Local Agent task; `local-agent` remains intentionally self-execution-disabled.
+- A planner must never invoke/delegate local Codex or another local coding-agent/LLM CLI through Local Agent.
+
+### GitHub-backed schedule/status authority
+
+For an exact managed `conversation_controls` record, GitHub is authoritative for:
+
+- `STATUS`;
+- `PAUSE`;
+- `RESUME`;
+- `NEXT`;
+- `INTERVAL`.
+
+Every schedule mutation increments `control_generation`; status reads do not. Repository/binding/binding-revision mismatch fails closed. Applied state is scoped to binding revision, remote control generation and local conversation generation.
+
+The global Bridge Master switch is independent local operator state and is never changed by conversation desired state.
+
+Legacy assistant schedule markers and user `OP:ENABLE` / `OP:DISABLE` / `OP:INTERVAL` are compatibility no-ops for a GitHub-managed chat. They must not be the normal scheduling path.
+
+Binding controls (`ADD`, `REBIND`, `REMOVE`) and Bridge maintenance remain explicit migration paths until separately moved to a reviewed GitHub control contract.
+
+### GitHub-control discovery
+
+- Every MV3 service-worker activation ensures the dedicated one-minute GitHub-control alarm exists; install/startup performs the same idempotent initialization.
+- The extension reads the existing public runtime endpoint and stores no GitHub credential.
+- Remote runtime failure keeps last applied desired state and does not hand authority back to DOM controls.
+- A paused conversation can discover a later GitHub `RESUME` even with no conversation wake alarm.
+
+### Planner continuation discipline
+
+- One conversation follows at most one active Local Agent task for its current goal; unrelated repositories may overlap under scheduler/resource rules.
+- Every wake re-reads exact target status/run/result evidence before choosing the next action.
+- Healthy active-task rechecks should be no sooner than about two minutes and normally 5-10 minutes for multi-minute builds/tests unless evidence supports a nearer check.
+- If exact evidence proves the active task cannot succeed, cancel that exact task id and await cancellation/result evidence before replacing it.
+- Resource/capacity waiting is continuation, not completion.
+- An unfinished managed turn schedules continuation by incrementing GitHub `control_generation` and setting exact `next_wake_at` or interval state.
+- Completed/release-validation work should leave the conversation PAUSED unless continued automation is explicitly required.
+
+### Browser delivery and recovery
+
+- Service-worker activation may refresh stale content/guard scripts but is not itself a conversation wake.
+- Wake delivery must use the exact preferred conversation/tab, preserve operator composer edits and fail closed while ChatGPT generation is active.
+- Immediately before submission Bridge re-resolves the current enabled Send button and clicks that live node; `form.requestSubmit()` is fallback only.
+- Delivery is confirmed from the exact new user turn, not from click success alone.
+- A retained Bridge prompt is reusable only if composer content is still exact.
+- DOM inspection remains valid for composer/Send, generation Stop, submitted-user confirmation, structured Retry cards and conversation-length exhaustion.
+- Recognized assistant terminal errors remain `Message delivery timed out. Please try again.` and `Resume stream unavailable`; unknown Retry-looking errors fail closed.
+- Native Retry authorization remains exact-tab/conversation/binding/generation/enabled/Bridge-ownership scoped with bounded three-attempt budget.
+
+## Operator observability invariants
+
+- Routine successful Git synchronization/publication remains quiet; failures/retries remain visible.
+- Parallel supervisor emits readable `IDLE` plus task boundary logs and bounded idle heartbeat.
+- launchd stdout/stderr remains bounded.
+- Multiline commands are logged by concise stage/size descriptors; full evidence stays in run/result JSON.
+- `LOCAL_AGENT_VERBOSE_LOGS=1` is temporary diagnostics only.
+
+## Architecture invariants
+
+- `local_agent.supervisor.scheduling` owns deterministic scheduling policy/state decisions.
+- `local_agent.supervisor.orchestrator` coordinates side effects and must not absorb another embedded scheduler state machine.
+- Scheduling policy does not import Git/storage/subprocess/repository-worker implementations.
+- `local_agent.repository.binding` owns canonical binding catalog/planner-scope validation.
+- `local_agent.mcp` remains an independent generic boundary.
+- Refactors preserve hard binding, claims/results, resource exclusion, emergency controls, self-update and process lifecycle semantics.
 
 ## Verification/release gate
 
 A non-trivial runtime release requires:
 
-1. an isolated candidate based on current `main`;
-2. matching source release version, release notes and changelog before final verification; candidate documentation must still name the actually deployed production release separately until the explicit release decision;
-3. focused compile/lint plus positive and negative tests for the changed policy/state transitions;
-4. real SIGTERM/SIGKILL process coverage when lifecycle/lease behavior changes;
-5. real overlap, machine-exclusion and inherited-resource-lock coverage for parallel changes;
-6. for BUG-002, a real temporary-Git control-repository task that crosses the six-consecutive-`LEASE_BUSY` threshold and proves another `resources: []` repository starts before the control task ends;
-7. for MCP changes, a real hermetic loopback Streamable HTTP MCP server exercising SDK negotiation, discovery, bounded arguments, invocation, timeout and bounded-result/artifact paths; mocks alone are insufficient;
-8. for the first live application target in a release, read-only live endpoint/discovery/tool-call evidence with the actual discovered tool list, plus binary artifact verification when the target exposes a read-only binary result; no write/arbitrary-code smoke;
-9. if MCP runtime code changes after that live application proof, repeat the affected read-only live proof against the frozen runtime candidate before release;
-10. for planner-scope changes, focused Bridge coverage must prove repository-scope regression behavior, explicit multirepo authorization, fail-closed invalid scope, exact target binding selection and execution-disabled target handling;
-11. exact `main...candidate` diff and architecture/dependency review;
-12. full GitHub CI on the exact candidate SHA: compile/Ruff/full unittest, coverage, Python 3.14 and Bridge browser;
-13. macOS ARM64 smoke on the exact candidate SHA containing both pure control-admission policy coverage and the real BUG-002 overlap regression; MCP-changing candidates also include the hermetic MCP HTTP suite;
-14. current-documentation drift/release-metadata contract checks;
-15. downstream planner-documentation audit for every registered repository when Local Agent contract/flow changed;
-16. three independent pre-merge verification passes recorded for the exact final SHA: focused policy/integration evidence, full cross-platform CI matrix, and macOS exact-SHA smoke/recheck;
-17. only then an explicit decision to advance `main`;
-18. matching `vX.Y.Z` tag on released `main`;
-19. production restart/self-update from `~/local-agent` on `main` and live version/revision/task verification;
-20. candidate branch/worktree cleanup after the release is established.
+1. isolated candidate from current `main`;
+2. source release version, release notes and changelog entry before final verification, while candidate docs still identify actually deployed production separately;
+3. focused positive/negative tests for changed state/policy;
+4. lifecycle/lease/resource/MCP-specific real coverage where those boundaries change;
+5. exact `main...candidate` architecture/dependency diff review;
+6. full GitHub CI on exact candidate SHA: compile/Ruff/full unittest, coverage, Python 3.14 and real Bridge browser;
+7. macOS ARM64 smoke on exact candidate SHA;
+8. current-documentation/release-metadata contract checks;
+9. downstream planner-documentation audit when a shared contract changes;
+10. three independent pre-merge verification views: focused changed-policy evidence, full cross-platform CI and macOS exact-SHA smoke/recheck;
+11. for Chat Bridge control changes, bounded live daily/diagnostic browser E2E using the exact production-shaped control path and ending PAUSED;
+12. only then explicit merge/advance of `main`;
+13. matching `vX.Y.Z` tag on released `main`;
+14. restore a clean installed `~/local-agent` checkout, validated self-update/restart and live version/revision/task verification;
+15. candidate branch/worktree/staging cleanup after production proof.
 
 ## Downstream contract
 
-`AGENTS.md` defines the currently registered downstream documentation targets. A release is not operationally complete when those repositories materially describe an obsolete task schema, execution model, concurrency/resource contract, status/control surface or deployment flow. `docs/HOST_OPS_MULTIREPO.md` is the canonical planner-scope extension; ordinary project-bound conversations retain their existing one-repository semantics.
+`AGENTS.md` defines registered downstream documentation targets. A release is not operationally complete when downstream planners materially describe an obsolete task schema, concurrency/resource model, status/control surface or deployment flow.
 
-Historical design notes remain references only and are not runtime contracts.
+`docs/HOST_OPS_MULTIREPO.md` is the canonical planner-scope extension. `docs/GITHUB_BRIDGE_CONTROL.md` is the canonical conversation pacing/status extension. Historical dated handoffs/release notes are evidence only.
 
-## Verification efficiency invariants
+## Retry/logging invariants
 
-- Structured stages expose explicit `stream` and `summary` live-output policies without weakening retained result evidence.
-- Successful noisy summary stages do not flood the operator log; failed summary stages expose a bounded tail.
-- Explicit progress markers remain visible and heartbeat/watchdog enforcement stays active under summarized live output.
-
-## Retry and logging invariants
-
-- Unexpected worker exits use bounded 2-300 s exponential retry and reset after normal outcomes.
-- Deferred global-control work uses bounded 2-15 second retry.
-- Only six **consecutive** control-repository `LEASE_BUSY` outcomes trigger lease-busy starvation protection; degraded probe outcomes break that streak.
-- Known-active-worker contention pauses only new control-repository admission; unexplained contention retains bounded global drain.
-- Repeated outer supervisor failure/deferral notices are limited to one per 60 s for a continuing condition.
+- Unexpected worker exits use bounded exponential retry and reset after normal outcomes.
+- Deferred global-control work uses bounded retry.
+- Degraded probes break consecutive lease-busy streaks.
+- Known active-worker contention remains repository-local; unexplained contention may trigger bounded global drain.
