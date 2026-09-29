@@ -173,6 +173,37 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   });
   await page.waitForTimeout(1000);
   assert.deepEqual(await readChat(id), userOnlyBefore, "user-only grouped turn must never become an assistant control");
+
+  const shadowBefore = await readChat(id);
+  await page.evaluate(() => {
+    const controlTurn = document.createElement("div");
+    controlTurn.dataset.turnKey = "grouped-control-before-user-only";
+    const answer = document.createElement("div");
+    answer.textContent = "[LAB:PAUSE]";
+    const controlUser = document.createElement("div");
+    controlUser.dataset.userMessageBubble = "";
+    controlUser.textContent = "ordinary user text";
+    controlTurn.append(answer, controlUser);
+    document.body.append(controlTurn);
+
+    const userOnlyTurn = document.createElement("div");
+    userOnlyTurn.dataset.turnKey = "grouped-newer-user-only-shadow";
+    const user = document.createElement("div");
+    user.dataset.userMessageBubble = "";
+    user.textContent = "new user prompt before the 600ms assistant scan";
+    userOnlyTurn.append(user);
+    document.body.append(userOnlyTurn);
+  });
+  const shadowDeadline = Date.now() + 5000;
+  let shadowAfter = await readChat(id);
+  while ((shadowAfter.generation !== shadowBefore.generation + 1 || shadowAfter.lastControlAction !== "[LAB:PAUSE]") && Date.now() < shadowDeadline) {
+    await page.waitForTimeout(50);
+    shadowAfter = await readChat(id);
+  }
+  assert.equal(shadowAfter.generation, shadowBefore.generation + 1, JSON.stringify(shadowAfter));
+  assert.equal(shadowAfter.lastControlAction, "[LAB:PAUSE]");
+  assert.equal(shadowAfter.enabled, false);
+  console.log("PASS: a newer user-only grouped turn cannot shadow the preceding assistant control");
   console.log("PASS: grouped turn fallback strips user bubbles before parsing assistant controls");
 
   // Hold Send disabled long enough to observe the feedback insertion deterministically,
