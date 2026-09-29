@@ -8,15 +8,22 @@ async function readAppliedGithubControls() {
   const result = {};
   for (const [chatId, value] of Object.entries(raw)) {
     const generation = Number(value?.generation);
+    const bindingRevision = Number(value?.bindingRevision);
+    const localGeneration = Number(value?.localGeneration);
     if (!protocol.CHAT_ID_RE.test(chatId) || !Number.isSafeInteger(generation) || generation < 1) continue;
-    result[chatId] = { generation, at: Number(value?.at) || 0 };
+    result[chatId] = {
+      generation,
+      bindingRevision: Number.isSafeInteger(bindingRevision) && bindingRevision >= 1 ? bindingRevision : 0,
+      localGeneration: Number.isSafeInteger(localGeneration) && localGeneration >= 0 ? localGeneration : -1,
+      at: Number(value?.at) || 0
+    };
   }
   return result;
 }
 
-async function writeAppliedGithubControl(chatId, generation) {
+async function writeAppliedGithubControl(chatId, generation, bindingRevision, localGeneration) {
   const current = await readAppliedGithubControls();
-  current[chatId] = { generation, at: Date.now() };
+  current[chatId] = { generation, bindingRevision, localGeneration, at: Date.now() };
   const bounded = Object.entries(current)
     .sort((left, right) => Number(right[1]?.at || 0) - Number(left[1]?.at || 0))
     .slice(0, GITHUB_CONTROL_APPLIED_LIMIT);
@@ -52,7 +59,9 @@ async function reconcileGithubConversationControls() {
     const control = githubControlModel.findConversationControl(runtime, conversation.id);
     if (!control || !githubControlModel.controlMatchesConversation(control, conversation)) continue;
 
-    const appliedGeneration = Number(applied[conversation.id]?.generation || 0);
+    const appliedEntry = applied[conversation.id] || null;
+    const sameBinding = appliedEntry?.bindingRevision === control.bindingRevision;
+    const appliedGeneration = sameBinding ? Number(appliedEntry?.generation || 0) : 0;
     if (control.controlGeneration < appliedGeneration) continue;
 
     const mutation = await mutateState((currentState) => {
@@ -61,7 +70,9 @@ async function reconcileGithubConversationControls() {
         return { state: currentState, value: { ok: false, reason: "binding_changed" } };
       }
       const fresh = control.controlGeneration > appliedGeneration;
+      const generationDrift = !fresh && Number(appliedEntry?.localGeneration) !== current.generation;
       const drifted =
+        generationDrift ||
         current.enabled !== control.enabled ||
         current.intervalOverrideMinutes !== control.intervalMinutes;
       if (!fresh && !drifted) {
@@ -97,7 +108,12 @@ async function reconcileGithubConversationControls() {
     } else {
       await clearConversationAlarm(chatId, localGeneration);
     }
-    if (fresh) await writeAppliedGithubControl(chatId, control.controlGeneration);
+    await writeAppliedGithubControl(
+      chatId,
+      control.controlGeneration,
+      control.bindingRevision,
+      localGeneration
+    );
     appliedNow.push({
       chatId,
       controlGeneration: control.controlGeneration,
