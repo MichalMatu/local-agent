@@ -11,11 +11,11 @@
       "repository": "MichalMatu/host-ops",
       "agent_binding": "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
       "binding_revision": 1,
-      "control_generation": 2,
+      "control_generation": 3,
       "enabled": true,
       "interval_minutes": 5,
-      "next_wake_at": null,
-      "updated_at": "2026-09-30T01:33:15+02:00"
+      "next_wake_at": "2026-09-30T01:36:50+02:00",
+      "updated_at": "2026-09-30T01:34:50+02:00"
     }
   ],
   "agents": [
