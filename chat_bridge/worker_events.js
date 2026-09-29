@@ -136,9 +136,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-// Worker activation is enough to refresh the GitHub desired-state cache and make sure the
-// periodic control poll exists. This does not require a ChatGPT DOM mutation.
-initializeGithubControlPlane().catch((error) => console.error(error));
+// Service-worker activation may refresh remote desired state, but the durable minute poll
+// is created only by Chrome extension install/startup lifecycle and then survives MV3 sleep.
+reconcileGithubConversationControls().catch((error) => console.error(error));
 
 // A manually reloaded unpacked extension starts a fresh service worker while existing
 // ChatGPT tabs stay open. Probe configured tabs immediately so stale/unavailable content
