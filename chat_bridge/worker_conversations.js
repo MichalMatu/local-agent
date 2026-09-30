@@ -51,40 +51,52 @@ async function upsertConversation(patch) {
 }
 
 async function rebindConversation(chatId, patch) {
-  const state = await getBridgeState();
-  const previous = state.conversations[chatId];
-  if (!previous) throw new Error("conversation not found");
-  if (inFlightDeliveries.has(chatId)) {
-    throw new Error("Wait for the in-progress wake before changing this conversation.");
-  }
-  const runtime = await loadRuntimeConfig(state, previous);
-  const agent = resolveBindingInput(runtime, patch);
-  const result = await mutateState((nextState) => {
-    const current = nextState.conversations[chatId];
-    if (!current) throw new Error("conversation not found");
-    const updated = stateModel.patchConversation(nextState, chatId, {
-      repositoryId: agent.repositoryId,
-      repository: agent.repository,
-      agentBinding: agent.agentBinding,
-      bindingRevision: Math.max(0, current.bindingRevision || 0) + 1,
-      bindingSetAt: new Date().toISOString(),
-      generation: current.generation + 1,
-      assistantBaseline: "",
-      bootstrapPending: true,
-      lastControlFingerprint: "",
-      lastControlAction: "",
-      lastControlAt: null,
-      lastStatus: "rebound_by_operator",
-      enabled: true
+  return serializeGithubControlOperation(async () => {
+    const state = await getBridgeState();
+    const previous = state.conversations[chatId];
+    if (!previous) throw new Error("conversation not found");
+    if (inFlightDeliveries.has(chatId)) {
+      throw new Error("Wait for the in-progress wake before changing this conversation.");
+    }
+    const runtime = await loadRuntimeConfig(state, previous);
+    const agent = resolveBindingInput(runtime, patch);
+    const result = await mutateState((nextState) => {
+      const current = nextState.conversations[chatId];
+      if (!current) throw new Error("conversation not found");
+      const updated = stateModel.patchConversation(nextState, chatId, {
+        repositoryId: agent.repositoryId,
+        repository: agent.repository,
+        agentBinding: agent.agentBinding,
+        bindingRevision: Math.max(0, current.bindingRevision || 0) + 1,
+        bindingSetAt: new Date().toISOString(),
+        generation: current.generation + 1,
+        assistantBaseline: "",
+        bootstrapPending: true,
+        lastControlFingerprint: "",
+        lastControlAction: "",
+        lastControlAt: null,
+        lastStatus: "rebound_by_operator",
+        enabled: true
+      });
+      return { state: updated.state, conversation: updated.conversation };
     });
-    return { state: updated.state, conversation: updated.conversation };
+    await clearAssistantErrorRecovery(chatId);
+    await scheduleDefault(chatId, true, result.conversation.generation);
+    return result.conversation;
   });
-  await clearAssistantErrorRecovery(chatId);
-  await scheduleDefault(chatId, true, result.conversation.generation);
-  return result.conversation;
 }
 
 async function updateConversation(chatId, patch) {
+  if ("enabled" in patch || "intervalOverrideMinutes" in patch) {
+    const state = await getBridgeState();
+    const current = state.conversations[chatId];
+    if (!current) throw new Error("conversation not found");
+    const authority = await githubScheduleAuthority(current, state);
+    if (authority) {
+      throw new Error("Conversation schedule is managed by GitHub desired state.");
+    }
+  }
+
   const result = await mutateState((state) => {
     const previous = state.conversations[chatId];
     if (!previous) throw new Error("conversation not found");
@@ -124,13 +136,16 @@ async function updateConversation(chatId, patch) {
 }
 
 async function deleteConversation(chatId) {
-  if (inFlightDeliveries.has(chatId)) {
-    throw new Error("Wait for the in-progress wake before removing this conversation.");
-  }
-  const result = await mutateState(async (state) => {
-    await chrome.alarms.clear(alarmName(chatId));
-    return stateModel.removeConversation(state, chatId);
+  return serializeGithubControlOperation(async () => {
+    if (inFlightDeliveries.has(chatId)) {
+      throw new Error("Wait for the in-progress wake before removing this conversation.");
+    }
+    const result = await mutateState(async (state) => {
+      await chrome.alarms.clear(alarmName(chatId));
+      return stateModel.removeConversation(state, chatId);
+    });
+    await clearAssistantErrorRecovery(chatId);
+    await clearAppliedGithubControl(chatId);
+    return result.state;
   });
-  await clearAssistantErrorRecovery(chatId);
-  return result.state;
 }

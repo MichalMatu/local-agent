@@ -142,16 +142,31 @@ function makeMeta(text, className = "") {
   return span;
 }
 
+function managedControlForConversation(runtime, conversation) {
+  return (runtime?.conversationControls || []).find((control) =>
+    control.conversationId === conversation.id &&
+    control.repositoryId === conversation.repositoryId &&
+    control.repository === conversation.repository &&
+    control.agentBinding === conversation.agentBinding &&
+    control.bindingRevision === conversation.bindingRevision
+  ) || null;
+}
+
 async function updateConversation(conversationId, patch) {
   const response = await request({ type: "bridge:update-conversation", conversationId, patch });
   if (!response?.ok) throw new Error(response?.error || "update failed");
   return response.conversation;
 }
 
-function renderConversation(conversation, settings, schedule, runtime) {
+function renderConversation(conversation, settings, schedule, runtime, ownership = null) {
+  const managedControl = managedControlForConversation(runtime, conversation);
+  const githubManaged = Boolean(managedControl || ownership?.managed);
+  const displayEnabled = managedControl ? managedControl.enabled : conversation.enabled;
+  const displayInterval = managedControl ? managedControl.intervalMinutes : conversation.intervalOverrideMinutes;
+
   const card = document.createElement("article");
   card.className = "conversation-card";
-  if (!conversation.enabled) card.classList.add("is-paused");
+  if (!displayEnabled) card.classList.add("is-paused");
 
   const header = document.createElement("div");
   header.className = "card-header";
@@ -163,14 +178,24 @@ function renderConversation(conversation, settings, schedule, runtime) {
   title.title = conversation.label || conversation.id;
   const repo = makeMeta(conversation.repositoryId || "UNBOUND", "repo-badge");
   titleLine.append(title, repo);
+  if (githubManaged) {
+    const authority = makeMeta("GitHub managed", "repo-badge");
+    const generation = managedControl?.controlGeneration || ownership?.controlGeneration || "?";
+    const source = managedControl ? "remote" : (ownership?.source || "cached");
+    authority.title = `GitHub desired state generation ${generation} (${source})`;
+    titleLine.append(authority);
+  }
   titleBlock.append(titleLine);
 
   const enableLabel = document.createElement("label");
   enableLabel.className = "switch-control enable-switch";
-  enableLabel.title = "Enable or pause scheduled wakes.";
+  enableLabel.title = githubManaged
+    ? "Schedule state is managed by GitHub desired state."
+    : "Enable or pause scheduled wakes.";
   const enabled = document.createElement("input");
   enabled.type = "checkbox";
-  enabled.checked = Boolean(conversation.enabled);
+  enabled.checked = Boolean(displayEnabled);
+  enabled.disabled = githubManaged;
   enabled.setAttribute("aria-label", `Enable ${conversation.label || conversation.id}`);
   const switchTrack = document.createElement("span");
   switchTrack.className = "switch-track";
@@ -188,7 +213,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
   const next = makeMeta("", "next-wake");
   next.dataset.nextRunAt = schedule?.nextRunAt || "";
   next.dataset.masterEnabled = settings.masterEnabled ? "true" : "false";
-  next.dataset.conversationEnabled = conversation.enabled ? "true" : "false";
+  next.dataset.conversationEnabled = displayEnabled ? "true" : "false";
   updateNextWakeElement(next);
   meta.append(status, next);
 
@@ -196,7 +221,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
   controls.className = "card-controls";
   const wakeField = document.createElement("label");
   wakeField.className = "wake-field";
-  const wakeLabel = makeMeta("Wake every", "field-label");
+  const wakeLabel = makeMeta(githubManaged ? "GitHub interval" : "Wake every", "field-label");
   const wakeInputWrap = document.createElement("div");
   wakeInputWrap.className = "wake-input-wrap";
   const intervalInput = document.createElement("input");
@@ -204,8 +229,11 @@ function renderConversation(conversation, settings, schedule, runtime) {
   intervalInput.min = "1";
   intervalInput.max = "1440";
   intervalInput.placeholder = String(runtime?.intervalMinutes || settings.fallbackIntervalMinutes || 10);
-  intervalInput.value = conversation.intervalOverrideMinutes === null ? "" : String(conversation.intervalOverrideMinutes);
-  intervalInput.title = `Leave empty to use global default (${runtime?.intervalMinutes || settings.fallbackIntervalMinutes || 10} min).`;
+  intervalInput.value = displayInterval === null ? "" : String(displayInterval);
+  intervalInput.disabled = githubManaged;
+  intervalInput.title = githubManaged
+    ? "Schedule interval is managed by GitHub desired state."
+    : `Leave empty to use global default (${runtime?.intervalMinutes || settings.fallbackIntervalMinutes || 10} min).`;
   const unit = makeMeta("min");
   wakeInputWrap.append(intervalInput, unit);
   wakeField.append(wakeLabel, wakeInputWrap);
@@ -215,6 +243,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
   controls.append(wakeField, run, remove);
 
   enabled.addEventListener("change", async () => {
+    if (githubManaged) return;
     try {
       await updateConversation(conversation.id, { enabled: enabled.checked });
       showMessage(enabled.checked ? "Scheduling enabled." : "Scheduling paused.");
@@ -226,6 +255,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
   });
 
   const saveInterval = async () => {
+    if (githubManaged) return;
     try {
       const raw = intervalInput.value.trim();
       const nextValue = raw ? Number(raw) : null;
@@ -281,7 +311,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
   return card;
 }
 
-function renderConversations(state, schedules = {}, runtime = null) {
+function renderConversations(state, schedules = {}, runtime = null, githubOwnership = {}) {
   elements.conversationList.replaceChildren();
   const conversations = Object.values(state.conversations || {}).sort((a, b) => String(a.label || "").localeCompare(String(b.label || "")));
   elements.conversationCount.textContent = String(conversations.length);
@@ -293,7 +323,13 @@ function renderConversations(state, schedules = {}, runtime = null) {
     return;
   }
   for (const conversation of conversations) {
-    elements.conversationList.append(renderConversation(conversation, state.settings, schedules[conversation.id] || null, runtime));
+    elements.conversationList.append(renderConversation(
+      conversation,
+      state.settings,
+      schedules[conversation.id] || null,
+      runtime,
+      githubOwnership[conversation.id] || null
+    ));
   }
 }
 
@@ -335,7 +371,7 @@ async function refresh() {
   latestState = response.state;
   latestRuntime = response.runtime || null;
   renderSettings(latestState, latestRuntime);
-  renderConversations(latestState, response.schedules || {}, latestRuntime);
+  renderConversations(latestState, response.schedules || {}, latestRuntime, response.githubOwnership || {});
   await refreshCurrentTabForm(latestState, latestRuntime);
   restartCountdownTimer();
 }

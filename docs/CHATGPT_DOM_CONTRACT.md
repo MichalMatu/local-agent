@@ -15,7 +15,7 @@ content protocol:            v13
 assistant guard:             v8
 ```
 
-The 0.6.0 desired-state design and live proof are documented in `GITHUB_BRIDGE_CONTROL.md`, `RELEASE_NOTES_V4.19.9.md` and `CHAT_BRIDGE_HANDOFF_2026-09-30.md`.
+The 0.6.0 desired-state design and live proof are documented in `GITHUB_BRIDGE_CONTROL.md`, `RELEASE_NOTES_V4.19.9.md` and `CHAT_BRIDGE_AUDIT_2026-09-30.md`.
 
 ## What DOM still owns
 

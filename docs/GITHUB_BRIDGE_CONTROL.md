@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the canonical conversation scheduling/control contract for Chat Bridge 0.6.0 / Local Agent 4.19.9.
+This is the canonical conversation scheduling/control contract for Chat Bridge 0.6.0 / Local Agent 4.19.9 plus the post-release hardening candidate described in `CHAT_BRIDGE_AUDIT_2026-09-30.md`.
 
 Normal `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL` operations for a managed conversation are no longer transported by assistant text in the ChatGPT DOM. GitHub desired state in `chat_bridge/runtime.json` on `chat-bridge-state` is authoritative.
 
@@ -29,7 +29,9 @@ The ChatGPT DOM remains a delivery surface only: generation-state checks, exact-
 
 The worker accepts a control only when conversation id, repository id/name, canonical binding and binding revision match both the validated runtime catalog and the locally configured conversation.
 
-`control_generation` is a positive monotonically increasing integer within one binding revision. Every schedule mutation increments it. `STATUS` is a read and does not increment it.
+`control_generation` is a positive monotonically increasing integer within one binding revision. Every schedule mutation increments it. `STATUS` is a read and does not increment it. Once a generation has been applied, its desired-state payload is immutable: rewriting `enabled`, interval, deadline or update evidence under the same generation fails closed instead of being treated as local drift. A lower remote generation is a rollback and cannot replace the applied state.
+
+A disabled control must have `next_wake_at=null`. A one-shot deadline must not precede `updated_at` and must be no more than 24 hours after `updated_at`. This keeps GitHub NEXT semantics bounded by the same maximum horizon as the compatibility protocol.
 
 ## Operations
 
@@ -45,13 +47,19 @@ The global Bridge Master switch is never changed by a conversation desired-state
 
 ## Reconciliation and idempotence
 
-Applied GitHub state is tracked by `(bindingRevision, controlGeneration, localGeneration)`.
+Applied GitHub state is tracked by `(bindingRevision, controlGeneration, localGeneration)` plus a canonical signature of the applied desired-state payload.
 
 - A higher GitHub generation applies new desired state.
 - Re-reading an already-correct generation does not re-arm an unchanged one-shot wake.
+- A same-generation remote payload rewrite is rejected; the generation must be incremented for every desired-state mutation.
+- A lower remote generation is ignored and cached applied ownership remains authoritative locally.
 - A local popup/legacy pacing mutation changes local generation and is repaired on the next reconcile.
-- A consumed/past one-shot wake falls back to normal interval scheduling instead of being replayed forever.
+- A consumed/past one-shot wake falls back to normal interval scheduling instead of being replayed forever, including when a fresh/cold Chrome profile first observes that already-expired generation.
 - Rebind creates a new binding revision and therefore an independent generation space.
+- Reconciliation is serialized within one MV3 worker instance so concurrent activation/popup/alarm paths cannot apply the same remote generation twice.
+- Control-boundary reconciliation bypasses both the ordinary 30-second runtime cache and any older in-flight configuration request. Fetch sequence ordering prevents an older request from overwriting a newer control-boundary result in the cache.
+
+Once a matching GitHub generation has been applied, schedule ownership is sticky for that binding revision. Network failure, malformed remote state, a stale rollback, a same-generation rewrite, or a temporarily missing exact control record preserves the last applied GitHub ownership instead of silently handing pacing authority back to DOM/local controls. Explicit Rebind creates a new binding revision. Explicit Remove deletes the local conversation and clears its applied-ownership journal entry so a later re-add starts cleanly.
 
 Malformed controls, duplicate conversation records, stale binding revisions, invalid timestamps/ranges or identity mismatches fail closed.
 
@@ -63,7 +71,19 @@ The alarm only reads the existing public remote runtime URL. No GitHub credentia
 
 The worker also reconciles GitHub desired state before popup state reads, manual `Run now` and normal scheduled wake delivery.
 
-A temporary runtime/network failure leaves the last applied state unchanged. Once a conversation has GitHub ownership, network failure does not silently hand pacing authority back to DOM controls.
+A temporary runtime/network failure leaves the last applied state unchanged. Once a conversation has GitHub ownership, network failure or temporary record omission does not silently hand pacing authority back to DOM controls.
+
+`chrome.alarms` is a discovery/scheduling primitive, not a real-time clock. Chrome may delay an alarm, so the one-minute poll is a bounded discovery cadence rather than an exact one-minute delivery guarantee.
+
+## Chrome-profile ownership boundary
+
+Current 0.6.0 state, alarms, applied-generation journal and in-flight delivery guard are all profile-local. Therefore two independent Chrome profiles configured for the same managed conversation can both accept the same desired generation and both attempt the same wake.
+
+Until a reviewed shared executor/lease contract exists, one managed conversation must have only one active Chrome-profile executor. Exactly-once delivery across two independent profiles cannot be guaranteed by a local-only dedupe flag. A future design should use an explicit desired-state executor/profile owner or another shared writable lease rather than renderer heuristics.
+
+The supported production topology is therefore one normal/daily Chrome profile acting as the executor. A second profile may be used for Chrome Dev or bounded diagnostics, including while it is open at the same time, provided it is not also able to execute the same managed conversation. In practice, keep that conversation unconfigured/removed in the diagnostic profile or keep the diagnostic profile's Bridge Master off except during an intentional bounded test. A diagnostic profile is not a second production executor.
+
+This limitation is separate from stale one-shot replay: the hardening candidate prevents a fresh profile from immediately replaying an already-expired NEXT, but it cannot arbitrate two profiles that concurrently own the same still-future generation.
 
 ## Legacy LAB compatibility
 
@@ -87,7 +107,9 @@ and user pacing controls:
 [LAB:OP:INTERVAL=...]
 ```
 
-return `github_control_managed` and do not mutate scheduler state when an exact GitHub control record owns the conversation.
+return `github_control_managed` and do not mutate scheduler state when an exact or previously-applied GitHub control owns the conversation.
+
+For a managed conversation, assistant `[LAB:STATUS]` is also a compatibility no-op; it must not inject a local DOM feedback status that competes with GitHub desired state. Read the exact `conversation_controls` record instead.
 
 The following remain explicit migration/maintenance surfaces until separately moved to GitHub state:
 
@@ -96,6 +118,10 @@ The following remain explicit migration/maintenance surfaces until separately mo
 - `RELOAD=CONTENT`, `RELOAD=BRIDGE`, `RESTART=WORKER`.
 
 They must not be used for ordinary schedule/status operations.
+
+## Popup ownership
+
+The popup remains the local operator surface for binding/onboarding, global Master, manual `Run now`, removal and diagnostics. When GitHub owns a conversation, its per-conversation enable switch and interval field are rendered read-only and labelled `GitHub managed`. During a remote outage, missing-record publication, rollback or same-generation conflict, the popup shows the last applied local state rather than presenting stale remote values as authoritative. Worker-side mutation guards enforce the same ownership boundary even if UI state is stale.
 
 ## Wake delivery boundary
 
@@ -114,9 +140,11 @@ GitHub desired state
 
 A visible ChatGPT Stop control blocks overlapping submission. Operator edits in the composer are never overwritten. Retained Bridge text may be reused only if it still exactly matches the Bridge-owned prompt.
 
+The hardening candidate does not add a speculative second click or automatic resubmit when the exact user turn is unconfirmed. `delivery_unconfirmed` remains diagnostic until a reproducible browser root cause justifies a narrower change.
+
 ## Live proof
 
-On 2026-09-30 the daily-Chrome conversation `chat-e8ad8275` completed the full managed flow:
+On 2026-09-30 the daily-Chrome conversation `chat-e8ad8275` completed the original managed flow:
 
 1. generation 1 `PAUSE`;
 2. generation 2 `RESUME`;
@@ -125,7 +153,17 @@ On 2026-09-30 the daily-Chrome conversation `chat-e8ad8275` completed the full m
 5. the wake returned with the immutable `host-ops` binding envelope;
 6. generation 4 returned the chat to `PAUSED`.
 
-The final desired state is intentionally `enabled=false`, `next_wake_at=null`.
+The post-release hardening candidate then completed a second production-shaped proof on the normal/daily Chrome profile using the exact active conversation `chat-be9defd7`, bound to `MichalMatu/local-agent` at binding revision 1:
+
+1. generation 1 established matching GitHub ownership in `PAUSED` state;
+2. a manual `Run now` proved only the local binding and submit path, returning the exact `chat-be9defd7` / `local-agent` envelope;
+3. generation 2 armed one `NEXT` for `2026-09-30T05:02:00+02:00`;
+4. without a manual Run or LAB scheduling, the automatic wake was submitted at approximately `05:02:07+02:00` with the exact expected envelope;
+5. generation 3 immediately returned the conversation to `PAUSED` with `enabled=false` and `next_wake_at=null`.
+
+An earlier attempted publication during this validation targeted an old conversation id and was correctly ignored by exact identity matching; it was a test-setup error rather than a scheduler failure and was returned to `PAUSED` before the clean run.
+
+The final desired state for both retained test records is intentionally `enabled=false`, `next_wake_at=null`.
 
 ## Source of truth
 

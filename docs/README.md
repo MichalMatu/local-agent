@@ -13,6 +13,7 @@
 | Understand current release/runtime invariants | [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) |
 | Run the ChatGPT autonomous loop | [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) |
 | Control Chat Bridge pacing/status through GitHub | [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md) |
+| Review the post-v4.19.9 Chat Bridge hardening audit | [`CHAT_BRIDGE_AUDIT_2026-09-30.md`](CHAT_BRIDGE_AUDIT_2026-09-30.md) |
 | Use the host-ops multirepo workspace | [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md) |
 | Understand remaining ChatGPT DOM dependencies | [`CHATGPT_DOM_CONTRACT.md`](CHATGPT_DOM_CONTRACT.md) |
 | Stop/cancel/recover execution | [`EMERGENCY_CONTROLS.md`](EMERGENCY_CONTROLS.md) |
@@ -65,6 +66,7 @@ For a GitHub-managed conversation, the ChatGPT DOM is not the source of truth fo
 
 - [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) — current planner/executor continuation loop.
 - [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md) — canonical GitHub-backed conversation pacing/status contract.
+- [`CHAT_BRIDGE_AUDIT_2026-09-30.md`](CHAT_BRIDGE_AUDIT_2026-09-30.md) — post-v4.19.9 hardening findings, accepted fixes and remaining non-goals.
 - [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md) — explicit `host-ops` multirepo authorization and target-binding rules.
 - [`CHATGPT_DOM_CONTRACT.md`](CHATGPT_DOM_CONTRACT.md) — remaining browser DOM compatibility boundary.
 - [`../chat_bridge/README.md`](../chat_bridge/README.md) — extension architecture, installation and migration surfaces.
@@ -76,16 +78,18 @@ For a GitHub-managed conversation, the ChatGPT DOM is not the source of truth fo
 - [`BUG_BACKLOG.md`](BUG_BACKLOG.md) — confirmed defects and required regressions.
 - [`TEST_EXECUTION_GOLDEN_PLAN.md`](TEST_EXECUTION_GOLDEN_PLAN.md) — verification design/evidence.
 
-## Releases and handoffs
+## Release and audit evidence
 
 - [`CHANGELOG.md`](CHANGELOG.md) — current release history/index.
-- `RELEASE_NOTES_V*.md` — release-specific evidence.
-- `CHAT_BRIDGE_HANDOFF_*.md` — time-bounded field/audit handoffs; the newest handoff is the starting point for a fresh-context Bridge audit, not a replacement for canonical docs.
+- `RELEASE_NOTES_V*.md` — release-specific evidence retained for rollback/audit work.
+- [`CHAT_BRIDGE_AUDIT_2026-09-30.md`](CHAT_BRIDGE_AUDIT_2026-09-30.md) — current post-release Bridge hardening evidence until that candidate is explicitly advanced.
 - Git tag `vX.Y.Z` plus `local_agent.version.RELEASE_VERSION` are the release-version source of truth.
+
+Superseded dated Chat Bridge handoffs are removed once their durable findings are folded into canonical docs. The v4.19.9 changelog's historical `CHAT_BRIDGE_HANDOFF_2026-09-30.md` path is retained only as a tiny compatibility redirect; the original handoff content remains recoverable from Git history.
 
 ## Historical material
 
-Files under [`history/`](history/) and old dated handoffs/release notes are non-canonical evidence. Current behavior must be verified against `main`, the operational docs above and live runtime evidence.
+Files under [`history/`](history/) and old release notes are non-canonical evidence. Current behavior must be verified against `main`, the operational docs above and live runtime evidence.
 
 The frozen v4.18.13 checkpoint remains available at [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) for that specific rollback/audit purpose.
 

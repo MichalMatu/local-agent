@@ -53,12 +53,23 @@ assert.equal(
   model.scheduleDeadline(control, 10, now),
   Date.parse("2026-09-29T22:30:00.000Z")
 );
-const overdue = model.sanitizeConversationControl(raw({ next_wake_at: "2026-09-29T21:00:00Z" }));
-assert.equal(model.scheduleDeadline(overdue, 10, now), now + 1000);
+const overdue = model.sanitizeConversationControl(raw({
+  next_wake_at: "2026-09-29T21:00:00Z",
+  updated_at: "2026-09-29T20:59:00Z"
+}));
+assert.equal(model.scheduleDeadline(overdue, 10, now), now + 5 * 60_000);
 const defaultInterval = model.sanitizeConversationControl(raw({ next_wake_at: null, interval_minutes: null }));
 assert.equal(model.scheduleDeadline(defaultInterval, 10, now), now + 10 * 60_000);
 const paused = model.sanitizeConversationControl(raw({ enabled: false, next_wake_at: null }));
 assert.equal(model.scheduleDeadline(paused, 10, now), null);
+const futureDatedControl = model.sanitizeConversationControl(raw({
+  updated_at: "2026-10-01T22:00:00Z",
+  next_wake_at: "2026-10-01T23:00:00Z"
+}));
+assert.throws(
+  () => model.scheduleDeadline(futureDatedControl, 10, now),
+  /maximum horizon from now/
+);
 
 assert.throws(
   () => model.validateConversationControls([raw(), raw({ control_generation: 8 })], [AGENT]),
@@ -83,6 +94,22 @@ assert.throws(
 assert.throws(
   () => model.sanitizeConversationControl(raw({ next_wake_at: "2026-09-30T00:30:00" })),
   /offset-aware/
+);
+assert.throws(
+  () => model.sanitizeConversationControl(raw({ enabled: false })),
+  /disabled.*next_wake_at/
+);
+assert.throws(
+  () => model.sanitizeConversationControl(raw({
+    next_wake_at: "2026-09-30T00:27:00+02:00"
+  })),
+  /must not precede updated_at/
+);
+assert.throws(
+  () => model.sanitizeConversationControl(raw({
+    next_wake_at: "2026-10-01T00:29:00+02:00"
+  })),
+  /maximum wake horizon/
 );
 
 console.log("GitHub Bridge control model tests passed.");

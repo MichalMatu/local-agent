@@ -79,7 +79,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         loadRuntimeConfig(state),
         getScheduleSnapshot(state)
       ]);
-      sendResponse({ state, runtime, schedules });
+      const githubOwnership = await githubOwnershipSnapshot(state, runtime);
+      const popupRuntime = {
+        ...runtime,
+        conversationControls: (runtime.conversationControls || []).filter((control) => {
+          const ownership = githubOwnership[control.conversationId];
+          return Boolean(
+            ownership?.source === "remote" &&
+            ownership.controlGeneration === control.controlGeneration &&
+            ownership.bindingRevision === control.bindingRevision
+          );
+        })
+      };
+      sendResponse({ state, runtime: popupRuntime, schedules, githubOwnership });
     })().catch((error) => sendResponse({ error: String(error) }));
     return true;
   }
