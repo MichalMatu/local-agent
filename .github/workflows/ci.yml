@@ -59,7 +59,7 @@ jobs:
       - name: Measure unit and integration coverage
         run: |
           coverage run -m unittest discover -q
-          coverage report -m
+          coverage report --fail-under=70 -m
           coverage xml
 
   python-314:
