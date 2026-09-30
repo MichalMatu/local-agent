@@ -35,11 +35,11 @@
       "repository": "MichalMatu/local-agent",
       "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
       "binding_revision": 1,
-      "control_generation": 2,
-      "enabled": true,
+      "control_generation": 3,
+      "enabled": false,
       "interval_minutes": 5,
-      "next_wake_at": "2026-09-30T23:12:51.187Z",
-      "updated_at": "2026-09-30T23:10:51.187Z"
+      "next_wake_at": null,
+      "updated_at": "2026-09-30T23:16:14.921Z"
     }
   ],
   "agents": [
