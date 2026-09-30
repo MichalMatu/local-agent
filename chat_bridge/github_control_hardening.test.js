@@ -103,7 +103,7 @@ async function addConversation(h, enabled = true) {
   // A cold profile never converts an already-expired one-shot into an immediate wake.
   {
     const now = Date.now();
-    let control = controlRecord({
+    const control = controlRecord({
       interval_minutes: 7,
       next_wake_at: new Date(now - 60_000).toISOString(),
       updated_at: new Date(now - 120_000).toISOString()
@@ -125,6 +125,20 @@ async function addConversation(h, enabled = true) {
     const generation = h.storage.bridgeState.conversations[chatId].generation;
 
     control = null;
+    const popupState = await h.sendRuntimeMessage({ type: "bridge:get-state" });
+    assert.equal(popupState.githubOwnership[chatId].managed, true);
+    assert.equal(popupState.githubOwnership[chatId].source, "cached");
+
+    const localMutation = await h.sendRuntimeMessage({
+      type: "bridge:update-conversation",
+      conversationId: chatId,
+      patch: { enabled: false }
+    });
+    assert.equal(localMutation.ok, false);
+    assert.match(localMutation.error, /managed by GitHub desired state/);
+    assert.equal(h.storage.bridgeState.conversations[chatId].generation, generation);
+    assert.equal(h.storage.bridgeState.conversations[chatId].enabled, true);
+
     let response = await h.sendRuntimeMessage({
       type: "bridge:assistant-control",
       conversationUrl: url,
@@ -151,7 +165,7 @@ async function addConversation(h, enabled = true) {
   // Master remains an independent local gate for a GitHub-managed enabled conversation.
   {
     const target = Date.now() + 5 * 60_000;
-    let control = controlRecord({ next_wake_at: new Date(target).toISOString() });
+    const control = controlRecord({ next_wake_at: new Date(target).toISOString() });
     const h = harnessWithControl(() => control);
     await addConversation(h);
     await h.sendRuntimeMessage({
@@ -175,6 +189,7 @@ async function addConversation(h, enabled = true) {
   assert.match(popup, /function managedControlForConversation/);
   assert.match(popup, /enabled\.disabled = githubManaged/);
   assert.match(popup, /intervalInput\.disabled = githubManaged/);
+  assert.match(popup, /githubOwnership\[conversation\.id\]/);
   assert.match(popup, /GitHub managed/);
 
   console.log("GitHub Bridge reconciliation, cache, ownership and popup hardening tests passed.");
