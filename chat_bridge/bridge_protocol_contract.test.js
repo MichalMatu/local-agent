@@ -12,7 +12,7 @@ assert.ok(
   Number.isInteger(protocol.CONTENT_PROTOCOL_VERSION) && protocol.CONTENT_PROTOCOL_VERSION > 0,
   "shared CONTENT_PROTOCOL_VERSION must be a positive integer"
 );
-assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 13, "GitHub control-plane upgrade must not change the DOM content protocol");
+assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 13, "GitHub control-plane checkpoint must not change the DOM content protocol");
 for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_harness.js"]) {
   assert.doesNotMatch(
     read(name),
@@ -37,7 +37,7 @@ assert.match(
 );
 
 const manifest = JSON.parse(read("manifest.json"));
-assert.equal(manifest.version, "0.6.1", "GitHub-backed schedule control hardening must have an unambiguous Bridge version");
+assert.equal(manifest.version, "0.6.2", "terminal safety checkpoint must have an unambiguous Bridge version");
 const scripts = manifest.content_scripts?.[0]?.js || [];
 const retryIndex = scripts.indexOf("content_retry.js");
 const contentIndex = scripts.indexOf("content.js");
@@ -96,6 +96,7 @@ assert.match(githubWorker, /bindingRevision === control\.bindingRevision/, "appl
 assert.match(githubWorker, /localGeneration/, "local generation must participate in GitHub drift detection");
 assert.match(githubWorker, /controlGeneration < appliedGeneration/, "stale GitHub control generations must fail closed");
 assert.match(githubWorker, /github_control_reconciled/, "GitHub desired state must repair local schedule drift");
+assert.match(githubWorker, /githubControlPreservedLocalSafety/, "GitHub reconciliation must preserve terminal local safety state");
 
 const githubGate = read("worker_github_legacy_gate.js");
 assert.match(githubGate, /github_control_managed/, "managed LAB schedule controls must terminate without mutating state");
