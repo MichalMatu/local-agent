@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the canonical conversation scheduling/control contract for Chat Bridge 0.6.0 / Local Agent 4.19.9 plus the post-release hardening candidate described in `CHAT_BRIDGE_AUDIT_2026-09-30.md`.
+This is the canonical conversation scheduling/control contract for Chat Bridge 0.6.0 / Local Agent 4.19.9 plus the post-release hardening merged in PR #118 and described in `CHAT_BRIDGE_AUDIT_2026-09-30.md`.
 
 Normal `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL` operations for a managed conversation are no longer transported by assistant text in the ChatGPT DOM. GitHub desired state in `chat_bridge/runtime.json` on `chat-bridge-state` is authoritative.
 
@@ -83,7 +83,7 @@ Until a reviewed shared executor/lease contract exists, one managed conversation
 
 The supported production topology is therefore one normal/daily Chrome profile acting as the executor. A second profile may be used for Chrome Dev or bounded diagnostics, including while it is open at the same time, provided it is not also able to execute the same managed conversation. In practice, keep that conversation unconfigured/removed in the diagnostic profile or keep the diagnostic profile's Bridge Master off except during an intentional bounded test. A diagnostic profile is not a second production executor.
 
-This limitation is separate from stale one-shot replay: the hardening candidate prevents a fresh profile from immediately replaying an already-expired NEXT, but it cannot arbitrate two profiles that concurrently own the same still-future generation.
+This limitation is separate from stale one-shot replay: the hardening prevents a fresh profile from immediately replaying an already-expired NEXT, but it cannot arbitrate two profiles that concurrently own the same still-future generation.
 
 ## Legacy LAB compatibility
 
@@ -140,7 +140,7 @@ GitHub desired state
 
 A visible ChatGPT Stop control blocks overlapping submission. Operator edits in the composer are never overwritten. Retained Bridge text may be reused only if it still exactly matches the Bridge-owned prompt.
 
-The hardening candidate does not add a speculative second click or automatic resubmit when the exact user turn is unconfirmed. `delivery_unconfirmed` remains diagnostic until a reproducible browser root cause justifies a narrower change.
+The hardening does not add a speculative second click or automatic resubmit when the exact user turn is unconfirmed. `delivery_unconfirmed` remains diagnostic until a reproducible browser root cause justifies a narrower change.
 
 ## Live proof
 
@@ -153,15 +153,19 @@ On 2026-09-30 the daily-Chrome conversation `chat-e8ad8275` completed the origin
 5. the wake returned with the immutable `host-ops` binding envelope;
 6. generation 4 returned the chat to `PAUSED`.
 
-The post-release hardening candidate then completed a second production-shaped proof on the normal/daily Chrome profile using the exact active conversation `chat-be9defd7`, bound to `MichalMatu/local-agent` at binding revision 1:
+A later field run used the active conversation `chat-be9defd7`, bound to `MichalMatu/local-agent` at binding revision 1:
 
-1. generation 1 established matching GitHub ownership in `PAUSED` state;
-2. a manual `Run now` proved only the local binding and submit path, returning the exact `chat-be9defd7` / `local-agent` envelope;
+1. generation 1 established a matching GitHub control record in `PAUSED` state;
+2. a manual `Run now` proved the local binding and submit path, returning the exact `chat-be9defd7` / `local-agent` envelope;
 3. generation 2 armed one `NEXT` for `2026-09-30T05:02:00+02:00`;
-4. without a manual Run or LAB scheduling, the automatic wake was submitted at approximately `05:02:07+02:00` with the exact expected envelope;
-5. generation 3 immediately returned the conversation to `PAUSED` with `enabled=false` and `next_wake_at=null`.
+4. without a manual Run or LAB scheduling, an automatic wake was submitted at approximately `05:02:07+02:00` with the exact expected envelope;
+5. generation 3 returned the conversation to `PAUSED` with `enabled=false` and `next_wake_at=null`.
 
-An earlier attempted publication during this validation targeted an old conversation id and was correctly ignored by exact identity matching; it was a test-setup error rather than a scheduler failure and was returned to `PAUSED` before the clean run.
+That second run proves the scheduled delivery path for the extension build that was loaded in daily Chrome, but it must **not** be attributed to the merged hardening build. After the exact matching control had been published, the popup screenshot did not show the `GitHub managed` badge that the hardening renders for a matching remote control or cached ownership record. The loaded browser runtime was therefore most likely the earlier 0.6.0 build.
+
+The hardening-specific field gate is still one bounded rerun after Chrome reloads current `main`: confirm the visible `GitHub managed` badge, arm one automatic NEXT, observe exactly one wake, then return desired state to `PAUSED`.
+
+An earlier attempted publication during this validation targeted an old conversation id and was correctly ignored by exact identity matching; it was a test-setup error and was returned to `PAUSED` before the clean run.
 
 The final desired state for both retained test records is intentionally `enabled=false`, `next_wake_at=null`.
 
