@@ -6,14 +6,13 @@ Normal pacing/status for a GitHub-managed conversation does **not** depend on as
 
 Historical release notes describe earlier renderer assumptions and assistant-side LAB schedule transport. They are not the current scheduling contract.
 
-## Candidate baseline
+## Production baseline
 
 ```text
-Local Agent source: v4.19.9
-Deployed Local Agent before release decision: v4.19.8
-Chat Bridge candidate/live staged: 0.6.0
-content protocol: v13
-assistant guard:  v8
+Local Agent source/deployed: v4.19.9
+Chat Bridge:                0.6.0
+content protocol:            v13
+assistant guard:             v8
 ```
 
 The 0.6.0 desired-state design and live proof are documented in `GITHUB_BRIDGE_CONTROL.md`, `RELEASE_NOTES_V4.19.9.md` and `CHAT_BRIDGE_HANDOFF_2026-09-30.md`.

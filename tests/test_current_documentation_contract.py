@@ -114,40 +114,51 @@ class CurrentDocumentationContractTests(unittest.TestCase):
                 self.assertIn("host-ops", text)
                 self.assertIn("multirepo", text)
 
-    def test_golden_standard_distinguishes_candidate_source_from_production(self) -> None:
+    def test_golden_standard_release_state_matches_source_version(self) -> None:
         golden = (REPO_ROOT / "docs" / "GOLDEN_STANDARD.md").read_text(encoding="utf-8")
-        source_match = re.search(
-            r"(?:source release|base source release marker) is `v([^`]+)`",
+        released_match = re.search(
+            r"current source and production release is `v([^`]+)`",
             golden,
         )
-        production_match = re.search(r"current production release is `v([^`]+)`", golden)
-        self.assertIsNotNone(source_match, "missing source release declaration")
-        self.assertIsNotNone(production_match, "missing production release declaration")
-        assert source_match is not None
-        assert production_match is not None
-
-        source_release = source_match.group(1)
-        production_release = production_match.group(1)
-        self.assertEqual(source_release, RELEASE_VERSION)
-
-        if production_release != source_release:
-            self.assertTrue(
-                f"The {source_release} candidate" in golden
-                or f"The {source_release} base candidate" in golden
-            )
-            self.assertIn(
-                f"deployed production release remains `v{production_release}` until the explicit release decision advances `main`",
-                golden,
-            )
-            self.assertIn(
+        if released_match is not None:
+            self.assertEqual(released_match.group(1), RELEASE_VERSION)
+            self.assertNotIn(
                 "Candidate source must not be described as current production before the explicit release decision advances `main`.",
                 golden,
             )
         else:
-            self.assertNotIn(
-                f"deployed production release remains `v{production_release}` until the explicit release decision advances `main`",
+            source_match = re.search(
+                r"(?:source release|base source release marker) is `v([^`]+)`",
                 golden,
             )
+            production_match = re.search(r"current production release is `v([^`]+)`", golden)
+            self.assertIsNotNone(source_match, "missing source release declaration")
+            self.assertIsNotNone(production_match, "missing production release declaration")
+            assert source_match is not None
+            assert production_match is not None
+
+            source_release = source_match.group(1)
+            production_release = production_match.group(1)
+            self.assertEqual(source_release, RELEASE_VERSION)
+
+            if production_release != source_release:
+                self.assertTrue(
+                    f"The {source_release} candidate" in golden
+                    or f"The {source_release} base candidate" in golden
+                )
+                self.assertIn(
+                    f"deployed production release remains `v{production_release}` until the explicit release decision advances `main`",
+                    golden,
+                )
+                self.assertIn(
+                    "Candidate source must not be described as current production before the explicit release decision advances `main`.",
+                    golden,
+                )
+            else:
+                self.assertNotIn(
+                    f"deployed production release remains `v{production_release}` until the explicit release decision advances `main`",
+                    golden,
+                )
 
         self.assertNotIn("is still a candidate on this branch", golden)
 
