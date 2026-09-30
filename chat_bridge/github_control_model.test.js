@@ -62,6 +62,14 @@ const defaultInterval = model.sanitizeConversationControl(raw({ next_wake_at: nu
 assert.equal(model.scheduleDeadline(defaultInterval, 10, now), now + 10 * 60_000);
 const paused = model.sanitizeConversationControl(raw({ enabled: false, next_wake_at: null }));
 assert.equal(model.scheduleDeadline(paused, 10, now), null);
+const futureDatedControl = model.sanitizeConversationControl(raw({
+  updated_at: "2026-10-01T22:00:00Z",
+  next_wake_at: "2026-10-01T23:00:00Z"
+}));
+assert.throws(
+  () => model.scheduleDeadline(futureDatedControl, 10, now),
+  /maximum horizon from now/
+);
 
 assert.throws(
   () => model.validateConversationControls([raw(), raw({ control_generation: 8 })], [AGENT]),
