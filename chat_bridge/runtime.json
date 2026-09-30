@@ -11,11 +11,11 @@
       "repository": "MichalMatu/local-agent",
       "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
       "binding_revision": 2,
-      "control_generation": 2,
-      "enabled": true,
+      "control_generation": 3,
+      "enabled": false,
       "interval_minutes": 5,
-      "next_wake_at": "2026-09-30T04:49:00+02:00",
-      "updated_at": "2026-09-30T04:46:52+02:00"
+      "next_wake_at": null,
+      "updated_at": "2026-09-30T04:51:13+02:00"
     }
   ],
   "agents": [
@@ -34,7 +34,7 @@
     {
       "repository_id": "bloomml",
       "repository": "MichalMatu/bloomml",
-      "agent_binding": "815cf40d-8d1a-4e1f-b7cc-c0f4e37b6cb5",
+      "agent_binding": "815cf40f-8d2a-4e1f-b7cc-c0f4e37b6cb5",
       "execution_enabled": true
     },
     {
