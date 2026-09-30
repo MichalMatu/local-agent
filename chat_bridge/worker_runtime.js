@@ -1,3 +1,6 @@
+let runtimeFetchSequence = 0;
+let runtimeCacheSequence = 0;
+
 function validatePrompt(value, fallback, maximum, label) {
   const prompt = String(value || fallback || "").trim();
   if (!prompt) throw new Error(`${label} must be a non-empty string`);
@@ -128,17 +131,27 @@ function applyConversationInterval(runtime, conversation) {
 async function fetchRuntime(settings, { fresh = false } = {}) {
   const key = JSON.stringify(settings);
   if (!fresh && runtimeCache?.key === key && runtimeCache.expiresAt > Date.now()) return runtimeCache.value;
-  if (runtimeRequests.has(key)) return runtimeRequests.get(key);
-  const request = fetchRuntimeUncached(settings, key);
+  if (!fresh && runtimeRequests.has(key)) return runtimeRequests.get(key);
+
+  const sequence = ++runtimeFetchSequence;
+  const request = fetchRuntimeUncached(settings, key, sequence);
+  if (fresh) return request;
+
   runtimeRequests.set(key, request);
   try {
     return await request;
   } finally {
-    runtimeRequests.delete(key);
+    if (runtimeRequests.get(key) === request) runtimeRequests.delete(key);
   }
 }
 
-async function fetchRuntimeUncached(settings, key) {
+function cacheRuntimeResult(key, sequence, value) {
+  if (sequence < runtimeCacheSequence) return;
+  runtimeCacheSequence = sequence;
+  runtimeCache = { key, expiresAt: Date.now() + RUNTIME_CACHE_MS, value };
+}
+
+async function fetchRuntimeUncached(settings, key, sequence) {
   const fallback = fallbackRuntime(settings);
   const runtimeUrl = String(settings.runtimeUrl || "").trim();
   const controller = new AbortController();
@@ -151,12 +164,12 @@ async function fetchRuntimeUncached(settings, key) {
     });
     if (!response.ok) throw new Error(`runtime fetch returned HTTP ${response.status}`);
     const value = { ...validateRuntimeConfig(await response.json(), settings), source: "remote" };
-    runtimeCache = { key, expiresAt: Date.now() + RUNTIME_CACHE_MS, value };
+    cacheRuntimeResult(key, sequence, value);
     return value;
   } catch (error) {
     console.warn("Local Agent Chat Bridge runtime unavailable:", error);
     const value = { ...fallback, source: "unavailable", runtimeError: String(error) };
-    runtimeCache = { key, expiresAt: Date.now() + RUNTIME_CACHE_MS, value };
+    cacheRuntimeResult(key, sequence, value);
     return value;
   } finally {
     clearTimeout(timeout);
