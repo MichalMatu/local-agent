@@ -126,6 +126,9 @@
     if (control.nextWakeAt) {
       const parsed = Date.parse(control.nextWakeAt);
       if (!Number.isFinite(parsed)) throw new Error("invalid control next wake deadline");
+      if (parsed > nowMs + protocol.MAX_NEXT_SECONDS * 1000) {
+        throw new Error("control next wake deadline exceeds maximum horizon from now");
+      }
       if (parsed > nowMs + 1000) return parsed;
     }
     const interval = control.intervalMinutes === null
