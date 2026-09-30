@@ -22,6 +22,10 @@ async function deliverConversation(chatId, manual) {
     await clearConversationAlarm(chatId, conversation.generation);
     return { ok: false, reason: "conversation_unbound" };
   }
+  if (conversation.lastStatus === "conversation_exhausted") {
+    await clearConversationAlarm(chatId, conversation.generation);
+    return { ok: false, reason: "conversation_exhausted" };
+  }
   if ((!state.settings.masterEnabled || !conversation.enabled) && !manual) {
     await clearConversationAlarm(chatId, conversation.generation);
     return { ok: false, reason: "disabled" };
