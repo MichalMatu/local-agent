@@ -4,7 +4,7 @@ Chrome Manifest V3 extension that binds one ChatGPT conversation to Local Agent,
 
 ## Release matrix
 
-Candidate source for Local Agent 4.19.9:
+Production baseline:
 
 ```text
 Local Agent:      v4.19.9
@@ -14,7 +14,7 @@ assistant guard:  v8
 runtime schema:    3 + optional conversation_controls
 ```
 
-Until `main` is explicitly advanced and the installed runtime is verified, the deployed Local Agent release remains v4.19.8. The live daily-Chrome candidate 0.6.0 has completed the GitHub-backed E2E described in `docs/RELEASE_NOTES_V4.19.9.md`.
+Production is verified on Local Agent v4.19.9 at main revision `52dcce0d6a7f39ebe4cdb60157fcd8bc966589ff`. Chat Bridge 0.6.0 completed the daily-Chrome GitHub-backed E2E described in `docs/RELEASE_NOTES_V4.19.9.md`, and the final desired state is PAUSED.
 
 Canonical behavior is defined by current source plus:
 

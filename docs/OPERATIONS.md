@@ -22,7 +22,7 @@ v4.18.13
 = rollback/v4.18.13-known-working
 ```
 
-The released production line is v4.19.1. Read the exact installed `daemon_version` and `self_revision` from live daemon status instead of pinning a post-release self-update SHA in this document. The BUG-002 scheduler repair introduced with v4.18.14 behavior is established production behavior; v4.18.13 is retained only as the explicit pre-fix rollback baseline. See [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) for historical pre-fix context before changing scheduler/control admission behavior.
+The released production line is v4.19.9. Read the exact installed `daemon_version` and `self_revision` from live daemon status instead of pinning a post-release self-update SHA in this document. The BUG-002 scheduler repair introduced with v4.18.14 behavior is established production behavior; v4.18.13 is retained only as the explicit pre-fix rollback baseline. See [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) for historical pre-fix context before changing scheduler/control admission behavior.
 
 The remote tag set has historically contained release-tag gaps. Do not fabricate or back-date a release tag during unrelated housekeeping. The release-flow invariant below remains the rule for future releases; repairing historical tag metadata requires an explicit release-metadata decision against an exact commit.
 
@@ -108,7 +108,7 @@ bindingSetAt
 
 Legacy/unbound conversations migrate disabled with `binding_required`; they receive no alarm. Normal conversation edits cannot alter binding fields. Explicit Rebind changes the conversation binding and forces a new bootstrap. It is not required merely to change target repositories inside a validated `planner_scope=multirepo` conversation.
 
-Remote runtime schema 3 publishes the canonical agent catalog plus optional `planner_scope`. The default scope is `repository`; only `repository` and `multirepo` are valid, and `multirepo` requires an execution-enabled operator binding. Production runtime is served from branch `chat-bridge-state`, file `chat_bridge/runtime.json`. Rollout order matters:
+Remote runtime schema 3 publishes the canonical agent catalog plus optional `planner_scope` and `conversation_controls`. The default planner scope is `repository`; only `repository` and `multirepo` are valid, and `multirepo` requires an execution-enabled operator binding. For a conversation with an exact `conversation_controls` record, GitHub desired state is authoritative for STATUS/PAUSE/RESUME/NEXT/INTERVAL and every schedule mutation increments `control_generation`; assistant LAB schedule markers are legacy no-ops. Production runtime is served from branch `chat-bridge-state`, file `chat_bridge/runtime.json`. See [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md). Rollout order matters:
 
 1. keep Local Agent globally disabled;
 2. release/fast-forward Local Agent code and validate exact-candidate CI;
