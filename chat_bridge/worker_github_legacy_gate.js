@@ -24,7 +24,8 @@ async function githubAuthorityForControlMessage(message, sender) {
 applyAssistantControl = async function applyGithubAwareAssistantControl(message, sender) {
   const parsed = parseAssistantControl(String(message?.control?.marker || ""));
   const scheduleActions = new Set(["stop", "pause", "resume", "interval", "next"]);
-  if (parsed && scheduleActions.has(parsed.action) && validControlFingerprint(message)) {
+  const managedStatus = parsed?.action === "inspect" && parsed.command === "status";
+  if (parsed && (scheduleActions.has(parsed.action) || managedStatus) && validControlFingerprint(message)) {
     const authority = await githubAuthorityForControlMessage(message, sender);
     if (authority) return githubManagedControlResult(authority);
   }
