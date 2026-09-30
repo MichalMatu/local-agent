@@ -23,6 +23,15 @@ function githubControlSignature(control) {
   ]);
 }
 
+function githubControlPreservedLocalSafety(conversation, fresh) {
+  if (!conversation || conversation.enabled) return null;
+  if (conversation.lastStatus === "conversation_exhausted") return "conversation_exhausted";
+  if (!fresh && conversation.lastStatus === "assistant_retry_exhausted") {
+    return "assistant_retry_exhausted";
+  }
+  return null;
+}
+
 async function readAppliedGithubControls() {
   const stored = await chrome.storage.local.get(GITHUB_CONTROL_APPLIED_KEY);
   const raw = stored[GITHUB_CONTROL_APPLIED_KEY];
@@ -205,6 +214,18 @@ async function reconcileGithubConversationControlsOnce() {
         return { state: currentState, value: { ok: false, reason: "binding_changed" } };
       }
       const fresh = control.controlGeneration > appliedGeneration;
+      const preservedLocalSafety = githubControlPreservedLocalSafety(current, fresh);
+      if (preservedLocalSafety) {
+        return {
+          state: currentState,
+          value: {
+            ok: true,
+            changed: false,
+            localGeneration: current.generation,
+            preservedLocalSafety
+          }
+        };
+      }
       const generationDrift = !fresh && Number(appliedEntry?.localGeneration) !== current.generation;
       const drifted =
         generationDrift ||
@@ -235,7 +256,10 @@ async function reconcileGithubConversationControlsOnce() {
 
     if (!mutation.value?.ok) continue;
     if (!mutation.value.changed) {
-      if (!appliedEntry?.controlSignature) {
+      if (mutation.value.preservedLocalSafety) {
+        await clearConversationAlarm(conversation.id, mutation.value.localGeneration);
+      }
+      if (mutation.value.preservedLocalSafety || !appliedEntry?.controlSignature) {
         await writeAppliedGithubControl(
           conversation.id,
           control.controlGeneration,
