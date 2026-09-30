@@ -2,7 +2,7 @@
 
 ## Scope and baseline
 
-This audit starts from `main` / tag `v4.19.9` at `428dc37d2e66179c6368aa2a2bd53063445a4fd2` and treats current source plus `CHAT_BRIDGE_HANDOFF_2026-09-30.md` as the baseline evidence.
+This audit starts from `main` / tag `v4.19.9` at `428dc37d2e66179c6368aa2a2bd53063445a4fd2`. The original dated Chat Bridge handoff was used as historical input together with the source/test files it named; after the audit its durable conclusions were folded into this document and `GITHUB_BRIDGE_CONTROL.md`, so the transient handoff itself is no longer part of the current documentation set.
 
 Audited areas:
 
@@ -24,57 +24,57 @@ The live production desired state was verified separately to remain generation 4
 
 `bridgeState` writes are serialized, but the 0.6.0 GitHub reconcile operation was not. Two activation/popup/alarm paths could read the same old applied-generation journal before either completed, then each enter the serialized state mutation believing the same remote generation was fresh. The result could increment `localGeneration` twice, churn alarms and invalidate an already-authorized delivery.
 
-Candidate fix: serialize the complete GitHub reconcile transaction within one MV3 worker instance and test concurrent calls directly.
+Accepted fix: serialize the complete GitHub reconcile transaction within one MV3 worker instance and test concurrent calls directly.
 
 ### High: cached or already-in-flight runtime reads can hide a just-published PAUSE at wake time
 
 The conversation alarm correctly reconciles GitHub state before delivery, but 0.6.0 used the same 30-second cache and in-flight request de-duplication as ordinary configuration lookups. A control-boundary reconcile could therefore receive state fetched before a newly published `PAUSE`.
 
-Candidate fix: control-boundary reads bypass both the cache and older in-flight configuration requests. Fetch sequencing prevents an older request that completes later from overwriting a newer control-boundary result in the cache.
+Accepted fix: control-boundary reads bypass both the cache and older in-flight configuration requests. Fetch sequencing prevents an older request that completes later from overwriting a newer control-boundary result in the cache.
 
 ### High: two Chrome profiles do not share a delivery lease
 
 Applied-generation state, `chrome.alarms`, the configured preferred tab and `inFlightDeliveries` are profile-local. Two profiles configured for the same managed conversation can both accept the same still-future generation and both submit the same wake.
 
-This is not safely fixable by another local boolean or DOM heuristic. Exactly-once cross-profile delivery requires shared authority: for example, an explicit desired-state executor/profile owner or another writable shared lease/acknowledgement service.
+This is not safely fixable by another local boolean or DOM heuristic. Exactly-once cross-profile delivery would require shared authority: for example, an explicit desired-state executor/profile owner or another writable shared lease/acknowledgement service.
 
-Candidate decision: document this as an explicit architectural constraint and do not pretend local dedupe solves it. One managed conversation must currently have one active Chrome-profile executor.
+Operational decision: the supported production topology is one active normal Chrome-profile executor per managed conversation. Additional Chrome profiles may exist for diagnostic/Chrome Dev work, but they must not concurrently own/execute wakes for the same managed conversation outside a bounded test. The known second profile in the current deployment is diagnostic, not a second production executor, so a distributed lease is not a release requirement for this topology.
 
 ### High: a fresh profile can replay an already-expired one-shot
 
 0.6.0 treated a remote generation unseen by the local profile as fresh. When its explicit `next_wake_at` was already in the past, `scheduleDeadline()` converted it to approximately `now+1s`. A new or previously unused profile could therefore replay a consumed historical NEXT.
 
-Candidate fix: an expired one-shot always falls back to normal interval scheduling, including first observation on a cold profile.
+Accepted fix: an expired one-shot always falls back to normal interval scheduling, including first observation on a cold profile.
 
 ### High: one generation was not actually immutable
 
 The contract says every desired-state mutation increments `control_generation`, but the applied journal stored only generation/revision/local generation. If the remote payload changed under the same generation, the worker could confuse that unversioned remote rewrite with local drift and apply it.
 
-Candidate fix: persist a canonical signature of the applied desired-state payload. A same-generation rewrite now fails closed, and a lower remote generation is treated as rollback rather than becoming popup authority.
+Accepted fix: persist a canonical signature of the applied desired-state payload. A same-generation rewrite now fails closed, and a lower remote generation is treated as rollback rather than becoming popup authority.
 
 ### Medium: temporary remote record omission can hand ownership back to local/legacy pacing
 
 0.6.0 retained sticky ownership only when the remote runtime was unavailable. A successfully fetched runtime that temporarily omitted the exact control record returned no GitHub authority, allowing local/legacy pacing to mutate state again.
 
-Candidate fix: once a matching control has been applied for the current binding revision, ownership remains sticky across network failure, malformed publication, record omission, rollback and same-generation conflict. Rebind creates a new revision. Explicit Remove clears the durable applied-ownership entry so a later re-add starts cleanly.
+Accepted fix: once a matching control has been applied for the current binding revision, ownership remains sticky across network failure, malformed publication, record omission, rollback and same-generation conflict. Rebind creates a new revision. Explicit Remove clears the durable applied-ownership entry so a later re-add starts cleanly.
 
 ### Medium: popup pacing controls imply authority they no longer own
 
 The popup still rendered an active enable switch and editable interval for a GitHub-managed chat. A local edit could be accepted, increment local generation and then be repaired by the next remote reconcile. During an outage or stale remote publication the UI could also diverge from the worker's sticky ownership decision.
 
-Candidate fix: managed per-conversation enable and interval controls are read-only with a `GitHub managed` badge; the worker independently rejects direct local pacing writes. Popup state is filtered through the applied ownership snapshot so rollback/conflicting remote records are not displayed as authoritative. Master, `Run now`, binding/removal and diagnostics remain local operator actions.
+Accepted fix: managed per-conversation enable and interval controls are read-only with a `GitHub managed` badge; the worker independently rejects direct local pacing writes. Popup state is filtered through the applied ownership snapshot so rollback/conflicting remote records are not displayed as authoritative. Master, `Run now`, binding/removal and diagnostics remain local operator actions.
 
 ### Medium: remote one-shot timestamp relationships were under-constrained
 
 The model validated timestamp syntax but not desired-state consistency. A disabled record could carry a wake deadline; a deadline could precede `updated_at`; and a one-shot could be arbitrarily far away.
 
-Candidate fix: require `next_wake_at=null` while disabled, require a one-shot not to precede `updated_at`, and cap the one-shot horizon at 24 hours to match the existing bounded NEXT contract.
+Accepted fix: require `next_wake_at=null` while disabled, require a one-shot not to precede `updated_at`, and cap the one-shot horizon at 24 hours to match the existing bounded NEXT contract. Application-time validation also rejects an otherwise syntactically valid deadline that is now more than 24 hours in the future.
 
 ### Medium: managed STATUS still had a competing DOM feedback path
 
 Although documentation made GitHub authoritative for `STATUS`, `[LAB:STATUS]` still reached legacy local inspection feedback on a managed chat.
 
-Candidate fix: treat managed assistant STATUS as `github_control_managed` compatibility no-op. This does not restore assistant LAB scheduling; it removes a competing status transport.
+Accepted fix: treat managed assistant STATUS as `github_control_managed` compatibility no-op. This does not restore assistant LAB scheduling; it removes a competing status transport.
 
 ### Security assessment
 
@@ -90,9 +90,9 @@ Assistant/grouped-turn scanning remains useful for migration binding, maintenanc
 
 The current delivery boundary has the correct safety shape: exact conversation, no active Stop state, exact composer ownership, worker authorization, live Send re-resolution, live click with bounded `requestSubmit()` fallback, and exact new-user-turn confirmation.
 
-The release handoff records one live observation where Bridge text remained in the composer without submission. That is evidence of a real field anomaly, but not enough to prove whether the failure is React state readiness, click handling, node replacement or another renderer condition. A second automatic click or fallback submit without a demonstrated root cause risks duplicate user turns.
+The v4.19.9 field evidence included one observation where Bridge text remained in the composer without submission. That is evidence of a real field anomaly, but not enough to prove whether the failure is React state readiness, click handling, node replacement or another renderer condition. A second automatic click or fallback submit without a demonstrated root cause risks duplicate user turns.
 
-Candidate decision: leave submit behavior unchanged. Improve only when a reproducible capture can distinguish pre-submit no-op from accepted-but-unconfirmed delivery.
+Decision: leave submit behavior unchanged. Improve only when a reproducible capture can distinguish pre-submit no-op from accepted-but-unconfirmed delivery.
 
 ## MV3 lifecycle assessment
 
@@ -102,7 +102,7 @@ The one-minute poll is not a real-time deadline guarantee. Chrome may delay alar
 
 The applied-generation journal remains a separate `chrome.storage.local` record from `bridgeState`. A worker termination between state mutation/alarm repair and acknowledgement write can cause harmless re-application/generation churn after restart, although the shared alarm name and generation guards keep the delivery path fail-closed. Folding acknowledgement metadata into one atomic state transaction is a future simplification candidate, not required for this hardening branch.
 
-## Candidate implementation
+## Implemented hardening
 
 Branch: `audit/chat-bridge-0.6.0-hardening`
 
@@ -114,18 +114,23 @@ Implemented:
 - immutable desired-state generations and rollback rejection;
 - sticky applied ownership on missing/conflicting/stale remote state;
 - explicit ownership reset on Remove;
-- desired-state timestamp/horizon validation;
+- Remove/Rebind serialization against reconcile;
+- desired-state timestamp/horizon validation before local state mutation;
 - managed STATUS compatibility no-op;
 - managed popup pacing read-only state plus worker-side mutation guard;
 - focused race/cache/cold-profile/generation/Master/ownership regressions.
 
 Intentionally not implemented:
 
-- cross-profile shared executor/lease, because it requires a reviewed shared authority contract;
+- cross-profile shared executor/lease, because the supported deployment uses one production profile and the second profile is diagnostic only;
 - speculative wake-submit retry/double-click behavior;
 - broad deletion of legacy DOM compatibility before the new control plane has a post-release validation cycle;
 - state/journal co-location, because it is a larger persistence migration with no demonstrated duplicate-delivery failure in the current generation-guarded path.
 
-## Release implications
+## Verification and release implication
 
-This branch changes runtime behavior and is not production merely because focused tests pass. Before advancing `main`, repository policy still requires exact-candidate CI, macOS smoke, browser smoke and a bounded production-shaped Chat Bridge control E2E ending PAUSED. A release/version decision should be made only after those gates are green.
+The exact implementation candidate `04026aefc22c4a8aa7198675e2a4378a5ea3ecd6` passed the complete five-job CI matrix, including browser and macOS smoke. Documentation cleanup performed after that SHA must also be green before merge.
+
+The remaining production gate for the hardening behavior is one bounded production-shaped Chat Bridge control E2E ending with the desired state `PAUSED`. Until that gate is explicitly completed, this branch remains a reviewed hardening candidate rather than a new production release.
+
+No assistant LAB schedule transport is restored by this branch.
