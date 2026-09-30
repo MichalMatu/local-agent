@@ -7,15 +7,15 @@
   "conversation_controls": [
     {
       "conversation_id": "chat-e8ad8275",
-      "repository_id": "host-ops",
-      "repository": "MichalMatu/host-ops",
-      "agent_binding": "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
-      "binding_revision": 1,
-      "control_generation": 4,
+      "repository_id": "local-agent",
+      "repository": "MichalMatu/local-agent",
+      "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+      "binding_revision": 2,
+      "control_generation": 1,
       "enabled": false,
       "interval_minutes": 5,
       "next_wake_at": null,
-      "updated_at": "2026-09-30T01:41:54+02:00"
+      "updated_at": "2026-09-30T04:45:47+02:00"
     }
   ],
   "agents": [
@@ -34,7 +34,7 @@
     {
       "repository_id": "bloomml",
       "repository": "MichalMatu/bloomml",
-      "agent_binding": "815cf40f-8d2a-4e1f-b7cc-c0f4e37b6cb5",
+      "agent_binding": "815cf40d-8d97-4205-b93f-95f5c5827441",
       "execution_enabled": true
     },
     {
