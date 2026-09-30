@@ -157,14 +157,6 @@ async function githubOwnershipSnapshot(state, runtime = null) {
   return ownership;
 }
 
-function repairedScheduleDeadline(control, runtime, nowMs = Date.now()) {
-  if (!control.enabled) return null;
-  const explicit = Date.parse(control.nextWakeAt || "");
-  if (Number.isFinite(explicit) && explicit > nowMs + 1000) return explicit;
-  const interval = control.intervalMinutes === null ? runtime.intervalMinutes : control.intervalMinutes;
-  return nowMs + interval * 60_000;
-}
-
 async function reconcileGithubConversationControlsOnce() {
   const state = await getBridgeState();
   const runtime = await fetchRuntime(state.settings, { fresh: true });
@@ -200,6 +192,12 @@ async function reconcileGithubConversationControlsOnce() {
       });
       continue;
     }
+
+    // Validate the effective deadline before mutating local desired state. A malformed or
+    // excessively distant one-shot must fail closed without leaving a half-applied generation.
+    const desiredDeadline = control.enabled
+      ? githubControlModel.scheduleDeadline(control, runtime.intervalMinutes)
+      : null;
 
     const mutation = await mutateState((currentState) => {
       const current = currentState.conversations[conversation.id];
@@ -251,10 +249,7 @@ async function reconcileGithubConversationControlsOnce() {
 
     const { chatId, localGeneration, fresh } = mutation.value;
     if (control.enabled) {
-      const deadline = fresh
-        ? githubControlModel.scheduleDeadline(control, runtime.intervalMinutes)
-        : repairedScheduleDeadline(control, runtime);
-      await scheduleAt(chatId, deadline, localGeneration);
+      await scheduleAt(chatId, desiredDeadline, localGeneration);
     } else {
       await clearConversationAlarm(chatId, localGeneration);
     }
