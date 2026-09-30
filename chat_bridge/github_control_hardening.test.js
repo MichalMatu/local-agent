@@ -231,6 +231,22 @@ async function addConversation(h, enabled = true) {
     assert.equal(h.storage.bridgeState.conversations[chatId].enabled, false);
   }
 
+  // Remove shares the reconcile queue so a late schedule/journal write cannot resurrect ownership.
+  {
+    const control = controlRecord({ updated_at: new Date().toISOString() });
+    const h = harnessWithControl(() => control);
+    await addConversation(h);
+    const [reconcile, removed] = await Promise.all([
+      h.evaluate("reconcileGithubConversationControls()"),
+      h.sendRuntimeMessage({ type: "bridge:remove-conversation", conversationId: chatId })
+    ]);
+    assert.equal(reconcile.ok, true);
+    assert.equal(removed.ok, true, removed.error);
+    assert.equal(h.storage.bridgeState.conversations[chatId], undefined);
+    assert.equal(h.storage.bridgeGithubControlApplied?.[chatId], undefined);
+    assert.equal(h.alarms.has(`local-agent-chat:${chatId}`), false);
+  }
+
   // Master remains an independent local gate for a GitHub-managed enabled conversation.
   {
     const target = Date.now() + 5 * 60_000;
