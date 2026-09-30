@@ -125,9 +125,9 @@ function applyConversationInterval(runtime, conversation) {
   };
 }
 
-async function fetchRuntime(settings) {
+async function fetchRuntime(settings, { fresh = false } = {}) {
   const key = JSON.stringify(settings);
-  if (runtimeCache?.key === key && runtimeCache.expiresAt > Date.now()) return runtimeCache.value;
+  if (!fresh && runtimeCache?.key === key && runtimeCache.expiresAt > Date.now()) return runtimeCache.value;
   if (runtimeRequests.has(key)) return runtimeRequests.get(key);
   const request = fetchRuntimeUncached(settings, key);
   runtimeRequests.set(key, request);
