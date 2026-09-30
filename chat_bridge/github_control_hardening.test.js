@@ -79,6 +79,7 @@ async function addConversation(h, enabled = true) {
     assert.equal(left.applied.length + right.applied.length, 1);
     assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 1);
     assert.equal(h.storage.bridgeGithubControlApplied[chatId].localGeneration, 1);
+    assert.ok(h.storage.bridgeGithubControlApplied[chatId].controlSignature);
   }
 
   // A control-boundary reconcile bypasses the 30-second runtime cache.
@@ -100,6 +101,57 @@ async function addConversation(h, enabled = true) {
     assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 2);
   }
 
+  // A remote rewrite under the same generation is rejected instead of masquerading as local drift.
+  {
+    let control = controlRecord({ updated_at: new Date().toISOString() });
+    const h = harnessWithControl(() => control);
+    await addConversation(h);
+    await h.evaluate("reconcileGithubConversationControls()");
+    const generation = h.storage.bridgeState.conversations[chatId].generation;
+
+    control = controlRecord({
+      enabled: false,
+      updated_at: new Date(Date.now() + 1000).toISOString()
+    });
+    const conflict = await h.evaluate("reconcileGithubConversationControls()");
+    assert.equal(conflict.applied.length, 0);
+    assert.equal(conflict.conflicts.length, 1);
+    assert.equal(conflict.conflicts[0].reason, "same_generation_rewritten");
+    assert.equal(h.storage.bridgeState.conversations[chatId].enabled, true);
+    assert.equal(h.storage.bridgeState.conversations[chatId].generation, generation);
+
+    const popupState = await h.sendRuntimeMessage({ type: "bridge:get-state" });
+    assert.equal(popupState.githubOwnership[chatId].source, "cached");
+    assert.equal(popupState.githubOwnership[chatId].controlGeneration, 1);
+    assert.equal(popupState.runtime.conversationControls.length, 0);
+  }
+
+  // A lower remote generation cannot replace the applied desired state or popup ownership.
+  {
+    let control = controlRecord({
+      control_generation: 2,
+      enabled: false,
+      updated_at: new Date().toISOString()
+    });
+    const h = harnessWithControl(() => control);
+    await addConversation(h);
+    await h.evaluate("reconcileGithubConversationControls()");
+    assert.equal(h.storage.bridgeState.conversations[chatId].enabled, false);
+
+    control = controlRecord({
+      control_generation: 1,
+      enabled: true,
+      updated_at: new Date(Date.now() + 1000).toISOString()
+    });
+    const rollback = await h.evaluate("reconcileGithubConversationControls()");
+    assert.equal(rollback.applied.length, 0);
+    assert.equal(h.storage.bridgeState.conversations[chatId].enabled, false);
+    const popupState = await h.sendRuntimeMessage({ type: "bridge:get-state" });
+    assert.equal(popupState.githubOwnership[chatId].source, "cached");
+    assert.equal(popupState.githubOwnership[chatId].controlGeneration, 2);
+    assert.equal(popupState.runtime.conversationControls.length, 0);
+  }
+
   // A cold profile never converts an already-expired one-shot into an immediate wake.
   {
     const now = Date.now();
@@ -117,6 +169,7 @@ async function addConversation(h, enabled = true) {
   }
 
   // Once GitHub ownership has been applied, a missing remote record remains fail-closed.
+  // Explicit Remove clears that durable ownership before the same URL is added again.
   {
     let control = controlRecord();
     const h = harnessWithControl(() => control);
@@ -160,6 +213,22 @@ async function addConversation(h, enabled = true) {
     assert.equal(response.ok, true);
     assert.equal(response.reason, "github_control_managed");
     assert.equal(response.feedbackPrompt, undefined);
+
+    const removed = await h.sendRuntimeMessage({
+      type: "bridge:remove-conversation",
+      conversationId: chatId
+    });
+    assert.equal(removed.ok, true);
+    assert.equal(h.storage.bridgeGithubControlApplied?.[chatId], undefined);
+
+    await addConversation(h, true);
+    const unmanagedMutation = await h.sendRuntimeMessage({
+      type: "bridge:update-conversation",
+      conversationId: chatId,
+      patch: { enabled: false }
+    });
+    assert.equal(unmanagedMutation.ok, true, unmanagedMutation.error);
+    assert.equal(h.storage.bridgeState.conversations[chatId].enabled, false);
   }
 
   // Master remains an independent local gate for a GitHub-managed enabled conversation.
