@@ -33,7 +33,7 @@
       "conversation_id": "6abd84b1-a7c8-83eb-b227-f3b3facfbd71",
       "repository_id": "local-agent",
       "repository": "MichalMatu/local-agent",
-      "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8bfb10a",
+      "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
       "binding_revision": 1,
       "control_generation": 1,
       "enabled": false,
