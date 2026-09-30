@@ -142,5 +142,6 @@ async function deleteConversation(chatId) {
     return stateModel.removeConversation(state, chatId);
   });
   await clearAssistantErrorRecovery(chatId);
+  await clearAppliedGithubControl(chatId);
   return result.state;
 }
