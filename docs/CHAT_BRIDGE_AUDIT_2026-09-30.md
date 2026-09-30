@@ -16,7 +16,7 @@ Audited areas:
 - security validation of remote desired state;
 - wake composer/Send submission path.
 
-The live production desired state was verified separately to remain generation 4 `PAUSED`, with `next_wake_at=null`. This candidate does not modify `chat-bridge-state`.
+The final production-shaped validation used the daily Chrome profile and exact conversation `chat-be9defd7`, bound to `MichalMatu/local-agent` at binding revision 1. The test ended at control generation 3 with `enabled=false` and `next_wake_at=null`.
 
 ## Findings
 
@@ -127,10 +127,26 @@ Intentionally not implemented:
 - broad deletion of legacy DOM compatibility before the new control plane has a post-release validation cycle;
 - state/journal co-location, because it is a larger persistence migration with no demonstrated duplicate-delivery failure in the current generation-guarded path.
 
+## Production-shaped E2E
+
+The final release gate was executed on 2026-09-30 in the normal/daily Chrome profile against conversation `chat-be9defd7` bound to `MichalMatu/local-agent` with binding revision 1.
+
+The first attempted test publication targeted an older conversation id and was therefore correctly ignored by the worker's exact identity matching. That was test-setup error, not a Bridge delivery failure. The stale test record was returned to `PAUSED` before continuing.
+
+The clean run then used the exact active conversation:
+
+1. generation 1 established the matching GitHub-owned record in `PAUSED` state;
+2. manual `Run now` was used only to prove the local binding/submit path and returned the exact `chat-be9defd7` / `local-agent` binding envelope;
+3. generation 2 armed a single `NEXT` for `2026-09-30T05:02:00+02:00`;
+4. without `Run now` or LAB schedule transport, the automatic wake appeared at approximately `05:02:07+02:00` with the exact `chat-be9defd7` / `local-agent` envelope;
+5. generation 3 immediately returned desired state to `PAUSED` with `enabled=false` and `next_wake_at=null`.
+
+This validates the production-shaped GitHub desired state -> MV3 reconcile -> `chrome.alarms` -> exact conversation -> composer/Send submission path on the supported single-production-profile topology.
+
 ## Verification and release implication
 
-The exact implementation candidate `04026aefc22c4a8aa7198675e2a4378a5ea3ecd6` passed the complete five-job CI matrix, including browser and macOS smoke. Documentation cleanup performed after that SHA must also be green before merge.
+The implementation candidate `04026aefc22c4a8aa7198675e2a4378a5ea3ecd6` passed the complete five-job CI matrix, including browser and macOS smoke. The documentation-cleanup head `0614c0b26f3cf93666d56caf65914c0d7eb14994` also passed all five jobs in CI run `36660061302`.
 
-The remaining production gate for the hardening behavior is one bounded production-shaped Chat Bridge control E2E ending with the desired state `PAUSED`. Until that gate is explicitly completed, this branch remains a reviewed hardening candidate rather than a new production release.
+The bounded production-shaped Chat Bridge control E2E is now complete and ended `PAUSED`. The production gate that kept PR #118 in draft is therefore satisfied. The final documentation commit still requires its own CI result before merge.
 
 No assistant LAB schedule transport is restored by this branch.
