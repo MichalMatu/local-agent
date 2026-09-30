@@ -142,6 +142,16 @@ function makeMeta(text, className = "") {
   return span;
 }
 
+function managedControlForConversation(runtime, conversation) {
+  return (runtime?.conversationControls || []).find((control) =>
+    control.conversationId === conversation.id &&
+    control.repositoryId === conversation.repositoryId &&
+    control.repository === conversation.repository &&
+    control.agentBinding === conversation.agentBinding &&
+    control.bindingRevision === conversation.bindingRevision
+  ) || null;
+}
+
 async function updateConversation(conversationId, patch) {
   const response = await request({ type: "bridge:update-conversation", conversationId, patch });
   if (!response?.ok) throw new Error(response?.error || "update failed");
@@ -149,9 +159,14 @@ async function updateConversation(conversationId, patch) {
 }
 
 function renderConversation(conversation, settings, schedule, runtime) {
+  const managedControl = managedControlForConversation(runtime, conversation);
+  const githubManaged = Boolean(managedControl);
+  const displayEnabled = githubManaged ? managedControl.enabled : conversation.enabled;
+  const displayInterval = githubManaged ? managedControl.intervalMinutes : conversation.intervalOverrideMinutes;
+
   const card = document.createElement("article");
   card.className = "conversation-card";
-  if (!conversation.enabled) card.classList.add("is-paused");
+  if (!displayEnabled) card.classList.add("is-paused");
 
   const header = document.createElement("div");
   header.className = "card-header";
@@ -163,14 +178,22 @@ function renderConversation(conversation, settings, schedule, runtime) {
   title.title = conversation.label || conversation.id;
   const repo = makeMeta(conversation.repositoryId || "UNBOUND", "repo-badge");
   titleLine.append(title, repo);
+  if (githubManaged) {
+    const authority = makeMeta("GitHub managed", "repo-badge");
+    authority.title = `GitHub desired state generation ${managedControl.controlGeneration}`;
+    titleLine.append(authority);
+  }
   titleBlock.append(titleLine);
 
   const enableLabel = document.createElement("label");
   enableLabel.className = "switch-control enable-switch";
-  enableLabel.title = "Enable or pause scheduled wakes.";
+  enableLabel.title = githubManaged
+    ? "Schedule state is managed by GitHub desired state."
+    : "Enable or pause scheduled wakes.";
   const enabled = document.createElement("input");
   enabled.type = "checkbox";
-  enabled.checked = Boolean(conversation.enabled);
+  enabled.checked = Boolean(displayEnabled);
+  enabled.disabled = githubManaged;
   enabled.setAttribute("aria-label", `Enable ${conversation.label || conversation.id}`);
   const switchTrack = document.createElement("span");
   switchTrack.className = "switch-track";
@@ -188,7 +211,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
   const next = makeMeta("", "next-wake");
   next.dataset.nextRunAt = schedule?.nextRunAt || "";
   next.dataset.masterEnabled = settings.masterEnabled ? "true" : "false";
-  next.dataset.conversationEnabled = conversation.enabled ? "true" : "false";
+  next.dataset.conversationEnabled = displayEnabled ? "true" : "false";
   updateNextWakeElement(next);
   meta.append(status, next);
 
@@ -196,7 +219,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
   controls.className = "card-controls";
   const wakeField = document.createElement("label");
   wakeField.className = "wake-field";
-  const wakeLabel = makeMeta("Wake every", "field-label");
+  const wakeLabel = makeMeta(githubManaged ? "GitHub interval" : "Wake every", "field-label");
   const wakeInputWrap = document.createElement("div");
   wakeInputWrap.className = "wake-input-wrap";
   const intervalInput = document.createElement("input");
@@ -204,8 +227,11 @@ function renderConversation(conversation, settings, schedule, runtime) {
   intervalInput.min = "1";
   intervalInput.max = "1440";
   intervalInput.placeholder = String(runtime?.intervalMinutes || settings.fallbackIntervalMinutes || 10);
-  intervalInput.value = conversation.intervalOverrideMinutes === null ? "" : String(conversation.intervalOverrideMinutes);
-  intervalInput.title = `Leave empty to use global default (${runtime?.intervalMinutes || settings.fallbackIntervalMinutes || 10} min).`;
+  intervalInput.value = displayInterval === null ? "" : String(displayInterval);
+  intervalInput.disabled = githubManaged;
+  intervalInput.title = githubManaged
+    ? "Schedule interval is managed by GitHub desired state."
+    : `Leave empty to use global default (${runtime?.intervalMinutes || settings.fallbackIntervalMinutes || 10} min).`;
   const unit = makeMeta("min");
   wakeInputWrap.append(intervalInput, unit);
   wakeField.append(wakeLabel, wakeInputWrap);
@@ -215,6 +241,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
   controls.append(wakeField, run, remove);
 
   enabled.addEventListener("change", async () => {
+    if (githubManaged) return;
     try {
       await updateConversation(conversation.id, { enabled: enabled.checked });
       showMessage(enabled.checked ? "Scheduling enabled." : "Scheduling paused.");
@@ -226,6 +253,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
   });
 
   const saveInterval = async () => {
+    if (githubManaged) return;
     try {
       const raw = intervalInput.value.trim();
       const nextValue = raw ? Number(raw) : null;
