@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the current release/runtime invariants for `MichalMatu/local-agent`. The current source and production release is `v4.19.10`. Local Agent 4.19.10 packages the merged GitHub-control hardening as Chat Bridge 0.6.1 without changing content protocol v13, assistant guard v8 or runtime schema 3. The exact merged hardening runtime was field-proven in the normal/daily Chrome profile from `main` revision `39aecf90efef1ef03b5facdab837ba8366eaeb85`; the final documentation proof was merged at `a78327a30f3e1ac7c1465e4413f77b6cd8a86046`, and the managed conversation ended PAUSED. Read the current installed `self_revision` from live daemon status. `v4.19.9` is the immediate rollback point.
+This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.11` on the checkpoint candidate. The current production release is `v4.19.10`; the deployed production release remains `v4.19.10` until the explicit release decision advances `main`. The 4.19.11 candidate packages Chat Bridge 0.6.2 terminal-safety reconciliation and release-gate hardening without changing content protocol v13, assistant guard v8 or runtime schema 3. The 4.19.10 production baseline remains the exact daily-Chrome field-proven GitHub-control release and ended PAUSED. Candidate source must not be described as current production before the explicit release decision advances `main`. Read the installed `self_revision` from live daemon status. `v4.19.10` is the immediate production rollback point for this candidate.
 
 ## Release/runtime invariants
 
@@ -113,6 +113,8 @@ For an exact managed `conversation_controls` record, GitHub is authoritative for
 - `INTERVAL`.
 
 Every schedule mutation increments `control_generation`; status reads do not. Repository/binding/binding-revision mismatch fails closed. Applied state is scoped to binding revision, remote control generation and local conversation generation.
+
+A confirmed `conversation_exhausted` state is terminal for the same hard binding and must not be repaired away as GitHub schedule drift. `assistant_retry_exhausted` is likewise preserved against reconciliation of the already-applied remote generation; a strictly newer GitHub generation may serve as an explicit recovery decision. Manual `Run now` must not bypass confirmed conversation exhaustion.
 
 The global Bridge Master switch is independent local operator state and is never changed by conversation desired state.
 
