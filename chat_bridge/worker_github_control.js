@@ -31,6 +31,14 @@ async function writeAppliedGithubControl(chatId, generation, bindingRevision, lo
   await chrome.storage.local.set({ [GITHUB_CONTROL_APPLIED_KEY]: Object.fromEntries(bounded) });
 }
 
+async function clearAppliedGithubControl(chatId) {
+  const current = await readAppliedGithubControls();
+  if (!Object.hasOwn(current, chatId)) return false;
+  delete current[chatId];
+  await chrome.storage.local.set({ [GITHUB_CONTROL_APPLIED_KEY]: current });
+  return true;
+}
+
 async function ensureGithubControlPollAlarm() {
   const alarms = await chrome.alarms.getAll();
   if (alarms.some((alarm) => alarm.name === GITHUB_CONTROL_ALARM_NAME)) return;
