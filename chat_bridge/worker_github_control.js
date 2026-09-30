@@ -1,5 +1,6 @@
 const GITHUB_CONTROL_APPLIED_KEY = "bridgeGithubControlApplied";
 const GITHUB_CONTROL_APPLIED_LIMIT = 128;
+let githubControlQueue = Promise.resolve();
 
 async function readAppliedGithubControls() {
   const stored = await chrome.storage.local.get(GITHUB_CONTROL_APPLIED_KEY);
@@ -39,20 +40,23 @@ async function ensureGithubControlPollAlarm() {
 async function githubScheduleAuthority(conversation, state = null) {
   if (!conversation || !stateModel.isBoundConversation(conversation)) return null;
   const basis = state || await getBridgeState();
-  const runtime = await fetchRuntime(basis.settings);
+  const runtime = await fetchRuntime(basis.settings, { fresh: true });
   if (runtime.source === "remote") {
     const control = githubControlModel.findConversationControl(runtime, conversation.id);
-    if (!control || !githubControlModel.controlMatchesConversation(control, conversation)) return null;
-    return {
-      managed: true,
-      source: "remote",
-      controlGeneration: control.controlGeneration,
-      bindingRevision: control.bindingRevision
-    };
+    if (control && githubControlModel.controlMatchesConversation(control, conversation)) {
+      return {
+        managed: true,
+        source: "remote",
+        controlGeneration: control.controlGeneration,
+        bindingRevision: control.bindingRevision
+      };
+    }
   }
 
-  // Once a matching GitHub desired state has been applied, temporary runtime/network
-  // failure must not silently hand schedule ownership back to DOM controls.
+  // Once a matching GitHub desired state has been applied, a transient fetch failure,
+  // malformed publication, or temporarily missing record must not silently hand schedule
+  // ownership back to DOM/local pacing controls. Rebind creates a new revision and exits
+  // this sticky ownership boundary explicitly.
   const applied = await readAppliedGithubControls();
   const cached = applied[conversation.id];
   if (!cached || cached.bindingRevision !== conversation.bindingRevision) return null;
@@ -72,9 +76,9 @@ function repairedScheduleDeadline(control, runtime, nowMs = Date.now()) {
   return nowMs + interval * 60_000;
 }
 
-async function reconcileGithubConversationControls() {
+async function reconcileGithubConversationControlsOnce() {
   const state = await getBridgeState();
-  const runtime = await fetchRuntime(state.settings);
+  const runtime = await fetchRuntime(state.settings, { fresh: true });
   if (runtime.source !== "remote") {
     return { ok: false, reason: "runtime_unavailable", configured: 0, applied: [] };
   }
@@ -151,6 +155,12 @@ async function reconcileGithubConversationControls() {
   }
 
   return { ok: true, reason: "reconciled", configured, applied: appliedNow };
+}
+
+function reconcileGithubConversationControls() {
+  const operation = githubControlQueue.then(() => reconcileGithubConversationControlsOnce());
+  githubControlQueue = operation.catch(() => undefined);
+  return operation;
 }
 
 async function initializeGithubControlPlane() {
