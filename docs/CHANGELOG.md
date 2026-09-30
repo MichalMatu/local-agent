@@ -2,6 +2,16 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+## v4.19.9
+
+- Promote Chat Bridge 0.6.0 and move normal managed-conversation STATUS, PAUSE, RESUME, NEXT and INTERVAL authority from assistant DOM markers to GitHub conversation_controls desired state on chat-bridge-state.
+- Keep runtime schema 3 backward-compatible, add exact conversation/repository/binding/revision validation, monotonic control_generation, binding-scoped/local-generation idempotence and repair of local pacing drift.
+- Ensure every MV3 worker activation owns a dedicated one-minute GitHub-control alarm so a remotely paused conversation can discover later RESUME without a conversation wake alarm.
+- Keep GitHub credentials out of the extension; the Bridge reads the existing public runtime endpoint and never changes the global Master switch.
+- Make legacy LAB schedule/operator pacing controls no-ops for GitHub-managed conversations while retaining explicit binding and maintenance migration paths.
+- Complete daily-Chrome live E2E: PAUSE gen1 -> RESUME gen2 -> exact two-minute NEXT gen3 -> successful composer/Send wake -> PAUSE gen4; final desired state is PAUSED.
+- Retain content protocol v13 and assistant guard v8; narrow the DOM contract to browser delivery/generation/error facts rather than scheduling authority. See RELEASE_NOTES_V4.19.9.md, GITHUB_BRIDGE_CONTROL.md and CHAT_BRIDGE_HANDOFF_2026-09-30.md.
+
 ## v4.19.8
 
 - Fix assistant LAB control discovery for assistant-only grouped `data-turn-key` turns that expose neither a user bubble nor an explicit assistant-role marker, while stripping grouped action controls and preserving fail-closed user-only handling.

@@ -15,9 +15,11 @@ const MATRIX_BINDING = bindingFor("matrixhub");
 const TRACKER_BINDING = bindingFor("tracker");
 const LOCAL_AGENT_BINDING = bindingFor("local-agent");
 const EXHAUSTION_GUARD_VERSION = 8;
+const GITHUB_CONTROL_ALARM_NAME = "local-agent-chat-github-control";
 
 const storage = options.storage || {};
 const alarms = new Map();
+const systemAlarms = new Map();
 const sentMessages = [];
 const tabMessages = [];
 const injectedScripts = [];
@@ -31,6 +33,7 @@ const tabs = [
   { id: 22, url: "https://chatgpt.com/c/b", title: "Project B" },
   { id: 33, url: "https://chatgpt.com/c/infra", title: "Local Agent" }
 ];
+const alarmStore = (name) => name === GITHUB_CONTROL_ALARM_NAME ? systemAlarms : alarms;
 
 const chrome = {
   storage: {
@@ -50,13 +53,13 @@ const chrome = {
       if (options.createAlarm) await options.createAlarm(name, info);
       const alarm = { name, ...clone(info) };
       if (Number.isFinite(Number(info.when))) alarm.scheduledTime = Number(info.when);
-      alarms.set(name, alarm);
+      alarmStore(name).set(name, alarm);
     },
     async clear(name) {
-      return alarms.delete(name);
+      return alarmStore(name).delete(name);
     },
     async getAll() {
-      return Array.from(alarms.values()).map(clone);
+      return [...alarms.values(), ...systemAlarms.values()].map(clone);
     },
     onAlarm: {
       addListener(listener) {
@@ -116,7 +119,7 @@ const chrome = {
   runtime: {
     id: "test-bridge",
     getURL: (path) => `chrome-extension://test-bridge/${path}`,
-    getManifest: () => ({ version: "0.5.18" }),
+    getManifest: () => ({ version: "0.6.0" }),
     reload: () => { runtimeReloads.push(Date.now()); },
     onInstalled: { addListener(listener) { installedListeners.push(listener); } },
     onStartup: { addListener(listener) { startupListeners.push(listener); } },
@@ -202,7 +205,7 @@ async function sendRuntimeMessage(message, sender = { id: chrome.runtime.id, url
   });
 }
 
-return { storage, alarms, sentMessages, tabMessages, injectedScripts, runtimeReloads, tabs, chrome, context, sendRuntimeMessage,
+return { storage, alarms, systemAlarms, sentMessages, tabMessages, injectedScripts, runtimeReloads, tabs, chrome, context, sendRuntimeMessage,
   MATRIX_BINDING, TRACKER_BINDING, LOCAL_AGENT_BINDING, runtimeAgents, CONTENT_PROTOCOL_VERSION,
   EXHAUSTION_GUARD_VERSION,
   evaluate: (source) => vm.runInContext(source, context),

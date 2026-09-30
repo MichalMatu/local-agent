@@ -9,6 +9,7 @@ async function refreshBridgeContentOnWorkerStart() {
 
 async function initializeBridgeLifecycle() {
   try {
+    await initializeGithubControlPlane();
     await reconcileSchedules();
   } catch (error) {
     console.error(error);
@@ -20,9 +21,16 @@ chrome.runtime.onInstalled.addListener(() => initializeBridgeLifecycle());
 chrome.runtime.onStartup.addListener(() => initializeBridgeLifecycle());
 
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === GITHUB_CONTROL_ALARM_NAME) {
+    reconcileGithubConversationControls().catch((error) => console.error(error));
+    return;
+  }
   if (!alarm.name.startsWith(ALARM_PREFIX)) return;
   const chatId = alarm.name.slice(ALARM_PREFIX.length);
-  runFeedbackCycle({ conversationId: chatId }).catch(async (error) => {
+  (async () => {
+    await reconcileGithubConversationControls();
+    return runFeedbackCycle({ conversationId: chatId });
+  })().catch(async (error) => {
     console.error(error);
     const state = await getBridgeState();
     const conversation = state.conversations[chatId];
@@ -65,6 +73,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === "bridge:get-state") {
     (async () => {
+      await reconcileGithubConversationControls();
       const state = await getBridgeState();
       const [runtime, schedules] = await Promise.all([
         loadRuntimeConfig(state),
@@ -117,17 +126,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message.type === "bridge:run-now") {
-    runFeedbackCycle({ conversationId: String(message.conversationId || ""), manual: true })
-      .then(sendResponse)
+    (async () => {
+      await reconcileGithubConversationControls();
+      return runFeedbackCycle({ conversationId: String(message.conversationId || ""), manual: true });
+    })().then(sendResponse)
       .catch((error) => sendResponse({ ok: false, error: String(error) }));
     return true;
   }
   return false;
 });
 
+// Every service-worker activation ensures the durable minute poll exists. This makes a
+// manually reloaded unpacked extension and a remotely paused chat independently capable of
+// discovering a later GitHub RESUME even if Chrome does not emit another startup event.
+initializeGithubControlPlane().catch((error) => console.error(error));
+
 // A manually reloaded unpacked extension starts a fresh service worker while existing
 // ChatGPT tabs stay open. Probe configured tabs immediately so stale/unavailable content
 // scripts are replaced with this worker's protocol without a page reload or a wake.
-// Do not reconcile schedules here: service-worker activation itself is transport lifecycle,
-// not a scheduling event.
 refreshBridgeContentOnWorkerStart();
