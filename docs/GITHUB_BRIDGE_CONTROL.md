@@ -153,21 +153,17 @@ On 2026-09-30 the daily-Chrome conversation `chat-e8ad8275` completed the origin
 5. the wake returned with the immutable `host-ops` binding envelope;
 6. generation 4 returned the chat to `PAUSED`.
 
-A later field run used the active conversation `chat-be9defd7`, bound to `MichalMatu/local-agent` at binding revision 1:
+A later 05:02 run on `chat-be9defd7` proved the scheduled delivery path for the extension build then loaded, but was deliberately not counted as hardening-specific proof after the popup evidence showed that Chrome most likely still had the earlier runtime loaded.
 
-1. generation 1 established a matching GitHub control record in `PAUSED` state;
-2. a manual `Run now` proved the local binding and submit path, returning the exact `chat-be9defd7` / `local-agent` envelope;
-3. generation 2 armed one `NEXT` for `2026-09-30T05:02:00+02:00`;
-4. without a manual Run or LAB scheduling, an automatic wake was submitted at approximately `05:02:07+02:00` with the exact expected envelope;
-5. generation 3 returned the conversation to `PAUSED` with `enabled=false` and `next_wake_at=null`.
+The definitive merged-hardening proof used the same active conversation `chat-be9defd7`, bound to `MichalMatu/local-agent` at binding revision 1:
 
-That second run proves the scheduled delivery path for the extension build that was loaded in daily Chrome, but it must **not** be attributed to the merged hardening build. After the exact matching control had been published, the popup screenshot did not show the `GitHub managed` badge that the hardening renders for a matching remote control or cached ownership record. The loaded browser runtime was therefore most likely the earlier 0.6.0 build.
+1. the local checkout was confirmed at current `main` `39aecf90efef1ef03b5facdab837ba8366eaeb85` and the unpacked Chat Bridge 0.6.0 extension was reloaded in the normal/daily Chrome profile;
+2. generation 4 armed one exact `NEXT` for `2026-09-30T15:09:00+02:00`;
+3. without `Run now` or LAB scheduling, the automatic wake arrived at approximately `15:09:15+02:00` with the exact `chat-be9defd7` / `local-agent` binding envelope;
+4. generation 5 immediately returned the conversation to `PAUSED`, with `enabled=false` and `next_wake_at=null`;
+5. the popup then visibly showed `GitHub managed`, `github_control_paused`, `Paused`, a `GitHub interval` field, and disabled per-conversation schedule controls.
 
-The hardening-specific field gate is still one bounded rerun after Chrome reloads current `main`: confirm the visible `GitHub managed` badge, arm one automatic NEXT, observe exactly one wake, then return desired state to `PAUSED`.
-
-An earlier attempted publication during this validation targeted an old conversation id and was correctly ignored by exact identity matching; it was a test-setup error and was returned to `PAUSED` before the clean run.
-
-The final desired state for both retained test records is intentionally `enabled=false`, `next_wake_at=null`.
+This closes the hardening-specific production field gate on the exact merged runtime. The final desired state for the active test conversation is intentionally `enabled=false`, `next_wake_at=null`.
 
 ## Source of truth
 
