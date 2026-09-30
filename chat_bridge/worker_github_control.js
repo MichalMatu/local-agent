@@ -2,6 +2,12 @@ const GITHUB_CONTROL_APPLIED_KEY = "bridgeGithubControlApplied";
 const GITHUB_CONTROL_APPLIED_LIMIT = 128;
 let githubControlQueue = Promise.resolve();
 
+function serializeGithubControlOperation(operation) {
+  const pending = githubControlQueue.then(operation);
+  githubControlQueue = pending.catch(() => undefined);
+  return pending;
+}
+
 function githubControlSignature(control) {
   return JSON.stringify([
     control.conversationId,
@@ -271,9 +277,7 @@ async function reconcileGithubConversationControlsOnce() {
 }
 
 function reconcileGithubConversationControls() {
-  const operation = githubControlQueue.then(() => reconcileGithubConversationControlsOnce());
-  githubControlQueue = operation.catch(() => undefined);
-  return operation;
+  return serializeGithubControlOperation(() => reconcileGithubConversationControlsOnce());
 }
 
 async function initializeGithubControlPlane() {
