@@ -2,6 +2,17 @@
 
 This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
 
+
+## v4.19.10
+
+- Freeze the post-v4.19.9 GitHub-backed Chat Bridge hardening as Chat Bridge 0.6.1 after the exact merged runtime completed a bounded daily-Chrome field E2E and returned to PAUSED.
+- Serialize desired-state reconciliation, use fresh control-boundary runtime reads, reject rollback/same-generation rewrites, prevent cold-profile expired-NEXT replay, and keep applied GitHub ownership fail-closed across missing/conflicting remote state.
+- Make GitHub-managed per-chat pacing read-only in the popup and worker, while preserving the global Master switch, manual Run now, explicit binding/removal and maintenance paths as local operator controls.
+- Keep the supported deployment topology at one production Chrome-profile executor per managed conversation; the second profile remains diagnostic only and no distributed cross-profile lease is added.
+- Keep the composer/Send delivery behavior unchanged: no speculative second click/resubmit without a reproducible duplicate-safe root cause.
+- Retain runtime schema 3, content protocol v13 and assistant guard v8. The final hardening field proof used exact conversation `chat-be9defd7`, automatic NEXT at 15:09, visible `GitHub managed` ownership, and ended at generation 5 PAUSED.
+- Registered downstream planner documentation was audited; GrowClip already documents Chat Bridge 0.6.0+ GitHub-backed pacing and no conflicting schedule transport was found in BloomML, MatrixHub or Tracker. See `RELEASE_NOTES_V4.19.10.md`, `GITHUB_BRIDGE_CONTROL.md` and `CHAT_BRIDGE_AUDIT_2026-09-30.md`.
+
 ## v4.19.9
 
 - Promote Chat Bridge 0.6.0 and move normal managed-conversation STATUS, PAUSE, RESUME, NEXT and INTERVAL authority from assistant DOM markers to GitHub conversation_controls desired state on chat-bridge-state.

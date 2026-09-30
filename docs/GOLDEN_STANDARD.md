@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the current release/runtime invariants for `MichalMatu/local-agent`. The current source and production release is `v4.19.9`. The 4.19.9 runtime behavior was first production-proven at main revision `52dcce0d6a7f39ebe4cdb60157fcd8bc966589ff` with Chat Bridge 0.6.0, content protocol v13 and assistant guard v8; the daily-Chrome GitHub-backed E2E completed and ended PAUSED. Read the current installed `self_revision` from live daemon status. `v4.19.8` is the immediate rollback point.
+This file records the current release/runtime invariants for `MichalMatu/local-agent`. The current source and production release is `v4.19.10`. Local Agent 4.19.10 packages the merged GitHub-control hardening as Chat Bridge 0.6.1 without changing content protocol v13, assistant guard v8 or runtime schema 3. The exact merged hardening runtime was field-proven in the normal/daily Chrome profile from `main` revision `39aecf90efef1ef03b5facdab837ba8366eaeb85`; the final documentation proof was merged at `a78327a30f3e1ac7c1465e4413f77b6cd8a86046`, and the managed conversation ended PAUSED. Read the current installed `self_revision` from live daemon status. `v4.19.9` is the immediate rollback point.
 
 ## Release/runtime invariants
 
