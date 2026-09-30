@@ -158,11 +158,11 @@ async function updateConversation(conversationId, patch) {
   return response.conversation;
 }
 
-function renderConversation(conversation, settings, schedule, runtime) {
+function renderConversation(conversation, settings, schedule, runtime, ownership = null) {
   const managedControl = managedControlForConversation(runtime, conversation);
-  const githubManaged = Boolean(managedControl);
-  const displayEnabled = githubManaged ? managedControl.enabled : conversation.enabled;
-  const displayInterval = githubManaged ? managedControl.intervalMinutes : conversation.intervalOverrideMinutes;
+  const githubManaged = Boolean(managedControl || ownership?.managed);
+  const displayEnabled = managedControl ? managedControl.enabled : conversation.enabled;
+  const displayInterval = managedControl ? managedControl.intervalMinutes : conversation.intervalOverrideMinutes;
 
   const card = document.createElement("article");
   card.className = "conversation-card";
@@ -180,7 +180,9 @@ function renderConversation(conversation, settings, schedule, runtime) {
   titleLine.append(title, repo);
   if (githubManaged) {
     const authority = makeMeta("GitHub managed", "repo-badge");
-    authority.title = `GitHub desired state generation ${managedControl.controlGeneration}`;
+    const generation = managedControl?.controlGeneration || ownership?.controlGeneration || "?";
+    const source = managedControl ? "remote" : (ownership?.source || "cached");
+    authority.title = `GitHub desired state generation ${generation} (${source})`;
     titleLine.append(authority);
   }
   titleBlock.append(titleLine);
@@ -309,7 +311,7 @@ function renderConversation(conversation, settings, schedule, runtime) {
   return card;
 }
 
-function renderConversations(state, schedules = {}, runtime = null) {
+function renderConversations(state, schedules = {}, runtime = null, githubOwnership = {}) {
   elements.conversationList.replaceChildren();
   const conversations = Object.values(state.conversations || {}).sort((a, b) => String(a.label || "").localeCompare(String(b.label || "")));
   elements.conversationCount.textContent = String(conversations.length);
@@ -321,7 +323,13 @@ function renderConversations(state, schedules = {}, runtime = null) {
     return;
   }
   for (const conversation of conversations) {
-    elements.conversationList.append(renderConversation(conversation, state.settings, schedules[conversation.id] || null, runtime));
+    elements.conversationList.append(renderConversation(
+      conversation,
+      state.settings,
+      schedules[conversation.id] || null,
+      runtime,
+      githubOwnership[conversation.id] || null
+    ));
   }
 }
 
@@ -363,7 +371,7 @@ async function refresh() {
   latestState = response.state;
   latestRuntime = response.runtime || null;
   renderSettings(latestState, latestRuntime);
-  renderConversations(latestState, response.schedules || {}, latestRuntime);
+  renderConversations(latestState, response.schedules || {}, latestRuntime, response.githubOwnership || {});
   await refreshCurrentTabForm(latestState, latestRuntime);
   restartCountdownTimer();
 }
