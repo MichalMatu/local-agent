@@ -119,7 +119,7 @@ const chrome = {
   runtime: {
     id: "test-bridge",
     getURL: (path) => `chrome-extension://test-bridge/${path}`,
-    getManifest: () => ({ version: "0.6.1" }),
+    getManifest: () => ({ version: "0.6.2" }),
     reload: () => { runtimeReloads.push(Date.now()); },
     onInstalled: { addListener(listener) { installedListeners.push(listener); } },
     onStartup: { addListener(listener) { startupListeners.push(listener); } },
