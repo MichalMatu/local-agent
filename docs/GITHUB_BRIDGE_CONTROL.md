@@ -81,6 +81,8 @@ Current 0.6.0 state, alarms, applied-generation journal and in-flight delivery g
 
 Until a reviewed shared executor/lease contract exists, one managed conversation must have only one active Chrome-profile executor. Exactly-once delivery across two independent profiles cannot be guaranteed by a local-only dedupe flag. A future design should use an explicit desired-state executor/profile owner or another shared writable lease rather than renderer heuristics.
 
+The supported production topology is therefore one normal/daily Chrome profile acting as the executor. A second profile may be used for Chrome Dev or bounded diagnostics, including while it is open at the same time, provided it is not also able to execute the same managed conversation. In practice, keep that conversation unconfigured/removed in the diagnostic profile or keep the diagnostic profile's Bridge Master off except during an intentional bounded test. A diagnostic profile is not a second production executor.
+
 This limitation is separate from stale one-shot replay: the hardening candidate prevents a fresh profile from immediately replaying an already-expired NEXT, but it cannot arbitrate two profiles that concurrently own the same still-future generation.
 
 ## Legacy LAB compatibility
