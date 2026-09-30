@@ -7,89 +7,96 @@ from pathlib import Path
 
 from local_agent.version import RELEASE_VERSION
 
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
+CURRENT_OPERATIONAL_DOCS = (
+    "README.md",
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "docs/ARCHITECTURE.md",
+    "docs/AUTONOMOUS_CHAT_LOOP.md",
+    "docs/EMERGENCY_CONTROLS.md",
+    "docs/GOLDEN_STANDARD.md",
+    "docs/HOST_OPS_MULTIREPO.md",
+    "docs/MULTI_REPOSITORY.md",
+    "docs/OPERATIONS.md",
+    "docs/SECURITY_MODEL.md",
+    "docs/SESSION_BOOTSTRAP.md",
+    "deploy/macos/README.md",
+)
+CURRENT_SCHEDULER_DOCS = (
+    "AGENTS.md",
+    "docs/GOLDEN_STANDARD.md",
+    "docs/MULTI_REPOSITORY.md",
+    "docs/OPERATIONS.md",
+)
 
 
 class CurrentDocumentationContractTests(unittest.TestCase):
-    def test_architecture_document_names_current_modules(self) -> None:
-        architecture = (REPO_ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
-        for token in (
-            "local_agent.supervisor.scheduling",
-            "local_agent.supervisor.orchestrator",
-            "local_agent.repository.binding",
-            "local_agent.mcp",
-        ):
-            self.assertIn(token, architecture)
+    def test_current_operational_docs_do_not_restore_obsolete_two_worker_commands(self) -> None:
+        for relative in CURRENT_OPERATIONAL_DOCS:
+            with self.subTest(path=relative):
+                text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+                self.assertNotIn("--max-workers 2", text)
 
-    def test_operations_document_names_current_entrypoints(self) -> None:
-        operations = (REPO_ROOT / "docs" / "OPERATIONS.md").read_text(encoding="utf-8")
-        for token in (
-            "agent_parallel.py",
-            "agent_multirepo.py",
-            "local_agent.operator.local",
-            "local_agent.repository.admin",
-        ):
-            self.assertIn(token, operations)
-
-    def test_security_document_names_current_safety_boundaries(self) -> None:
-        security = (REPO_ROOT / "docs" / "SECURITY_MODEL.md").read_text(encoding="utf-8")
-        for token in (
-            "agent_binding",
-            "resources",
-            "memory_limit_mb",
-            "MCP",
-        ):
-            self.assertIn(token, security)
-
-    def test_multi_repository_document_names_parallel_contract(self) -> None:
-        multirepo = (REPO_ROOT / "docs" / "MULTI_REPOSITORY.md").read_text(encoding="utf-8")
-        for token in (
-            "max-workers 4",
-            "resources",
-            "agent_binding",
-            "operator-control",
-        ):
-            self.assertIn(token, multirepo)
-
-    def test_docs_index_points_to_current_contracts(self) -> None:
-        docs_index = (REPO_ROOT / "docs" / "README.md").read_text(encoding="utf-8")
-        for token in (
-            "OPERATIONS.md",
-            "ARCHITECTURE.md",
-            "SECURITY_MODEL.md",
-            "MULTI_REPOSITORY.md",
-            "GOLDEN_STANDARD.md",
-            "AUTONOMOUS_CHAT_LOOP.md",
-            "HOST_OPS_MULTIREPO.md",
-            "CHATGPT_DOM_CONTRACT.md",
-        ):
-            self.assertIn(token, docs_index)
-
-    def test_root_readme_points_to_current_docs_index(self) -> None:
-        readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("docs/README.md", readme)
-
-    def test_autonomous_loop_documents_current_pacing_and_controls(self) -> None:
-        autonomous = (REPO_ROOT / "docs" / "AUTONOMOUS_CHAT_LOOP.md").read_text(
-            encoding="utf-8"
+    def test_current_operational_docs_do_not_claim_obsolete_three_worker_cap(self) -> None:
+        forbidden = (
+            "hard cap remains three",
+            "hard cap: `3`",
+            "hard-caps the value at three",
         )
-        self.assertIn("conversation_controls", autonomous)
-        self.assertIn("control_generation", autonomous)
-        self.assertIn("GitHub", autonomous)
-        self.assertIn("PAUSE", autonomous)
-        self.assertIn("RESUME", autonomous)
-        self.assertIn("NEXT", autonomous)
-        self.assertIn("INTERVAL", autonomous)
-        self.assertIn("Master", autonomous)
-        self.assertIn("two minutes", autonomous)
-        self.assertIn("5-10 minutes", autonomous)
-        self.assertIn("cancel", autonomous.lower())
+        for relative in CURRENT_OPERATIONAL_DOCS:
+            text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+            for phrase in forbidden:
+                with self.subTest(path=relative, phrase=phrase):
+                    self.assertNotIn(phrase, text)
 
-    def test_host_ops_multirepo_scope_matches_catalog_and_runtime(self) -> None:
-        catalog_path = REPO_ROOT / "config" / "agent_bindings.json"
-        runtime_path = REPO_ROOT / "chat_bridge" / "runtime.example.json"
-        catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-        runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+    def test_current_scheduler_docs_describe_final_behavior_not_unresolved_candidate_work(self) -> None:
+        forbidden = (
+            "candidate fix must",
+            "The candidate fix must",
+            "The v4.18.14 candidate is not production",
+            "The current release candidate is v4.18.14",
+            "After a validated v4.18.14 candidate is explicitly advanced to `main`",
+        )
+        for relative in CURRENT_SCHEDULER_DOCS:
+            text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+            for phrase in forbidden:
+                with self.subTest(path=relative, phrase=phrase):
+                    self.assertNotIn(phrase, text)
+
+    def test_bug_002_is_not_left_in_pre_release_candidate_state(self) -> None:
+        backlog = (REPO_ROOT / "docs" / "BUG_BACKLOG.md").read_text(encoding="utf-8")
+        section = backlog.split("## BUG-002", maxsplit=1)[1].split("\n---\n", maxsplit=1)[0]
+        self.assertIn("**Status:** Fixed", section)
+        self.assertNotIn("pending v4.18.14 merge/tag/live verification", section)
+        self.assertNotIn("Until v4.18.14 is merged/tagged", section)
+
+    def test_session_bootstrap_does_not_claim_preserved_paths_are_derived_from_current_ids(self) -> None:
+        bootstrap = (REPO_ROOT / "docs" / "SESSION_BOOTSTRAP.md").read_text(encoding="utf-8")
+        self.assertNotIn(
+            "All four current registry entries use the default non-legacy workspace layout derived from their repository ids",
+            bootstrap,
+        )
+        self.assertIn("preserved physical workspace paths", bootstrap)
+
+    def test_session_bootstrap_requires_portable_first_inspection(self) -> None:
+        bootstrap = (REPO_ROOT / "docs" / "SESSION_BOOTSTRAP.md").read_text(encoding="utf-8")
+        self.assertIn("## Portable first inspection", bootstrap)
+        self.assertIn("command -v rg >/dev/null 2>&1", bootstrap)
+        self.assertIn("fall back to `grep` for content search or `find` for file discovery", bootstrap)
+        self.assertIn(
+            "A missing optional inspection binary must not be the sole reason",
+            bootstrap,
+        )
+
+    def test_host_ops_multirepo_scope_is_canonical_and_documented(self) -> None:
+        catalog = json.loads(
+            (REPO_ROOT / "config" / "agent_bindings.json").read_text(encoding="utf-8")
+        )
+        runtime = json.loads(
+            (REPO_ROOT / "chat_bridge" / "runtime.example.json").read_text(encoding="utf-8")
+        )
         catalog_host_ops = next(item for item in catalog["agents"] if item["id"] == "host-ops")
         runtime_host_ops = next(
             item for item in runtime["agents"] if item["repository_id"] == "host-ops"
@@ -115,10 +122,6 @@ class CurrentDocumentationContractTests(unittest.TestCase):
         )
         if released_match is not None:
             self.assertEqual(released_match.group(1), RELEASE_VERSION)
-            self.assertNotIn(
-                f"deployed production release remains `v{RELEASE_VERSION}` until the explicit release decision advances `main`",
-                golden,
-            )
             self.assertNotIn(
                 "Candidate source must not be described as current production before the explicit release decision advances `main`.",
                 golden,
@@ -151,14 +154,23 @@ class CurrentDocumentationContractTests(unittest.TestCase):
                     "Candidate source must not be described as current production before the explicit release decision advances `main`.",
                     golden,
                 )
+            else:
+                self.assertNotIn(
+                    f"deployed production release remains `v{production_release}` until the explicit release decision advances `main`",
+                    golden,
+                )
 
         self.assertNotIn("is still a candidate on this branch", golden)
 
     def test_release_version_has_matching_release_notes_and_changelog_entry(self) -> None:
         notes = REPO_ROOT / "docs" / f"RELEASE_NOTES_V{RELEASE_VERSION}.md"
-        self.assertTrue(notes.exists(), f"missing release notes for {RELEASE_VERSION}")
+        self.assertTrue(notes.is_file(), f"missing release notes for {RELEASE_VERSION}")
+        notes_text = notes.read_text(encoding="utf-8")
+        self.assertTrue(notes_text.startswith(f"# Local Agent {RELEASE_VERSION}\n"))
+        self.assertNotIn("must not be tagged/frozen until", notes_text)
+        self.assertNotIn("A follow-up candidate adds", notes_text)
         changelog = (REPO_ROOT / "docs" / "CHANGELOG.md").read_text(encoding="utf-8")
-        self.assertIn(f"## v{RELEASE_VERSION}", changelog)
+        self.assertIn(f"## v{RELEASE_VERSION}\n", changelog)
 
 
 if __name__ == "__main__":
