@@ -54,6 +54,21 @@
           protocol.MAX_INTERVAL_MINUTES,
           "conversation control interval_minutes"
         );
+    const nextWakeAt = canonicalIso(raw.next_wake_at, "conversation control next_wake_at", { nullable: true });
+    const updatedAt = canonicalIso(raw.updated_at, "conversation control updated_at");
+    if (!raw.enabled && nextWakeAt) {
+      throw new Error("disabled conversation control must not define next_wake_at");
+    }
+    if (nextWakeAt) {
+      const nextWakeMs = Date.parse(nextWakeAt);
+      const updatedMs = Date.parse(updatedAt);
+      if (nextWakeMs < updatedMs) {
+        throw new Error("conversation control next_wake_at must not precede updated_at");
+      }
+      if (nextWakeMs - updatedMs > protocol.MAX_NEXT_SECONDS * 1000) {
+        throw new Error("conversation control next_wake_at exceeds maximum wake horizon");
+      }
+    }
 
     return Object.freeze({
       conversationId,
@@ -64,8 +79,8 @@
       controlGeneration: integerInRange(raw.control_generation, 1, Number.MAX_SAFE_INTEGER, "conversation control control_generation"),
       enabled: raw.enabled,
       intervalMinutes,
-      nextWakeAt: canonicalIso(raw.next_wake_at, "conversation control next_wake_at", { nullable: true }),
-      updatedAt: canonicalIso(raw.updated_at, "conversation control updated_at")
+      nextWakeAt,
+      updatedAt
     });
   }
 
@@ -111,7 +126,7 @@
     if (control.nextWakeAt) {
       const parsed = Date.parse(control.nextWakeAt);
       if (!Number.isFinite(parsed)) throw new Error("invalid control next wake deadline");
-      return Math.max(nowMs + 1000, parsed);
+      if (parsed > nowMs + 1000) return parsed;
     }
     const interval = control.intervalMinutes === null
       ? Number(fallbackIntervalMinutes)
