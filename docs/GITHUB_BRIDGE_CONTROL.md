@@ -144,7 +144,7 @@ The hardening candidate does not add a speculative second click or automatic res
 
 ## Live proof
 
-On 2026-09-30 the daily-Chrome conversation `chat-e8ad8275` completed the full managed flow:
+On 2026-09-30 the daily-Chrome conversation `chat-e8ad8275` completed the original managed flow:
 
 1. generation 1 `PAUSE`;
 2. generation 2 `RESUME`;
@@ -153,7 +153,17 @@ On 2026-09-30 the daily-Chrome conversation `chat-e8ad8275` completed the full m
 5. the wake returned with the immutable `host-ops` binding envelope;
 6. generation 4 returned the chat to `PAUSED`.
 
-The final desired state is intentionally `enabled=false`, `next_wake_at=null`.
+The post-release hardening candidate then completed a second production-shaped proof on the normal/daily Chrome profile using the exact active conversation `chat-be9defd7`, bound to `MichalMatu/local-agent` at binding revision 1:
+
+1. generation 1 established matching GitHub ownership in `PAUSED` state;
+2. a manual `Run now` proved only the local binding and submit path, returning the exact `chat-be9defd7` / `local-agent` envelope;
+3. generation 2 armed one `NEXT` for `2026-09-30T05:02:00+02:00`;
+4. without a manual Run or LAB scheduling, the automatic wake was submitted at approximately `05:02:07+02:00` with the exact expected envelope;
+5. generation 3 immediately returned the conversation to `PAUSED` with `enabled=false` and `next_wake_at=null`.
+
+An earlier attempted publication during this validation targeted an old conversation id and was correctly ignored by exact identity matching; it was a test-setup error rather than a scheduler failure and was returned to `PAUSED` before the clean run.
+
+The final desired state for both retained test records is intentionally `enabled=false`, `next_wake_at=null`.
 
 ## Source of truth
 
