@@ -16,6 +16,18 @@
       "interval_minutes": 5,
       "next_wake_at": null,
       "updated_at": "2026-09-30T04:51:13+02:00"
+    },
+    {
+      "conversation_id": "chat-be9defd7",
+      "repository_id": "local-agent",
+      "repository": "MichalMatu/local-agent",
+      "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+      "binding_revision": 1,
+      "control_generation": 1,
+      "enabled": false,
+      "interval_minutes": 10,
+      "next_wake_at": null,
+      "updated_at": "2026-09-30T04:52:40+02:00"
     }
   ],
   "agents": [
