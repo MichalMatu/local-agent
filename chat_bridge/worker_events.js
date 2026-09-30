@@ -79,7 +79,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         loadRuntimeConfig(state),
         getScheduleSnapshot(state)
       ]);
-      sendResponse({ state, runtime, schedules });
+      const githubOwnership = await githubOwnershipSnapshot(state, runtime);
+      sendResponse({ state, runtime, schedules, githubOwnership });
     })().catch((error) => sendResponse({ error: String(error) }));
     return true;
   }
