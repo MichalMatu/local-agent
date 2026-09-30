@@ -26,11 +26,11 @@ The live production desired state was verified separately to remain generation 4
 
 Candidate fix: serialize the complete GitHub reconcile transaction within one MV3 worker instance and test concurrent calls directly.
 
-### High: the 30-second runtime cache can hide a just-published PAUSE at wake time
+### High: cached or already-in-flight runtime reads can hide a just-published PAUSE at wake time
 
-The conversation alarm correctly reconciles GitHub state before delivery, but 0.6.0 used the same cached runtime read as ordinary configuration lookups. A remote `PAUSE` published shortly after the cache was populated could therefore be missed at the exact delivery boundary.
+The conversation alarm correctly reconciles GitHub state before delivery, but 0.6.0 used the same 30-second cache and in-flight request de-duplication as ordinary configuration lookups. A control-boundary reconcile could therefore receive state fetched before a newly published `PAUSE`.
 
-Candidate fix: control-boundary reconciliation and managed legacy-authority checks perform fresh remote reads while retaining request de-duplication for an already in-flight fetch.
+Candidate fix: control-boundary reads bypass both the cache and older in-flight configuration requests. Fetch sequencing prevents an older request that completes later from overwriting a newer control-boundary result in the cache.
 
 ### High: two Chrome profiles do not share a delivery lease
 
@@ -46,17 +46,23 @@ Candidate decision: document this as an explicit architectural constraint and do
 
 Candidate fix: an expired one-shot always falls back to normal interval scheduling, including first observation on a cold profile.
 
+### High: one generation was not actually immutable
+
+The contract says every desired-state mutation increments `control_generation`, but the applied journal stored only generation/revision/local generation. If the remote payload changed under the same generation, the worker could confuse that unversioned remote rewrite with local drift and apply it.
+
+Candidate fix: persist a canonical signature of the applied desired-state payload. A same-generation rewrite now fails closed, and a lower remote generation is treated as rollback rather than becoming popup authority.
+
 ### Medium: temporary remote record omission can hand ownership back to local/legacy pacing
 
 0.6.0 retained sticky ownership only when the remote runtime was unavailable. A successfully fetched runtime that temporarily omitted the exact control record returned no GitHub authority, allowing local/legacy pacing to mutate state again.
 
-Candidate fix: once a matching control has been applied for the current binding revision, ownership remains sticky across network failure, malformed publication and missing-record publication. Explicit Rebind creates the boundary that exits that generation space.
+Candidate fix: once a matching control has been applied for the current binding revision, ownership remains sticky across network failure, malformed publication, record omission, rollback and same-generation conflict. Rebind creates a new revision. Explicit Remove clears the durable applied-ownership entry so a later re-add starts cleanly.
 
 ### Medium: popup pacing controls imply authority they no longer own
 
-The popup still rendered an active enable switch and editable interval for a GitHub-managed chat. A local edit could be accepted, increment local generation and then be repaired by the next remote reconcile.
+The popup still rendered an active enable switch and editable interval for a GitHub-managed chat. A local edit could be accepted, increment local generation and then be repaired by the next remote reconcile. During an outage or stale remote publication the UI could also diverge from the worker's sticky ownership decision.
 
-Candidate fix: exact managed records render per-conversation enable and interval as read-only with a `GitHub managed` badge. Master, `Run now`, binding/removal and diagnostics remain local operator actions.
+Candidate fix: managed per-conversation enable and interval controls are read-only with a `GitHub managed` badge; the worker independently rejects direct local pacing writes. Popup state is filtered through the applied ownership snapshot so rollback/conflicting remote records are not displayed as authoritative. Master, `Run now`, binding/removal and diagnostics remain local operator actions.
 
 ### Medium: remote one-shot timestamp relationships were under-constrained
 
@@ -70,9 +76,15 @@ Although documentation made GitHub authoritative for `STATUS`, `[LAB:STATUS]` st
 
 Candidate fix: treat managed assistant STATUS as `github_control_managed` compatibility no-op. This does not restore assistant LAB scheduling; it removes a competing status transport.
 
+### Security assessment
+
+The remote desired state is untrusted input but is bounded by exact conversation/repository/binding/revision matching, type/range validation, timestamp bounds and immutable-generation checks. The extension has no GitHub credential and cannot write the control plane. Manifest host permissions are limited to ChatGPT/OpenAI conversation hosts and `raw.githubusercontent.com`; popup-only mutating messages are gated by extension id and exact popup URL, while content-origin actions are revalidated in their handlers.
+
+`runtimeUrl` itself is stored as a string rather than allowlisted in state-model code, but MV3 host permissions already prevent fetches outside the declared remote host set. This is a defense-in-depth cleanup opportunity rather than an active privilege expansion in 0.6.0.
+
 ### Cleanup: legacy DOM code remains larger than the current authority surface
 
-Assistant/grouped-turn scanning remains useful for migration binding, maintenance and diagnostics, but browser regression coverage is still dominated by historical schedule-marker cases. No new schedule heuristic should be added there. A later cleanup can split retained migration/diagnostic scanning from obsolete pacing-oriented compatibility tests after the GitHub control plane has aged in production.
+Assistant/grouped-turn scanning remains useful for migration binding, maintenance, recovery and diagnostics, but browser regression coverage is still dominated by historical schedule-marker cases. No new schedule heuristic should be added there. A later cleanup can split retained migration/diagnostic scanning from obsolete pacing-oriented compatibility tests after the GitHub control plane has aged in production.
 
 ### Wake submission path: no speculative behavior change
 
@@ -88,6 +100,8 @@ The architecture correctly uses durable `chrome.alarms` rather than timers for w
 
 The one-minute poll is not a real-time deadline guarantee. Chrome may delay alarms; correctness must therefore come from desired-state generation and exact delivery revalidation, not from assuming a poll fires on the exact minute.
 
+The applied-generation journal remains a separate `chrome.storage.local` record from `bridgeState`. A worker termination between state mutation/alarm repair and acknowledgement write can cause harmless re-application/generation churn after restart, although the shared alarm name and generation guards keep the delivery path fail-closed. Folding acknowledgement metadata into one atomic state transaction is a future simplification candidate, not required for this hardening branch.
+
 ## Candidate implementation
 
 Branch: `audit/chat-bridge-0.6.0-hardening`
@@ -95,19 +109,22 @@ Branch: `audit/chat-bridge-0.6.0-hardening`
 Implemented:
 
 - full reconcile serialization;
-- fresh runtime fetch at control reconcile/authority boundaries;
+- truly fresh, monotonic control-boundary runtime fetches;
 - cold-profile expired NEXT fallback;
-- sticky applied ownership on missing remote record;
+- immutable desired-state generations and rollback rejection;
+- sticky applied ownership on missing/conflicting/stale remote state;
+- explicit ownership reset on Remove;
 - desired-state timestamp/horizon validation;
 - managed STATUS compatibility no-op;
-- managed popup pacing read-only state;
-- focused race/cache/cold-profile/Master/ownership regressions.
+- managed popup pacing read-only state plus worker-side mutation guard;
+- focused race/cache/cold-profile/generation/Master/ownership regressions.
 
 Intentionally not implemented:
 
 - cross-profile shared executor/lease, because it requires a reviewed shared authority contract;
 - speculative wake-submit retry/double-click behavior;
-- broad deletion of legacy DOM compatibility before the new control plane has a post-release validation cycle.
+- broad deletion of legacy DOM compatibility before the new control plane has a post-release validation cycle;
+- state/journal co-location, because it is a larger persistence migration with no demonstrated duplicate-delivery failure in the current generation-guarded path.
 
 ## Release implications
 
