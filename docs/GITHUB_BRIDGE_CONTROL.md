@@ -29,7 +29,7 @@ The ChatGPT DOM remains a delivery surface only: generation-state checks, exact-
 
 The worker accepts a control only when conversation id, repository id/name, canonical binding and binding revision match both the validated runtime catalog and the locally configured conversation.
 
-`control_generation` is a positive monotonically increasing integer within one binding revision. Every schedule mutation increments it. `STATUS` is a read and does not increment it.
+`control_generation` is a positive monotonically increasing integer within one binding revision. Every schedule mutation increments it. `STATUS` is a read and does not increment it. Once a generation has been applied, its desired-state payload is immutable: rewriting `enabled`, interval, deadline or update evidence under the same generation fails closed instead of being treated as local drift. A lower remote generation is a rollback and cannot replace the applied state.
 
 A disabled control must have `next_wake_at=null`. A one-shot deadline must not precede `updated_at` and must be no more than 24 hours after `updated_at`. This keeps GitHub NEXT semantics bounded by the same maximum horizon as the compatibility protocol.
 
@@ -47,17 +47,19 @@ The global Bridge Master switch is never changed by a conversation desired-state
 
 ## Reconciliation and idempotence
 
-Applied GitHub state is tracked by `(bindingRevision, controlGeneration, localGeneration)`.
+Applied GitHub state is tracked by `(bindingRevision, controlGeneration, localGeneration)` plus a canonical signature of the applied desired-state payload.
 
 - A higher GitHub generation applies new desired state.
 - Re-reading an already-correct generation does not re-arm an unchanged one-shot wake.
+- A same-generation remote payload rewrite is rejected; the generation must be incremented for every desired-state mutation.
+- A lower remote generation is ignored and cached applied ownership remains authoritative locally.
 - A local popup/legacy pacing mutation changes local generation and is repaired on the next reconcile.
 - A consumed/past one-shot wake falls back to normal interval scheduling instead of being replayed forever, including when a fresh/cold Chrome profile first observes that already-expired generation.
 - Rebind creates a new binding revision and therefore an independent generation space.
 - Reconciliation is serialized within one MV3 worker instance so concurrent activation/popup/alarm paths cannot apply the same remote generation twice.
-- Control-boundary reconciliation bypasses the ordinary 30-second runtime cache; a fresh `PAUSE` must not be hidden by configuration caching immediately before a wake.
+- Control-boundary reconciliation bypasses both the ordinary 30-second runtime cache and any older in-flight configuration request. Fetch sequence ordering prevents an older request from overwriting a newer control-boundary result in the cache.
 
-Once a matching GitHub generation has been applied, schedule ownership is sticky for that binding revision. Network failure, malformed remote state, or a temporarily missing exact control record preserves the last applied GitHub ownership instead of silently handing pacing authority back to DOM/local controls. Explicit Rebind creates the reviewed boundary that leaves that ownership space.
+Once a matching GitHub generation has been applied, schedule ownership is sticky for that binding revision. Network failure, malformed remote state, a stale rollback, a same-generation rewrite, or a temporarily missing exact control record preserves the last applied GitHub ownership instead of silently handing pacing authority back to DOM/local controls. Explicit Rebind creates a new binding revision. Explicit Remove deletes the local conversation and clears its applied-ownership journal entry so a later re-add starts cleanly.
 
 Malformed controls, duplicate conversation records, stale binding revisions, invalid timestamps/ranges or identity mismatches fail closed.
 
@@ -117,7 +119,7 @@ They must not be used for ordinary schedule/status operations.
 
 ## Popup ownership
 
-The popup remains the local operator surface for binding/onboarding, global Master, manual `Run now`, removal and diagnostics. When an exact GitHub control owns a conversation, its per-conversation enable switch and interval field are rendered read-only and labelled `GitHub managed`; pacing changes belong in desired state rather than being locally changed and then repaired.
+The popup remains the local operator surface for binding/onboarding, global Master, manual `Run now`, removal and diagnostics. When GitHub owns a conversation, its per-conversation enable switch and interval field are rendered read-only and labelled `GitHub managed`. During a remote outage, missing-record publication, rollback or same-generation conflict, the popup shows the last applied local state rather than presenting stale remote values as authoritative. Worker-side mutation guards enforce the same ownership boundary even if UI state is stale.
 
 ## Wake delivery boundary
 
