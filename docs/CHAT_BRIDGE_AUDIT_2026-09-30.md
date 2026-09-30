@@ -16,7 +16,7 @@ Audited areas:
 - security validation of remote desired state;
 - wake composer/Send submission path.
 
-The final production-shaped validation used the daily Chrome profile and exact conversation `chat-be9defd7`, bound to `MichalMatu/local-agent` at binding revision 1. The test ended at control generation 3 with `enabled=false` and `next_wake_at=null`.
+PR #118 was merged to `main` as `f7bf7cd4103996718d292d958f06b2c1f18f6cb7` after the exact PR head passed the complete CI matrix. A field run on conversation `chat-be9defd7` proved the GitHub desired-state scheduler -> alarm -> submit path for the extension build that was loaded in daily Chrome, but subsequent evidence showed that loaded browser build cannot be attributed to the hardening candidate. Exact merged-build field validation therefore remains pending until Chrome reloads current `main` and repeats one bounded NEXT ending `PAUSED`.
 
 ## Findings
 
@@ -104,9 +104,7 @@ The applied-generation journal remains a separate `chrome.storage.local` record 
 
 ## Implemented hardening
 
-Branch: `audit/chat-bridge-0.6.0-hardening`
-
-Implemented:
+Implemented in PR #118 and merged as `f7bf7cd4103996718d292d958f06b2c1f18f6cb7`:
 
 - full reconcile serialization;
 - truly fresh, monotonic control-boundary runtime fetches;
@@ -127,26 +125,28 @@ Intentionally not implemented:
 - broad deletion of legacy DOM compatibility before the new control plane has a post-release validation cycle;
 - state/journal co-location, because it is a larger persistence migration with no demonstrated duplicate-delivery failure in the current generation-guarded path.
 
-## Production-shaped E2E
+## Field validation evidence and correction
 
-The final release gate was executed on 2026-09-30 in the normal/daily Chrome profile against conversation `chat-be9defd7` bound to `MichalMatu/local-agent` with binding revision 1.
+On 2026-09-30 the daily Chrome profile used conversation `chat-be9defd7`, bound to `MichalMatu/local-agent` with binding revision 1.
 
-The first attempted test publication targeted an older conversation id and was therefore correctly ignored by the worker's exact identity matching. That was test-setup error, not a Bridge delivery failure. The stale test record was returned to `PAUSED` before continuing.
+The first attempted test publication targeted an older conversation id and was correctly ignored by exact identity matching. That was test-setup error, not a Bridge delivery failure. The stale test record was returned to `PAUSED` before continuing.
 
-The clean run then used the exact active conversation:
+The clean run then showed:
 
-1. generation 1 established the matching GitHub-owned record in `PAUSED` state;
-2. manual `Run now` was used only to prove the local binding/submit path and returned the exact `chat-be9defd7` / `local-agent` binding envelope;
+1. generation 1 established the matching GitHub control record in `PAUSED` state;
+2. manual `Run now` proved the local binding/submit path and returned the exact `chat-be9defd7` / `local-agent` envelope;
 3. generation 2 armed a single `NEXT` for `2026-09-30T05:02:00+02:00`;
-4. without `Run now` or LAB schedule transport, the automatic wake appeared at approximately `05:02:07+02:00` with the exact `chat-be9defd7` / `local-agent` envelope;
-5. generation 3 immediately returned desired state to `PAUSED` with `enabled=false` and `next_wake_at=null`.
+4. without `Run now` or LAB schedule transport, an automatic wake appeared at approximately `05:02:07+02:00` with the exact `chat-be9defd7` / `local-agent` envelope;
+5. generation 3 returned desired state to `PAUSED` with `enabled=false` and `next_wake_at=null`.
 
-This validates the production-shaped GitHub desired state -> MV3 reconcile -> `chrome.alarms` -> exact conversation -> composer/Send submission path on the supported single-production-profile topology.
+This is valid evidence that the loaded extension build could execute the GitHub desired-state -> alarm -> exact-conversation submit flow. It is **not** valid proof that the exact hardening build executed it: after the exact control record had been published, the popup screenshot did not show the `GitHub managed` badge that PR #118 renders for either a matching remote control or cached GitHub ownership. That mismatch indicates the daily Chrome profile most likely still had the earlier 0.6.0 runtime loaded.
+
+Therefore the exact merged hardening build still needs one bounded field rerun after Chrome reloads current `main`. The acceptance signal is visible `GitHub managed` ownership in the popup followed by one automatic NEXT and a final `PAUSED` desired state.
 
 ## Verification and release implication
 
-The implementation candidate `04026aefc22c4a8aa7198675e2a4378a5ea3ecd6` passed the complete five-job CI matrix, including browser and macOS smoke. The documentation-cleanup head `0614c0b26f3cf93666d56caf65914c0d7eb14994` also passed all five jobs in CI run `36660061302`.
+The implementation candidate `04026aefc22c4a8aa7198675e2a4378a5ea3ecd6` passed the complete five-job CI matrix, including browser and macOS smoke. Documentation-cleanup head `0614c0b26f3cf93666d56caf65914c0d7eb14994` passed all five jobs in CI run `36660061302`. Final PR head `e67a5f78e1387a6533108f8dc2991b6698cf7efc` passed all five jobs in CI run `36662736169` before the squash merge.
 
-The bounded production-shaped Chat Bridge control E2E is now complete and ended `PAUSED`. The production gate that kept PR #118 in draft is therefore satisfied. The final documentation commit still requires its own CI result before merge.
+PR #118 is merged and its automated verification is complete. The only remaining validation item is the bounded production-shaped rerun against the **reloaded merged extension build**. Until that rerun succeeds and ends `PAUSED`, do not cite the 05:02 field run as proof of the hardening-specific runtime behavior.
 
-No assistant LAB schedule transport is restored by this branch.
+No assistant LAB schedule transport is restored by this hardening.
