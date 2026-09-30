@@ -85,7 +85,7 @@ For a GitHub-managed conversation, the ChatGPT DOM is not the source of truth fo
 - [`CHAT_BRIDGE_AUDIT_2026-09-30.md`](CHAT_BRIDGE_AUDIT_2026-09-30.md) — current post-release Bridge hardening evidence until that candidate is explicitly advanced.
 - Git tag `vX.Y.Z` plus `local_agent.version.RELEASE_VERSION` are the release-version source of truth.
 
-Transient dated Chat Bridge handoffs are not kept in the current documentation tree after their durable findings have been folded into canonical docs. Their content remains recoverable from Git history.
+Superseded dated Chat Bridge handoffs are removed once their durable findings are folded into canonical docs. The v4.19.9 changelog's historical `CHAT_BRIDGE_HANDOFF_2026-09-30.md` path is retained only as a tiny compatibility redirect; the original handoff content remains recoverable from Git history.
 
 ## Historical material
 
