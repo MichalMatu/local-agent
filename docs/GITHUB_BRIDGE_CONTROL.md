@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the canonical conversation scheduling/control contract for Chat Bridge 0.6.0 / Local Agent 4.19.9.
+This is the canonical conversation scheduling/control contract for Chat Bridge 0.6.0 / Local Agent 4.19.9 plus the post-release hardening candidate described in `CHAT_BRIDGE_AUDIT_2026-09-30.md`.
 
 Normal `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL` operations for a managed conversation are no longer transported by assistant text in the ChatGPT DOM. GitHub desired state in `chat_bridge/runtime.json` on `chat-bridge-state` is authoritative.
 
@@ -31,6 +31,8 @@ The worker accepts a control only when conversation id, repository id/name, cano
 
 `control_generation` is a positive monotonically increasing integer within one binding revision. Every schedule mutation increments it. `STATUS` is a read and does not increment it.
 
+A disabled control must have `next_wake_at=null`. A one-shot deadline must not precede `updated_at` and must be no more than 24 hours after `updated_at`. This keeps GitHub NEXT semantics bounded by the same maximum horizon as the compatibility protocol.
+
 ## Operations
 
 For a managed chat:
@@ -50,8 +52,12 @@ Applied GitHub state is tracked by `(bindingRevision, controlGeneration, localGe
 - A higher GitHub generation applies new desired state.
 - Re-reading an already-correct generation does not re-arm an unchanged one-shot wake.
 - A local popup/legacy pacing mutation changes local generation and is repaired on the next reconcile.
-- A consumed/past one-shot wake falls back to normal interval scheduling instead of being replayed forever.
+- A consumed/past one-shot wake falls back to normal interval scheduling instead of being replayed forever, including when a fresh/cold Chrome profile first observes that already-expired generation.
 - Rebind creates a new binding revision and therefore an independent generation space.
+- Reconciliation is serialized within one MV3 worker instance so concurrent activation/popup/alarm paths cannot apply the same remote generation twice.
+- Control-boundary reconciliation bypasses the ordinary 30-second runtime cache; a fresh `PAUSE` must not be hidden by configuration caching immediately before a wake.
+
+Once a matching GitHub generation has been applied, schedule ownership is sticky for that binding revision. Network failure, malformed remote state, or a temporarily missing exact control record preserves the last applied GitHub ownership instead of silently handing pacing authority back to DOM/local controls. Explicit Rebind creates the reviewed boundary that leaves that ownership space.
 
 Malformed controls, duplicate conversation records, stale binding revisions, invalid timestamps/ranges or identity mismatches fail closed.
 
@@ -63,7 +69,17 @@ The alarm only reads the existing public remote runtime URL. No GitHub credentia
 
 The worker also reconciles GitHub desired state before popup state reads, manual `Run now` and normal scheduled wake delivery.
 
-A temporary runtime/network failure leaves the last applied state unchanged. Once a conversation has GitHub ownership, network failure does not silently hand pacing authority back to DOM controls.
+A temporary runtime/network failure leaves the last applied state unchanged. Once a conversation has GitHub ownership, network failure or temporary record omission does not silently hand pacing authority back to DOM controls.
+
+`chrome.alarms` is a discovery/scheduling primitive, not a real-time clock. Chrome may delay an alarm, so the one-minute poll is a bounded discovery cadence rather than an exact one-minute delivery guarantee.
+
+## Chrome-profile ownership boundary
+
+Current 0.6.0 state, alarms, applied-generation journal and in-flight delivery guard are all profile-local. Therefore two independent Chrome profiles configured for the same managed conversation can both accept the same desired generation and both attempt the same wake.
+
+Until a reviewed shared executor/lease contract exists, one managed conversation must have only one active Chrome-profile executor. Exactly-once delivery across two independent profiles cannot be guaranteed by a local-only dedupe flag. A future design should use an explicit desired-state executor/profile owner or another shared writable lease rather than renderer heuristics.
+
+This limitation is separate from stale one-shot replay: the hardening candidate prevents a fresh profile from immediately replaying an already-expired NEXT, but it cannot arbitrate two profiles that concurrently own the same still-future generation.
 
 ## Legacy LAB compatibility
 
@@ -87,7 +103,9 @@ and user pacing controls:
 [LAB:OP:INTERVAL=...]
 ```
 
-return `github_control_managed` and do not mutate scheduler state when an exact GitHub control record owns the conversation.
+return `github_control_managed` and do not mutate scheduler state when an exact or previously-applied GitHub control owns the conversation.
+
+For a managed conversation, assistant `[LAB:STATUS]` is also a compatibility no-op; it must not inject a local DOM feedback status that competes with GitHub desired state. Read the exact `conversation_controls` record instead.
 
 The following remain explicit migration/maintenance surfaces until separately moved to GitHub state:
 
@@ -96,6 +114,10 @@ The following remain explicit migration/maintenance surfaces until separately mo
 - `RELOAD=CONTENT`, `RELOAD=BRIDGE`, `RESTART=WORKER`.
 
 They must not be used for ordinary schedule/status operations.
+
+## Popup ownership
+
+The popup remains the local operator surface for binding/onboarding, global Master, manual `Run now`, removal and diagnostics. When an exact GitHub control owns a conversation, its per-conversation enable switch and interval field are rendered read-only and labelled `GitHub managed`; pacing changes belong in desired state rather than being locally changed and then repaired.
 
 ## Wake delivery boundary
 
@@ -113,6 +135,8 @@ GitHub desired state
 ```
 
 A visible ChatGPT Stop control blocks overlapping submission. Operator edits in the composer are never overwritten. Retained Bridge text may be reused only if it still exactly matches the Bridge-owned prompt.
+
+The hardening candidate does not add a speculative second click or automatic resubmit when the exact user turn is unconfirmed. `delivery_unconfirmed` remains diagnostic until a reproducible browser root cause justifies a narrower change.
 
 ## Live proof
 
