@@ -85,6 +85,16 @@ async function rebindConversation(chatId, patch) {
 }
 
 async function updateConversation(chatId, patch) {
+  if ("enabled" in patch || "intervalOverrideMinutes" in patch) {
+    const state = await getBridgeState();
+    const current = state.conversations[chatId];
+    if (!current) throw new Error("conversation not found");
+    const authority = await githubScheduleAuthority(current, state);
+    if (authority) {
+      throw new Error("Conversation schedule is managed by GitHub desired state.");
+    }
+  }
+
   const result = await mutateState((state) => {
     const previous = state.conversations[chatId];
     if (!previous) throw new Error("conversation not found");
