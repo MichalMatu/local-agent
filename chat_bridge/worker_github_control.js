@@ -68,6 +68,36 @@ async function githubScheduleAuthority(conversation, state = null) {
   };
 }
 
+async function githubOwnershipSnapshot(state, runtime = null) {
+  const applied = await readAppliedGithubControls();
+  const ownership = {};
+  for (const conversation of Object.values(state?.conversations || {})) {
+    if (!stateModel.isBoundConversation(conversation)) continue;
+    const control = runtime?.source === "remote"
+      ? githubControlModel.findConversationControl(runtime, conversation.id)
+      : null;
+    if (control && githubControlModel.controlMatchesConversation(control, conversation)) {
+      ownership[conversation.id] = {
+        managed: true,
+        source: "remote",
+        controlGeneration: control.controlGeneration,
+        bindingRevision: control.bindingRevision
+      };
+      continue;
+    }
+    const cached = applied[conversation.id];
+    if (cached?.bindingRevision === conversation.bindingRevision) {
+      ownership[conversation.id] = {
+        managed: true,
+        source: "cached",
+        controlGeneration: cached.generation,
+        bindingRevision: cached.bindingRevision
+      };
+    }
+  }
+  return ownership;
+}
+
 function repairedScheduleDeadline(control, runtime, nowMs = Date.now()) {
   if (!control.enabled) return null;
   const explicit = Date.parse(control.nextWakeAt || "");
