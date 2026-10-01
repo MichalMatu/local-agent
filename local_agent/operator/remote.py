@@ -16,6 +16,10 @@ REMOTE_BRANCH = "operator-control"
 REMOTE_TRACKING_REF = f"refs/remotes/origin/{REMOTE_BRANCH}"
 REMOTE_STATE_PATH = ".agent/operator/state.json"
 POLL_SECONDS = 2.0
+REMOTE_REF_TIMEOUT_SECONDS = 5
+REMOTE_FETCH_TIMEOUT_SECONDS = 10
+REMOTE_LOCAL_GIT_TIMEOUT_SECONDS = 5
+REMOTE_NETWORK_BACKOFF_SECONDS = (5.0, 10.0, 15.0)
 _CONTROL_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 
@@ -25,6 +29,8 @@ class RemoteOperatorState:
     last_ref: str | None = None
     desired_state: str | None = None
     request_id: str | None = None
+    consecutive_transport_failures: int = 0
+    retry_not_before: float = 0.0
 
 
 def _git(args: list[str], self_repo: Path, *, timeout: int = 30) -> dict[str, Any]:
@@ -40,7 +46,7 @@ def _remote_ref(self_repo: Path) -> str:
     result = _git(
         ["ls-remote", "--heads", "origin", f"refs/heads/{REMOTE_BRANCH}"],
         self_repo,
-        timeout=15,
+        timeout=REMOTE_REF_TIMEOUT_SECONDS,
     )
     if result["exit_code"] != 0:
         raise RuntimeError(
@@ -66,18 +72,26 @@ def _load_remote_payload(self_repo: Path, ref: str) -> dict[str, Any]:
             f"+refs/heads/{REMOTE_BRANCH}:{REMOTE_TRACKING_REF}",
         ],
         self_repo,
-        timeout=30,
+        timeout=REMOTE_FETCH_TIMEOUT_SECONDS,
     )
     if fetch["exit_code"] != 0:
         raise RuntimeError(str(fetch.get("output", "")).strip() or "operator control fetch failed")
-    resolved = _git(["rev-parse", REMOTE_TRACKING_REF], self_repo, timeout=10)
+    resolved = _git(
+        ["rev-parse", REMOTE_TRACKING_REF],
+        self_repo,
+        timeout=REMOTE_LOCAL_GIT_TIMEOUT_SECONDS,
+    )
     fetched_ref = str(resolved.get("output", "")).strip().lower()
     if resolved["exit_code"] != 0 or fetched_ref != ref:
         raise RuntimeError(
             f"operator control ref changed during fetch: expected={ref} "
             f"got={fetched_ref or 'unknown'}"
         )
-    show = _git(["show", f"{ref}:{REMOTE_STATE_PATH}"], self_repo, timeout=15)
+    show = _git(
+        ["show", f"{ref}:{REMOTE_STATE_PATH}"],
+        self_repo,
+        timeout=REMOTE_LOCAL_GIT_TIMEOUT_SECONDS,
+    )
     if show["exit_code"] != 0:
         raise ValueError(str(show.get("output", "")).strip() or "operator control state missing")
     payload = json.loads(str(show.get("output", "")))
@@ -98,6 +112,22 @@ def _validated_state(payload: dict[str, Any]) -> tuple[str, str]:
     return desired_state, request_id
 
 
+def _record_transport_failure(state: RemoteOperatorState, now: float) -> float:
+    state.consecutive_transport_failures += 1
+    index = min(
+        state.consecutive_transport_failures - 1,
+        len(REMOTE_NETWORK_BACKOFF_SECONDS) - 1,
+    )
+    delay = REMOTE_NETWORK_BACKOFF_SECONDS[index]
+    state.retry_not_before = now + delay
+    return delay
+
+
+def _clear_transport_failure(state: RemoteOperatorState) -> None:
+    state.consecutive_transport_failures = 0
+    state.retry_not_before = 0.0
+
+
 def poll_remote_operator(
     state: RemoteOperatorState,
     *,
@@ -109,6 +139,8 @@ def poll_remote_operator(
 
     Remote ``enabled`` never clears the local marker. Re-enabling always requires
     an explicit local operator action after the remote desired state was cleared.
+    Network failures preserve the last known state and open a bounded probe backoff
+    so a GitHub outage cannot monopolize the guarded entrypoint loop.
     """
     current = time.monotonic() if now is None else now
     due = (
@@ -116,13 +148,19 @@ def poll_remote_operator(
         or state.last_poll_at is None
         or current - state.last_poll_at >= POLL_SECONDS
     )
-    if due:
+    retry_allowed = force or current >= state.retry_not_before
+    if due and retry_allowed:
         state.last_poll_at = current
         try:
             ref = _remote_ref(self_repo)
         except Exception as exc:
-            core.log(f"remote operator ref probe degraded: {type(exc).__name__}: {exc}")
+            delay = _record_transport_failure(state, current)
+            core.log(
+                "remote operator ref probe degraded: "
+                f"{type(exc).__name__}: {exc}; retry in {delay:g}s"
+            )
         else:
+            _clear_transport_failure(state)
             if ref != state.last_ref or state.desired_state is None:
                 try:
                     payload = _load_remote_payload(self_repo, ref)
@@ -133,11 +171,13 @@ def poll_remote_operator(
                     state.request_id = f"invalid-{ref[:12]}"
                     core.log(f"remote operator state invalid; failing closed: {exc}")
                 except Exception as exc:
+                    delay = _record_transport_failure(state, current)
                     core.log(
                         "remote operator control refresh degraded: "
-                        f"{type(exc).__name__}: {exc}"
+                        f"{type(exc).__name__}: {exc}; retry in {delay:g}s"
                     )
                 else:
+                    _clear_transport_failure(state)
                     state.last_ref = ref
                     state.desired_state = desired_state
                     state.request_id = request_id

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,9 @@ CONTROL_RECOVERABLE_DIRS = (
 )
 CONTROL_RUNTIME_TASK_PREFIX = ".agent/tasks/"
 CONTROL_RECOVERABLE_UNTRACKED_BASENAMES = frozenset({".DS_Store"})
-GIT_NETWORK_RETRY_DELAYS = (2.0, 5.0, 15.0)
+GIT_NETWORK_RETRY_DELAYS = (2.0,)
+GIT_NETWORK_ATTEMPT_TIMEOUT_MAX = 20
+CONTROL_GIT_CIRCUIT_OPEN_SECONDS = 30.0
 TRANSIENT_GIT_NETWORK_MARKERS = (
     "connection closed by",
     "connection reset by peer",
@@ -46,6 +49,26 @@ TRANSIENT_GIT_NETWORK_MARKERS = (
 )
 
 
+@dataclass
+class GitNetworkCircuitBreaker:
+    """Process-local guard that suppresses repeated control-plane network stalls."""
+
+    open_seconds: float = CONTROL_GIT_CIRCUIT_OPEN_SECONDS
+    open_until: float = 0.0
+
+    def retry_after(self, now: float) -> float:
+        return max(0.0, self.open_until - now)
+
+    def open(self, now: float) -> None:
+        self.open_until = now + self.open_seconds
+
+    def reset(self) -> None:
+        self.open_until = 0.0
+
+
+CONTROL_GIT_NETWORK_CIRCUIT = GitNetworkCircuitBreaker()
+
+
 def bounded_control_pull_args(branch: str) -> list[str]:
     """Git arguments that keep control history bounded and remote ACK refs exact."""
     remote_tracking = f"refs/remotes/origin/{branch}"
@@ -64,6 +87,8 @@ def is_transient_git_network_failure(result: dict[str, Any]) -> bool:
     """Return True only for failures that look like temporary network transport errors."""
     if int(result.get("exit_code", 0)) == 0:
         return False
+    if bool(result.get("network_circuit_open")):
+        return True
     if bool(result.get("timed_out")):
         return True
     output = str(result.get("output", "")).lower()
@@ -99,31 +124,61 @@ def run_git_with_network_retry(
     retry_delays: tuple[float, ...] = GIT_NETWORK_RETRY_DELAYS,
     log_commands: bool = True,
     environment: Mapping[str, str] | None = None,
+    circuit_breaker: GitNetworkCircuitBreaker | None = None,
 ) -> dict[str, Any]:
-    """Run one Git command, retrying only transient transport failures.
+    """Run one bounded Git command, retrying only transient transport failures.
 
-    The delays represent retries after the initial attempt, so the default policy is
-    four total attempts: immediate, then after 2s, 5s and 15s. Authentication,
-    rebase/conflict and other deterministic Git errors are returned immediately.
-    Silent terminal failures receive synthetic diagnostic output so callers never
-    emit an empty error line.
+    Git transport attempts are capped at 20 seconds even when a legacy caller asks
+    for a larger timeout. The default policy performs one retry after 2 seconds;
+    higher-level scheduler backoff owns longer recovery. An optional process-local
+    circuit breaker suppresses repeated network calls after an exhausted transient
+    failure. Authentication, rebase/conflict and other deterministic Git errors are
+    returned immediately. Silent terminal failures receive synthetic diagnostics.
     """
+    current = time.monotonic()
+    if circuit_breaker is not None:
+        retry_after = circuit_breaker.retry_after(current)
+        if retry_after > 0:
+            return {
+                "exit_code": 75,
+                "output": f"Git network circuit open; retry after {retry_after:.1f}s",
+                "network_circuit_open": True,
+            }
+
+    effective_timeout = min(timeout, GIT_NETWORK_ATTEMPT_TIMEOUT_MAX)
     result: dict[str, Any] = {}
     for attempt in range(len(retry_delays) + 1):
         process_kwargs: dict[str, Any] = {
-            "timeout": timeout,
+            "timeout": effective_timeout,
             "log_commands": log_commands,
         }
         if environment is not None:
             process_kwargs["environment"] = environment
         result = core_module.process(args, cwd, **process_kwargs)
         if result["exit_code"] == 0:
+            if circuit_breaker is not None:
+                circuit_breaker.reset()
             return result
         transient = is_transient_git_network_failure(result)
-        if not transient or attempt >= len(retry_delays):
+        if not transient:
+            if circuit_breaker is not None:
+                circuit_breaker.reset()
             if not str(result.get("output", "")).strip():
                 result = dict(result)
                 result["output"] = git_failure_diagnostic(result)
+            return result
+        if attempt >= len(retry_delays):
+            if not str(result.get("output", "")).strip():
+                result = dict(result)
+                result["output"] = git_failure_diagnostic(result)
+            if circuit_breaker is not None:
+                circuit_breaker.open(time.monotonic())
+                logger = getattr(core_module, "log", None)
+                if callable(logger):
+                    logger(
+                        "Git network circuit opened after exhausted transient failure; "
+                        f"suppressing probes for {circuit_breaker.open_seconds:g}s"
+                    )
             return result
 
         delay = retry_delays[attempt]
@@ -287,6 +342,7 @@ def sync_control(core_module: Any) -> None:
             core_module,
             ["git", *bounded_control_pull_args(core_module.CONTROL_BRANCH)],
             core_module.CONTROL,
+            circuit_breaker=CONTROL_GIT_NETWORK_CIRCUIT,
         )
         if result["exit_code"] != 0:
             raise RuntimeError(result["output"])
