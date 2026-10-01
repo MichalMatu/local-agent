@@ -95,14 +95,14 @@ class GitNetworkResilienceTests(unittest.TestCase):
             second = remote.poll_remote_operator(
                 state,
                 self_repo=repository,
-                now=15.0,
+                now=14.0,
             )
 
         self.assertEqual(first, "enabled")
         self.assertEqual(second, "enabled")
         self.assertEqual(probe.call_count, 1)
         self.assertEqual(state.consecutive_transport_failures, 1)
-        self.assertEqual(state.retry_not_before, 20.0)
+        self.assertEqual(state.retry_not_before, 15.0)
 
     def test_remote_operator_success_closes_probe_backoff(self) -> None:
         state = remote.RemoteOperatorState(
