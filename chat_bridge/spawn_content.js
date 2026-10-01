@@ -9,6 +9,29 @@
   const TRANSACTION_RE = /^spawn-[0-9a-f]{64}$/;
   const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
   const CLAIM_PREFIX = "local-agent:conversation-spawn:";
+  const COMPOSER_BLOCK_TAGS = new Set([
+    "ADDRESS",
+    "ARTICLE",
+    "ASIDE",
+    "BLOCKQUOTE",
+    "DIV",
+    "FIGCAPTION",
+    "FIGURE",
+    "FOOTER",
+    "H1",
+    "H2",
+    "H3",
+    "H4",
+    "H5",
+    "H6",
+    "HEADER",
+    "LI",
+    "MAIN",
+    "NAV",
+    "P",
+    "PRE",
+    "SECTION"
+  ]);
 
   const existing = globalThis.__localAgentConversationSpawnContent;
   if (existing?.protocolVersion === SPAWN_PROTOCOL_VERSION) return;
@@ -38,11 +61,56 @@
     );
   }
 
-  function composerText(composer) {
-    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
-      return composer.value || "";
+  function descendantText(node) {
+    if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
+    if (node instanceof HTMLBRElement) return "\n";
+    if (!(node instanceof HTMLElement)) return "";
+    return Array.from(node.childNodes, (child) => descendantText(child)).join("");
+  }
+
+  function blockLineText(block) {
+    if (
+      block.childNodes.length === 1 &&
+      block.firstChild instanceof HTMLBRElement
+    ) {
+      return "";
     }
-    return composer?.innerText || composer?.textContent || "";
+    return Array.from(block.childNodes, (child) => descendantText(child)).join("");
+  }
+
+  function blockStructuredComposerText(composer) {
+    if (!(composer instanceof HTMLElement)) return null;
+    const children = Array.from(composer.childNodes).filter((node) => !(
+      node.nodeType === Node.TEXT_NODE && (node.nodeValue || "") === ""
+    ));
+    if (!children.length) return "";
+    if (!children.every((node) => (
+      node instanceof HTMLElement && COMPOSER_BLOCK_TAGS.has(node.tagName)
+    ))) {
+      return null;
+    }
+    return children.map((block) => blockLineText(block)).join("\n");
+  }
+
+  function composerTextVariants(composer) {
+    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
+      return [composer.value || ""];
+    }
+    if (!(composer instanceof HTMLElement)) return [""];
+    const variants = [];
+    if (typeof composer.innerText === "string") variants.push(composer.innerText);
+    if (typeof composer.textContent === "string") variants.push(composer.textContent);
+    const structured = blockStructuredComposerText(composer);
+    if (typeof structured === "string") variants.push(structured);
+    return Array.from(new Set(variants));
+  }
+
+  function composerText(composer) {
+    return composerTextVariants(composer)[0] || "";
+  }
+
+  function composerMatchesText(composer, expected) {
+    return composerTextVariants(composer).some((variant) => variant === expected);
   }
 
   function selectContent(element) {
@@ -79,7 +147,7 @@
   }
 
   function clearComposer(composer, insertedText) {
-    if (!composer?.isConnected || composerText(composer) !== insertedText) return;
+    if (!composer?.isConnected || !composerMatchesText(composer, insertedText)) return;
     try { setComposerText(composer, ""); } catch (_error) {}
   }
 
@@ -264,21 +332,22 @@
     } catch (error) {
       return { ok: false, reason: "spawn_composer_write_failed", error: String(error) };
     }
-    const insertedText = composerText(composer);
-    if (!insertedText.trim()) {
+    const insertedText = validated.bootstrapText;
+    const writtenComposer = findComposer() || composer;
+    if (!composerMatchesText(writtenComposer, insertedText)) {
       return { ok: false, reason: "spawn_composer_write_failed" };
     }
 
-    let button = await waitForSendButton(composer);
+    let button = await waitForSendButton(writtenComposer);
     if (!button) {
-      clearComposer(findComposer() || composer, insertedText);
+      clearComposer(findComposer() || writtenComposer, insertedText);
       return { ok: false, reason: "spawn_send_button_not_ready" };
     }
     const activeComposer = findComposer();
     if (
       routeState().kind !== "fresh" ||
       !activeComposer ||
-      composerText(activeComposer) !== insertedText
+      !composerMatchesText(activeComposer, insertedText)
     ) {
       return { ok: false, reason: "spawn_composer_changed" };
     }
