@@ -35,6 +35,8 @@ Deterministic Local Agent executor
 
 ## Current status
 
+The detailed executable milestone ledger is maintained on the canonical develop/conversation-fabric branch in docs/conversation_fabric/CURRENT_PLAN.md. This directory contains the higher-level Superchat lifecycle design and research roadmap; it is not a second execution plan.
+
 The repository already has a deterministic terminal exhaustion detector:
 
 - `chat_bridge/dom_contract.js` recognizes the observed maximum-length DOM;

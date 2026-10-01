@@ -29,6 +29,6 @@ This release does not change task schema, repository hard binding, executor sema
 
 ## Release gate
 
-The source candidate must pass the exact-SHA canonical CI matrix and macOS smoke after release metadata is synchronized. Because this release changes Chat Bridge control behavior, the existing golden-standard gate also requires a bounded production-shaped live browser E2E ending PAUSED before the explicit `main` advance/tag decision.
+The exact candidate passed the canonical CI matrix and the bounded production-shaped live browser gate. The live GitHub desired-state path was exercised with a short one-minute interval and the managed conversation was returned to PAUSED (enabled=false, next_wake_at=null).
 
-The deployed production release remains v4.19.10 / Chat Bridge 0.6.1 until that explicit decision.
+The remaining release actions are administrative and deliberately explicit: merge PR #122 into main, tag the released commit v4.19.11, verify the installed runtime from main and remove the obsolete checkpoint branch after production proof. Until those actions complete, the deployed production release remains v4.19.10 / Chat Bridge 0.6.1.

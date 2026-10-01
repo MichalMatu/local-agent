@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.11` on the checkpoint candidate. The current production release is `v4.19.10`; the deployed production release remains `v4.19.10` until the explicit release decision advances `main`. The 4.19.11 candidate packages Chat Bridge 0.6.2 terminal-safety reconciliation and release-gate hardening without changing content protocol v13, assistant guard v8 or runtime schema 3. The 4.19.10 production baseline remains the exact daily-Chrome field-proven GitHub-control release and ended PAUSED. Candidate source must not be described as current production before the explicit release decision advances `main`. Read the installed `self_revision` from live daemon status. `v4.19.10` is the immediate production rollback point for this candidate.
+This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.19.11`; current production release is `v4.19.10` / Chat Bridge `0.6.1` before the explicit merge/tag decision, with v4.19.10 as the immediate rollback point after release. The candidate is Chat Bridge 0.6.2 and keeps runtime schema 3, content protocol v13 and assistant guard v8 unchanged. The bounded live GitHub-control gate is complete and the managed test conversation was returned to PAUSED. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
 
 ## Release/runtime invariants
 

@@ -116,8 +116,8 @@ Legacy DOM/LAB migration compatibility remains larger than the current GitHub au
 
 ## Release decision
 
-The automated candidate gate can be considered closed only when the final documentation SHA is green across the complete CI matrix.
+The bounded production-shaped live Chrome validation has now been completed on the candidate: the GitHub desired-state wake path was exercised with a short one-minute interval and the managed conversation was returned to PAUSED (enabled=false, next_wake_at=null). This satisfies the Chat Bridge-specific live gate required before advancing main.
 
-The **production release gate is not yet closed** by automated CI alone. Because 4.19.11 changes Chat Bridge control behavior, the repository's Golden Standard still requires one bounded production-shaped live Chrome validation using the exact candidate build and GitHub desired-state path, ending with the managed conversation PAUSED. Only after that proof should `main` advance and tag `v4.19.11`.
+The remaining release actions are explicit merge/tag/installed-runtime verification and post-release cleanup. The candidate must not be described as deployed production until those actions complete.
 
-No registered downstream planner task/schema/control transport changed in 4.19.11; the checkpoint therefore requires no downstream migration beyond confirming existing GitHub-managed scheduling guidance remains compatible.
+No registered downstream planner task/schema/control transport changed in 4.19.11; no downstream migration is required.

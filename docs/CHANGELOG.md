@@ -11,6 +11,7 @@ This changelog records the current operationally relevant Local Agent release li
 - Turn Python coverage into a release gate at 70% and pin GitHub Actions dependencies to immutable revisions rather than mutable major-version tags.
 - Close stale BUG-001 documentation against the shipped v4.18.5 guarded-entrypoint orphaned repository-lease recovery; the current production topology detects exact kernel lock holders, terminates only proven orphan holders and verifies lock release.
 - Advance Chat Bridge to 0.6.2. Task schema, scheduler/resource semantics, hard binding, executor behavior, MCP boundary and Local Agent concurrency are unchanged.
+- Complete the bounded live GitHub-control browser gate and return the managed conversation to PAUSED before the release decision.
 
 ## Earlier releases
 

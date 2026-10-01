@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the canonical conversation scheduling/control contract for Chat Bridge 0.6.1 / Local Agent 4.19.10. The control-plane hardening was merged in PR #118 and is documented in `CHAT_BRIDGE_AUDIT_2026-09-30.md`.
+This is the canonical conversation scheduling/control contract for Chat Bridge 0.6.2 / Local Agent 4.19.11. It preserves the GitHub control-plane hardening from PR #118 and adds the terminal-safety repair verified by PR #122.
 
 Normal `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL` operations for a managed conversation are no longer transported by assistant text in the ChatGPT DOM. GitHub desired state in `chat_bridge/runtime.json` on `chat-bridge-state` is authoritative.
 
@@ -77,7 +77,7 @@ A temporary runtime/network failure leaves the last applied state unchanged. Onc
 
 ## Chrome-profile ownership boundary
 
-Current 0.6.1 state, alarms, applied-generation journal and in-flight delivery guard are all profile-local. Therefore two independent Chrome profiles configured for the same managed conversation can both accept the same desired generation and both attempt the same wake.
+Current 0.6.2 state, alarms, applied-generation journal and in-flight delivery guard are all profile-local. Therefore two independent Chrome profiles configured for the same managed conversation can both accept the same desired generation and both attempt the same wake.
 
 Until a reviewed shared executor/lease contract exists, one managed conversation must have only one active Chrome-profile executor. Exactly-once delivery across two independent profiles cannot be guaranteed by a local-only dedupe flag. A future design should use an explicit desired-state executor/profile owner or another shared writable lease rather than renderer heuristics.
 
@@ -164,6 +164,10 @@ The definitive merged-hardening proof used the same active conversation `chat-be
 5. the popup then visibly showed `GitHub managed`, `github_control_paused`, `Paused`, a `GitHub interval` field, and disabled per-conversation schedule controls.
 
 This closes the hardening-specific production field gate on the exact merged runtime. The final desired state for the active test conversation is intentionally `enabled=false`, `next_wake_at=null`.
+
+## Checkpoint live proof
+
+On 2026-10-01 the operator successfully exercised the GitHub-managed wake path with a short one-minute interval using the checkpoint Bridge build. The automatic wake occurred without using the legacy LAB scheduling path, and the managed conversation was returned to the canonical paused state: `enabled=false`, `next_wake_at=null`. Exact conversation/control identifiers are intentionally omitted from public documentation.
 
 ## Source of truth
 

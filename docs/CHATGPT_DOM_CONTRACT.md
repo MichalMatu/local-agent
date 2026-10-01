@@ -1,21 +1,22 @@
 # ChatGPT DOM contract for Chat Bridge
 
-This document records the current **browser compatibility boundary** used by Chat Bridge 0.6.1. Selectors are evidence, not ChatGPT product guarantees. Unsupported page shapes fail closed.
+This document records the current **browser compatibility boundary** used by Chat Bridge 0.6.2. Selectors are evidence, not ChatGPT product guarantees. Unsupported page shapes fail closed.
 
 Normal pacing/status for a GitHub-managed conversation does **not** depend on assistant DOM parsing. GitHub desired state is authoritative for `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL`.
 
 Historical release notes describe earlier renderer assumptions and assistant-side LAB schedule transport. They are not the current scheduling contract.
 
-## Production baseline
+## Release checkpoint
 
 ```text
-Local Agent source/deployed: v4.19.10
-Chat Bridge:                0.6.1
-content protocol:            v13
-assistant guard:             v8
+Prepared Local Agent release: v4.19.11
+Prepared Chat Bridge release: 0.6.2
+content protocol:             v13
+assistant guard:              v8
+runtime schema:               3
 ```
 
-The current desired-state contract and release proof are documented in `GITHUB_BRIDGE_CONTROL.md`, `RELEASE_NOTES_V4.19.10.md` and `CHAT_BRIDGE_AUDIT_2026-09-30.md`.
+Before merge/tag the deployed production baseline remains Local Agent v4.19.10 / Chat Bridge 0.6.1. The current desired-state contract and checkpoint proof are documented in `GITHUB_BRIDGE_CONTROL.md`, `RELEASE_NOTES_V4.19.11.md` and `CHECKPOINT_AUDIT_V4.19.11.md`.
 
 ## What DOM still owns
 
