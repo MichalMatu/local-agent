@@ -2,6 +2,8 @@
 
 Date: 2026-10-01
 
+Before merge, verify the PR head SHA and the CI result belong to the same final candidate commit.
+
 ## Purpose
 
 This is the continuation checkpoint for the Local Agent / Chat Bridge work after the 4.19.11 hardening pass. Read this first, then follow the canonical docs and exact GitHub evidence.
