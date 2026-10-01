@@ -7,7 +7,7 @@ This changelog records the current operationally relevant Local Agent release li
 - Bound GitHub-backed control Git attempts to 20 seconds even when legacy callers request larger timeouts.
 - Reduce transient Git retry inside one control-plane operation to one retry after 2 seconds; longer recovery remains owned by the existing scheduler backoff.
 - Add a process-local 30-second circuit breaker to repeated control checkout synchronization after an exhausted transient Git failure.
-- Reduce remote `operator-control` ref probing to a 5-second timeout and back off degraded probes for 10, 30, then 60 seconds while preserving the last known operator state.
+- Reduce remote `operator-control` ref probing to a 5-second timeout and back off degraded probes for 5, 10, then 15 seconds while preserving the last known operator state and emergency-control responsiveness.
 - Keep authentication, rebase/conflict and malformed reachable operator state handling unchanged and fail-closed where previously required.
 - Add focused regression coverage for timeout capping, circuit opening/recovery and remote-operator probe backoff.
 - No task schema, hard-binding, resource classification, concurrency, MCP or Chat Bridge protocol changes.
