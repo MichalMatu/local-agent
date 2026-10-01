@@ -83,17 +83,7 @@ function bounded(label, promise, timeoutMs = 20_000) {
   ]);
 }
 
-(async () => {
-  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "conversation-live-slice-browser-"));
-  const profile = path.join(temp, "profile");
-  const fixturePath = path.join(temp, "fixture.html");
-  const wrapperPath = path.join(temp, "playwright-wrapper.cjs");
-  await fs.writeFile(fixturePath, fixture, "utf8");
-  await fs.writeFile(wrapperPath, wrapperSource, "utf8");
-  const staleWorkerSentinel = path.join(profile, "Default", "Service Worker", "stale-worker-sentinel");
-  await fs.mkdir(path.dirname(staleWorkerSentinel), { recursive: true });
-  await fs.writeFile(staleWorkerSentinel, "stale\n", "utf8");
-
+function startActuator({ profile, wrapperPath, fixturePath }) {
   const child = spawn(process.execPath, [
     path.join(root, "scripts", "conversation_live_slice_browser.cjs"),
     "--profile",
@@ -140,32 +130,11 @@ function bounded(label, promise, timeoutMs = 20_000) {
     return response.result;
   };
 
-  try {
-    const ready = await request("wait_ready", { timeout_ms: 15_000 }, 20_000);
-    assert.equal(ready.ok, true, JSON.stringify(ready));
-    assert.equal(ready.reason, "chatgpt_ready");
-
-    const pending = intent("actuator-smoke");
-    const created = await request("create", { intent: pending });
-    assert.equal(created.ok, true, JSON.stringify(created));
-    assert.equal(created.reason, "tab_created", JSON.stringify(created));
-    assert.ok(Number.isInteger(created.tabId));
-
-    // tabs.create can acknowledge before the new tab exposes its marker through
-    // tabs.query(url/pendingUrl). Real lost-ACK recovery happens after process/restart
-    // latency, so the smoke should bounded-poll only the temporary "missing" state.
-    // Any conflict or other failure remains immediately fatal.
-    let recovered = null;
-    const recoveryDeadline = Date.now() + 3000;
-    do {
-      recovered = await request("recover_create", { intent: pending });
-      if (recovered.ok || recovered.reason !== "spawn_create_recovery_missing") break;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    } while (Date.now() < recoveryDeadline);
-    assert.equal(recovered?.ok, true, JSON.stringify(recovered));
-    assert.equal(recovered.reason, "tab_recovered", JSON.stringify(recovered));
-    assert.equal(recovered.tabId, created.tabId);
-
+  const stop = async () => {
+    if (child.exitCode !== null) {
+      lines.close();
+      return;
+    }
     const shutdown = await request("shutdown");
     assert.equal(shutdown.ok, true, JSON.stringify(shutdown));
     assert.equal(shutdown.reason, "shutdown");
@@ -176,10 +145,91 @@ function bounded(label, promise, timeoutMs = 20_000) {
       10_000
     );
     assert.equal(exitCode, 0, stderr);
-    console.log("Conversation live slice real-browser create/recovery smoke passed.");
-  } finally {
-    if (child.exitCode === null) child.kill("SIGTERM");
     lines.close();
+  };
+
+  return {
+    child,
+    request,
+    stop,
+    stderr: () => stderr,
+    closeLines: () => lines.close()
+  };
+}
+
+async function recoverMarker(request, pending, timeoutMs = 3000) {
+  let recovered = null;
+  const recoveryDeadline = Date.now() + timeoutMs;
+  do {
+    recovered = await request("recover_create", { intent: pending });
+    if (recovered.ok || recovered.reason !== "spawn_create_recovery_missing") break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  } while (Date.now() < recoveryDeadline);
+  return recovered;
+}
+
+(async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), "conversation-live-slice-browser-"));
+  const profile = path.join(temp, "profile");
+  const fixturePath = path.join(temp, "fixture.html");
+  const wrapperPath = path.join(temp, "playwright-wrapper.cjs");
+  await fs.writeFile(fixturePath, fixture, "utf8");
+  await fs.writeFile(wrapperPath, wrapperSource, "utf8");
+  const staleWorkerSentinel = path.join(profile, "Default", "Service Worker", "stale-worker-sentinel");
+  await fs.mkdir(path.dirname(staleWorkerSentinel), { recursive: true });
+  await fs.writeFile(staleWorkerSentinel, "stale\n", "utf8");
+
+  let first = null;
+  let second = null;
+  try {
+    const pending = intent("actuator-smoke");
+
+    first = startActuator({ profile, wrapperPath, fixturePath });
+    const ready = await first.request("wait_ready", { timeout_ms: 15_000 }, 20_000);
+    assert.equal(ready.ok, true, JSON.stringify(ready));
+    assert.equal(ready.reason, "chatgpt_ready");
+
+    const created = await first.request("create", { intent: pending });
+    assert.equal(created.ok, true, JSON.stringify(created));
+    assert.equal(created.reason, "tab_created", JSON.stringify(created));
+    assert.ok(Number.isInteger(created.tabId));
+
+    // tabs.create can acknowledge before the new tab exposes its marker through
+    // tabs.query(url/pendingUrl), so first prove same-process lost-ACK recovery.
+    const recovered = await recoverMarker(first.request, pending);
+    assert.equal(recovered?.ok, true, JSON.stringify(recovered));
+    assert.equal(recovered.reason, "tab_recovered", JSON.stringify(recovered));
+    assert.equal(recovered.tabId, created.tabId);
+
+    // The live runner closes the browser actuator whenever a bounded invocation
+    // returns. A later rearm therefore depends on the isolated persistent profile
+    // restoring the marker tab. Prove that boundary instead of assuming it.
+    await first.stop();
+    first = null;
+
+    second = startActuator({ profile, wrapperPath, fixturePath });
+    const readyAfterRestart = await second.request(
+      "wait_ready",
+      { timeout_ms: 15_000 },
+      20_000
+    );
+    assert.equal(readyAfterRestart.ok, true, JSON.stringify(readyAfterRestart));
+    assert.equal(readyAfterRestart.reason, "chatgpt_ready");
+
+    const recoveredAfterRestart = await recoverMarker(second.request, pending, 5000);
+    assert.equal(recoveredAfterRestart?.ok, true, JSON.stringify(recoveredAfterRestart));
+    assert.equal(recoveredAfterRestart.reason, "tab_recovered", JSON.stringify(recoveredAfterRestart));
+    assert.ok(Number.isInteger(recoveredAfterRestart.tabId));
+
+    await second.stop();
+    second = null;
+    console.log("Conversation live slice real-browser restart recovery smoke passed.");
+  } finally {
+    for (const actuator of [first, second]) {
+      if (!actuator) continue;
+      if (actuator.child.exitCode === null) actuator.child.kill("SIGTERM");
+      actuator.closeLines();
+    }
     await fs.rm(temp, { recursive: true, force: true });
   }
 })().catch((error) => {
