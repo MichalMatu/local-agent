@@ -1,0 +1,121 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
+const fs = require("node:fs/promises");
+const os = require("node:os");
+const path = require("node:path");
+const { chromium } = require(process.env.LOCAL_AGENT_PLAYWRIGHT_MODULE || "playwright");
+
+const root = path.resolve(__dirname, "..");
+
+function sha256(text) {
+  return crypto.createHash("sha256").update(String(text), "utf8").digest("hex");
+}
+
+function spawnIntent(label, tabId = null) {
+  const bootstrapText = [
+    "LOCAL AGENT CHILD BOOTSTRAP",
+    `request=${label}`,
+    `nonce=${sha256(label).slice(0, 16)}`
+  ].join("\n");
+  return {
+    schema_version: 1,
+    transaction_id: `spawn-${sha256(`tx:${label}`)}`,
+    child_request_digest: `sha256:${sha256(`request:${label}`)}`,
+    bootstrap_digest: `sha256:${sha256(bootstrapText)}`,
+    bootstrap_text: bootstrapText,
+    tab_id: tabId
+  };
+}
+
+const fixture = `<!doctype html><html><body>
+<form>
+  <div id="prompt-textarea" contenteditable="true" data-lexical-editor="true"></div>
+  <button id="composer-submit-button" type="submit">Send</button>
+</form>
+<script>
+window.submits = 0;
+document.querySelector("form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  window.submits++;
+  const composer = document.querySelector("#prompt-textarea");
+  const text = composer.innerText || composer.textContent || "";
+  const message = document.createElement("div");
+  message.dataset.messageAuthorRole = "user";
+  message.textContent = text;
+  document.body.append(message);
+  composer.textContent = "";
+  history.pushState({}, "", "/uc/transient-synthetic-child");
+  const target = text.includes("request=uc-to-child")
+    ? "/c/synthetic-final-child"
+    : "/unexpected-after-uc";
+  setTimeout(() => history.pushState({}, "", target), 350);
+});
+</script>
+</body></html>`;
+
+async function callWorker(worker, name, value) {
+  assert.match(name, /^[A-Za-z][A-Za-z0-9_]*$/);
+  return worker.evaluate(`Promise.resolve(${name}(${JSON.stringify(value)}))`);
+}
+
+async function prepareSpawn(worker, pending) {
+  const created = await callWorker(worker, "createConversationSpawnTab", pending);
+  assert.equal(created.ok, true, JSON.stringify(created));
+  assert.ok(Number.isInteger(created.tabId), JSON.stringify(created));
+  const value = { ...pending, tab_id: created.tabId };
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const ready = await callWorker(worker, "ensureConversationSpawnContent", created.tabId);
+    if (ready?.ok && ready?.route === "fresh" && ready?.readiness?.ok) {
+      return { value, tabId: created.tabId };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error("spawn fixture did not become ready");
+}
+
+(async () => {
+  const profile = await fs.mkdtemp(path.join(os.tmpdir(), "conversation-spawn-uc-transition-"));
+  let context;
+  try {
+    const extension = path.join(root, "chat_bridge");
+    context = await chromium.launchPersistentContext(profile, {
+      channel: "chromium",
+      headless: true,
+      args: [
+        `--disable-extensions-except=${extension}`,
+        `--load-extension=${extension}`
+      ]
+    });
+    await context.setOffline(true);
+    await context.route("https://chatgpt.com/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: fixture })
+    );
+
+    const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+
+    const success = await prepareSpawn(worker, spawnIntent("uc-to-child"));
+    const successResult = await callWorker(worker, "submitConversationSpawnBootstrap", success.value);
+    assert.equal(successResult.ok, true, JSON.stringify(successResult));
+    assert.equal(successResult.reason, "identity_discovered", JSON.stringify(successResult));
+    assert.equal(successResult.childConversationUrl, "https://chatgpt.com/c/synthetic-final-child");
+    assert.ok(!successResult.childConversationUrl.includes("/uc/"));
+    console.log("PASS: transient /uc route settles to canonical /c before child identity is accepted");
+
+    const rejected = await prepareSpawn(worker, spawnIntent("uc-to-unexpected"));
+    const rejectedResult = await callWorker(worker, "submitConversationSpawnBootstrap", rejected.value);
+    assert.equal(rejectedResult.ok, false, JSON.stringify(rejectedResult));
+    assert.equal(rejectedResult.reason, "spawn_submission_ambiguous", JSON.stringify(rejectedResult));
+    assert.equal(rejectedResult.route, "unexpected_after_provisional", JSON.stringify(rejectedResult));
+    assert.equal(rejectedResult.childConversationUrl, undefined);
+    console.log("PASS: transient /uc route never becomes child identity without canonical /c");
+  } finally {
+    if (context) await context.close().catch(() => null);
+    await fs.rm(profile, { recursive: true, force: true });
+  }
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
