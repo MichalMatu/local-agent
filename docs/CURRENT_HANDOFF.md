@@ -21,11 +21,12 @@ Production is unchanged:
 - Local Agent: v4.19.11
 - Chat Bridge: 0.6.2
 
-Current Conversation Fabric development:
+Conversation Fabric development:
 
-- branch: `develop/conversation-fabric`
-- head: `b6f9ce3bb47309474dba7c430df3880912aaa4ef`
-- commit: `Wait for delayed DEV extension worker`
+- canonical branch: `develop/conversation-fabric`
+- last runtime/code baseline: `b6f9ce3bb47309474dba7c430df3880912aaa4ef`
+- baseline commit: `Wait for delayed DEV extension worker`
+- the branch may contain later documentation-only handoff commits; always verify the actual GitHub head before work
 - Mac DEV checkout: `/Users/michal/local-agent-dev`
 - DEV state root: `/Users/michal/Library/Application Support/local-agent-dev`
 - production checkout: `/Users/michal/local-agent`
@@ -33,7 +34,7 @@ Current Conversation Fabric development:
 Current temporary implementation branch:
 
 - `work/conversation-composer-replacement`
-- currently still at `b6f9ce3bb47309474dba7c430df3880912aaa4ef`
+- currently still at runtime/code baseline `b6f9ce3bb47309474dba7c430df3880912aaa4ef`
 - no accepted composer-replacement commit exists yet
 
 Operational and archive branches are not development targets:
@@ -57,7 +58,7 @@ Strict lost-ACK recovery still never creates a replacement tab. A second unresol
 
 The live Mac proof exposed a startup race in `scripts/conversation_live_slice_browser.cjs`: the old implementation effectively waited about 300 ms for the MV3 extension service worker even though the intended bound was 8 seconds.
 
-That race is fixed at `b6f9ce3bb47309474dba7c430df3880912aaa4ef` by bounded polling for the extension worker. The fix was validated with focused tests, browser smoke, exact-SHA CI and a cloned-profile Mac proof through `host-ops`.
+That race is fixed at runtime/code baseline `b6f9ce3bb47309474dba7c430df3880912aaa4ef` by bounded polling for the extension worker. The fix was validated with focused tests, browser smoke, exact-SHA CI and a cloned-profile Mac proof through `host-ops`.
 
 ## Preserved failed live proof
 
