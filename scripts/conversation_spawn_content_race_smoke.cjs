@@ -77,7 +77,6 @@ module.exports = {
           };
         })
       });
-      await context.setOffline(true);
       await context.route("https://**/*", (route) => {
         const url = route.request().url();
         if (url.startsWith("https://chatgpt.com/") || url.startsWith("https://chat.openai.com/")) {
