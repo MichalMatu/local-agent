@@ -59,6 +59,29 @@ module.exports = {
         ...options,
         channel: "chromium"
       });
+      const realServiceWorkers = context.serviceWorkers.bind(context);
+      const realWaitForEvent = context.waitForEvent.bind(context);
+      let workerProbeStartedAt = null;
+      Object.defineProperty(context, "serviceWorkers", {
+        configurable: true,
+        value: () => {
+          const workers = realServiceWorkers();
+          if (workerProbeStartedAt === null) workerProbeStartedAt = Date.now();
+          if (Date.now() - workerProbeStartedAt < 750) {
+            return workers.filter((worker) => !worker.url().startsWith("chrome-extension://"));
+          }
+          return workers;
+        }
+      });
+      Object.defineProperty(context, "waitForEvent", {
+        configurable: true,
+        value: (event, eventOptions) => {
+          if (event === "serviceworker") {
+            return new Promise((resolve) => setTimeout(() => resolve(null), 750));
+          }
+          return realWaitForEvent(event, eventOptions);
+        }
+      });
       await context.setOffline(true);
       await context.route("https://**/*", (route) => {
         const url = route.request().url();
@@ -189,7 +212,12 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
     assert.equal(ready.ok, true, JSON.stringify(ready));
     assert.equal(ready.reason, "chatgpt_ready");
 
+    const workerWaitStarted = Date.now();
     const created = await first.request("create", { intent: pending });
+    assert.ok(
+      Date.now() - workerWaitStarted >= 650,
+      "create must tolerate extension-worker startup beyond the old 300ms race"
+    );
     assert.equal(created.ok, true, JSON.stringify(created));
     assert.equal(created.reason, "tab_created", JSON.stringify(created));
     assert.ok(Number.isInteger(created.tabId));

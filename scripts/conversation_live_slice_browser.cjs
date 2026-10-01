@@ -161,24 +161,17 @@ async function waitForLoginReady(context, timeoutMs) {
 }
 
 async function extensionWorker(context) {
-  const existing = context.serviceWorkers().find((worker) =>
-    worker.url().startsWith("chrome-extension://") && worker.url().endsWith("/service_worker.js")
-  );
-  if (existing) return existing;
-
-  const candidate = await Promise.race([
-    context.waitForEvent("serviceworker", { timeout: 8_000 }),
-    (async () => {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      return null;
-    })()
-  ]).catch(() => null);
-  if (candidate?.url().startsWith("chrome-extension://")) return candidate;
-
-  for (const worker of context.serviceWorkers()) {
-    if (worker.url().startsWith("chrome-extension://")) return worker;
+  const deadline = Date.now() + 8_000;
+  while (true) {
+    const existing = context.serviceWorkers().find((worker) =>
+      worker.url().startsWith("chrome-extension://") && worker.url().endsWith("/service_worker.js")
+    );
+    if (existing) return existing;
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(100, remaining)));
   }
-  throw new Error("DEV Chat Bridge service worker is unavailable");
+  throw new Error("DEV Chat Bridge service worker is unavailable after bounded startup wait");
 }
 
 function safeFunctionName(value) {
