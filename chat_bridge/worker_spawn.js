@@ -234,7 +234,26 @@ async function ensureConversationSpawnContent(tabId) {
     } catch (error) {
       return { ok: false, reason: "spawn_content_unavailable", error: String(error) };
     }
-    return { ok: false, reason: "spawn_content_unavailable", route: "staging" };
+    const deadline = Date.now() + 5000;
+    let reachedFreshRoute = false;
+    while (Date.now() < deadline) {
+      try {
+        tab = await chrome.tabs.get(tabId);
+      } catch (error) {
+        return { ok: false, reason: "spawn_tab_unavailable", error: String(error) };
+      }
+      if (conversationSpawnFreshChatUrl(tab?.url)) {
+        reachedFreshRoute = true;
+        break;
+      }
+      if (normalizeConversationUrl(String(tab?.url || ""))) {
+        return { ok: false, reason: "spawn_unexpected_route" };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    if (!reachedFreshRoute) {
+      return { ok: false, reason: "spawn_page_not_ready" };
+    }
   }
 
   let probe = await probeConversationSpawnContent(tabId);
