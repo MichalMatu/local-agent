@@ -1,49 +1,55 @@
 # Conversation Fabric DEV lab
 
-Status: Stage 3 development boundary. This lab is deliberately **synthetic-only** and does not start a second Local Agent executor.
+Status: current isolated development/runtime boundary for Conversation Fabric Stage 8.
 
 ## Purpose
 
-The production Local Agent must remain usable from `~/local-agent` on `main` while Conversation Fabric / Superchat work is developed separately.
+Conversation Fabric development must not mutate or compete with the installed production Local Agent or the operator's normal Chrome profile.
 
-The first DEV boundary therefore isolates only the components needed by current workflow and browser experiments. It does **not** attempt a broad runtime instance refactor before there is evidence that a second executor is required.
+The DEV lab provides a separate checkout, durable state root and browser profile for synthetic browser tests and the explicitly bounded Stage 8 live-child proof. It does not start a second production Local Agent executor.
 
-## Default topology
+## Canonical topology
 
 ```text
-PROD checkout
-~/local-agent
+Production checkout
+/Users/michal/local-agent
+  branch: main
 
-DEV checkout target
-~/local-agent-dev
+Development checkout
+/Users/michal/local-agent-dev
+  branch: develop/conversation-fabric
 
-DEV lab root
-~/Library/Application Support/local-agent-dev/
+Primary DEV state root
+/Users/michal/Library/Application Support/local-agent-dev/
   lab.json
   state/
   repositories/
   browser-profile/
   logs/
   fixtures/
+  node-deps/
 ```
 
-The checkout and lab-state root are intentionally disjoint so deleting/recreating a development checkout cannot erase persistent lab evidence.
+The checkout and DEV state root are intentionally disjoint so checkout replacement cannot erase durable proof evidence.
 
-The lab validator rejects overlap or ancestor/descendant collisions with production identities including:
+## Protected production boundaries
 
-- `~/local-agent`;
-- `~/Library/Application Support/local-agent`;
-- `~/agent-workspace`;
-- the production LaunchAgent plist;
-- production stdout/stderr logs;
-- the normal Google Chrome profile root;
-- the production Native Messaging manifest.
+DEV path validation must reject overlap, aliasing or ancestor/descendant collisions with production-owned locations, including:
 
-Canonical path resolution is used before comparison, so a symlink alias to a protected production path is rejected too.
+- `/Users/michal/local-agent`;
+- `/Users/michal/Library/Application Support/local-agent`;
+- production workspace/state paths;
+- production LaunchAgent files/logs;
+- the normal Chrome profile root;
+- any production Native Messaging registration.
 
-## Capabilities intentionally disabled
+Symlink aliases to protected production paths are also invalid.
 
-The Stage 3 manifest records all of these as false:
+## Disabled capabilities
+
+The DEV lab must not become a second production executor/control plane.
+
+Keep these capabilities disabled:
 
 ```text
 executor_enabled
@@ -52,13 +58,16 @@ real_chrome_profile_enabled
 native_host_registration_enabled
 ```
 
-`chat-bridge-state` and `operator-control` are explicitly recorded as protected operational branches. The initial lab does not consume them.
+`local-agent` remains `execution_enabled=false` for the Stage 8 reasoning-child proof.
 
-This means Stage 3 cannot accidentally become a second production supervisor merely because the development checkout contains the production runtime code.
+Protected operational branches are not DEV workspaces:
 
-## Commands
+- `chat-bridge-state`
+- `operator-control`
 
-Run from the development checkout:
+## Lab commands
+
+Run from the DEV checkout:
 
 ```bash
 python -m local_agent.development.lab plan
@@ -66,68 +75,71 @@ python -m local_agent.development.lab init
 python -m local_agent.development.lab status
 ```
 
-`plan` is read-only and prints the exact namespace that would be used.
+`plan` is read-only.
 
-`init` creates only the lab root, marker and inert subdirectories. It does **not**:
+`init` may create only the isolated DEV namespace and inert lab directories. It must not switch production Git state, start production supervisors, install/restart LaunchAgents, mutate production operator state, register Native Messaging or touch operational branches.
 
-- clone or switch a Git checkout;
-- create/provision repository control worktrees;
-- start `agentd`, `agent_parallel.py` or the guarded entrypoint;
-- install or restart a LaunchAgent;
-- modify production disable/operator state;
-- register a Chrome Native Messaging host;
-- launch normal Chrome;
-- touch `chat-bridge-state`, `operator-control` or any project `agent-control` branch.
-
-`status` verifies the durable marker and required lab directories. An existing non-empty directory without the exact marker is never silently adopted.
-
-For tests or disposable experiments, all locations can be overridden explicitly:
-
-```bash
-python -m local_agent.development.lab plan \
-  --home /tmp/example-home \
-  --root /tmp/example-lab \
-  --checkout /tmp/example-checkout \
-  --production-checkout /tmp/example-production
-```
-
-The same overlap checks apply to overrides.
+`status` validates the durable DEV marker and expected layout. Unknown non-empty directories are never silently adopted.
 
 ## Browser boundary
 
-The existing Chromium bridge smoke already uses a temporary persistent profile, forces the context offline and routes only a synthetic ChatGPT fixture. That remains the preferred browser test model for the next phases.
+Two browser modes are allowed in DEV:
 
-The persistent `browser-profile/` directory in this lab is reserved for later synthetic spawn/restart tests that need state across controlled process restarts. It must not point at the operator's normal Chrome data directory.
+### Synthetic browser tests
 
-No real ChatGPT child creation belongs in Stage 3.
+Browser smokes use isolated temporary/persistent Chromium profiles with controlled fixtures. They are the normal regression path and may run repeatedly.
 
-## Why there is no second executor yet
+### Stage 8 live proof
 
-Several production owners still derive mutable paths at module load from the normal home directory, including daemon state/lock paths and local operator state. macOS launchd also has one production label/log contract, and the Native Messaging installer uses the normal Chrome registration directory.
+A real ChatGPT child may be created only by the bounded Stage 8 live flow using a dedicated isolated DEV profile.
 
-Refactoring all of those owners into an instance namespace would be a broad runtime change. The current Conversation Fabric phases do not need that risk: workflow tests use disposable repositories and browser proof can use synthetic Chromium.
+Required live sequence:
 
-If a later campaign integration phase genuinely needs concurrent real execution, add an explicit instance namespace as its own scoped milestone. That future design must cover at least:
+```text
+seed -> prepare -> login -> arm -> run
+```
 
-- daemon/global state root and lock;
-- repository registry and workspaces;
-- operator disable/install state;
-- logs;
-- LaunchAgent label/plist;
-- Native Messaging host name/manifest/wrapper;
-- browser profile and extension identity;
-- remote control/state branch identities.
+Each invocation performs exactly one authority step. Never auto-chain or automatically retry `run`.
 
-It must preserve existing production defaults exactly.
+The live flow must not use the operator's normal Chrome profile, production Native Messaging or production Local Agent execution authority.
 
-## Stage 3 exit criteria
+## Durable evidence rule
 
-Stage 3 is complete when:
+Live-state files are proof evidence, not disposable cache.
 
-1. the DEV layout and collision checks are deterministic and fully tested;
-2. initialization is idempotent and refuses ambiguous pre-existing state;
-3. tests prove DEV cannot resolve to protected PROD paths, including symlink aliases;
-4. no production runtime entrypoint imports or starts the development lab;
-5. the documented synthetic browser path remains independent of normal Chrome;
-6. CI is green on the exact candidate branch;
-7. the verified change is merged to `develop/conversation-fabric` without touching `main`, `chat-bridge-state` or `operator-control`.
+If an attempt becomes terminal or `ambiguous`:
+
+- do not hand-edit it back to an earlier state;
+- do not delete it to make a retry possible;
+- do not reuse the same attempt for another live proof.
+
+A later proof must use a fresh isolated DEV live state namespace while preserving the failed namespace as evidence.
+
+The current preserved ambiguous attempt is documented in `docs/CURRENT_HANDOFF.md`.
+
+## Mac operation rule
+
+All Mac-local operations for this project must go through `host-ops`, including:
+
+- DEV checkout/worktree operations;
+- local focused tests;
+- Chromium/Playwright tests;
+- browser-profile inspection;
+- live `seed/prepare/login/arm/run` execution;
+- local durable-state inspection.
+
+Direct GitHub operations remain the normal path for repository inspection and repository-side edits.
+
+## Stage 8 lab acceptance
+
+Before a live browser effect, confirm:
+
+1. exact `develop/conversation-fabric` SHA;
+2. clean DEV checkout;
+3. isolated DEV state root/profile;
+4. current exact-SHA validation evidence;
+5. `local-agent` execution remains disabled;
+6. no production profile or Native Messaging path is involved;
+7. the live namespace has no unresolved reused attempt.
+
+The lab boundary is successful when Stage 8 can produce one fresh child proof without altering production paths or granting child execution authority.
