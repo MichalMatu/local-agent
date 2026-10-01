@@ -85,6 +85,9 @@ module.exports = {
       });
       await context.route("https://**/*", (route) => {
         const url = route.request().url();
+        if (url === "https://chatgpt.com/api/auth/session") {
+          return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ user: { id: "synthetic-user" } }) });
+        }
         if (url.startsWith("https://chatgpt.com/") || url.startsWith("https://chat.openai.com/")) {
           return route.fulfill({ status: 200, contentType: "text/html", body: fixture });
         }

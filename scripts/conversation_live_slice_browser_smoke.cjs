@@ -46,6 +46,7 @@ const path = require("node:path");
 const real = require(process.env.LOCAL_AGENT_PLAYWRIGHT_REAL_MODULE);
 const fixture = fs.readFileSync(process.env.LOCAL_AGENT_LIVE_SLICE_FIXTURE, "utf8");
 const expectedExecutable = process.env.LOCAL_AGENT_EXPECTED_CHROME_EXECUTABLE || "";
+const authenticated = process.env.LOCAL_AGENT_LIVE_SLICE_AUTHENTICATED !== "0";
 module.exports = {
   chromium: {
     async launchPersistentContext(profile, options) {
@@ -95,6 +96,9 @@ module.exports = {
       await context.setOffline(true);
       await context.route("https://**/*", (route) => {
         const url = route.request().url();
+        if (url === "https://chatgpt.com/api/auth/session") {
+          return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(authenticated ? { user: { id: "synthetic-user" } } : { WARNING_BANNER: "guest" }) });
+        }
         if (url.startsWith("https://chatgpt.com/") || url.startsWith("https://chat.openai.com/")) {
           return route.fulfill({ status: 200, contentType: "text/html", body: fixture });
         }
@@ -116,12 +120,13 @@ function bounded(label, promise, timeoutMs = 20_000) {
   ]);
 }
 
-function startActuator({ profile, wrapperPath, fixturePath, chromeExecutable = null }) {
+function startActuator({ profile, wrapperPath, fixturePath, chromeExecutable = null, authenticated = true }) {
   const env = {
     ...process.env,
     LOCAL_AGENT_PLAYWRIGHT_MODULE: wrapperPath,
     LOCAL_AGENT_PLAYWRIGHT_REAL_MODULE: playwrightModule,
-    LOCAL_AGENT_LIVE_SLICE_FIXTURE: fixturePath
+    LOCAL_AGENT_LIVE_SLICE_FIXTURE: fixturePath,
+    LOCAL_AGENT_LIVE_SLICE_AUTHENTICATED: authenticated ? "1" : "0"
   };
   delete env.LOCAL_AGENT_CHROME_EXECUTABLE;
   delete env.LOCAL_AGENT_EXPECTED_CHROME_EXECUTABLE;
@@ -223,10 +228,19 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
   await fs.mkdir(path.dirname(staleWorkerSentinel), { recursive: true });
   await fs.writeFile(staleWorkerSentinel, "stale\n", "utf8");
 
+  let guest = null;
   let first = null;
   let second = null;
   try {
     const pending = intent("actuator-smoke");
+
+    guest = startActuator({ profile: path.join(temp, "guest-profile"), wrapperPath, fixturePath, chromeExecutable: fakeChromePath, authenticated: false });
+    const guestReady = await guest.request("wait_ready", { timeout_ms: 1200 }, 5000);
+    assert.equal(guestReady.ok, false, JSON.stringify(guestReady));
+    assert.equal(guestReady.reason, "chatgpt_login_timeout", JSON.stringify(guestReady));
+    assert.equal(guestReady.url, "https://chatgpt.com/", JSON.stringify(guestReady));
+    await guest.stop();
+    guest = null;
 
     first = startActuator({
       profile,
@@ -306,12 +320,12 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
     second = null;
     console.log("Conversation live slice bounded restart recovery smoke passed.");
   } finally {
-    for (const actuator of [first, second]) {
+    for (const actuator of [guest, first, second]) {
       if (!actuator) continue;
       if (actuator.child.exitCode === null) actuator.child.kill("SIGTERM");
       actuator.closeLines();
     }
-    await fs.rm(temp, { recursive: true, force: true });
+    await fs.rm(temp, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 });
   }
 })().catch((error) => {
   console.error(error?.stack || error);

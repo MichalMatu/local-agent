@@ -142,6 +142,20 @@ async function pageComposerReady(page) {
   }
 }
 
+async function pageAuthenticated(page) {
+  if (!page || page.isClosed() || !canonicalChatHome(page.url())) return false;
+  try {
+    return await page.evaluate(async () => {
+      const response = await fetch('/api/auth/session', { credentials: 'include', cache: 'no-store' });
+      if (!response.ok) return false;
+      const session = await response.json().catch(() => null);
+      return Boolean(session && typeof session === 'object' && session.user && typeof session.user === 'object');
+    });
+  } catch (_error) {
+    return false;
+  }
+}
+
 async function waitForLoginReady(context, timeoutMs) {
   boundedInteger(timeoutMs, {
     minimum: 1_000,
@@ -156,9 +170,14 @@ async function waitForLoginReady(context, timeoutMs) {
     }).catch(() => null);
     const deadline = Date.now() + timeoutMs;
     let nextNotice = 0;
+    let nextAuthProbe = 0;
     while (Date.now() < deadline) {
-      if (await pageComposerReady(page)) {
-        return { ok: true, reason: "chatgpt_ready", url: page.url() };
+      const composerReady = await pageComposerReady(page);
+      if (composerReady && Date.now() >= nextAuthProbe) {
+        if (await pageAuthenticated(page)) {
+          return { ok: true, reason: "chatgpt_ready", url: page.url() };
+        }
+        nextAuthProbe = Date.now() + 1000;
       }
       if (Date.now() >= nextNotice) {
         process.stderr.write(
