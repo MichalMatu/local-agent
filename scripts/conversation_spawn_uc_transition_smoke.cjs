@@ -47,10 +47,15 @@ document.querySelector("form").addEventListener("submit", (event) => {
   document.body.append(message);
   composer.textContent = "";
   history.pushState({}, "", "/uc/transient-synthetic-child");
-  const target = text.includes("request=uc-to-child")
-    ? "/c/synthetic-final-child"
-    : "/unexpected-after-uc";
-  setTimeout(() => history.pushState({}, "", target), 350);
+  const delayed = text.includes("request=uc-to-child-delayed");
+  const target = delayed
+    ? "/c/synthetic-delayed-final-child"
+    : text.includes("request=uc-to-child")
+      ? "/c/synthetic-final-child"
+      : text.includes("request=uc-to-root")
+        ? "/"
+        : "/unexpected-after-uc";
+  setTimeout(() => history.pushState({}, "", target), delayed ? 11_000 : 350);
 });
 </script>
 </body></html>`;
@@ -103,6 +108,25 @@ async function prepareSpawn(worker, pending) {
     assert.equal(successResult.childConversationUrl, "https://chatgpt.com/c/synthetic-final-child");
     assert.ok(!successResult.childConversationUrl.includes("/uc/"));
     console.log("PASS: transient /uc route settles to canonical /c before child identity is accepted");
+
+    const delayed = await prepareSpawn(worker, spawnIntent("uc-to-child-delayed"));
+    const delayedResult = await callWorker(worker, "submitConversationSpawnBootstrap", delayed.value);
+    assert.equal(delayedResult.ok, true, JSON.stringify(delayedResult));
+    assert.equal(delayedResult.reason, "identity_discovered", JSON.stringify(delayedResult));
+    assert.equal(
+      delayedResult.childConversationUrl,
+      "https://chatgpt.com/c/synthetic-delayed-final-child"
+    );
+    assert.ok(!delayedResult.childConversationUrl.includes("/uc/"));
+    console.log("PASS: /uc may remain provisional beyond the former 10s bound and still settle canonically");
+
+    const rootRoute = await prepareSpawn(worker, spawnIntent("uc-to-root"));
+    const rootResult = await callWorker(worker, "submitConversationSpawnBootstrap", rootRoute.value);
+    assert.equal(rootResult.ok, false, JSON.stringify(rootResult));
+    assert.equal(rootResult.reason, "spawn_submission_ambiguous", JSON.stringify(rootResult));
+    assert.equal(rootResult.route, "unexpected_after_provisional", JSON.stringify(rootResult));
+    assert.equal(rootResult.childConversationUrl, undefined);
+    console.log("PASS: /uc returning to fresh root remains fail-closed");
 
     const rejected = await prepareSpawn(worker, spawnIntent("uc-to-unexpected"));
     const rejectedResult = await callWorker(worker, "submitConversationSpawnBootstrap", rejected.value);
