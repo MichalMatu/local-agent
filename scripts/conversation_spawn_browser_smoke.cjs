@@ -68,12 +68,26 @@ const fixture = `<!doctype html><html><body>
 <script>
 window.submits = 0;
 window.spawnRouteMode = "normal";
+window.replaceComposerOnInput = false;
+window.composerReplacements = 0;
 window.spawnTargetPath = (() => {
   const params = new URLSearchParams(location.hash.replace(/^#/, ""));
   const transaction = params.get("la-spawn") || "spawn-unknown";
   return "/c/synthetic-" + transaction.slice(-12);
 })();
 window.completeSpawnRoute = () => history.pushState({}, "", window.spawnTargetPath);
+document.addEventListener("input", (event) => {
+  if (!window.replaceComposerOnInput || event.target?.id !== "prompt-textarea") return;
+  const current = event.target;
+  queueMicrotask(() => {
+    if (!current.isConnected) return;
+    const replacement = current.cloneNode(false);
+    replacement.textContent = current.innerText || current.textContent || "";
+    current.replaceWith(replacement);
+    window.replaceComposerOnInput = false;
+    window.composerReplacements++;
+  });
+}, true);
 document.querySelector("form").onsubmit = (event) => {
   event.preventDefault();
   window.submits++;
@@ -321,6 +335,28 @@ document.querySelector("form").onsubmit = (event) => {
     assert.equal(await editedSeed.page.locator("#prompt-textarea").textContent(), "Operator text must survive");
     assert.equal(await editedSeed.page.evaluate(() => window.submits), 0);
     console.log("PASS: unrelated operator edit is preserved before the submit boundary");
+
+    // ChatGPT may replace the contenteditable node after input. Continue only when the
+    // replacement still carries the exact inserted bootstrap text.
+    const replacedSeed = await seedFixtureSpawn(intent("composer-replacement"));
+    await replacedSeed.page.evaluate(() => {
+      window.replaceComposerOnInput = true;
+      document.querySelector("#composer-submit-button").disabled = true;
+    });
+    const replacedDelivery = submitSpawn(replacedSeed.value);
+    await replacedSeed.page.waitForFunction(() => window.composerReplacements === 1);
+    assert.equal(
+      await replacedSeed.page.locator("#prompt-textarea").evaluate(
+        (element) => element.innerText || element.textContent || ""
+      ),
+      replacedSeed.value.bootstrap_text
+    );
+    await replacedSeed.page.evaluate(() => { document.querySelector("#composer-submit-button").disabled = false; });
+    const replacedResult = await replacedDelivery;
+    assert.equal(replacedResult.ok, true, JSON.stringify(replacedResult));
+    assert.equal(replacedResult.reason, "identity_discovered", JSON.stringify(replacedResult));
+    assert.equal(await replacedSeed.page.evaluate(() => window.submits), 1);
+    console.log("PASS: exact-text composer DOM replacement remains safe to submit once");
 
     // Unexpected path fails before submission.
     const wrongRouteSeed = await seedFixtureSpawn(intent("unexpected-route"));
