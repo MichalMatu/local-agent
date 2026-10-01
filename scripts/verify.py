@@ -153,6 +153,10 @@ def run_bridge_browser() -> None:
         "Conversation live slice browser restart recovery smoke",
         [node, "scripts/conversation_live_slice_browser_smoke.cjs"],
     )
+    _run(
+        "Conversation spawn transient content race smoke",
+        [node, "scripts/conversation_spawn_content_race_smoke.cjs"],
+    )
 
 
 def parse_args() -> argparse.Namespace:
