@@ -81,8 +81,7 @@ document.addEventListener("input", (event) => {
   const current = event.target;
   queueMicrotask(() => {
     if (!current.isConnected) return;
-    const replacement = current.cloneNode(false);
-    replacement.textContent = current.innerText || current.textContent || "";
+    const replacement = current.cloneNode(true);
     current.replaceWith(replacement);
     window.replaceComposerOnInput = false;
     window.composerReplacements++;
