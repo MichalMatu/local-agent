@@ -52,6 +52,8 @@ class BrowserSession(Protocol):
 
     def recover_create(self, intent: dict[str, Any]) -> dict[str, Any]: ...
 
+    def reattach_pre_submit(self, intent: dict[str, Any]) -> dict[str, Any]: ...
+
     def probe(self, intent: dict[str, Any]) -> dict[str, Any]: ...
 
     def submit(self, intent: dict[str, Any]) -> dict[str, Any]: ...
@@ -542,11 +544,37 @@ def run_live_slice(
 
         if authority.transaction["state"] == "bootstrap_ready":
             browser_intent = _intent(authority)
-            if journal["phase"] == "waiting_pre_submit":
+            reattach_history = journal["phase"] in {
+                "pre_submit_reattach_started",
+                "pre_submit_reattached",
+                "waiting_pre_submit_after_reattach",
+            }
+            if journal["phase"] in {
+                "waiting_pre_submit",
+                "pre_submit_reattach_started",
+                "pre_submit_reattached",
+                "waiting_pre_submit_after_reattach",
+            }:
                 recovered = _validate_result(
                     session.recover_create(browser_intent),
                     action="recover_create",
                 )
+                if (
+                    not recovered["ok"]
+                    and recovered["reason"] == "spawn_create_recovery_missing"
+                    and journal["phase"] == "waiting_pre_submit"
+                ):
+                    journal = _write_journal(
+                        layout,
+                        document=authority.document,
+                        phase="pre_submit_reattach_started",
+                        now=now(),
+                    )
+                    recovered = _validate_result(
+                        session.reattach_pre_submit(browser_intent),
+                        action="reattach_pre_submit",
+                    )
+                    reattach_history = True
                 if not recovered["ok"]:
                     return _result(
                         "manual_attach_required",
@@ -559,15 +587,28 @@ def run_live_slice(
                         "live browser pre-submit recovery is missing a positive tabId"
                     )
                 browser_intent = {**browser_intent, "tab_id": recovered_tab_id}
+                if reattach_history:
+                    journal = _write_journal(
+                        layout,
+                        document=authority.document,
+                        phase="pre_submit_reattached",
+                        now=now(),
+                    )
             probe = _validate_result(session.probe(browser_intent), action="probe")
             if not probe["ok"]:
+                phase = (
+                    "waiting_pre_submit_after_reattach"
+                    if reattach_history
+                    else "waiting_pre_submit"
+                )
                 _write_journal(
                     layout,
                     document=authority.document,
-                    phase="waiting_pre_submit",
+                    phase=phase,
                     now=now(),
                 )
-                return _result("paused", authority, reason=probe["reason"])
+                status = "manual_attach_required" if reattach_history else "paused"
+                return _result(status, authority, reason=probe["reason"])
             authority.spawn_store.advance(
                 authority.request["id"],
                 1,
@@ -799,6 +840,9 @@ class SubprocessBrowserSession:
 
     def recover_create(self, intent: dict[str, Any]) -> dict[str, Any]:
         return self._request("recover_create", {"intent": intent})
+
+    def reattach_pre_submit(self, intent: dict[str, Any]) -> dict[str, Any]:
+        return self._request("reattach_pre_submit", {"intent": intent})
 
     def probe(self, intent: dict[str, Any]) -> dict[str, Any]:
         return self._request("probe", {"intent": intent})
