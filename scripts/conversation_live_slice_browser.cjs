@@ -199,16 +199,24 @@ async function probeBeforeSubmit(context, intent) {
   if (!Number.isInteger(tabId) || tabId < 1) {
     return { ok: false, reason: "spawn_tab_unavailable" };
   }
-  const content = await callWorker(context, "probeConversationSpawnContent", tabId);
-  if (!content?.ok) return content || { ok: false, reason: "spawn_content_unavailable" };
-  if (content.route !== "fresh") {
-    return { ok: false, reason: "spawn_unexpected_route", route: content.route || "unknown" };
+  const deadline = Date.now() + 5000;
+  while (true) {
+    const content = await callWorker(context, "ensureConversationSpawnContent", tabId);
+    if (!content?.ok) return content || { ok: false, reason: "spawn_content_unavailable" };
+    if (content.route !== "fresh") {
+      return { ok: false, reason: "spawn_unexpected_route", route: content.route || "unknown" };
+    }
+    const readiness = content.readiness;
+    if (!readiness || typeof readiness !== "object" || typeof readiness.ok !== "boolean") {
+      return { ok: false, reason: "spawn_readiness_unavailable" };
+    }
+    if (readiness.ok) return readiness;
+    if (!["spawn_page_not_ready", "spawn_composer_not_found"].includes(String(readiness.reason || ""))) {
+      return readiness;
+    }
+    if (Date.now() >= deadline) return readiness;
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  const readiness = content.readiness;
-  if (!readiness || typeof readiness !== "object" || typeof readiness.ok !== "boolean") {
-    return { ok: false, reason: "spawn_readiness_unavailable" };
-  }
-  return readiness;
 }
 
 async function main() {
@@ -217,6 +225,7 @@ async function main() {
   const context = await chromium.launchPersistentContext(args.profile, {
     headless: args.headless,
     args: [
+      "--restore-last-session",
       `--disable-extensions-except=${args.extension}`,
       `--load-extension=${args.extension}`
     ]

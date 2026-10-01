@@ -310,6 +310,7 @@ class DevelopmentLiveRunnerTests(unittest.TestCase):
         result = self.run_with(second, rearm["launch_nonce"])
         self.assertEqual(result["status"], "completed")
         self.assertNotIn("create", second.calls)
+        self.assertIn("recover_create", second.calls)
         self.assertIn("probe", second.calls)
         self.assertIn("submit", second.calls)
 

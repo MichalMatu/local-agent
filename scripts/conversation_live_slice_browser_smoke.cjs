@@ -47,6 +47,9 @@ const fixture = fs.readFileSync(process.env.LOCAL_AGENT_LIVE_SLICE_FIXTURE, "utf
 module.exports = {
   chromium: {
     async launchPersistentContext(profile, options) {
+      if (!Array.isArray(options.args) || !options.args.includes("--restore-last-session")) {
+        throw new Error("live-slice browser must restore the isolated persistent session");
+      }
       const context = await real.chromium.launchPersistentContext(profile, {
         ...options,
         channel: "chromium"

@@ -541,7 +541,25 @@ def run_live_slice(
             )
 
         if authority.transaction["state"] == "bootstrap_ready":
-            probe = _validate_result(session.probe(_intent(authority)), action="probe")
+            browser_intent = _intent(authority)
+            if journal["phase"] == "waiting_pre_submit":
+                recovered = _validate_result(
+                    session.recover_create(browser_intent),
+                    action="recover_create",
+                )
+                if not recovered["ok"]:
+                    return _result(
+                        "manual_attach_required",
+                        authority,
+                        reason=recovered["reason"],
+                    )
+                recovered_tab_id = recovered.get("tabId")
+                if type(recovered_tab_id) is not int or recovered_tab_id < 1:
+                    raise RuntimeError(
+                        "live browser pre-submit recovery is missing a positive tabId"
+                    )
+                browser_intent = {**browser_intent, "tab_id": recovered_tab_id}
+            probe = _validate_result(session.probe(browser_intent), action="probe")
             if not probe["ok"]:
                 _write_journal(
                     layout,
@@ -563,7 +581,7 @@ def run_live_slice(
                 phase="bootstrap_submitting",
                 now=now(),
             )
-            submit = _validate_result(session.submit(_intent(authority)), action="submit")
+            submit = _validate_result(session.submit(browser_intent), action="submit")
             if not submit["ok"]:
                 failed = authority.spawn_store.fail(
                     authority.request["id"],
