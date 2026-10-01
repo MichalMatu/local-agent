@@ -189,7 +189,11 @@ def _run_step(args: argparse.Namespace, layout: DevLabLayout) -> tuple[dict[str,
             login_timeout_seconds=args.login_timeout_seconds,
         )
         next_action = None
-        if result.get("status") != "completed" and result.get("needs_rearm") is True:
+        if (
+            result.get("status") != "completed"
+            and result.get("status") != "manual_attach_required"
+            and result.get("needs_rearm") is True
+        ):
             next_action = _next_action(
                 layout,
                 "login",
