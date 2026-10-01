@@ -79,21 +79,36 @@ function conversationSpawnMarkerUrl(transactionId) {
   return staging.href;
 }
 
-function conversationSpawnMarkerFromUrl(rawUrl) {
+function conversationSpawnStagingMarkerFromUrl(rawUrl) {
   try {
     const url = new URL(String(rawUrl || ""));
     const staging = new URL(chrome.runtime.getURL(CONVERSATION_SPAWN_STAGING_PAGE));
-    const isStaging = (
-      url.protocol === staging.protocol &&
-      url.host === staging.host &&
-      url.pathname === staging.pathname
-    );
+    if (
+      url.protocol !== staging.protocol ||
+      url.host !== staging.host ||
+      url.pathname !== staging.pathname
+    ) {
+      return "";
+    }
+    const params = new URLSearchParams(url.hash.replace(/^#/, ""));
+    const transactionId = params.get(CONVERSATION_SPAWN_MARKER) || "";
+    return CONVERSATION_SPAWN_TRANSACTION_RE.test(transactionId) ? transactionId : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function conversationSpawnMarkerFromUrl(rawUrl) {
+  const stagingMarker = conversationSpawnStagingMarkerFromUrl(rawUrl);
+  if (stagingMarker) return stagingMarker;
+  try {
+    const url = new URL(String(rawUrl || ""));
     const isLegacyChatMarker = (
       url.protocol === "https:" &&
       url.hostname === "chatgpt.com" &&
       (url.pathname.replace(/\/+$/, "") || "/") === "/"
     );
-    if (!isStaging && !isLegacyChatMarker) return "";
+    if (!isLegacyChatMarker) return "";
     const params = new URLSearchParams(url.hash.replace(/^#/, ""));
     const transactionId = params.get(CONVERSATION_SPAWN_MARKER) || "";
     return CONVERSATION_SPAWN_TRANSACTION_RE.test(transactionId) ? transactionId : "";
@@ -221,7 +236,10 @@ async function ensureConversationSpawnContent(tabId) {
   } catch (error) {
     return { ok: false, reason: "spawn_tab_unavailable", error: String(error) };
   }
-  const stagingMarker = conversationSpawnMarkerFromTab(tab);
+  const stagingMarker = (
+    conversationSpawnStagingMarkerFromUrl(tab?.url) ||
+    conversationSpawnStagingMarkerFromUrl(tab?.pendingUrl)
+  );
   if (stagingMarker) {
     await rememberConversationSpawnTab(stagingMarker, tabId);
     try {
