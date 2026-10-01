@@ -56,20 +56,26 @@ module.exports = {
           return {
             url: () => worker.url(),
             evaluate: async (expression) => {
-              if (
-                transientRemaining > 0 &&
-                String(expression).includes("ensureConversationSpawnContent(")
-              ) {
-                transientRemaining -= 1;
-                fs.writeFileSync(
-                  process.env.LOCAL_AGENT_CONTENT_RACE_SENTINEL,
-                  String(3 - transientRemaining),
-                  "utf8"
-                );
+              if (String(expression).includes("ensureConversationSpawnContent(")) {
+                if (transientRemaining > 0) {
+                  transientRemaining -= 1;
+                  fs.writeFileSync(
+                    process.env.LOCAL_AGENT_CONTENT_RACE_SENTINEL,
+                    String(3 - transientRemaining),
+                    "utf8"
+                  );
+                  return {
+                    ok: false,
+                    reason: "spawn_content_unavailable",
+                    error: "synthetic transient navigation race"
+                  };
+                }
                 return {
-                  ok: false,
-                  reason: "spawn_content_unavailable",
-                  error: "synthetic transient navigation race"
+                  ok: true,
+                  reason: "ready",
+                  protocolVersion: 1,
+                  route: "fresh",
+                  readiness: { ok: true, reason: "spawn_ready" }
                 };
               }
               return worker.evaluate(expression);
