@@ -1,65 +1,64 @@
 # Conversation Fabric
 
-This directory is the canonical entry point for active Conversation Fabric development.
+This directory contains the active Conversation Fabric design and Stage 8 execution documents.
 
 ## Branch model
 
-- `main` is the stable production source of truth.
-- `develop/conversation-fabric` is the single long-lived development branch for Conversation Fabric.
-- temporary `work/conversation-*` branches are disposable validation branches only.
-- the pre-reset divergent history is preserved on `archive/conversation-fabric-pre-rebase` and is not an active development line.
-- `chat-bridge-state` and `operator-control` remain protected operational branches.
+- `main` — stable production source of truth.
+- `develop/conversation-fabric` — single long-lived Conversation Fabric development branch.
+- `work/conversation-*` — temporary validation/candidate branches only.
+- `chat-bridge-state` and `operator-control` — operational branches, not development branches.
+- `archive/conversation-fabric-pre-rebase` — historical safety archive only.
 
-## Target architecture
-
-The target path is intentionally single-plane:
+## Architecture boundary
 
 ```text
 ChatGPT parent / Superchat
   -> GitHub durable control + evidence
-  -> Local Agent deterministic control/execution
-  -> host-ops deterministic capabilities
-  -> narrow ChatGPT Browser Driver for child-chat UI lifecycle
-  -> GitHub durable result/evidence
-  -> parent reads and synthesizes
+  -> Local Agent deterministic orchestration
+     -> host-ops for Mac/host effects
+     -> narrow ChatGPT browser actuator for child-chat lifecycle
+  -> durable result/evidence
+  -> parent synthesis
 ```
 
 Hard invariants:
 
-- GitHub is the durable control/evidence authority.
-- Chat Bridge/browser DOM is transport only, never scheduler or workflow authority.
-- Local Agent is deterministic and does not run a model loop.
-- host-ops is a capability/effects layer, not a planner.
+- GitHub owns durable control/evidence.
+- Local Agent remains deterministic and model-free.
+- Chat Bridge/browser DOM is transport, not workflow authority.
 - child chats have no independent machine authority.
 - `local-agent` execution remains disabled for the Stage 8 reasoning-child slice.
-- no MCP server, direct OpenAI API reasoning loop, second scheduler/executor, Native Messaging control plane or abandoned event-wake path is part of the target architecture.
+- no second scheduler/executor, direct model loop or Native Messaging control plane is part of Stage 8.
+- ambiguous external effects fail closed and are never blindly replayed.
 
-## Current milestone: Stage 8
+## Current milestone
 
-Prove exactly one real reasoning child in the isolated DEV browser profile:
+Stage 8 proves exactly one real reasoning child in an isolated DEV browser profile using:
 
-1. `seed`
-2. `prepare`
-3. `login`
-4. `arm`
-5. `run`
-6. confirm one canonical `/c/<id>` child identity
-7. persist matching `ChildRegistration` and `SpawnTransaction` evidence
+```text
+seed -> prepare -> login -> arm -> run
+```
 
-Limits for this milestone:
+The milestone ends when one fresh request has:
 
-- one parent
-- one child request
-- one browser spawn attempt
-- dedicated DEV Chrome profile
-- no Local Agent execution authority
-- no fleet, scheduler, rollover or multi-child expansion
-- fail closed on ambiguous post-submit browser state
+- exactly one canonical `https://chatgpt.com/c/<id>`;
+- matching durable `ChildRegistration`;
+- matching durable `SpawnTransaction=done`;
+- bounded completion evidence;
+- no child execution authority;
+- no production profile mutation.
 
-## Canonical documents
+## Read order
 
-1. `TARGET_PRODUCT_ARCHITECTURE.md` — target ownership and hard invariants.
-2. `CURRENT_PLAN.md` — current branch state, exact Stage 8 scope and next action.
-3. `DEV_LAB.md` — isolated development/runtime boundary.
+For a continuation session, read only the documents needed for the current task:
 
-Historical plans, audits and superseded architecture notes are preserved only on `archive/conversation-fabric-pre-rebase`.
+1. `../CURRENT_HANDOFF.md` — exact current checkpoint and immutable evidence.
+2. `CURRENT_PLAN.md` — exact next implementation/test/promotion sequence.
+3. `HANDOFF_PROMPT.md` — copy/paste bootstrap for a new implementation conversation.
+4. `DEV_LAB.md` — Mac/DEV/profile/state isolation rules.
+5. `TARGET_PRODUCT_ARCHITECTURE.md` — longer-lived ownership and architecture rationale.
+
+For broader milestone ordering, use `../DEVELOPMENT_PLAN.md`.
+
+Do not use archived plans or remembered chat history to infer current operational state. Exact GitHub state and durable DEV evidence are authoritative.
