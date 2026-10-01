@@ -48,6 +48,7 @@ window.submits = 0;
 window.blockRenders = 0;
 window.logicalBootstrap = "";
 window.browserEncodedBootstrap = "";
+window.expectedLogicalBootstrap = "";
 window.normalizedOnce = false;
 
 function currentComposerText(element) {
@@ -70,7 +71,7 @@ document.addEventListener("input", (event) => {
   if (window.normalizedOnce || event.target?.id !== "prompt-textarea") return;
   const current = event.target;
   const browserText = currentComposerText(current);
-  const logicalText = typeof event.data === "string" && event.data ? event.data : browserText;
+  const logicalText = window.expectedLogicalBootstrap || browserText;
   if (!logicalText) return;
   window.normalizedOnce = true;
   window.browserEncodedBootstrap = browserText;
@@ -151,6 +152,9 @@ async function bounded(label, promise, timeoutMs = 15_000) {
     assert.equal(recovered.reason, "tab_recovered", JSON.stringify(recovered));
     assert.ok(Number.isInteger(recovered.tabId));
 
+    await page.evaluate((bootstrapText) => {
+      window.expectedLogicalBootstrap = bootstrapText;
+    }, pending.bootstrap_text);
     const durable = { ...pending, tab_id: recovered.tabId };
     const delivered = callWorker("submitConversationSpawnBootstrap", durable);
 
