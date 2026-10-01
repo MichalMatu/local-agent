@@ -12,6 +12,8 @@ const CONVERSATION_SPAWN_FIELDS = new Set([
   "tab_id"
 ]);
 const CONVERSATION_SPAWN_MARKER = "la-spawn";
+const CONVERSATION_SPAWN_STAGING_PAGE = "spawn_staging.html";
+const CONVERSATION_SPAWN_TAB_CLAIM_PREFIX = "conversation-spawn-tab:";
 
 function validateConversationSpawnBrowserIntent(intent, { requireTab = false } = {}) {
   if (!intent || typeof intent !== "object" || Array.isArray(intent)) {
@@ -72,13 +74,26 @@ function conversationSpawnMarkerUrl(transactionId) {
   if (!CONVERSATION_SPAWN_TRANSACTION_RE.test(String(transactionId || ""))) {
     throw new Error("conversation spawn transaction_id is invalid");
   }
-  return `https://chatgpt.com/#${CONVERSATION_SPAWN_MARKER}=${encodeURIComponent(transactionId)}`;
+  const staging = new URL(chrome.runtime.getURL(CONVERSATION_SPAWN_STAGING_PAGE));
+  staging.hash = `${CONVERSATION_SPAWN_MARKER}=${encodeURIComponent(transactionId)}`;
+  return staging.href;
 }
 
 function conversationSpawnMarkerFromUrl(rawUrl) {
   try {
     const url = new URL(String(rawUrl || ""));
-    if (url.protocol !== "https:" || url.hostname !== "chatgpt.com") return "";
+    const staging = new URL(chrome.runtime.getURL(CONVERSATION_SPAWN_STAGING_PAGE));
+    const isStaging = (
+      url.protocol === staging.protocol &&
+      url.host === staging.host &&
+      url.pathname === staging.pathname
+    );
+    const isLegacyChatMarker = (
+      url.protocol === "https:" &&
+      url.hostname === "chatgpt.com" &&
+      (url.pathname.replace(/\/+$/, "") || "/") === "/"
+    );
+    if (!isStaging && !isLegacyChatMarker) return "";
     const params = new URLSearchParams(url.hash.replace(/^#/, ""));
     const transactionId = params.get(CONVERSATION_SPAWN_MARKER) || "";
     return CONVERSATION_SPAWN_TRANSACTION_RE.test(transactionId) ? transactionId : "";
@@ -94,32 +109,96 @@ function conversationSpawnMarkerFromTab(tab) {
   );
 }
 
+function conversationSpawnTabClaimKey(transactionId) {
+  if (!CONVERSATION_SPAWN_TRANSACTION_RE.test(String(transactionId || ""))) {
+    throw new Error("conversation spawn transaction_id is invalid");
+  }
+  return `${CONVERSATION_SPAWN_TAB_CLAIM_PREFIX}${transactionId}`;
+}
+
+async function rememberConversationSpawnTab(transactionId, tabId) {
+  if (!Number.isInteger(tabId) || tabId < 1) {
+    throw new Error("conversation spawn tab claim requires a positive tab id");
+  }
+  await chrome.storage.session.set({
+    [conversationSpawnTabClaimKey(transactionId)]: tabId
+  });
+}
+
+async function conversationSpawnClaimedTabId(transactionId) {
+  const key = conversationSpawnTabClaimKey(transactionId);
+  const stored = await chrome.storage.session.get(key);
+  const tabId = stored?.[key];
+  return Number.isInteger(tabId) && tabId > 0 ? tabId : null;
+}
+
+async function conversationSpawnTabClaimMatches(transactionId, tabId) {
+  return await conversationSpawnClaimedTabId(transactionId) === tabId;
+}
+
+function conversationSpawnFreshChatUrl(rawUrl) {
+  try {
+    const url = new URL(String(rawUrl || ""));
+    const path = url.pathname.replace(/\/+$/, "") || "/";
+    return (
+      url.protocol === "https:" &&
+      ["chatgpt.com", "chat.openai.com"].includes(url.hostname) &&
+      path === "/" &&
+      !url.search &&
+      !url.hash
+    );
+  } catch (_error) {
+    return false;
+  }
+}
+
 async function findConversationSpawnMarkerTabs(transactionId) {
-  // Query all tabs: a just-created tab can expose only pendingUrl until navigation
-  // commits, and a URL-filtered query can miss exactly that lost-ACK recovery window.
+  // Query all tabs: a just-created staging tab can expose only pendingUrl until
+  // navigation commits, and a URL-filtered query can miss that lost-ACK window.
   const tabs = await chrome.tabs.query({});
   return tabs.filter((tab) =>
     Number.isInteger(tab.id) && conversationSpawnMarkerFromTab(tab) === transactionId
   );
 }
 
-function validateConversationSpawnTabRoute(intent, tab) {
+async function validateConversationSpawnTabRoute(intent, tab) {
+  const tabId = Number(tab?.id || 0);
+  if (!Number.isInteger(tabId) || tabId < 1) {
+    return { ok: false, reason: "spawn_tab_unavailable" };
+  }
   const rawUrl = String(tab?.url || "");
   const childUrl = normalizeConversationUrl(rawUrl);
-  if (childUrl) return { ok: true, route: "child", childConversationUrl: childUrl };
+  if (childUrl) {
+    return await conversationSpawnTabClaimMatches(intent.transaction_id, tabId)
+      ? { ok: true, route: "child", childConversationUrl: childUrl }
+      : { ok: false, reason: "spawn_tab_claim_mismatch" };
+  }
   const marker = conversationSpawnMarkerFromUrl(rawUrl);
   if (marker) {
     if (marker !== intent.transaction_id) {
       return { ok: false, reason: "spawn_tab_claim_mismatch" };
     }
-    return { ok: true, route: "fresh" };
+    await rememberConversationSpawnTab(intent.transaction_id, tabId);
+    return { ok: true, route: "staging" };
+  }
+  if (conversationSpawnFreshChatUrl(rawUrl)) {
+    return await conversationSpawnTabClaimMatches(intent.transaction_id, tabId)
+      ? { ok: true, route: "fresh" }
+      : { ok: false, reason: "spawn_tab_claim_mismatch" };
   }
 
-  // A pending marker proves ownership but not page readiness. Never classify that
-  // navigation window as an unrelated route or authorize a replacement tab.
+  // A pending staging marker proves ownership but not page readiness. Never
+  // classify that navigation window as an unrelated route or authorize another tab.
   const pendingMarker = conversationSpawnMarkerFromUrl(tab?.pendingUrl);
   if (pendingMarker) {
-    return pendingMarker === intent.transaction_id
+    if (pendingMarker !== intent.transaction_id) {
+      return { ok: false, reason: "spawn_tab_claim_mismatch" };
+    }
+    await rememberConversationSpawnTab(intent.transaction_id, tabId);
+    return { ok: false, reason: "spawn_page_not_ready" };
+  }
+  if (conversationSpawnFreshChatUrl(tab?.pendingUrl)) {
+    return await conversationSpawnTabClaimMatches(intent.transaction_id, tabId)
       ? { ok: false, reason: "spawn_page_not_ready" }
       : { ok: false, reason: "spawn_tab_claim_mismatch" };
   }
@@ -141,6 +220,23 @@ async function probeConversationSpawnContent(tabId) {
 }
 
 async function ensureConversationSpawnContent(tabId) {
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch (error) {
+    return { ok: false, reason: "spawn_tab_unavailable", error: String(error) };
+  }
+  const stagingMarker = conversationSpawnMarkerFromTab(tab);
+  if (stagingMarker) {
+    await rememberConversationSpawnTab(stagingMarker, tabId);
+    try {
+      await chrome.tabs.update(tabId, { url: "https://chatgpt.com/" });
+    } catch (error) {
+      return { ok: false, reason: "spawn_content_unavailable", error: String(error) };
+    }
+    return { ok: false, reason: "spawn_content_unavailable", route: "staging" };
+  }
+
   let probe = await probeConversationSpawnContent(tabId);
   if (probe?.ok) return probe;
   if (!["spawn_content_unavailable", "spawn_content_protocol_mismatch"].includes(String(probe?.reason || ""))) {
@@ -157,6 +253,18 @@ async function ensureConversationSpawnContent(tabId) {
   return probeConversationSpawnContent(tabId);
 }
 
+async function recoverConversationSpawnTab(intent) {
+  const marked = await findConversationSpawnMarkerTabs(intent.transaction_id);
+  if (marked.length > 1) {
+    throw new Error("multiple tabs claim the same conversation spawn transaction");
+  }
+  if (marked.length === 1) {
+    await rememberConversationSpawnTab(intent.transaction_id, marked[0].id);
+    return { ok: true, reason: "tab_recovered", tabId: marked[0].id };
+  }
+  return null;
+}
+
 async function createConversationSpawnTab(intent) {
   validateConversationSpawnBrowserIntent(intent);
   await requireConversationSpawnBootstrapDigest(intent);
@@ -164,19 +272,22 @@ async function createConversationSpawnTab(intent) {
     try {
       const existing = await chrome.tabs.get(intent.tab_id);
       if (existing?.id) {
-        return { ok: true, reason: "tab_recovered", tabId: existing.id };
+        const marker = conversationSpawnMarkerFromTab(existing);
+        const claimed = await conversationSpawnTabClaimMatches(intent.transaction_id, existing.id);
+        if (marker === intent.transaction_id || claimed) {
+          await rememberConversationSpawnTab(intent.transaction_id, existing.id);
+          return { ok: true, reason: "tab_recovered", tabId: existing.id };
+        }
+        throw new Error("conversation spawn original tab claim does not match transaction");
       }
-    } catch (_error) {}
+    } catch (error) {
+      if (String(error?.message || error).includes("claim does not match")) throw error;
+    }
     throw new Error("conversation spawn original tab is unavailable; replacement requires explicit recovery");
   }
 
-  const marked = await findConversationSpawnMarkerTabs(intent.transaction_id);
-  if (marked.length > 1) {
-    throw new Error("multiple tabs claim the same conversation spawn transaction");
-  }
-  if (marked.length === 1) {
-    return { ok: true, reason: "tab_recovered", tabId: marked[0].id };
-  }
+  const recovered = await recoverConversationSpawnTab(intent);
+  if (recovered) return recovered;
 
   const tab = await chrome.tabs.create({
     url: conversationSpawnMarkerUrl(intent.transaction_id),
@@ -185,7 +296,36 @@ async function createConversationSpawnTab(intent) {
   if (!Number.isInteger(tab?.id)) {
     throw new Error("conversation spawn tab creation did not return a tab id");
   }
+  await rememberConversationSpawnTab(intent.transaction_id, tab.id);
   return { ok: true, reason: "tab_created", tabId: tab.id };
+}
+
+async function reattachConversationSpawnTab(intent) {
+  validateConversationSpawnBrowserIntent(intent, { requireTab: true });
+  await requireConversationSpawnBootstrapDigest(intent);
+  try {
+    const existing = await chrome.tabs.get(intent.tab_id);
+    if (existing?.id) {
+      const route = await validateConversationSpawnTabRoute(intent, existing);
+      if (route.ok || route.reason === "spawn_page_not_ready") {
+        return { ok: true, reason: "tab_recovered", tabId: existing.id };
+      }
+      if (route.reason === "spawn_tab_claim_mismatch") return route;
+    }
+  } catch (_error) {}
+
+  const recovered = await recoverConversationSpawnTab(intent);
+  if (recovered) return recovered;
+
+  const tab = await chrome.tabs.create({
+    url: conversationSpawnMarkerUrl(intent.transaction_id),
+    active: false
+  });
+  if (!Number.isInteger(tab?.id)) {
+    throw new Error("conversation spawn reattach did not return a tab id");
+  }
+  await rememberConversationSpawnTab(intent.transaction_id, tab.id);
+  return { ok: true, reason: "tab_reattached", tabId: tab.id };
 }
 
 async function sendConversationSpawnContentMessage(intent, type) {
@@ -199,7 +339,7 @@ async function sendConversationSpawnContentMessage(intent, type) {
   }
   if (!tab?.id) return { ok: false, reason: "spawn_tab_unavailable" };
 
-  const route = validateConversationSpawnTabRoute(intent, tab);
+  const route = await validateConversationSpawnTabRoute(intent, tab);
   if (!route.ok) return route;
   const ready = await ensureConversationSpawnContent(tab.id);
   if (!ready?.ok) return ready;
