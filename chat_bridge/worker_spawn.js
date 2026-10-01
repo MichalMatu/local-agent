@@ -153,8 +153,6 @@ function conversationSpawnFreshChatUrl(rawUrl) {
 }
 
 async function findConversationSpawnMarkerTabs(transactionId) {
-  // Query all tabs: a just-created staging tab can expose only pendingUrl until
-  // navigation commits, and a URL-filtered query can miss that lost-ACK window.
   const tabs = await chrome.tabs.query({});
   return tabs.filter((tab) =>
     Number.isInteger(tab.id) && conversationSpawnMarkerFromTab(tab) === transactionId
@@ -186,9 +184,6 @@ async function validateConversationSpawnTabRoute(intent, tab) {
       ? { ok: true, route: "fresh" }
       : { ok: false, reason: "spawn_tab_claim_mismatch" };
   }
-
-  // A pending staging marker proves ownership but not page readiness. Never
-  // classify that navigation window as an unrelated route or authorize another tab.
   const pendingMarker = conversationSpawnMarkerFromUrl(tab?.pendingUrl);
   if (pendingMarker) {
     if (pendingMarker !== intent.transaction_id) {
@@ -273,6 +268,19 @@ async function ensureConversationSpawnContent(tabId) {
 }
 
 async function recoverConversationSpawnTab(intent) {
+  validateConversationSpawnBrowserIntent(intent);
+  const claimedTabId = await conversationSpawnClaimedTabId(intent.transaction_id);
+  if (claimedTabId) {
+    try {
+      const claimedTab = await chrome.tabs.get(claimedTabId);
+      const route = await validateConversationSpawnTabRoute(intent, claimedTab);
+      if (route.ok || route.reason === "spawn_page_not_ready") {
+        return { ok: true, reason: "tab_recovered", tabId: claimedTabId };
+      }
+      if (route.reason === "spawn_tab_claim_mismatch") return route;
+    } catch (_error) {}
+  }
+
   const marked = await findConversationSpawnMarkerTabs(intent.transaction_id);
   if (marked.length > 1) {
     throw new Error("multiple tabs claim the same conversation spawn transaction");
