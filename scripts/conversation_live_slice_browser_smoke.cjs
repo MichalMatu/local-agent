@@ -193,17 +193,19 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
     assert.equal(created.ok, true, JSON.stringify(created));
     assert.equal(created.reason, "tab_created", JSON.stringify(created));
     assert.ok(Number.isInteger(created.tabId));
+    const durableIntent = intent("actuator-smoke", created.tabId);
 
     // tabs.create can acknowledge before the new tab exposes its marker through
     // tabs.query(url/pendingUrl), so first prove same-process lost-ACK recovery.
-    const recovered = await recoverMarker(first.request, pending);
+    const recovered = await recoverMarker(first.request, durableIntent);
     assert.equal(recovered?.ok, true, JSON.stringify(recovered));
     assert.equal(recovered.reason, "tab_recovered", JSON.stringify(recovered));
     assert.equal(recovered.tabId, created.tabId);
 
-    // The live runner closes the browser actuator whenever a bounded invocation
-    // returns. A later rearm therefore depends on the isolated persistent profile
-    // restoring the marker tab. Prove that boundary instead of assuming it.
+    // Controlled persistent-context shutdown does not preserve the marker tab.
+    // Strict lost-ACK recovery must remain fail-closed after restart. The runner
+    // may then authorize exactly one separate pre-submit transport reattach while
+    // the durable transaction is still bootstrap_ready and no submit has happened.
     await first.stop();
     first = null;
 
@@ -216,14 +218,26 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
     assert.equal(readyAfterRestart.ok, true, JSON.stringify(readyAfterRestart));
     assert.equal(readyAfterRestart.reason, "chatgpt_ready");
 
-    const recoveredAfterRestart = await recoverMarker(second.request, pending, 5000);
-    assert.equal(recoveredAfterRestart?.ok, true, JSON.stringify(recoveredAfterRestart));
-    assert.equal(recoveredAfterRestart.reason, "tab_recovered", JSON.stringify(recoveredAfterRestart));
-    assert.ok(Number.isInteger(recoveredAfterRestart.tabId));
+    const strictAfterRestart = await recoverMarker(second.request, durableIntent, 1000);
+    assert.equal(strictAfterRestart?.ok, false, JSON.stringify(strictAfterRestart));
+    assert.equal(strictAfterRestart.reason, "spawn_create_recovery_missing");
+
+    const reattached = await second.request("reattach_pre_submit", { intent: durableIntent });
+    assert.equal(reattached.ok, true, JSON.stringify(reattached));
+    assert.equal(reattached.reason, "tab_reattached", JSON.stringify(reattached));
+    assert.ok(Number.isInteger(reattached.tabId));
+
+    const recoveredReattached = await recoverMarker(
+      second.request,
+      { ...durableIntent, tab_id: reattached.tabId }
+    );
+    assert.equal(recoveredReattached?.ok, true, JSON.stringify(recoveredReattached));
+    assert.equal(recoveredReattached.reason, "tab_recovered", JSON.stringify(recoveredReattached));
+    assert.equal(recoveredReattached.tabId, reattached.tabId);
 
     await second.stop();
     second = null;
-    console.log("Conversation live slice real-browser restart recovery smoke passed.");
+    console.log("Conversation live slice bounded pre-submit reattach smoke passed.");
   } finally {
     for (const actuator of [first, second]) {
       if (!actuator) continue;
