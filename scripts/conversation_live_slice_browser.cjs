@@ -22,6 +22,7 @@ const ALLOWED_ACTIONS = new Set([
   "wait_ready",
   "create",
   "recover_create",
+  "reattach_pre_submit",
   "probe",
   "submit",
   "reconcile",
@@ -213,6 +214,29 @@ async function recoverCreate(context, intent) {
   );
 }
 
+async function reattachPreSubmit(context, intent) {
+  const originalTabId = Number(intent?.tab_id || 0);
+  if (!Number.isInteger(originalTabId) || originalTabId < 1) {
+    throw new Error("pre-submit reattach requires the durable original tab_id");
+  }
+  const recovered = await recoverCreate(context, intent);
+  if (recovered?.ok || recovered?.reason !== "spawn_create_recovery_missing") {
+    return recovered;
+  }
+  const replacementIntent = { ...intent, tab_id: null };
+  const created = await callWorker(context, "createConversationSpawnTab", replacementIntent);
+  if (!created?.ok) return created || { ok: false, reason: "spawn_pre_submit_reattach_failed" };
+  const tabId = Number(created.tabId || 0);
+  if (!Number.isInteger(tabId) || tabId < 1) {
+    return { ok: false, reason: "spawn_pre_submit_reattach_invalid_tab" };
+  }
+  return {
+    ok: true,
+    reason: created.reason === "tab_created" ? "tab_reattached" : "tab_recovered",
+    tabId
+  };
+}
+
 async function probeBeforeSubmit(context, intent) {
   const tabId = Number(intent?.tab_id || 0);
   if (!Number.isInteger(tabId) || tabId < 1) {
@@ -278,6 +302,8 @@ async function main() {
           result = await callWorker(context, "createConversationSpawnTab", request.payload.intent);
         } else if (request.action === "recover_create") {
           result = await recoverCreate(context, request.payload.intent);
+        } else if (request.action === "reattach_pre_submit") {
+          result = await reattachPreSubmit(context, request.payload.intent);
         } else if (request.action === "probe") {
           result = await probeBeforeSubmit(context, request.payload.intent);
         } else if (request.action === "submit") {
