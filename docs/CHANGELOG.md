@@ -2,6 +2,16 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
+## v4.19.12
+
+- Bound GitHub-backed control Git attempts to 20 seconds even when legacy callers request larger timeouts.
+- Reduce transient Git retry inside one control-plane operation to one retry after 2 seconds; longer recovery remains owned by the existing scheduler backoff.
+- Add a process-local 30-second circuit breaker to repeated control checkout synchronization after an exhausted transient Git failure.
+- Reduce remote `operator-control` ref probing to a 5-second timeout and back off degraded probes for 10, 30, then 60 seconds while preserving the last known operator state.
+- Keep authentication, rebase/conflict and malformed reachable operator state handling unchanged and fail-closed where previously required.
+- Add focused regression coverage for timeout capping, circuit opening/recovery and remote-operator probe backoff.
+- No task schema, hard-binding, resource classification, concurrency, MCP or Chat Bridge protocol changes.
+
 ## v4.19.11
 
 - Preserve terminal Chat Bridge safety state across GitHub desired-state reconciliation: `conversation_exhausted` remains terminal for the same hard binding and cannot be resurrected by schedule drift or a newer pacing generation.
