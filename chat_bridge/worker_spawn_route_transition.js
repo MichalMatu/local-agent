@@ -1,7 +1,7 @@
 (() => {
   "use strict";
 
-  const PROVISIONAL_ROUTE_WAIT_MS = 10_000;
+  const PROVISIONAL_ROUTE_WAIT_MS = 60_000;
   const PROVISIONAL_ROUTE_POLL_MS = 100;
   const originalSubmitConversationSpawnBootstrap = submitConversationSpawnBootstrap;
   const originalReconcileConversationSpawn = reconcileConversationSpawn;
