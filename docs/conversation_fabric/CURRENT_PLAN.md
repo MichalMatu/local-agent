@@ -10,14 +10,16 @@ Production remains unchanged:
 - Local Agent v4.19.11
 - Chat Bridge 0.6.2
 
-Canonical development:
+Canonical development branch:
 
-- `develop/conversation-fabric@b6f9ce3bb47309474dba7c430df3880912aaa4ef`
+- `develop/conversation-fabric`
+- last runtime/code baseline: `b6f9ce3bb47309474dba7c430df3880912aaa4ef`
+- the branch may contain later documentation-only handoff commits; always verify the actual GitHub head before implementation or live work
 
 Current temporary candidate branch:
 
 - `work/conversation-composer-replacement`
-- current head is still the development baseline above
+- current runtime/code head is still `b6f9ce3bb47309474dba7c430df3880912aaa4ef`
 - no accepted composer-replacement commit exists yet
 
 ## Stage 8 goal
@@ -58,9 +60,9 @@ Strict create lost-ACK recovery never creates a replacement tab. Reattach is not
 
 ### 2. Delayed MV3 extension worker startup
 
-The Mac proof exposed a race where the browser actuator effectively abandoned extension-worker discovery after about 300 ms. The current baseline waits with a bounded 8-second polling window.
+The Mac proof exposed a race where the browser actuator effectively abandoned extension-worker discovery after about 300 ms. The current runtime baseline waits with a bounded 8-second polling window.
 
-The accepted fix is:
+The accepted code fix is:
 
 - `b6f9ce3bb47309474dba7c430df3880912aaa4ef` — `Wait for delayed DEV extension worker`
 
