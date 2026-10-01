@@ -276,7 +276,16 @@ async function probeBeforeSubmit(context, intent) {
   const deadline = Date.now() + 5000;
   while (true) {
     const content = await callWorker(context, "ensureConversationSpawnContent", tabId);
-    if (!content?.ok) return content || { ok: false, reason: "spawn_content_unavailable" };
+    if (!content?.ok) {
+      if (
+        String(content?.reason || "") === "spawn_content_unavailable" &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        continue;
+      }
+      return content || { ok: false, reason: "spawn_content_unavailable" };
+    }
     if (content.route !== "fresh") {
       return { ok: false, reason: "spawn_unexpected_route", route: content.route || "unknown" };
     }
