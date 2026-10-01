@@ -47,6 +47,7 @@ const fixture = `<!doctype html><html><body>
 window.submits = 0;
 window.blockRenders = 0;
 window.logicalBootstrap = "";
+window.browserEncodedBootstrap = "";
 window.normalizedOnce = false;
 
 function currentComposerText(element) {
@@ -68,11 +69,13 @@ function renderAsBlocks(element, text) {
 document.addEventListener("input", (event) => {
   if (window.normalizedOnce || event.target?.id !== "prompt-textarea") return;
   const current = event.target;
-  const text = currentComposerText(current);
-  if (!text) return;
+  const browserText = currentComposerText(current);
+  const logicalText = typeof event.data === "string" && event.data ? event.data : browserText;
+  if (!logicalText) return;
   window.normalizedOnce = true;
-  window.logicalBootstrap = text;
-  renderAsBlocks(current, text);
+  window.browserEncodedBootstrap = browserText;
+  window.logicalBootstrap = logicalText;
+  renderAsBlocks(current, logicalText);
   history.replaceState({}, "", "/?mweb_fallback=1" + location.hash);
   window.blockRenders++;
   setTimeout(() => {
@@ -154,6 +157,12 @@ async function bounded(label, promise, timeoutMs = 15_000) {
     await page.waitForFunction(() => window.blockRenders === 1);
     assert.equal(new URL(page.url()).searchParams.get("mweb_fallback"), "1");
     assert.equal(await page.evaluate(() => window.logicalBootstrap), pending.bootstrap_text);
+    assert.notEqual(await page.evaluate(() => window.browserEncodedBootstrap), pending.bootstrap_text);
+    assert.equal(
+      await page.evaluate(() => window.browserEncodedBootstrap.includes("\u00a0")),
+      true,
+      "Chromium should exercise NBSP encoding for JSON indentation"
+    );
     assert.equal(await page.locator("#prompt-textarea > p").count(), pending.bootstrap_text.split("\n").length);
 
     const result = await delivered;
