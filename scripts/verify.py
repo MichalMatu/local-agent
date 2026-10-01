@@ -149,6 +149,10 @@ def run_bridge_browser() -> None:
         "Chromium assistant timeout page-reload smoke",
         [node, "scripts/bridge_assistant_error_reload_smoke.cjs"],
     )
+    _run(
+        "Conversation live slice browser restart recovery smoke",
+        [node, "scripts/conversation_live_slice_browser_smoke.cjs"],
+    )
 
 
 def parse_args() -> argparse.Namespace:
