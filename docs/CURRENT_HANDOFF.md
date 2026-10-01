@@ -1,117 +1,131 @@
 # Current handoff — Conversation Fabric Stage 8
 
 Date: 2026-10-01
+Status: active handoff checkpoint
 
-## Purpose
+## Read this first
 
-This is the continuation checkpoint after the Local Agent v4.19.11 / Chat Bridge 0.6.2 production release and the Conversation Fabric branch cleanup. Read this first, then follow the canonical development plan, the Stage 8 execution ledger and exact GitHub evidence.
+This file is the authoritative continuation checkpoint for the current Stage 8 work. Do not reconstruct the current state from older chat history.
 
-## Production state
+Then read:
 
-Production is established on `main` at:
+1. `AGENTS.md`
+2. `docs/conversation_fabric/CURRENT_PLAN.md`
+3. `docs/DEVELOPMENT_PLAN.md`
 
+## Repository state
+
+Production is unchanged:
+
+- `main`: `0088f55ef37eecf26e0d4363f999797b9e340e96`
 - Local Agent: v4.19.11
 - Chat Bridge: 0.6.2
-- `main`: `0088f55ef37eecf26e0d4363f999797b9e340e96`
-- tag `v4.19.11`: points to the same production commit
 
-PR #122 is merged and the old release candidate branch has been removed. Production `main` is stable and is not part of the Stage 8 development work.
+Current Conversation Fabric development:
 
-## Development state
+- branch: `develop/conversation-fabric`
+- head: `b6f9ce3bb47309474dba7c430df3880912aaa4ef`
+- commit: `Wait for delayed DEV extension worker`
+- Mac DEV checkout: `/Users/michal/local-agent-dev`
+- DEV state root: `/Users/michal/Library/Application Support/local-agent-dev`
+- production checkout: `/Users/michal/local-agent`
 
-Canonical Conversation Fabric development continues only on:
+Current temporary implementation branch:
 
-- `develop/conversation-fabric`
+- `work/conversation-composer-replacement`
+- currently still at `b6f9ce3bb47309474dba7c430df3880912aaa4ef`
+- no accepted composer-replacement commit exists yet
 
-The cleaned Stage 8 code baseline was validated at:
-
-- `96c536a145904ae46add407004d9914d5088e215`
-
-That exact code baseline passed all five canonical CI gates: test, coverage, Python 3.14, macOS smoke and Bridge browser smoke.
-
-The old divergent development history is preserved only as a safety archive:
-
-- `archive/conversation-fabric-pre-rebase`
-
-Operational branches remain separate and must not be used as development branches:
+Operational and archive branches are not development targets:
 
 - `chat-bridge-state`
 - `operator-control`
+- `archive/conversation-fabric-pre-rebase`
 
-## Architecture decision
+## What has been proven and fixed
 
-```text
-Superchat / ordinary ChatGPT reasoning
-          |
-          v
-GitHub control + evidence
-          |
-          v
-Local Agent deterministic orchestration/execution
-          +--> host-ops deterministic tools
-          +--> narrow ChatGPT Browser Driver
-```
+### Pre-submit restart recovery
 
-Permanent boundaries:
+Stage 8 now supports both legal persistent-browser restart outcomes:
 
-- GitHub is the durable control/evidence plane.
-- Chat Bridge is a narrow browser transport/actuator, not workflow authority.
-- Local Agent remains deterministic and model-free.
-- Child chats have no independent machine authority.
-- `local-agent` remains `execution_enabled: false` for the Stage 8 reasoning-child slice.
-- No second scheduler, executor or control plane.
-- No direct OpenAI API model loop.
-- No Native Messaging control plane or abandoned event-wake direction.
-- No production Chrome profile mutation during the Stage 8 proof.
+- the original transaction marker tab survives and is recovered; or
+- the marker tab is missing while durable state still proves `bootstrap_ready`, allowing one bounded pre-submit reattach.
 
-## Stage 8 current gate
+Strict lost-ACK recovery still never creates a replacement tab. A second unresolved reattach condition fails closed.
 
-The next milestone is exactly one real ChatGPT child in the isolated DEV profile.
+### Delayed extension worker startup
 
-Required operator sequence:
+The live Mac proof exposed a startup race in `scripts/conversation_live_slice_browser.cjs`: the old implementation effectively waited about 300 ms for the MV3 extension service worker even though the intended bound was 8 seconds.
 
-```text
-seed -> prepare -> login -> arm -> run
-```
+That race is fixed at `b6f9ce3bb47309474dba7c430df3880912aaa4ef` by bounded polling for the extension worker. The fix was validated with focused tests, browser smoke, exact-SHA CI and a cloned-profile Mac proof through `host-ops`.
 
-Hard limits:
+## Preserved failed live proof
 
-- one parent conversation;
-- one reasoning child;
-- one durable `ChildRequest`;
-- one browser spawn attempt;
-- one dedicated DEV Chrome profile;
-- exact `MichalMatu/local-agent` checkout identity;
-- clean DEV checkout and exact 40-character commit SHA;
-- no Local Agent task execution;
-- fail closed on ambiguous create/submit state.
+Do not retry, rewrite or delete this evidence.
 
-Required proof before any lifecycle expansion:
+The original live attempt reached the submit boundary and then failed closed:
 
-- canonical child `https://chatgpt.com/c/<id>`;
+- workflow: `stage8-live-slice`
+- request: `stage8-live-child-001`
+- transaction: `spawn-3c78a92eb001f46790989f4da8fea0bcca6b1d55035770b7dc48ef40bd72a032`
+- attempt: `1`
+- durable state: `ambiguous`
+- durable journal phase: `ambiguous`
+- failure: `live submit unresolved: spawn_composer_changed`
+- `child_conversation_url`: `None`
+- matching registration: absent
+- live arm: consumed/absent
+
+Important interpretation: `spawn_composer_changed` is returned by `spawn_content.js` before `writeClaim(..., "submitting")` and before `button.click()`. Therefore this specific failure occurred before the bootstrap was submitted. The durable `ambiguous` classification is intentionally preserved as historical evidence; do not hand-edit the transaction back to a pre-submit state.
+
+## Current bug to finish
+
+ChatGPT may replace the contenteditable composer DOM node after Local Agent inserts the bootstrap text. The current code treats DOM node identity replacement as `spawn_composer_changed` even when the replacement contains the exact same bootstrap text.
+
+Required fix:
+
+- tolerate a replaced composer node only when the currently active composer still contains exactly the inserted bootstrap text;
+- never tolerate different text;
+- preserve the existing operator-edit safety proof;
+- preserve route, send-button, transaction, digest and claim checks;
+- do not weaken the post-submit ambiguity boundary.
+
+A browser regression test must explicitly simulate composer DOM replacement between insertion and the final pre-submit check.
+
+## Exact next sequence
+
+1. Start from `work/conversation-composer-replacement` at exact base `b6f9ce3bb47309474dba7c430df3880912aaa4ef`.
+2. Implement the minimal composer-replacement fix in `chat_bridge/spawn_content.js`.
+3. Add/repair the real browser smoke in `scripts/conversation_spawn_browser_smoke.cjs` so it proves both:
+   - exact-text DOM replacement may continue;
+   - operator-edited/different text still fails before submit.
+4. Run focused tests and both Conversation Fabric browser smokes on Mac through `host-ops`.
+5. Require exact-candidate full CI before promotion.
+6. Fast-forward only `develop/conversation-fabric` after the candidate is green.
+7. Keep the preserved ambiguous live attempt untouched.
+8. Create a fresh isolated DEV live lab/state namespace for the next proof instead of reusing the ambiguous attempt.
+9. Run exactly one fresh sequence: `seed -> prepare -> login -> arm -> run`.
+10. Stop after the first successful one-child proof and inspect durable evidence.
+
+## Success condition for Stage 8
+
+The milestone is complete only when one fresh bounded proof produces all of the following:
+
+- exactly one real child `https://chatgpt.com/c/<id>`;
 - matching durable `ChildRegistration`;
 - matching durable `SpawnTransaction=done`;
-- bounded completion evidence tied to the admitted request/plan.
+- bounded completion evidence tied to the admitted request/plan;
+- no Local Agent task execution authority granted to the child;
+- no production Chrome/profile mutation;
+- no blind replay after any ambiguous external effect.
 
-Do not start adoption, terminal, retirement, restart/recovery, fleet scheduling, multi-child fan-out or the larger acceptance campaign before this one-child proof succeeds.
+## Operating rules for the next conversation
 
-## Documentation map
+- Use direct GitHub operations for repository inspection and repository-side changes.
+- Use `host-ops` for every operation on the Mac: checkout updates, worktrees, local tests, browser/profile inspection and live proof execution.
+- Before any live browser effect, verify the exact `develop/conversation-fabric` head, clean DEV checkout, current CI evidence and isolated DEV state.
+- Never mutate `main`, `chat-bridge-state`, `operator-control` or the archive branch as part of Stage 8 development.
+- Never retry the preserved ambiguous transaction.
+- Do not start adoption, retirement, fleet scheduling, multi-child fan-out or broader lifecycle work before the one-child proof succeeds.
 
-Read in this order before changing Stage 8 behavior:
-
-1. `AGENTS.md`
-2. `docs/CURRENT_HANDOFF.md`
-3. `docs/DEVELOPMENT_PLAN.md`
-4. `docs/conversation_fabric/CURRENT_PLAN.md`
-5. `docs/ARCHITECTURE.md`
-6. `docs/GOLDEN_STANDARD.md`
-7. `docs/GITHUB_BRIDGE_CONTROL.md`
-8. `docs/AUTONOMOUS_CHAT_LOOP.md`
-9. relevant Chat Bridge docs
-10. host-ops repository rules only if host-ops becomes part of the bounded milestone
-
-## Continuation rule
-
-A new conversation must begin with an exact-head preflight of `develop/conversation-fabric` before any live browser effect. Confirm branch identity, clean intended scope, current CI evidence and the Stage 8 safety invariants. Do not mutate `main`, `chat-bridge-state`, `operator-control` or the archive branch as part of that preflight.
-
-Exact GitHub branch/commit/CI evidence outranks remembered chat context or browser appearance.
+Exact GitHub state and durable local evidence outrank remembered chat context or browser appearance.
