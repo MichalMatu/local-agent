@@ -1,34 +1,42 @@
-# Current handoff — Local Agent v4.19.11 checkpoint
+# Current handoff — Conversation Fabric Stage 8
 
 Date: 2026-10-01
 
-Before merge, verify the PR head SHA and the CI result belong to the same final candidate commit.
-
 ## Purpose
 
-This is the continuation checkpoint for the Local Agent / Chat Bridge work after the 4.19.11 hardening pass. Read this first, then follow the canonical docs and exact GitHub evidence.
+This is the continuation checkpoint after the Local Agent v4.19.11 / Chat Bridge 0.6.2 production release and the Conversation Fabric branch cleanup. Read this first, then follow the canonical development plan, the Stage 8 execution ledger and exact GitHub evidence.
 
-## Current release state
+## Production state
 
-- Candidate: Local Agent 4.19.11 / Chat Bridge 0.6.2
-- Candidate branch: work/checkpoint-v4.19.11
-- Release PR: #122
-- Base: main
-- Candidate runtime checkpoint before this documentation pass: 104e370d9f58fdd1b94a0911b9f402ef919533a7
-- Runtime schema: 3
-- Content protocol: 13
-- Assistant guard: 8
-- Production baseline before merge: Local Agent 4.19.10 / Chat Bridge 0.6.1
+Production is established on `main` at:
 
-## What is proven
+- Local Agent: v4.19.11
+- Chat Bridge: 0.6.2
+- `main`: `0088f55ef37eecf26e0d4363f999797b9e340e96`
+- tag `v4.19.11`: points to the same production commit
 
-The checkpoint repaired the GitHub reconciliation regression that could resurrect a deliberate local terminal stop. It also added the combined repository/resource orphan-lock regression, made coverage a 70% CI gate, pinned GitHub Actions to immutable revisions and refreshed release metadata.
+PR #122 is merged and the old release candidate branch has been removed. Production `main` is stable and is not part of the Stage 8 development work.
 
-The exact candidate passed the canonical CI matrix, including compile/Ruff/full unit and integration suite, coverage, Python 3.14, real Chromium extension smoke and macOS smoke.
+## Development state
 
-The bounded live browser gate was exercised from the normal Chrome/Chat Bridge installation. A short one-minute control interval successfully drove the Bridge wake path. The conversation was returned to the canonical PAUSED state afterwards.
+Canonical Conversation Fabric development continues only on:
 
-The final desired state on chat-bridge-state is deliberately disabled with no one-shot deadline. Do not leave the release test conversation armed while doing merge/release work.
+- `develop/conversation-fabric`
+
+The cleaned Stage 8 code baseline was validated at:
+
+- `96c536a145904ae46add407004d9914d5088e215`
+
+That exact code baseline passed all five canonical CI gates: test, coverage, Python 3.14, macOS smoke and Bridge browser smoke.
+
+The old divergent development history is preserved only as a safety archive:
+
+- `archive/conversation-fabric-pre-rebase`
+
+Operational branches remain separate and must not be used as development branches:
+
+- `chat-bridge-state`
+- `operator-control`
 
 ## Architecture decision
 
@@ -44,49 +52,66 @@ Local Agent deterministic orchestration/execution
           +--> narrow ChatGPT Browser Driver
 ```
 
-Do not introduce a second control plane. MCP and direct OpenAI API model execution are excluded from the current target architecture.
+Permanent boundaries:
 
-Chat Bridge remains only as a bounded browser lifecycle/transport layer. GitHub is the authority for managed schedule/status state. DOM observations are transport evidence only.
+- GitHub is the durable control/evidence plane.
+- Chat Bridge is a narrow browser transport/actuator, not workflow authority.
+- Local Agent remains deterministic and model-free.
+- Child chats have no independent machine authority.
+- `local-agent` remains `execution_enabled: false` for the Stage 8 reasoning-child slice.
+- No second scheduler, executor or control plane.
+- No direct OpenAI API model loop.
+- No Native Messaging control plane or abandoned event-wake direction.
+- No production Chrome profile mutation during the Stage 8 proof.
+
+## Stage 8 current gate
+
+The next milestone is exactly one real ChatGPT child in the isolated DEV profile.
+
+Required operator sequence:
+
+```text
+seed -> prepare -> login -> arm -> run
+```
+
+Hard limits:
+
+- one parent conversation;
+- one reasoning child;
+- one durable `ChildRequest`;
+- one browser spawn attempt;
+- one dedicated DEV Chrome profile;
+- exact `MichalMatu/local-agent` checkout identity;
+- clean DEV checkout and exact 40-character commit SHA;
+- no Local Agent task execution;
+- fail closed on ambiguous create/submit state.
+
+Required proof before any lifecycle expansion:
+
+- canonical child `https://chatgpt.com/c/<id>`;
+- matching durable `ChildRegistration`;
+- matching durable `SpawnTransaction=done`;
+- bounded completion evidence tied to the admitted request/plan.
+
+Do not start adoption, terminal, retirement, restart/recovery, fleet scheduling, multi-child fan-out or the larger acceptance campaign before this one-child proof succeeds.
 
 ## Documentation map
 
-1. AGENTS.md — normative repository rules.
-2. docs/GOLDEN_STANDARD.md — release/runtime invariants.
-3. docs/DEVELOPMENT_PLAN.md — current product direction and next milestone.
-4. docs/CHECKPOINT_AUDIT_V4.19.11.md — detailed audit and residual risks.
-5. docs/GITHUB_BRIDGE_CONTROL.md — GitHub desired-state contract.
-6. docs/AUTONOMOUS_CHAT_LOOP.md — planner continuation discipline.
-7. docs/superchat/ROADMAP.md — longer-term lifecycle roadmap.
+Read in this order before changing Stage 8 behavior:
 
-## Branch state
+1. `AGENTS.md`
+2. `docs/CURRENT_HANDOFF.md`
+3. `docs/DEVELOPMENT_PLAN.md`
+4. `docs/conversation_fabric/CURRENT_PLAN.md`
+5. `docs/ARCHITECTURE.md`
+6. `docs/GOLDEN_STANDARD.md`
+7. `docs/GITHUB_BRIDGE_CONTROL.md`
+8. `docs/AUTONOMOUS_CHAT_LOOP.md`
+9. relevant Chat Bridge docs
+10. host-ops repository rules only if host-ops becomes part of the bounded milestone
 
-Keep main, chat-bridge-state, operator-control and develop/conversation-fabric.
+## Continuation rule
 
-Delete after the release is actually established:
+A new conversation must begin with an exact-head preflight of `develop/conversation-fabric` before any live browser effect. Confirm branch identity, clean intended scope, current CI evidence and the Stage 8 safety invariants. Do not mutate `main`, `chat-bridge-state`, `operator-control` or the archive branch as part of that preflight.
 
-- work/checkpoint-v4.19.11
-
-No other current branch is an obsolete disposable work branch. Conversation Fabric is intentionally long-lived; the two state/control branches are operational and must not be deleted.
-
-## Release completion sequence
-
-1. finish this documentation checkpoint;
-2. run exact-SHA CI on the resulting candidate;
-3. review PR #122 one final time;
-4. explicitly merge #122 into main;
-5. tag the released main commit as v4.19.11;
-6. verify the installed ~/local-agent checkout from main;
-7. validate live daemon revision/version and a harmless real task/status path;
-8. delete work/checkpoint-v4.19.11;
-9. leave the release conversation PAUSED;
-10. begin new work only from develop/conversation-fabric.
-
-## Next development action
-
-After release cleanup, continue on develop/conversation-fabric with the existing Stage 8 first-live gate: exactly one real dedicated-profile ChatGPT child through seed -> prepare -> login -> arm -> run, requiring canonical child registration and durable completion evidence before adding adoption/terminal/retirement.
-
-Do not start the 44-node campaign. Do not enable a production child scheduler. Do not create a second executor.
-
-## Recovery rule
-
-If a future conversation is unsure where to continue, this handoff plus docs/DEVELOPMENT_PLAN.md are the current checkpoint tie-breaker. Exact GitHub task/run/result/control evidence always outranks remembered chat context.
+Exact GitHub branch/commit/CI evidence outranks remembered chat context or browser appearance.
