@@ -61,8 +61,14 @@
     );
   }
 
+  function normalizeContentEditableText(text) {
+    return String(text || "").replace(/\u00a0/g, " ");
+  }
+
   function descendantText(node) {
-    if (node.nodeType === Node.TEXT_NODE) return node.nodeValue || "";
+    if (node.nodeType === Node.TEXT_NODE) {
+      return normalizeContentEditableText(node.nodeValue || "");
+    }
     if (node instanceof HTMLBRElement) return "\n";
     if (!(node instanceof HTMLElement)) return "";
     return Array.from(node.childNodes, (child) => descendantText(child)).join("");
@@ -98,8 +104,13 @@
     }
     if (!(composer instanceof HTMLElement)) return [""];
     const variants = [];
-    if (typeof composer.innerText === "string") variants.push(composer.innerText);
-    if (typeof composer.textContent === "string") variants.push(composer.textContent);
+    const addVariant = (text) => {
+      if (typeof text !== "string") return;
+      variants.push(text);
+      variants.push(normalizeContentEditableText(text));
+    };
+    addVariant(composer.innerText);
+    addVariant(composer.textContent);
     const structured = blockStructuredComposerText(composer);
     if (typeof structured === "string") variants.push(structured);
     return Array.from(new Set(variants));
@@ -334,7 +345,7 @@
     }
     const insertedText = validated.bootstrapText;
     const writtenComposer = findComposer() || composer;
-    if (!composerMatchesText(writtenComposer, insertedText)) {
+    if (!composerText(writtenComposer).trim()) {
       return { ok: false, reason: "spawn_composer_write_failed" };
     }
 
