@@ -11,6 +11,7 @@ importScripts(
   "worker_assistant_errors.js",
   "worker_conversations.js",
   "worker_spawn.js",
+  "worker_spawn_route_transition.js",
   "worker_lab_commands.js",
   "worker_github_legacy_gate.js",
   "worker_events.js"
