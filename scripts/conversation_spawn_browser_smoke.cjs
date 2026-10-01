@@ -252,9 +252,9 @@ document.querySelector("form").onsubmit = (event) => {
       };
     };
 
-    // Prove the production tabs.create path and immediate lost-ACK recovery. In offline CI
-    // Chrome may later replace the target with an error page, so the invariant is exactly
-    // one additional tab and the same recovered tab id, not permanent marker visibility.
+    // Prove the production tabs.create path and immediate lost-ACK recovery. New creates
+    // must stage on an extension-owned URL; putting #la-spawn on chatgpt.com itself causes
+    // the real app to fall back to mweb before the composer is usable.
     await terminateExtensionWorker();
     const createProof = intent("tabs-create-proof");
     const tabsBeforeCreateProof = (await allTabs()).length;
@@ -264,12 +264,19 @@ document.querySelector("form").onsubmit = (event) => {
     assert.equal(recoveredCreate.reason, "tab_recovered", JSON.stringify(recoveredCreate));
     assert.equal(recoveredCreate.tabId, created.tabId);
     assert.equal((await allTabs()).length, tabsBeforeCreateProof + 1);
+    const createdTab = await evaluateWorker(`chrome.tabs.get(${created.tabId})`);
+    const createdUrl = String(createdTab?.url || createdTab?.pendingUrl || "");
+    assert.match(
+      createdUrl,
+      new RegExp(`^chrome-extension://${extensionId}/spawn_staging\\.html#la-spawn=`),
+      createdUrl
+    );
+    assert.equal(createdUrl.startsWith("https://chatgpt.com/#la-spawn="), false, createdUrl);
     await closeTab(created.tabId);
-    console.log("PASS: production tabs.create and lost-create ACK recovery keep one exact transaction tab");
+    console.log("PASS: production create stages off-domain and lost-create ACK recovery keeps one exact transaction tab");
 
-    // Playwright-owned ChatGPT pages are intercepted by the offline fixture. Production
-    // spawn code discovers those exact marker URLs through chrome.tabs and then exercises
-    // the real content-script submit/reconcile path on them.
+    // Playwright-owned ChatGPT pages are intercepted by the offline fixture. Legacy
+    // marker fixtures remain read-only compatibility coverage; production no longer creates them.
     const firstPending = intent("restart-before-bootstrap");
     const firstSeed = await seedFixtureSpawn(firstPending);
 
