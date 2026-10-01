@@ -206,14 +206,6 @@ async function workerExpression(context, expression) {
   return worker.evaluate(`Promise.resolve(${expression})`);
 }
 
-function spawnMarkerUrl(transactionId) {
-  const normalized = String(transactionId || "");
-  if (!/^spawn-[0-9a-f]{64}$/.test(normalized)) {
-    throw new Error("conversation spawn transaction_id is invalid");
-  }
-  return `https://chatgpt.com/#la-spawn=${encodeURIComponent(normalized)}`;
-}
-
 async function recoverCreate(context, intent) {
   const transactionId = String(intent?.transaction_id || "");
   if (!/^spawn-[0-9a-f]{64}$/.test(transactionId)) {
@@ -234,38 +226,7 @@ async function reattachPreSubmit(context, intent) {
   if (!Number.isInteger(originalTabId) || originalTabId < 1) {
     throw new Error("pre-submit reattach requires the durable original tab_id");
   }
-  const recovered = await recoverCreate(context, intent);
-  if (recovered?.ok || recovered?.reason !== "spawn_create_recovery_missing") {
-    return recovered;
-  }
-
-  const page = await context.newPage();
-  let keepPage = false;
-  try {
-    await page.goto(spawnMarkerUrl(intent.transaction_id), {
-      waitUntil: "domcontentloaded",
-      timeout: 30_000
-    }).catch(() => null);
-
-    const deadline = Date.now() + 5000;
-    let attached = null;
-    while (Date.now() < deadline) {
-      attached = await recoverCreate(context, intent);
-      if (attached?.ok || attached?.reason !== "spawn_create_recovery_missing") break;
-      await page.waitForTimeout(50);
-    }
-    if (!attached?.ok) {
-      return attached || { ok: false, reason: "spawn_pre_submit_reattach_failed" };
-    }
-    const tabId = Number(attached.tabId || 0);
-    if (!Number.isInteger(tabId) || tabId < 1) {
-      return { ok: false, reason: "spawn_pre_submit_reattach_invalid_tab" };
-    }
-    keepPage = true;
-    return { ok: true, reason: "tab_reattached", tabId };
-  } finally {
-    if (!keepPage) await page.close().catch(() => null);
-  }
+  return callWorker(context, "reattachConversationSpawnTab", intent);
 }
 
 async function probeBeforeSubmit(context, intent) {
