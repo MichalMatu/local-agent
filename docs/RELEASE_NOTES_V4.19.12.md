@@ -16,6 +16,8 @@ Local Agent 4.19.12 hardens GitHub outage behavior in the control plane. A trans
 
 Task schema, hard binding, resource declarations, worker concurrency, MCP contracts and Chat Bridge protocol/version remain unchanged. Chat Bridge stays at 0.6.2.
 
+Downstream planner-documentation audit: no downstream update is required because task construction, task/status fields, planner scope, resources, concurrency, launchd deployment and planner-facing control paths are unchanged. This release changes only bounded transport timing and retry suppression inside Local Agent.
+
 ## Verification requirements
 
 The candidate requires focused network-resilience tests, the repository-wide verification suite, CI coverage/Python compatibility and macOS smoke before `main` can advance.
