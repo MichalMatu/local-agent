@@ -48,7 +48,6 @@ module.exports = {
         channel: "chromium"
       });
       let documentCount = 0;
-      await context.setOffline(true);
       await context.route("https://**/*", async (route) => {
         const url = route.request().url();
         if (url.startsWith("https://chatgpt.com/") || url.startsWith("https://chat.openai.com/")) {
