@@ -42,11 +42,16 @@ const fixture = `<!doctype html><html><body>
 
 const wrapperSource = `"use strict";
 const fs = require("node:fs");
+const path = require("node:path");
 const real = require(process.env.LOCAL_AGENT_PLAYWRIGHT_REAL_MODULE);
 const fixture = fs.readFileSync(process.env.LOCAL_AGENT_LIVE_SLICE_FIXTURE, "utf8");
 module.exports = {
   chromium: {
     async launchPersistentContext(profile, options) {
+      const staleWorkerSentinel = path.join(profile, "Default", "Service Worker", "stale-worker-sentinel");
+      if (fs.existsSync(staleWorkerSentinel)) {
+        throw new Error("live-slice browser must clear stale DEV service-worker state before launch");
+      }
       if (!Array.isArray(options.args) || !options.args.includes("--restore-last-session")) {
         throw new Error("live-slice browser must restore the isolated persistent session");
       }
@@ -85,6 +90,9 @@ function bounded(label, promise, timeoutMs = 20_000) {
   const wrapperPath = path.join(temp, "playwright-wrapper.cjs");
   await fs.writeFile(fixturePath, fixture, "utf8");
   await fs.writeFile(wrapperPath, wrapperSource, "utf8");
+  const staleWorkerSentinel = path.join(profile, "Default", "Service Worker", "stale-worker-sentinel");
+  await fs.mkdir(path.dirname(staleWorkerSentinel), { recursive: true });
+  await fs.writeFile(staleWorkerSentinel, "stale\n", "utf8");
 
   const child = spawn(process.execPath, [
     path.join(root, "scripts", "conversation_live_slice_browser.cjs"),

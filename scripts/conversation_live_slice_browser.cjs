@@ -49,6 +49,25 @@ function parseArgs(argv) {
   return parsed;
 }
 
+function requireSafeDirectoryIfPresent(candidate, field) {
+  if (!fs.existsSync(candidate)) return;
+  const stats = fs.lstatSync(candidate);
+  if (stats.isSymbolicLink()) throw new Error(`${field} must not be a symlink: ${candidate}`);
+  if (!stats.isDirectory()) throw new Error(`${field} must be a directory: ${candidate}`);
+}
+
+function resetEphemeralServiceWorkerState(profile) {
+  const parent = path.dirname(profile);
+  requireSafeDirectoryIfPresent(parent, "DEV browser profile parent");
+  requireSafeDirectoryIfPresent(profile, "DEV browser profile");
+  fs.mkdirSync(profile, { recursive: true });
+  const defaultProfile = path.join(profile, "Default");
+  requireSafeDirectoryIfPresent(defaultProfile, "DEV browser Default profile");
+  const serviceWorker = path.join(defaultProfile, "Service Worker");
+  requireSafeDirectoryIfPresent(serviceWorker, "DEV browser Service Worker state");
+  if (fs.existsSync(serviceWorker)) fs.rmSync(serviceWorker, { recursive: true, force: true });
+}
+
 function boundedInteger(value, { minimum, maximum, field }) {
   if (!Number.isInteger(value) || value < minimum || value > maximum) {
     throw new Error(`${field} must be ${minimum}..${maximum}`);
@@ -221,7 +240,7 @@ async function probeBeforeSubmit(context, intent) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  fs.mkdirSync(args.profile, { recursive: true });
+  resetEphemeralServiceWorkerState(args.profile);
   const context = await chromium.launchPersistentContext(args.profile, {
     headless: args.headless,
     args: [
