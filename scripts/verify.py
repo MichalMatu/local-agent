@@ -161,6 +161,10 @@ def run_bridge_browser() -> None:
         "Conversation spawn block-structured composer rerender smoke",
         [node, "scripts/conversation_spawn_composer_structure_smoke.cjs"],
     )
+    _run(
+        "Conversation spawn transient UC route smoke",
+        [node, "scripts/conversation_spawn_uc_transition_smoke.cjs"],
+    )
 
 
 def parse_args() -> argparse.Namespace:
