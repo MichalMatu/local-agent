@@ -13,11 +13,11 @@ Read, in order:
 3. docs/conversation_fabric/CURRENT_PLAN.md
 4. docs/DEVELOPMENT_PLAN.md
 
-Before changing anything, verify the current GitHub head of develop/conversation-fabric and compare it with the handoff. Production main must remain untouched.
+Before changing anything, verify the actual GitHub head of develop/conversation-fabric and compare it with the handoff. Production main must remain untouched.
 
 Mac rule: use host-ops for every Mac-local operation: checkout/worktree changes, local tests, browser/profile inspection and live proof execution. Use direct GitHub operations for repository inspection and repository-side changes.
 
-Current handoff baseline is develop/conversation-fabric at b6f9ce3bb47309474dba7c430df3880912aaa4ef, unless exact GitHub state has advanced legitimately since the handoff.
+The last accepted runtime/code baseline is b6f9ce3bb47309474dba7c430df3880912aaa4ef. The actual develop/conversation-fabric head may be later because handoff documentation can advance independently; verify GitHub rather than assuming the code-baseline SHA is the branch head.
 
 The preserved Stage 8 attempt stage8-live-child-001 / spawn-3c78a92eb001f46790989f4da8fea0bcca6b1d55035770b7dc48ef40bd72a032 is terminal ambiguous evidence. Do not retry, reset, rewrite or delete it.
 
