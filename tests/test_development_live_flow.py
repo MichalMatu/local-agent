@@ -162,6 +162,25 @@ class DevelopmentLiveFlowTests(unittest.TestCase):
         self.assert_layout_is_pinned(argv)
         self.assertEqual(run.call_args.kwargs["launch_nonce"], LAUNCH_NONCE)
 
+    def test_manual_attach_required_run_has_no_automatic_next_effect(self) -> None:
+        manual = {
+            "status": "manual_attach_required",
+            "reason": "spawn_create_recovery_missing",
+            "needs_rearm": True,
+        }
+        with patch.object(live_flow.live_runner, "run_live_slice", return_value=manual):
+            code, payload, _stderr = self.invoke(
+                "run",
+                "--launch-nonce",
+                LAUNCH_NONCE,
+                "--login-timeout-seconds",
+                "45",
+            )
+
+        self.assertEqual(code, 3)
+        self.assertEqual(payload["result"], manual)
+        self.assertNotIn("next_action", payload)
+
     def test_completed_run_has_no_next_effect(self) -> None:
         completed = {"status": "completed", "recovered": False}
         with patch.object(live_flow.live_runner, "run_live_slice", return_value=completed):
