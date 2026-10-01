@@ -9,7 +9,7 @@ Local Agent 4.19.12 hardens GitHub outage behavior in the control plane. A trans
 - Git transport attempts routed through `run_git_with_network_retry()` are capped at 20 seconds per attempt.
 - One transient retry after 2 seconds remains inside the storage helper; longer recovery is delegated to the existing supervisor retry/backoff policy.
 - Control checkout synchronization uses a process-local 30-second circuit breaker after an exhausted transient Git failure. During the open interval it fails fast without spawning another Git network command.
-- Remote emergency operator ref probing now uses a 5-second ref timeout and transport backoff of 10, 30 and then 60 seconds.
+- Remote emergency operator ref probing now uses a 5-second ref timeout and transport backoff of 5, 10 and then 15 seconds, keeping outage load bounded without making emergency control recovery sluggish.
 - Remote transport failures continue to preserve the last known desired state. Reachable but invalid operator state remains fail-closed.
 
 ## Compatibility
