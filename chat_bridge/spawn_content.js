@@ -271,27 +271,27 @@
 
     let button = await waitForSendButton(composer);
     if (!button) {
-      clearComposer(composer, insertedText);
+      clearComposer(findComposer() || composer, insertedText);
       return { ok: false, reason: "spawn_send_button_not_ready" };
     }
+    const activeComposer = findComposer();
     if (
       routeState().kind !== "fresh" ||
-      !composer.isConnected ||
-      findComposer() !== composer ||
-      composerText(composer) !== insertedText
+      !activeComposer ||
+      composerText(activeComposer) !== insertedText
     ) {
       return { ok: false, reason: "spawn_composer_changed" };
     }
-    button = findSendButton(composer) || await waitForSendButton(composer, 1200);
+    button = findSendButton(activeComposer) || await waitForSendButton(activeComposer, 1200);
     if (!button) {
-      clearComposer(composer, insertedText);
+      clearComposer(findComposer() || activeComposer, insertedText);
       return { ok: false, reason: "spawn_send_button_not_ready" };
     }
 
     try {
       writeClaim(validated, "submitting");
     } catch (error) {
-      clearComposer(composer, insertedText);
+      clearComposer(activeComposer, insertedText);
       return { ok: false, reason: "spawn_claim_write_failed", error: String(error) };
     }
 
