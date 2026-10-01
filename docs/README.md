@@ -11,6 +11,8 @@
 | Understand security boundaries | [`SECURITY_MODEL.md`](SECURITY_MODEL.md) |
 | Understand repository scheduling | [`MULTI_REPOSITORY.md`](MULTI_REPOSITORY.md) |
 | Understand current release/runtime invariants | [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) |
+| Continue development after the checkpoint | [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) |
+| Resume from the latest checkpoint | [`CURRENT_HANDOFF.md`](CURRENT_HANDOFF.md) |
 | Run the ChatGPT autonomous loop | [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) |
 | Control Chat Bridge pacing/status through GitHub | [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md) |
 | Review the post-v4.19.9 Chat Bridge hardening audit | [`CHAT_BRIDGE_AUDIT_2026-09-30.md`](CHAT_BRIDGE_AUDIT_2026-09-30.md) |
@@ -60,6 +62,8 @@ For a GitHub-managed conversation, the ChatGPT DOM is not the source of truth fo
 - [`SECURITY_MODEL.md`](SECURITY_MODEL.md) — trust boundaries and enforced safety properties.
 - [`MULTI_REPOSITORY.md`](MULTI_REPOSITORY.md) — registry, workers and scheduling.
 - [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) — accepted release/runtime invariants.
+- [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) — current product direction and next development milestone.
+- [`CURRENT_HANDOFF.md`](CURRENT_HANDOFF.md) — concise release/checkpoint continuation state.
 - [`EMERGENCY_CONTROLS.md`](EMERGENCY_CONTROLS.md) — cancellation, disable state and recovery.
 
 ### Planner and Bridge
@@ -85,7 +89,7 @@ For a GitHub-managed conversation, the ChatGPT DOM is not the source of truth fo
 - [`CHAT_BRIDGE_AUDIT_2026-09-30.md`](CHAT_BRIDGE_AUDIT_2026-09-30.md) — current post-release Bridge hardening evidence until that candidate is explicitly advanced.
 - Git tag `vX.Y.Z` plus `local_agent.version.RELEASE_VERSION` are the release-version source of truth.
 
-Superseded dated Chat Bridge handoffs are removed once their durable findings are folded into canonical docs. The v4.19.9 changelog's historical `CHAT_BRIDGE_HANDOFF_2026-09-30.md` path is retained only as a tiny compatibility redirect; the original handoff content remains recoverable from Git history.
+Superseded dated Chat Bridge handoffs are historical evidence only. The current continuation handoff is `CURRENT_HANDOFF.md`; durable findings belong in canonical docs rather than repeated dated handoff files.
 
 ## Historical material
 

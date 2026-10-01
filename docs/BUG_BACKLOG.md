@@ -34,79 +34,51 @@ Priorities:
 
 ## BUG-001 — orphan descendant can retain `machine` / resource flock after worker failure
 
-**Status:** Open  
+**Status:** Fixed in production source; released in v4.18.5, closure revalidated by the v4.19.11 checkpoint  
 **Priority:** P1  
 **First confirmed:** 2026-09-06  
 **Area:** parallel supervisor, process lifecycle, resource admission, cancellation/recovery
 
-### Symptom
+### Original symptom
 
-A repository task running Playwright/Vite became stuck. The active task could no longer be cancelled reliably through the normal control path. After restarting/updating Local Agent, the next LiteGraph task remained indefinitely in:
+A repository task running Playwright/Vite became stuck. A surviving descendant retained inherited execution/resource lease descriptors after its worker disappeared, so later work could remain indefinitely in `waiting_resource`. A normal Local Agent restart did not reliably recover the host and the observed incident required a macOS reboot.
 
-```text
-state = waiting_resource
-blocked_resources = ["machine"]
-```
+### Root cause and safety constraint
 
-Restarting the Local Agent service was insufficient. A full macOS reboot released the resource and the LiteGraph repository returned to `idle`.
+Local Agent intentionally inherits both repository execution leases and requested machine/named-resource `flock` descriptors into command descendants. This prevents worker death from creating unsafe overlapping execution, but it also means a detached descendant can keep both leases alive after its worker exits.
 
-### Evidence / current mechanism
+The kernel-held `flock`, not the lock-file pathname, is the exclusion mechanism. Deleting/recreating lock files is therefore never a valid recovery strategy and could allow unsafe overlap.
 
-Local Agent resource admission uses `fcntl.flock`, not a lock-file-existence check. Resource lease file descriptors are intentionally inherited by spawned descendants through `LOCAL_AGENT_RESOURCE_LEASE_FDS` / `pass_fds`.
+### Implemented repair
 
-This protects against unsafe overlap when a worker dies while its command tree is still alive. Existing crash-recovery tests intentionally verify that a lease remains held until an orphaned command exits.
+Release v4.18.5 moved orphan recovery into the guarded production entrypoint. With the global daemon lifecycle lock held and no live supervisor allowed to race recovery, Local Agent:
 
-The failure mode is therefore consistent with a worker or control path dying while a descendant such as Playwright, Vite, Node or Chromium survives and continues holding the inherited resource descriptor.
+1. probes the configured repository leases;
+2. identifies processes that actually hold those kernel locks (`/proc` fdinfo on Linux; `lsof` fileglob/current-lock evidence on macOS);
+3. excludes the guarded process, its parent and init;
+4. sends bounded `SIGTERM`, then `SIGKILL` only to proven holders that survive;
+5. verifies that no holder remains and that the repository lease is actually acquirable before starting new execution.
 
-### Impact
+The guarded entrypoint also watches a live supervisor that reports quiescent while repository leases remain busy. After the bounded stall window it recycles that supervisor and performs the same guarded orphan recovery. Recovery never targets broad executable names such as `node`, `vite`, `chromium` or `playwright`.
 
-- an otherwise healthy supervisor can report `waiting_resource` forever;
-- unrelated work requiring `machine` is blocked;
-- normal Local Agent restart/update may not recover the machine;
-- the operator may be forced to find/kill orphan processes manually or reboot macOS;
-- the state looks like resource contention even when the original task is no longer productively running.
+Because command descendants inherit repository and resource descriptors through the same registered spawn path, an orphan retaining `machine` or a named resource also retains the repository lease used to identify that exact holder. Killing the proven orphan closes the inherited resource descriptors with the process.
 
-### Safety constraint
+### Regression coverage and closure evidence
 
-**Do not recover by deleting `machine.lock` or resource lock files.**
+- `tests/test_lease_recovery.py::LeaseRecoveryTests.test_orphan_recovery_kills_only_actual_lock_holder` creates a real inherited repository `flock`, keeps an unrelated observer of the same lock path alive, requires recovery to terminate only the actual lock holder, and verifies reacquisition.
+- `tests/test_lease_recovery.py::LeaseRecoveryTests.test_orphan_recovery_releases_inherited_resource_lock` reproduces the historical combined condition: a child inherits both a repository lease and a separate resource flock after the parent closes its copies; guarded repository-lease recovery must terminate that exact child and make **both** locks reacquirable.
+- `tests.test_lease_recovery` is part of the canonical macOS smoke profile. The exact v4.19.11 checkpoint SHA `5103272ed9e44f46abc4eec12d9947d4404b8137` passed the full Linux suite, Python 3.14 compatibility, coverage gate, real Chromium Bridge smoke and macOS smoke with this combined lease regression present.
+- `RELEASE_NOTES_V4.18.5.md` records the reproduced detached-daemon lease incident and shipped guarded recovery; `RELEASE_NOTES_V4.18.6.md` subsequently treats orphaned repository-lease recovery as fixed in v4.18.5.
 
-The kernel-held `flock`, not the pathname, is the exclusion mechanism. Deleting/recreating the file while an old process still holds the original inode could allow unsafe concurrent execution.
+### Safety invariants retained
 
-### Planned repair
+- never delete/recreate lock files to recover a held lease;
+- never kill by broad process name;
+- never perform destructive orphan recovery while another Local Agent daemon owns the lifecycle boundary;
+- verify actual lease release before allowing new execution;
+- interrupted claimed work remains terminal/fail-closed and is never silently replayed.
 
-1. Persist enough active-attempt process ownership metadata to identify the Local Agent-owned process group (`pid`/`pgid`) and associated resource lease without relying only on in-memory worker state.
-2. On explicit `cancel_task`, bounded supervisor shutdown/restart, and stale-attempt startup recovery, detect surviving descendants belonging to the exact Local Agent attempt.
-3. Terminate only the owned process group: bounded `SIGTERM`, then `SIGKILL` if required. Never kill processes merely because their executable name is `node`, `vite`, `chromium`, `playwright`, etc.
-4. Verify the owned process group is gone and the resource lease is actually acquirable before retrying pending work.
-5. Improve diagnostics for `waiting_resource` so the operator can see the known holder/attempt PID or PGID when Local Agent can determine it.
-6. Preserve the existing fail-closed rule: interrupted claimed work must not be silently replayed, and resource cleanup must never create overlapping execution.
-7. Keep cancellation and recovery functional even when the original repository worker no longer responds to the control watcher.
-
-### Required regression coverage
-
-- worker dies while a descendant still holds `machine`; controlled recovery releases it without a macOS reboot;
-- the same case for a named resource;
-- explicit `cancel_task` kills the exact owned descendant process group and receives/publishes a terminal ACK;
-- supervisor restart cleans a stale owned descendant without touching unrelated user processes;
-- an unrelated process with similar executable names is never killed;
-- no second task can acquire the resource until the old owned command group is confirmed dead;
-- interrupted work remains terminal/fail-closed rather than being silently re-executed;
-- macOS smoke covering a realistic Playwright/Vite/Chromium descendant tree;
-- existing resource-wait and crash-recovery tests continue to pass or are deliberately updated to the new ownership/recovery contract.
-
-### Temporary operator recovery
-
-Until this is fixed:
-
-1. disable Local Agent before disruptive recovery;
-2. inspect the holder rather than deleting lock files;
-3. kill only a positively identified orphan Local Agent process tree when practical;
-4. if ownership cannot be established safely, a macOS reboot is an acceptable last-resort recovery;
-5. confirm the resource is no longer held, then re-enable Local Agent and verify repository status returns to `idle` or expected work.
-
-### Closure criteria
-
-This item can be marked `Fixed` only when the exact failure can be reproduced in an automated/integration test and recovered without rebooting the Mac, while preserving resource exclusion and no-replay guarantees.
+The old backlog entry remained marked Open after the implementation shipped. The v4.19.11 checkpoint audit supplied the missing combined repository+resource regression proof and closes that documentation debt. A future distinct reproducer that can retain only a resource lock while no identifying repository lease remains would be a new defect, not a reopening of this incident without evidence.
 
 ---
 

@@ -40,6 +40,66 @@ class LeaseRecoveryTests(unittest.TestCase):
                 leases.close()
             self.assertFalse(repository_leases_busy(leases.paths))
 
+    def test_orphan_recovery_releases_inherited_resource_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            lock_dir = root / "repository-locks"
+            leases = acquire_execution_leases(lock_dir, ("repository:one",))
+            resource_path = root / "machine.lock"
+            resource = resource_path.open("a+", encoding="utf-8")
+            fcntl.flock(resource.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            env = os.environ.copy()
+            env.update(leases.environment())
+            env[RESOURCE_LEASE_FDS_ENV] = str(resource.fileno())
+            holder = popen_registered(
+                [
+                    sys.executable,
+                    "-c",
+                    "import time; print('holder-ready', flush=True); time.sleep(60)",
+                ],
+                cwd=root,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+            )
+            probe = resource_path.open("a+", encoding="utf-8")
+            try:
+                assert holder.stdout is not None
+                self.assertEqual(holder.stdout.readline().strip(), "holder-ready")
+                paths = leases.paths
+                leases.close()
+                resource.close()
+                self.assertTrue(repository_leases_busy(paths))
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+                recovered = recover_orphaned_repository_leases(
+                    paths,
+                    log=lambda _message: None,
+                    grace_seconds=0.1,
+                )
+                self.assertEqual(recovered, (holder.pid,))
+                holder.wait(timeout=5)
+                self.assertNotEqual(holder.returncode, 0)
+                self.assertFalse(repository_leases_busy(paths))
+
+                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
+            finally:
+                if holder.poll() is None:
+                    holder.kill()
+                    holder.wait(timeout=5)
+                if holder.stdout is not None:
+                    holder.stdout.close()
+                unregister_process(holder)
+                probe.close()
+                if not resource.closed:
+                    resource.close()
+                leases.close()
+
     def test_orphan_recovery_kills_only_actual_lock_holder(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

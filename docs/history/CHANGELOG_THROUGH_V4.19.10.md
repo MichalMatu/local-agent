@@ -1,0 +1,396 @@
+# Changelog
+
+This changelog records operationally relevant Local Agent releases. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. Historical per-release notes remain available under `docs/`.
+
+
+## v4.19.10
+
+- Freeze the post-v4.19.9 GitHub-backed Chat Bridge hardening as Chat Bridge 0.6.1 after the exact merged runtime completed a bounded daily-Chrome field E2E and returned to PAUSED.
+- Serialize desired-state reconciliation, use fresh control-boundary runtime reads, reject rollback/same-generation rewrites, prevent cold-profile expired-NEXT replay, and keep applied GitHub ownership fail-closed across missing/conflicting remote state.
+- Make GitHub-managed per-chat pacing read-only in the popup and worker, while preserving the global Master switch, manual Run now, explicit binding/removal and maintenance paths as local operator controls.
+- Keep the supported deployment topology at one production Chrome-profile executor per managed conversation; the second profile remains diagnostic only and no distributed cross-profile lease is added.
+- Keep the composer/Send delivery behavior unchanged: no speculative second click/resubmit without a reproducible duplicate-safe root cause.
+- Retain runtime schema 3, content protocol v13 and assistant guard v8. The final hardening field proof used exact conversation `chat-be9defd7`, automatic NEXT at 15:09, visible `GitHub managed` ownership, and ended at generation 5 PAUSED.
+- Registered downstream planner documentation was audited; GrowClip already documents Chat Bridge 0.6.0+ GitHub-backed pacing and no conflicting schedule transport was found in BloomML, MatrixHub or Tracker. See `RELEASE_NOTES_V4.19.10.md`, `GITHUB_BRIDGE_CONTROL.md` and `CHAT_BRIDGE_AUDIT_2026-09-30.md`.
+
+## v4.19.9
+
+- Promote Chat Bridge 0.6.0 and move normal managed-conversation STATUS, PAUSE, RESUME, NEXT and INTERVAL authority from assistant DOM markers to GitHub conversation_controls desired state on chat-bridge-state.
+- Keep runtime schema 3 backward-compatible, add exact conversation/repository/binding/revision validation, monotonic control_generation, binding-scoped/local-generation idempotence and repair of local pacing drift.
+- Ensure every MV3 worker activation owns a dedicated one-minute GitHub-control alarm so a remotely paused conversation can discover later RESUME without a conversation wake alarm.
+- Keep GitHub credentials out of the extension; the Bridge reads the existing public runtime endpoint and never changes the global Master switch.
+- Make legacy LAB schedule/operator pacing controls no-ops for GitHub-managed conversations while retaining explicit binding and maintenance migration paths.
+- Complete daily-Chrome live E2E: PAUSE gen1 -> RESUME gen2 -> exact two-minute NEXT gen3 -> successful composer/Send wake -> PAUSE gen4; final desired state is PAUSED.
+- Retain content protocol v13 and assistant guard v8; narrow the DOM contract to browser delivery/generation/error facts rather than scheduling authority. See RELEASE_NOTES_V4.19.9.md, GITHUB_BRIDGE_CONTROL.md and CHAT_BRIDGE_HANDOFF_2026-09-30.md.
+
+## v4.19.8
+
+- Fix assistant LAB control discovery for assistant-only grouped `data-turn-key` turns that expose neither a user bubble nor an explicit assistant-role marker, while stripping grouped action controls and preserving fail-closed user-only handling.
+- Recover the captured ChatGPT `Resume stream unavailable` assistant Retry card through the same exact-tab, Bridge-owned, bounded native-Retry path as message-delivery timeout; unknown error kinds remain rejected.
+- Advance Chat Bridge to 0.5.18 and assistant guard protocol to v8 so reachable open tabs replace the expanded structured-error DOM contract; content protocol remains v13.
+- Make Host Ops Bridge recovery and managed diagnostic-browser stop fail closed while a ChatGPT generation Stop control is present, with explicit `--force` reserved for deliberate emergency interruption.
+- Add DOM/worker/browser regressions plus 11 recovery-helper and 13 session-helper tests for the new behavior.
+
+## v4.19.7
+
+- Fixed assistant LAB controls being silently shadowed when a newer user-only `data-turn-key` was appended before the bounded assistant scanner observed the preceding response.
+- Grouped turns now qualify as assistant candidates only when removing recognized user bubbles leaves non-empty assistant content; user-only turns remain outside the assistant namespace and outside latest-assistant ordering.
+- Added a real-extension race regression that appends an assistant `[LAB:PAUSE]` turn and a newer user-only turn synchronously, requiring the preceding assistant control to reach the worker.
+- Advance Chat Bridge to 0.5.16 and content protocol to v12 so already-open tabs replace `content.js`; assistant guard protocol remains v7 because the guard-captured DOM contract is unchanged.
+- Synced README/test-harness Bridge version metadata that had remained stale after 4.19.6. See `RELEASE_NOTES_V4.19.7.md` and `CHATGPT_DOM_CONTRACT.md`.
+
+## v4.19.6
+
+- Merge explicit assistant-role nodes with grouped `data-turn-key` assistant fallbacks by logical turn and document order, instead of globally suppressing grouped turns whenever any older explicit assistant remains mounted.
+- Preserve the explicit assistant node when both representations belong to the same turn, while allowing a newer grouped-only turn to become the latest assistant control source.
+- Keep grouped assistant parsing fail-closed by stripping recognized user bubbles from a clone before parsing LAB controls.
+- Advance Chat Bridge to 0.5.15, content protocol to v11 and assistant guard protocol to v7 so current tabs replace both content and guard-captured DOM contracts.
+- Add DOM-contract and real-extension browser regressions for the exact mixed-DOM failure observed on the diagnostic CfT conversation. See `RELEASE_NOTES_V4.19.6.md` and `CHATGPT_DOM_CONTRACT.md`.
+
+## v4.19.5
+
+- Added a fail-closed grouped-turn assistant fallback for the live ChatGPT renderer that exposes `data-turn-key` and `data-user-message-bubble` but no assistant-role attribute.
+- Assistant LAB parsing now removes all user bubbles from a cloned grouped turn before parsing; a user-only grouped turn cannot become an assistant control.
+- Extended the same grouped-turn fallback to structured timeout/exhaustion detection, and advanced Chat Bridge to 0.5.14, content protocol to v10 and assistant guard protocol to v6 so already-open tabs replace both captured contracts.
+- Added DOM-contract and real-extension browser regressions for competing user/assistant LAB markers. See `RELEASE_NOTES_V4.19.5.md` and `CHATGPT_DOM_CONTRACT.md`.
+
+## v4.19.4
+
+- Fixed a mixed-rollout ChatGPT DOM bug where the presence of any older `data-message-author-role` node could hide a later turn rendered only with the current role family.
+- Collect both legacy/current role selectors in document order, deduplicate nested representations by the surrounding `data-turn-key` turn, and use the document-latest turn for assistant controls, operator controls, timeout recovery, exhaustion detection and submitted-user confirmation.
+- Advanced Chat Bridge to 0.5.13, content protocol to v9 and assistant timeout/exhaustion guard protocol to v5 so already-open tabs replace both repaired `content.js` and the guard-captured DOM contract.
+- Added focused DOM-contract and real-extension mixed-family regression coverage. See `RELEASE_NOTES_V4.19.4.md` and `CHATGPT_DOM_CONTRACT.md`.
+
+## v4.19.3
+
+- Repaired Chat Bridge control discovery and submitted-user confirmation for the current ChatGPT DOM, where live production turns expose `data-conversation-role="assistant"` and `data-user-message-bubble` instead of the legacy `data-message-author-role` family.
+- Kept legacy selectors as the first compatibility path and added `data-turn-key` only as a stable DOM identity fallback, without changing repository/binding semantics.
+- Advanced Chat Bridge to 0.5.12, content protocol to v8 and assistant timeout/exhaustion guard protocol to v4 so already-open tabs refresh onto the repaired turn contract.
+- Added DOM-contract and real-extension browser regression coverage for the current turn shape. See `RELEASE_NOTES_V4.19.3.md` and `CHATGPT_DOM_CONTRACT.md`.
+
+## v4.19.2
+
+- Added optional escape-safe `.agent/tasks/<task-id>.payload/` UTF-8 references for source-like patch, write-content and command fields while keeping legacy inline task JSON fully compatible and preserving the same resolved task digest.
+- Kept external payload transport fail-closed and bounded: references stay under the task-id payload root, symlinks/path traversal/missing or invalid UTF-8 are rejected, and the fully resolved logical task remains capped by the existing 4 MiB task-file limit.
+- Made local bundle publication collision-safe and hardened runtime GC so retained payload files are removed without following symlinks or trusting malformed embedded task ids.
+- Kept malformed JSON terminal with no guessed repair/replay, and kept scheduler, binding, resources, watchdogs, results and Chat Bridge behavior unchanged. See `RELEASE_NOTES_V4.19.2.md` and `TASK_PAYLOAD_TRANSPORT.md`.
+
+## v4.19.1
+
+- Added explicit fail-closed Chat Bridge `planner_scope` with `repository` as the default and the canonical `host-ops` binding authorized as the multirepo operator workspace.
+- Allowed a `host-ops` conversation to target repositories from the current validated runtime catalog without changing its immutable conversation binding; normal repository-bound conversations retain their existing single-repository/Rebind behavior.
+- Preserved executor isolation: every Local Agent task still uses the exact canonical binding of its target repository, and repository binding admission, leases, resources, watchdogs, cancellation and durable evidence remain unchanged.
+- Kept `local-agent` self-execution disabled while allowing a host-ops multirepo planner to inspect or edit the Local Agent repository through direct GitHub operations.
+- Advanced Chat Bridge to 0.5.11 for the service-worker planner-scope change while retaining content protocol v7 and assistant timeout/exhaustion guard protocol v3. See `RELEASE_NOTES_V4.19.1.md` and `HOST_OPS_MULTIREPO.md`.
+
+## v4.19.0
+
+- Released generic Local Agent-owned MCP support through the official Python SDK with loopback-only Streamable HTTP and no application-specific runtime adapters.
+- Added a versioned machine-local MCP registry with fail-closed server/tool policy, explicit `read` / `write` / `arbitrary_code` risk classification, and matching explicit intent requirements for consequential calls.
+- Added bounded discovery, textual results, MIME-validated binary artifact persistence with SHA-256 metadata, and a packaged JSON CLI usable from ordinary Local Agent tasks without changing task schema or scheduler behavior.
+- Added focused negative/positive coverage plus a real hermetic HTTP MCP integration suite in full tests and macOS smoke. Release `v4.19.0` is tagged at `1ea863d06a20e766f9fe0fa5589cc59aa0e2671a`, and live repository status has confirmed a production daemon running version 4.19.0 at that revision. See `RELEASE_NOTES_V4.19.0.md` and `MCP_INTEGRATION.md`.
+
+## v4.18.26
+
+- Onboarded `MichalMatu/hardware-lab` as a canonical execution-enabled hard-bound repository with immutable binding `fa3dc1d7-5ee2-4b59-841c-e41918610df1`.
+- Mirrored the same identity in the Chat Bridge runtime example and added dedicated regression coverage without changing scheduler, executor, task schema, resource semantics or Bridge protocol.
+- Defined the fail-closed deployment path for machine-local registry append, workspace provisioning, committed `agent-control` binding, live `chat-bridge-state` publication and explicit conversation rebind.
+- Kept Kobra-specific code/CAD/calibration in `hardware-lab/projects/kobra2-neo`; `host-ops` remains the generic machine/device capability layer. See `RELEASE_NOTES_V4.18.26.md`.
+
+## v4.18.25
+
+- Bound remote `agent-control` ancestry by compacting eligible control history to one root commit that reuses and verifies the exact current `.agent/` Git tree.
+- Publish compaction only with an exact `--force-with-lease` against the observed remote SHA; competing old-lineage writes fail closed, while an accepted push with a lost client response is reconciled against the remote rather than blindly retried.
+- Preserve a fresh task/status commit that lands immediately after compaction by recognizing descendants of the new root and realigning the local control checkout to the newer remote tip.
+- Gate automatic rewrites behind the versioned `bounded-v1` history trailer so legacy branches remain untouched until explicit backed-up migration; managed branches compact automatically at 128 commits inside the existing 256-commit shallow window.
+- Require apply-mode daemon exclusion and a verified full-history branch-only Git bundle before each one-time administrative rewrite; project source branches, task/result schemas, binding, resources, executor and Chat Bridge contracts remain unchanged. See `RELEASE_NOTES_V4.18.25.md` and `AGENT_CONTROL_COMPACTION.md`.
+
+## v4.18.24
+
+- Released Chat Bridge 0.5.10 recovery for ChatGPT assistant-side `Message delivery timed out. Please try again.` failures by using the native Retry control instead of resubmitting the accepted user prompt.
+- Restricted automatic recovery to Bridge-owned prompts in the exact preferred tab with unchanged binding/generation, fresh-bootstrap ownership and final post-reservation lifecycle revalidation.
+- Added durable three-attempt recovery accounting, unresolved-timeout wake gating, stale lifecycle cleanup and fail-closed exhaustion while leaving Local Agent daemon/executor/scheduler behavior unchanged.
+- Added isolated real-extension Chromium coverage for one-retry recovery, stale cards, >8 s same-node generation, three-attempt exhaustion, operator-authored timeout non-recovery and full page-reload continuation without duplicate submission.
+- Advanced only the browser extension from 0.5.9 to 0.5.10; ordinary content protocol remains v7 and the assistant error/exhaustion guard uses protocol v3. See `RELEASE_NOTES_V4.18.24.md`.
+
+## v4.18.23
+
+- Onboarded `MichalMatu/host-ops` as a canonical execution-enabled hard-bound repository with immutable binding `16d688b6-b0ef-4905-a5bd-24e59c99cfb4`.
+- Added the same identity to the canonical binding catalog and Chat Bridge runtime example, with dedicated regression coverage, without changing executor, scheduler, task schema, resource semantics or Bridge protocol.
+- Prepared the repository's remote `agent-control` branch with the matching `.agent/binding.json`; machine-local registry/provisioning and live Bridge activation remain explicit fail-closed deployment steps.
+- Preserved `resources: []` as the default for host-ops tasks unless a concrete operation genuinely requires a shared named or whole-machine resource. See `RELEASE_NOTES_V4.18.23.md`.
+
+## v4.18.22
+
+- Added explicit assistant-controlled Chat Bridge `ADD=<repository-id>`, `REBIND=<repository-id>` and `REMOVE` controls using exact runtime-catalog repository ids; repository identity is never inferred from prose.
+- Preserved hard binding within each wake while making explicit Rebind a deterministic lifecycle transition with a fresh binding revision/bootstrap before work may continue in the new repository.
+- Made assistant `RELOAD=BRIDGE` and `RELOAD=CONTENT` independent of ordinary binding-revision/bootstrap freshness while retaining exact sender, conversation, assistant-baseline and dedupe checks.
+- Advanced Chat Bridge to `0.5.9` and content protocol to `v7` so already-open tabs cannot silently retain the old control parser after upgrade.
+- Preserved task-scoped `work_branch`, global Bridge Master and Local Agent emergency-disable semantics. See `RELEASE_NOTES_V4.18.22.md`.
+
+## v4.18.21
+
+- Hardened Chat Bridge scheduling so stale asynchronous alarm clears, alarm schedules and status writes cannot overwrite a newer conversation generation.
+- Preserved confirmed `conversation_exhausted` as terminal for the same hard binding while preventing a stale exhaustion report from crossing an explicit Rebind.
+- Added deterministic regression coverage for exhaustion/NEXT, exhaustion/Rebind, stale disable cleanup, master-off/master-on reconciliation, delayed Rebind bootstrap scheduling, and stale status writes.
+- Advanced Chat Bridge to `0.5.8` while retaining content protocol `v6`; task schema, `work_branch`, repository binding, resource scheduling, executor and result contracts are unchanged.
+- Preserved the known-good branch-neutral conversation binding model from `d2c23951456d1e1528e3c52e47bdd104294cf170`; source branch selection remains task-scoped and does not require Rebind. See `RELEASE_NOTES_V4.18.21.md`.
+
+## v4.18.20
+
+- Prevented ChatGPT planner conversations from silently delegating Local Agent work to a local Codex CLI.
+- Added fail-closed task-contract validation for `commands`, `verify_commands`, structured `steps`, and `verify_steps`; executable command strings containing the `codex` token are rejected before execution.
+- Added regression coverage for direct Codex invocation, absolute-path invocation, and `npx @openai/codex`.
+- Updated canonical and live Chat Bridge prompts to state that ChatGPT remains the planner and Local Agent may not invoke or delegate work to local Codex or another local coding-agent/LLM CLI.
+- Audited registered downstream planner documentation; existing instructions already preserve the ChatGPT/sandbox planner and deterministic Local Agent executor boundary and require no downstream edits. See `RELEASE_NOTES_V4.18.20.md`.
+
+## v4.18.19
+
+- Onboarded `MichalMatu/local-climate-link-starter` as the sixth canonical hard-bound repository with immutable binding `e75c77cb-7589-4452-94b2-decc97ff85a1` and execution enabled.
+- Added the same identity to the canonical binding catalog and Chat Bridge runtime example without changing scheduler, executor, parallel admission, task schema, resource semantics, Bridge extension version, or content protocol.
+- Provisioned and validated the new `agent-control` branch, appended/migrated the local registry entry while admission was disabled, and published the sixth identity to live `chat-bridge-state` runtime.
+- Completed read-only onboarding smoke against exact target `main` SHA `99f565711fdffb4e9b4e2be0289620da359d65a4` with the correct remote and a clean worktree. See `RELEASE_NOTES_V4.18.19.md`.
+
+## v4.18.18
+
+- Fixed the live Chat Bridge 0.5.6 diagnostic-feedback submit regression where `[LAB:HELP]` was detected and `[LA_BRIDGE_FEEDBACK]` was inserted into the composer but the operator still had to press Send manually.
+- Advanced Chat Bridge to 0.5.7 / content protocol v6 so already-open 0.5.6/v5 tabs are automatically refreshed after extension reload.
+- Changed the browser submit path to re-resolve the current enabled ChatGPT Send button immediately before submission and use its DOM `click()` path first; `form.requestSubmit()` remains last-resort fallback only.
+- Preserved exact-prompt/operator-edit/wrong-conversation/authorization guards and non-blocking `delivery_unconfirmed` behavior; no blind Enter simulation or unbounded resubmission was added.
+- Added a submit-path regression contract and retained isolated Chromium coverage. See `RELEASE_NOTES_V4.18.18.md`.
+
+## v4.18.17
+
+- Fixed the live Chat Bridge 0.5.5 popup regression where `Add current chat` still hard-coded content protocol v3 and rejected an already-open reachable protocol-v4/v3-mismatched tab with a manual-reload error.
+- Centralized `CONTENT_PROTOCOL_VERSION` in `control_protocol.js`, advanced Chat Bridge 0.5.6 content protocol from v4 to v5 so already-open 0.5.5 tabs are detectably stale, and routed popup tab activation through the worker's dispose/inject/re-probe path; popup no longer owns a second protocol version or reinjection implementation.
+- Added Chat Bridge 0.5.6 LAB discovery/diagnostic controls (`HELP`, `CAPABILITIES`, `STATUS`, `DEBUG`, `SETTINGS`, `CHATS`, `CHAT=<id>`) with read-only same-chat feedback and infrastructure-only global chat listing.
+- Added explicit user-authored `LAB:OP:*` chat management for ADD/REMOVE/ENABLE/DISABLE/INTERVAL/Bridge reload, with persistent bounded dedupe, historical-user-message baselining across reinjection/navigation, and assistant/operator privilege separation so assistant content cannot mutate repository binding.
+- Added direct regression coverage for reachable 0.5.5/protocol-v4 content -> 0.5.6 worker refresh -> protocol-v5 readiness without a ChatGPT page reload, plus command-catalog/operator-control, exhaustion-guard cleanup, and operator-replay tests. See `RELEASE_NOTES_V4.18.17.md`.
+
+## v4.18.16
+
+- Hardened Chat Bridge delivery with content protocol v4 / extension 0.5.5: stale reachable content scripts are reinjected automatically, unconfirmed Bridge-owned prompts remain visible, and exact retained prompts can be reused only when untouched by the operator.
+- Replaced the assistant-control scanner's fixed three-failure give-up with a pure bounded 5-30 second retry policy that never terminally exhausts for unchanged assistant content.
+- Preserved explicit `NEXT=30s` protocol compatibility while changing autonomous healthy-task pacing to no sooner than about two minutes for early liveness checks and normally 5-10 minutes for multi-minute builds/tests.
+- Directed the planner to use existing repository-scoped `cancel_task` when exact run/status evidence already proves the active task cannot succeed; executor ownership and Browser Bridge authority remain unchanged.
+- Added protocol/injection, retry, pacing and isolated Chromium regressions, including direct proof that an unconfirmed Bridge prompt stays visible and operator edits block automatic reuse. See `RELEASE_NOTES_V4.18.16.md`.
+
+## v4.18.15
+
+- Fixed parallel self-update starvation when `.agent/daemon/control.json` retains a repository-owned `cancel_task` after that request has already been acknowledged or otherwise completed.
+- Preserved repository-worker ownership of `cancel_task`; the supervisor still does not route it through global control handling or use it to drain unrelated workers.
+- Decoupled `maybe_self_update()` from the cancel dispatch guard so a stale cancel control slot cannot pin an otherwise clean installed `main` checkout to an older release.
+- Added focused regression coverage and explicit macOS smoke coverage; retained the 4.18.14 BUG-002 admission semantics unchanged. See `RELEASE_NOTES_V4.18.15.md`.
+
+## v4.18.14
+
+- Fixed BUG-002 so repeated control-probe lease contention caused by the supervisor's own active control-repository worker no longer collapses unrelated cross-repository admission.
+- Track true consecutive `LEASE_BUSY` outcomes separately from degraded `DEFERRED` probes; degraded probes reset the lease-busy streak while preserving bounded control retry/backoff.
+- After six consecutive known-worker `LEASE_BUSY` outcomes, pause only new control-repository admission so the supervisor can regain the control lease before starting another control task; unrelated repositories remain admissible when capacity exists.
+- Preserve the six-consecutive-busy defensive global drain for unexplained control-repository lease holders and the immediate drain for confirmed `PENDING` global control.
+- Move control-probe retry/admission state and pure `RETRY` / `PAUSE_CONTROL_REPOSITORY` / `DRAIN_ALL` policy into `local_agent.supervisor.scheduling`, leaving `orchestrator.py` responsible for side effects and worker coordination.
+- Add pure policy regression tests, real temporary-Git late-admission overlap coverage, macOS smoke coverage, current-documentation drift checks and release metadata checks. See `RELEASE_NOTES_V4.18.14.md`.
+
+## v4.18.13
+
+- Increased the generated macOS LaunchAgent `ExitTimeOut` to 15 seconds and the restart helper bootout wait budget to 20 seconds so launchd does not SIGKILL the guarded entrypoint before bounded supervisor cleanup can finish.
+- Retained four-worker launchd rendering and the scheduler hard cap of four.
+- Preserved task schema, resource classification, binding, watchdog, result and downstream planner contracts.
+- Frozen known-working release commit: `a32e54858c3bcb9687334b3232b71ae6ff130208`. See `RELEASE_NOTES_V4.18.13.md` and `PRODUCTION_BASELINE_V4.18.13.md` on the control-probe fix candidate branch.
+
+## v4.18.12
+
+- Removed the duplicated historical macOS `1..3` worker limit from LaunchAgent generation.
+- Reused `local_agent.supervisor.scheduling.MAX_MAX_WORKERS` so runtime admission and macOS deployment validation share the same hard cap of four.
+- Added direct builder and CLI render regression coverage for `--max-workers 4`. See `RELEASE_NOTES_V4.18.12.md`.
+
+## v4.18.11
+
+- Raised bounded parallel repository concurrency from three to four workers while keeping the default at one.
+- Preserved repository leases, named/machine resource exclusion, worker ordering, watchdogs, control synchronization, task contracts and result schemas.
+- Added direct coverage for accepting four workers and rejecting five. See `RELEASE_NOTES_V4.18.11.md`.
+
+## v4.18.10
+
+- Announce worker admission before acquiring leases, and publish the registered worker set before returning from dispatch.
+- Accept watchdog lease observations only when the same idle status snapshot remains current before and after the probe.
+- Cover real worker dispatch and task completion, failed admission, and status changes during probing. See `RELEASE_NOTES_V4.18.10.md`.
+
+## v4.18.9
+
+- Publish control activity before acquiring repository leases and synchronizing Git, preventing false orphan-watchdog observations during ordinary control work.
+- Restore local quiescent or disabled status after lease release, including failed synchronization and contention.
+- Add real Git/lease regression coverage and audit downstream instructions; no planner contract migration is required. See `RELEASE_NOTES_V4.18.9.md`.
+
+## v4.18.4
+
+- Accept a whitespace-separated Bridge control at the end of the final assistant line, including `Acknowledged. [LAB:PAUSE]`.
+- Ignore hidden Stop buttons when detecting assistant generation so retained DOM nodes cannot block controls or wake delivery.
+- Observe visibility attribute changes to process completed-answer controls promptly and update the open popup.
+- Release Chat Bridge 0.5.3 with isolated Chromium coverage of inline pause, hidden/visible Stop buttons and popup synchronization.
+- Audit all registered downstream planner instructions; their existing control guidance remains valid and requires no edits. See `RELEASE_NOTES_V4.18.4.md`.
+
+## v4.18.3
+
+- Finalized Chat Bridge 0.5.2 after live operator validation of `RESUME`, `STOP`, `PAUSE`, `NEXT` and `INTERVAL` controls.
+- Removed the durable ambiguous-delivery blocker introduced in 4.18.1; lost post-submit confirmation is now diagnostic-only `delivery_unconfirmed`, with no `pendingDelivery` journal or manual ✓/× recovery gate.
+- Split the Bridge service worker into focused state, runtime, binding, scheduling, transport, control, delivery, conversation and event modules; `service_worker.js` is composition only.
+- Made the global Bridge Master switch operator-only while allowing assistant controls to overwrite ordinary per-chat pause/enabled, interval and next-wake state.
+- Added live popup synchronization in a separate `popup_live.js` module so externally applied chat controls update the open popup without reopening it.
+- Kept standalone C6 execution retired; no active catalog, workspace, test or documentation path reintroduces it.
+- Synchronized architecture documentation with the released Bridge ownership and non-blocking delivery model.
+
+## v4.18.2
+
+- Removed standalone `esp32-c6-zigbee` execution from the canonical agent catalog, live registry and Chat Bridge runtime.
+- Preserved historical recovery inputs outside the active workspace while removing active C6 control/work/checkpoint state.
+- Kept C6 development inside LiteGraph and made stale C6-bound conversations fail closed instead of rebinding automatically.
+- Preserved all 4.18.1 executor and hard-binding behavior outside the explicit C6 retirement.
+
+## v4.18.1
+
+- Hardened Chat Bridge delivery authorization, composer/navigation protection, runtime-schema validation and serialized state/alarm handling.
+- Added exact content-protocol preflight and isolated Chromium delivery/restart coverage.
+- Made direct GitHub edits an explicit planner path when exact diff and relevant CI evidence are sufficient; Local Agent remains the path for Mac/local-tool/device execution.
+- Completed Tracker onboarding and synchronized downstream hard-binding instructions.
+- This release used a durable ambiguous-delivery journal; 4.18.3 intentionally replaces that mechanism with non-blocking `delivery_unconfirmed` behavior.
+
+## v4.18.0
+
+- Completed package ownership for daemon, parallel and serial supervisors; retained four thin operational launchers and removed 15 obsolete root aliases/shims.
+- Centralized checkout resolution and switched workers to package module execution with explicit cwd; preserved restart mode and arguments.
+- Connected production scheduling directly to its tested packaged owner and removed duplicated policy and runtime compatibility exports.
+- Fixed same-turn disable admission, nonregular disable markers, malformed waiting status, remote operator ref races and guard child cleanup.
+- Removed process-wide stdout redirection from concurrent control polling so task output remains visible and bounded.
+- Pinned self-update to the inspected commit, serialized validation/reexec and added durable fail-closed recovery after interrupted installation.
+- Expanded real Git/process regression and macOS smoke coverage, including revived deferred-control admission integration coverage.
+- Audited downstream instructions and updated the Growbox development branch's release-version owner path. Task, binding, resource and result schemas remain stable.
+- Requires an operator-managed transition from v4.17; see [release notes](RELEASE_NOTES_V4.18.0.md).
+
+## v4.17.0
+
+- Completed the next package-ownership phase by moving execution core/process/storage foundations, repository admin/cleanup/worker, task executor, parallel worker, diagnostics and release version under `local_agent/`.
+- Reduced historical root library modules to thin aliases/shims and added `tests/test_package_layout.py` to prevent implementation from growing back into root shims.
+- Standardized root compatibility modules on one-module-object aliases so monkeypatch/runtime semantics do not create a second wrapper implementation.
+- Updated `docs/ARCHITECTURE.md` and `AGENTS.md` to make packaged ownership and the root entrypoint boundary explicit.
+- Kept `agentd.py`, `agent_parallel.py` and `agent_multirepo.py` as deliberate location-sensitive root orchestrators rather than performing unsafe cosmetic moves.
+- Kept `local_agent/supervisor/scheduling.py` parity-protected but not runtime-wired; production scheduling semantics still live in `agent_parallel.py`.
+- Preserved task, hard-binding, control, resource, watchdog, publication and Chat Bridge contracts; no downstream task-contract migration is required.
+
+## v4.16.0
+
+- Refactored implementation ownership into `local_agent/` packages while keeping root compatibility shims/entrypoints where existing runtime callers still require them.
+- Added centralized `scripts/verify.py`, explicit Ruff configuration and branch-aware coverage reporting in CI.
+- Moved configuration, repository identity/hard binding, local/remote operator control and guarded entrypoint implementation into packaged owners.
+- Extracted external-resource flock/FD handling and directly tested pure scheduling policy under `local_agent/supervisor/`.
+- Replaced machine-specific tracked macOS plist files with portable generated LaunchAgent configuration and separated non-disruptive install from explicit restart.
+- Added targeted regression coverage for parallel worker admission, guarded entrypoint lifecycle, remote fail-closed operator control and diagnostics.
+- Added architecture/contributor/review documentation for the new ownership boundaries.
+- Preserved the existing planner/task, hard-binding, resource and Chat Bridge control contracts; no downstream task-contract migration is required.
+
+## v4.15.0
+
+- Introduced hard binding between one ChatGPT conversation, one canonical `agent_binding` UUID and one exact repository identity.
+- Made unbound or mismatched bridge/runtime state fail closed instead of inferring a repository from chat context.
+- Added explicit operator-only **Rebind** semantics; normal chat edits and assistant control markers cannot change repository identity.
+- Required matching registry binding, control-branch `.agent/binding.json` and task `agent_binding` before serial or parallel execution may claim work.
+- Added terminal pre-claim rejection for missing or wrong task bindings so rejected work executes no task command.
+- Updated Chat Bridge to v0.4/state schema v3 with exact identity envelopes on bootstrap and wake messages.
+- Hardened control synchronization by materializing the fetched remote control ref before active cancellation/ACK checks.
+
+## v4.14.3
+
+- Made `reset-runtime` remove global ephemeral daemon status as well as repository/legacy runtime state.
+- Added status-owner liveness semantics so dead owners are reported as stale rather than presented as a live daemon.
+- Aligned `agentctl status` and `agentctl doctor` with guarded-entrypoint ownership.
+
+## v4.14.2
+
+- Added guarded `agent_entrypoint.py` ownership of the supervisor lifecycle.
+- Added repository-independent `operator-control` desired-state emergency control.
+- Added disabled-only `reset-runtime` for stale local claim/spool/run state after destructive queue recovery.
+- Added guarded cleanup of generated control bytecode and provisioning of completely missing control/work checkouts.
+- Runs the supervisor with `PYTHONDONTWRITEBYTECODE=1` and expanded Linux/macOS emergency-control coverage.
+
+## v4.14.1
+
+- Added repository-scoped `cancel_task` for pending and active work.
+- Added a global persistent Local Agent disable marker that survives supervisor and launchd restarts.
+- Added explicit local `agent_operator.py enable|disable|status` control.
+- Made malformed disable state fail closed and expanded emergency-control tests/documentation.
+
+## v4.14.0
+
+- Added bounded garbage collection for Git-backed runtime metadata after control synchronization.
+- Pending tasks are never pruned; terminal task/result files are pruned as pairs and pending-task run records stay protected.
+- The ACK matching the current control request is always protected.
+- Cleanup failures remain fail-open for task execution while unexpected `.agent/tasks` mutations remain fail closed.
+- Default retention is 32 terminal task/result pairs, 32 runs, 16 ACKs and 8 orphan results.
+
+## v4.13.1
+
+- Fixed remote idle-heartbeat freshness so stale daemon status/version cannot persist because of locally rewritten status-file mtimes.
+- Made explicit retry deadlines override normal adaptive polling for resource and worker backoff.
+- Preserved parallel/serial execution metadata during supervisor-wide status control.
+- Separated inherited repository execution leases from external resource-lock descriptors.
+- Extracted shared supervisor polling/order policy and control-binding primitives under `local_agent/supervisor/`.
+
+## v4.13.0
+
+- Made task `resources` mandatory and strictly validated instead of silently falling back to whole-machine exclusivity.
+- Defined `resources: []` as repository-local work with no exclusive external resource.
+- Reserved named resources for concrete shared devices/state and `machine` for genuine whole-host operations.
+- Decoupled `memory_limit_mb` from resource admission.
+- Added durable resource waiting with bounded retry and published `waiting_resource` status.
+- Improved Chat Bridge `NEXT=<duration>` continuation behavior and regression coverage.
+
+## v4.12.2
+
+- Continued behavior-preserving runtime modularization.
+- Extracted progress-marker parsing and bounded asynchronous progress publication into `local_agent/runtime/progress.py`.
+- `agent_runtime.py` retains the historical progress imports and keeps executor heartbeat timing (`PROGRESS_INTERVAL`) local for compatibility with existing monkeypatch/test seams.
+
+## v4.12.1
+
+- Continued behavior-preserving runtime modularization.
+- Extracted immutable task digests, schema validation, task payload limits and bounded timeout/memory parsing into `local_agent/runtime/task_contract.py`.
+- `agent_runtime.py` re-exports the historical task-contract names and constants so existing callers and tests keep the same import surface.
+
+## v4.12.0
+
+- Began behavior-preserving runtime modularization while keeping root entrypoints and compatibility imports stable.
+- Extracted live output/diff rendering into `local_agent/runtime/output.py`.
+- Extracted host/process telemetry parsing/collection and the underlying RSS sampler into `local_agent/runtime/telemetry.py`.
+- `agent_runtime.py` remains the staged executor/orchestrator and keeps the historical `_safe_command`/RSS sampling monkeypatch seam through a small compatibility adapter.
+
+## v4.11.11
+
+- Documentation and release-hygiene alignment only; no runtime behavior change.
+- Removed stale hard-coded release text from the README and synchronized current control-probe/logging invariants.
+
+## v4.11.10
+
+- Applied concise multiline command descriptors to the production `RuntimeExecutor` path, including timeout and memory-limit diagnostics.
+- Full command and bounded output evidence remains in run/result JSON.
+
+## v4.11.9
+
+- Made production operator logging concise by default.
+- Successful internal Git housekeeping and ordinary control-repository lease contention no longer spam the daemon log.
+- Added `LOCAL_AGENT_VERBOSE_LOGS=1` as a temporary low-level diagnostic override only.
+
+## v4.11.8
+
+- Bounded launchd stdout/stderr log history.
+- When idle, a log above 2 MiB is compacted in place to approximately the most recent 1 MiB with descriptor/path verification and append semantics preserved.
+
+## v4.11.7
+
+- Prevented global-control starvation under repeated control-repository lease contention.
+- Added explicit `LEASE_BUSY` probe classification and a bounded drain after six consecutive lease-busy probes.
+
+## v4.11.6
+
+- Hardened verification/output behavior and retry/logging discipline.
+- Added structured `stream`/`summary` output policy while preserving bounded terminal result evidence and watchdog behavior.
+- Added bounded exponential retry and repeated-failure log gating for supervisor failure paths.
