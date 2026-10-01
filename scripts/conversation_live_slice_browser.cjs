@@ -201,24 +201,9 @@ async function callWorker(context, name, value) {
   return worker.evaluate(expression);
 }
 
-async function workerExpression(context, expression) {
-  const worker = await extensionWorker(context);
-  return worker.evaluate(`Promise.resolve(${expression})`);
-}
-
 async function recoverCreate(context, intent) {
-  const transactionId = String(intent?.transaction_id || "");
-  if (!/^spawn-[0-9a-f]{64}$/.test(transactionId)) {
-    throw new Error("conversation spawn transaction_id is invalid");
-  }
-  return workerExpression(
-    context,
-    `findConversationSpawnMarkerTabs(${JSON.stringify(transactionId)}).then((tabs) => {` +
-      `if (tabs.length === 0) return {ok:false,reason:"spawn_create_recovery_missing"};` +
-      `if (tabs.length > 1) return {ok:false,reason:"spawn_create_recovery_conflict"};` +
-      `return {ok:true,reason:"tab_recovered",tabId:tabs[0].id};` +
-    `})`
-  );
+  const recovered = await callWorker(context, "recoverConversationSpawnTab", intent);
+  return recovered || { ok: false, reason: "spawn_create_recovery_missing" };
 }
 
 async function reattachPreSubmit(context, intent) {
@@ -239,7 +224,7 @@ async function probeBeforeSubmit(context, intent) {
     const content = await callWorker(context, "ensureConversationSpawnContent", tabId);
     if (!content?.ok) {
       if (
-        String(content?.reason || "") === "spawn_content_unavailable" &&
+        ["spawn_content_unavailable", "spawn_page_not_ready"].includes(String(content?.reason || "")) &&
         Date.now() < deadline
       ) {
         await new Promise((resolve) => setTimeout(resolve, 100));
