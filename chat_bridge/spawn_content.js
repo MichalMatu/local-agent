@@ -290,6 +290,35 @@
     );
   }
 
+  function provisionalDiagnostic(validated) {
+    const claim = readClaim(validated.transactionId);
+    if (!claim) return { ok: false, reason: "spawn_claim_missing" };
+    if (!claimMatches(claim, validated)) {
+      return { ok: false, reason: "spawn_claim_conflict" };
+    }
+    const composer = findComposer();
+    const userMessages = document.querySelectorAll('[data-message-author-role="user"]');
+    const assistantMessages = document.querySelectorAll('[data-message-author-role="assistant"]');
+    const latestAssistant = assistantMessages[assistantMessages.length - 1];
+    return {
+      ok: true,
+      reason: "spawn_provisional_diagnostic",
+      claimState: typeof claim.state === "string" ? claim.state : "unknown",
+      contentRoute: routeState().kind,
+      exactUserMessage: latestExactUserMessage(validated.bootstrapText),
+      userMessageCount: userMessages.length,
+      assistantMessageCount: assistantMessages.length,
+      assistantGenerating: assistantIsGenerating(),
+      latestAssistantTextLength: String(
+        latestAssistant?.innerText || latestAssistant?.textContent || ""
+      ).length,
+      composerPresent: Boolean(composer),
+      composerHasText: Boolean(composer && composerText(composer).trim()),
+      sendButtonReady: Boolean(composer && findSendButton(composer)),
+      visibilityState: String(document.visibilityState || "")
+    };
+  }
+
   function reconcileValidatedSpawn(validated) {
     const claim = readClaim(validated.transactionId);
     if (!claim) return { ok: false, reason: "spawn_claim_missing" };
@@ -418,6 +447,16 @@
     return reconcileValidatedSpawn(validated);
   }
 
+  async function inspectSpawnDiagnostic(message) {
+    let validated;
+    try {
+      validated = await validateSpawnMessage(message);
+    } catch (error) {
+      return { ok: false, reason: "spawn_intent_invalid", error: String(error) };
+    }
+    return provisionalDiagnostic(validated);
+  }
+
   const listener = (message, _sender, sendResponse) => {
     if (message?.type === "bridge:spawn-capabilities") {
       sendResponse({
@@ -428,6 +467,17 @@
         readiness: preSubmitReadiness()
       });
       return false;
+    }
+    if (message?.type === "bridge:spawn-diagnostic") {
+      inspectSpawnDiagnostic(message)
+        .then((response) => sendResponse({ ...response, protocolVersion: SPAWN_PROTOCOL_VERSION }))
+        .catch((error) => sendResponse({
+          ok: false,
+          reason: "spawn_unexpected_error",
+          error: String(error),
+          protocolVersion: SPAWN_PROTOCOL_VERSION
+        }));
+      return true;
     }
     if (message?.type === "bridge:spawn-bootstrap") {
       submitSpawnBootstrap(message)

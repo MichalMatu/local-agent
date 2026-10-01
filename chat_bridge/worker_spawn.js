@@ -413,6 +413,39 @@ async function sendConversationSpawnContentMessage(intent, type) {
   }
 }
 
+async function inspectConversationSpawnContentState(intent) {
+  validateConversationSpawnBrowserIntent(intent, { requireTab: true });
+  await requireConversationSpawnBootstrapDigest(intent);
+  let tab;
+  try {
+    tab = await chrome.tabs.get(intent.tab_id);
+  } catch (error) {
+    return { ok: false, reason: "spawn_tab_unavailable", error: String(error) };
+  }
+  if (!tab?.id) return { ok: false, reason: "spawn_tab_unavailable" };
+  if (!await conversationSpawnTabClaimMatches(intent.transaction_id, tab.id)) {
+    return { ok: false, reason: "spawn_tab_claim_mismatch" };
+  }
+  const ready = await ensureConversationSpawnContent(tab.id);
+  if (!ready?.ok) return ready;
+  try {
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: "bridge:spawn-diagnostic",
+      protocolVersion: CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION,
+      transactionId: intent.transaction_id,
+      childRequestDigest: intent.child_request_digest,
+      bootstrapDigest: intent.bootstrap_digest,
+      bootstrapText: intent.bootstrap_text
+    }, { frameId: 0 });
+    if (response?.protocolVersion !== CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION) {
+      return { ok: false, reason: "spawn_content_protocol_mismatch" };
+    }
+    return response || { ok: false, reason: "spawn_content_unavailable" };
+  } catch (error) {
+    return { ok: false, reason: "spawn_content_unavailable", error: String(error) };
+  }
+}
+
 async function submitConversationSpawnBootstrap(intent) {
   return sendConversationSpawnContentMessage(intent, "bridge:spawn-bootstrap");
 }

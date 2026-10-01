@@ -51,7 +51,13 @@
       }
       await new Promise((resolve) => setTimeout(resolve, PROVISIONAL_ROUTE_POLL_MS));
     }
-    return { ok: false, reason: "spawn_submission_ambiguous", route: "provisional_timeout" };
+    const diagnostic = await inspectConversationSpawnContentState(intent);
+    return {
+      ok: false,
+      reason: "spawn_submission_ambiguous",
+      route: "provisional_timeout",
+      diagnostic
+    };
   }
 
   async function reconcileAfterProvisionalRoute(intent, fallback) {

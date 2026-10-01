@@ -422,6 +422,17 @@ def _result(status: str, authority: RunnerAuthority, **extra: Any) -> dict[str, 
     return payload
 
 
+def _browser_failure_details(result: dict[str, Any]) -> dict[str, Any]:
+    details: dict[str, Any] = {}
+    route = result.get("route")
+    if isinstance(route, str) and route:
+        details["browser_route"] = route
+    diagnostic = result.get("diagnostic")
+    if isinstance(diagnostic, dict):
+        details["browser_diagnostic"] = diagnostic
+    return details
+
+
 def run_live_slice(
     layout: DevLabLayout,
     *,
@@ -641,6 +652,7 @@ def run_live_slice(
                     "manual_attach_required",
                     authority,
                     reason=failed["failure_reason"],
+                    **_browser_failure_details(submit),
                 )
             child_url = submit.get("childConversationUrl")
             if not isinstance(child_url, str):
@@ -684,6 +696,7 @@ def run_live_slice(
                     "manual_attach_required",
                     authority,
                     reason=failed["failure_reason"],
+                    **_browser_failure_details(reconciled),
                 )
             child_url = reconciled.get("childConversationUrl")
             if not isinstance(child_url, str):

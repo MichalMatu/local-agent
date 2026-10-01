@@ -397,12 +397,27 @@ class DevelopmentLiveRunnerTests(unittest.TestCase):
     def test_failed_submit_becomes_ambiguous_and_never_auto_retries(self) -> None:
         armed = self.prepare_and_arm()
         session = FakeBrowserSession(
-            submit={"ok": False, "reason": "spawn_submission_ambiguous"}
+            submit={
+                "ok": False,
+                "reason": "spawn_submission_ambiguous",
+                "route": "provisional_timeout",
+                "diagnostic": {
+                    "ok": True,
+                    "reason": "spawn_provisional_diagnostic",
+                    "claimState": "submitted",
+                    "exactUserMessage": True,
+                    "assistantGenerating": True,
+                },
+            }
         )
 
         result = self.run_with(session, armed["arm"]["launch_nonce"])
 
         self.assertEqual(result["status"], "manual_attach_required")
+        self.assertEqual(result["browser_route"], "provisional_timeout")
+        self.assertEqual(result["browser_diagnostic"]["claimState"], "submitted")
+        self.assertTrue(result["browser_diagnostic"]["exactUserMessage"])
+        self.assertTrue(result["browser_diagnostic"]["assistantGenerating"])
         transaction = self.spawns.load_attempt(REQUEST_ID, 1)
         self.assertEqual(transaction["state"], "ambiguous")
         self.assertFalse(result["needs_rearm"])

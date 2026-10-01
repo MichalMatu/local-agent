@@ -101,6 +101,54 @@ async function prepareSpawn(worker, pending) {
 
     const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
 
+    const diagnostic = await prepareSpawn(worker, spawnIntent("uc-diagnostic"));
+    const diagnosticPage = context.pages()[context.pages().length - 1];
+    assert.equal(new URL(diagnosticPage.url()).pathname, "/");
+    await diagnosticPage.evaluate((intent) => {
+      sessionStorage.setItem(
+        `local-agent:conversation-spawn:${intent.transaction_id}`,
+        JSON.stringify({
+          transactionId: intent.transaction_id,
+          childRequestDigest: intent.child_request_digest,
+          bootstrapDigest: intent.bootstrap_digest,
+          state: "submitted"
+        })
+      );
+      const user = document.createElement("div");
+      user.dataset.messageAuthorRole = "user";
+      user.textContent = intent.bootstrap_text;
+      document.body.append(user);
+      const assistant = document.createElement("div");
+      assistant.dataset.messageAuthorRole = "assistant";
+      assistant.textContent = "Synthetic assistant output";
+      document.body.append(assistant);
+      const stop = document.createElement("button");
+      stop.dataset.testid = "stop-button";
+      stop.textContent = "Stop";
+      document.body.append(stop);
+      history.pushState({}, "", "/uc/synthetic-diagnostic");
+    }, diagnostic.value);
+    const diagnosticResult = await callWorker(
+      worker,
+      "inspectConversationSpawnContentState",
+      diagnostic.value
+    );
+    assert.equal(diagnosticResult.ok, true, JSON.stringify(diagnosticResult));
+    assert.equal(diagnosticResult.reason, "spawn_provisional_diagnostic");
+    assert.equal(diagnosticResult.claimState, "submitted");
+    assert.equal(diagnosticResult.contentRoute, "unexpected");
+    assert.equal(diagnosticResult.exactUserMessage, true);
+    assert.equal(diagnosticResult.userMessageCount, 1);
+    assert.equal(diagnosticResult.assistantMessageCount, 1);
+    assert.equal(diagnosticResult.assistantGenerating, true);
+    assert.ok(diagnosticResult.latestAssistantTextLength > 0);
+    assert.equal(diagnosticResult.composerPresent, true);
+    assert.equal(diagnosticResult.composerHasText, false);
+    assert.equal(diagnosticResult.sendButtonReady, true);
+    assert.equal(diagnosticResult.childConversationUrl, undefined);
+    await worker.evaluate(`chrome.tabs.remove(${diagnostic.tabId})`);
+    console.log("PASS: provisional /uc diagnostic reports submit and assistant state without accepting identity");
+
     const success = await prepareSpawn(worker, spawnIntent("uc-to-child"));
     const successResult = await callWorker(worker, "submitConversationSpawnBootstrap", success.value);
     assert.equal(successResult.ok, true, JSON.stringify(successResult));
