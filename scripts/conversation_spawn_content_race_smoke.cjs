@@ -47,16 +47,40 @@ module.exports = {
         ...options,
         channel: "chromium"
       });
-      let documentCount = 0;
-      await context.route("https://**/*", async (route) => {
+      const realServiceWorkers = context.serviceWorkers.bind(context);
+      let transientRemaining = 3;
+      Object.defineProperty(context, "serviceWorkers", {
+        configurable: true,
+        value: () => realServiceWorkers().map((worker) => {
+          if (!worker.url().startsWith("chrome-extension://")) return worker;
+          return {
+            url: () => worker.url(),
+            evaluate: async (expression) => {
+              if (
+                transientRemaining > 0 &&
+                String(expression).includes("ensureConversationSpawnContent(")
+              ) {
+                transientRemaining -= 1;
+                fs.writeFileSync(
+                  process.env.LOCAL_AGENT_CONTENT_RACE_SENTINEL,
+                  String(3 - transientRemaining),
+                  "utf8"
+                );
+                return {
+                  ok: false,
+                  reason: "spawn_content_unavailable",
+                  error: "synthetic transient navigation race"
+                };
+              }
+              return worker.evaluate(expression);
+            }
+          };
+        })
+      });
+      await context.setOffline(true);
+      await context.route("https://**/*", (route) => {
         const url = route.request().url();
         if (url.startsWith("https://chatgpt.com/") || url.startsWith("https://chat.openai.com/")) {
-          if (route.request().resourceType() === "document") {
-            documentCount += 1;
-            if (documentCount >= 2) {
-              await new Promise((resolve) => setTimeout(resolve, 900));
-            }
-          }
           return route.fulfill({ status: 200, contentType: "text/html", body: fixture });
         }
         return route.abort();
@@ -77,7 +101,7 @@ function bounded(label, promise, timeoutMs = 20_000) {
   ]);
 }
 
-function startActuator({ profile, wrapperPath, fixturePath }) {
+function startActuator({ profile, wrapperPath, fixturePath, sentinelPath }) {
   const child = spawn(process.execPath, [
     path.join(root, "scripts", "conversation_live_slice_browser.cjs"),
     "--profile",
@@ -91,7 +115,8 @@ function startActuator({ profile, wrapperPath, fixturePath }) {
       ...process.env,
       LOCAL_AGENT_PLAYWRIGHT_MODULE: wrapperPath,
       LOCAL_AGENT_PLAYWRIGHT_REAL_MODULE: playwrightModule,
-      LOCAL_AGENT_CONTENT_RACE_FIXTURE: fixturePath
+      LOCAL_AGENT_CONTENT_RACE_FIXTURE: fixturePath,
+      LOCAL_AGENT_CONTENT_RACE_SENTINEL: sentinelPath
     },
     stdio: ["pipe", "pipe", "pipe"]
   });
@@ -145,12 +170,13 @@ function startActuator({ profile, wrapperPath, fixturePath }) {
   const profile = path.join(temp, "profile");
   const fixturePath = path.join(temp, "fixture.html");
   const wrapperPath = path.join(temp, "playwright-wrapper.cjs");
+  const sentinelPath = path.join(temp, "transient-count.txt");
   await fs.writeFile(fixturePath, fixture, "utf8");
   await fs.writeFile(wrapperPath, wrapperSource, "utf8");
 
   let actuator = null;
   try {
-    actuator = startActuator({ profile, wrapperPath, fixturePath });
+    actuator = startActuator({ profile, wrapperPath, fixturePath, sentinelPath });
     const ready = await actuator.request("wait_ready", { timeout_ms: 15_000 });
     assert.equal(ready.ok, true, JSON.stringify(ready));
     assert.equal(ready.reason, "chatgpt_ready");
@@ -166,9 +192,10 @@ function startActuator({ profile, wrapperPath, fixturePath }) {
     const elapsed = Date.now() - startedAt;
     assert.equal(probe.ok, true, JSON.stringify(probe));
     assert.equal(probe.reason, "spawn_ready", JSON.stringify(probe));
+    assert.equal(await fs.readFile(sentinelPath, "utf8"), "3");
     assert.ok(
-      elapsed >= 500,
-      `probe returned too quickly to exercise transient content unavailability: ${elapsed}ms`
+      elapsed >= 200,
+      `probe returned too quickly to exercise bounded transient retries: ${elapsed}ms`
     );
 
     await actuator.stop();
