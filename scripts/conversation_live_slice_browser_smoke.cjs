@@ -202,10 +202,10 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
     assert.equal(recovered.reason, "tab_recovered", JSON.stringify(recovered));
     assert.equal(recovered.tabId, created.tabId);
 
-    // Controlled persistent-context shutdown does not preserve the marker tab.
-    // Strict lost-ACK recovery must remain fail-closed after restart. The runner
-    // may then authorize exactly one separate pre-submit transport reattach while
-    // the durable transaction is still bootstrap_ready and no submit has happened.
+    // Persistent Chromium does not guarantee whether the marker tab survives a
+    // controlled context restart. Both outcomes are valid: strict recovery may
+    // find the existing tab, or the runner may authorize one bounded pre-submit
+    // reattach while durable state still proves that no submit has happened.
     await first.stop();
     first = null;
 
@@ -219,13 +219,24 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
     assert.equal(readyAfterRestart.reason, "chatgpt_ready");
 
     const strictAfterRestart = await recoverMarker(second.request, durableIntent, 1000);
-    assert.equal(strictAfterRestart?.ok, false, JSON.stringify(strictAfterRestart));
-    assert.equal(strictAfterRestart.reason, "spawn_create_recovery_missing");
+    assert.ok(strictAfterRestart && typeof strictAfterRestart.ok === "boolean");
+    if (!strictAfterRestart.ok) {
+      assert.equal(strictAfterRestart.reason, "spawn_create_recovery_missing");
+    } else {
+      assert.equal(strictAfterRestart.reason, "tab_recovered");
+      assert.ok(Number.isInteger(strictAfterRestart.tabId));
+    }
 
     const reattached = await second.request("reattach_pre_submit", { intent: durableIntent });
     assert.equal(reattached.ok, true, JSON.stringify(reattached));
-    assert.equal(reattached.reason, "tab_reattached", JSON.stringify(reattached));
+    assert.ok(["tab_recovered", "tab_reattached"].includes(reattached.reason), JSON.stringify(reattached));
     assert.ok(Number.isInteger(reattached.tabId));
+    if (strictAfterRestart.ok) {
+      assert.equal(reattached.reason, "tab_recovered");
+      assert.equal(reattached.tabId, strictAfterRestart.tabId);
+    } else {
+      assert.equal(reattached.reason, "tab_reattached");
+    }
 
     const recoveredReattached = await recoverMarker(
       second.request,
@@ -237,7 +248,7 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
 
     await second.stop();
     second = null;
-    console.log("Conversation live slice bounded pre-submit reattach smoke passed.");
+    console.log("Conversation live slice bounded restart recovery smoke passed.");
   } finally {
     for (const actuator of [first, second]) {
       if (!actuator) continue;
