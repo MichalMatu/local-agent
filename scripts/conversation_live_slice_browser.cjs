@@ -50,6 +50,20 @@ function parseArgs(argv) {
   return parsed;
 }
 
+function optionalChromeExecutable() {
+  const candidate = String(process.env.LOCAL_AGENT_CHROME_EXECUTABLE || "").trim();
+  if (!candidate) return null;
+  if (!path.isAbsolute(candidate)) {
+    throw new Error("LOCAL_AGENT_CHROME_EXECUTABLE must be an absolute path");
+  }
+  const stats = fs.statSync(candidate);
+  if (!stats.isFile()) {
+    throw new Error("LOCAL_AGENT_CHROME_EXECUTABLE must point to a file");
+  }
+  fs.accessSync(candidate, fs.constants.X_OK);
+  return candidate;
+}
+
 function requireSafeDirectoryIfPresent(candidate, field) {
   if (!fs.existsSync(candidate)) return;
   const stats = fs.lstatSync(candidate);
@@ -281,15 +295,18 @@ async function probeBeforeSubmit(context, intent) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const executablePath = optionalChromeExecutable();
   resetEphemeralServiceWorkerState(args.profile);
-  const context = await chromium.launchPersistentContext(args.profile, {
+  const launchOptions = {
     headless: args.headless,
     args: [
       "--restore-last-session",
       `--disable-extensions-except=${args.extension}`,
       `--load-extension=${args.extension}`
     ]
-  });
+  };
+  if (executablePath) launchOptions.executablePath = executablePath;
+  const context = await chromium.launchPersistentContext(args.profile, launchOptions);
 
   let closing = false;
   async function closeContext() {
