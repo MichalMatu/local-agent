@@ -81,6 +81,7 @@ class FakeBrowserSession:
         ready: dict[str, Any] | None = None,
         create: dict[str, Any] | None = None,
         recover_create: dict[str, Any] | None = None,
+        reattach_pre_submit: dict[str, Any] | None = None,
         probe: dict[str, Any] | None = None,
         submit: dict[str, Any] | None = None,
         reconcile: dict[str, Any] | None = None,
@@ -90,6 +91,8 @@ class FakeBrowserSession:
             "create": create or {"ok": True, "reason": "tab_created", "tabId": 41},
             "recover_create": recover_create
             or {"ok": True, "reason": "tab_recovered", "tabId": 41},
+            "reattach_pre_submit": reattach_pre_submit
+            or {"ok": True, "reason": "tab_reattached", "tabId": 77},
             "probe": probe or {"ok": True, "reason": "spawn_ready"},
             "submit": submit
             or {
@@ -125,6 +128,11 @@ class FakeBrowserSession:
         self.calls.append("recover_create")
         self._assert_intent(intent)
         return dict(self.responses["recover_create"])
+
+    def reattach_pre_submit(self, intent: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append("reattach_pre_submit")
+        self._assert_intent(intent, require_tab=True)
+        return dict(self.responses["reattach_pre_submit"])
 
     def probe(self, intent: dict[str, Any]) -> dict[str, Any]:
         self.calls.append("probe")
@@ -290,6 +298,7 @@ class DevelopmentLiveRunnerTests(unittest.TestCase):
         self.assertEqual(self.spawns.load_attempt(REQUEST_ID, 1)["state"], "pending")
         self.assertEqual(second.calls.count("recover_create"), 1)
         self.assertNotIn("create", second.calls)
+        self.assertNotIn("reattach_pre_submit", second.calls)
 
     def test_pre_submit_pause_resumes_same_tab_without_new_create(self) -> None:
         armed = self.prepare_and_arm()
@@ -310,9 +319,80 @@ class DevelopmentLiveRunnerTests(unittest.TestCase):
         result = self.run_with(second, rearm["launch_nonce"])
         self.assertEqual(result["status"], "completed")
         self.assertNotIn("create", second.calls)
+        self.assertNotIn("reattach_pre_submit", second.calls)
         self.assertIn("recover_create", second.calls)
         self.assertIn("probe", second.calls)
         self.assertIn("submit", second.calls)
+
+    def test_pre_submit_missing_marker_reattaches_once_and_completes(self) -> None:
+        armed = self.prepare_and_arm()
+        first = FakeBrowserSession(
+            probe={"ok": False, "reason": "spawn_send_button_not_ready"}
+        )
+        result = self.run_with(first, armed["arm"]["launch_nonce"])
+        self.assertEqual(result["status"], "paused")
+
+        rearm = arm_live_slice(
+            self.layout,
+            expected_plan_digest=armed["prepared"]["plan_digest"],
+            ttl_seconds=300,
+            now=self.base_time + timedelta(seconds=1),
+        )
+        second = FakeBrowserSession(
+            recover_create={"ok": False, "reason": "spawn_create_recovery_missing"},
+            reattach_pre_submit={"ok": True, "reason": "tab_reattached", "tabId": 77},
+        )
+        result = self.run_with(second, rearm["launch_nonce"])
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(second.calls.count("recover_create"), 1)
+        self.assertEqual(second.calls.count("reattach_pre_submit"), 1)
+        self.assertNotIn("create", second.calls)
+        self.assertIn("probe", second.calls)
+        self.assertIn("submit", second.calls)
+
+    def test_pre_submit_reattach_is_never_repeated_after_second_pause(self) -> None:
+        armed = self.prepare_and_arm()
+        first = FakeBrowserSession(
+            probe={"ok": False, "reason": "spawn_send_button_not_ready"}
+        )
+        self.run_with(first, armed["arm"]["launch_nonce"])
+
+        rearm = arm_live_slice(
+            self.layout,
+            expected_plan_digest=armed["prepared"]["plan_digest"],
+            ttl_seconds=300,
+            now=self.base_time + timedelta(seconds=1),
+        )
+        second = FakeBrowserSession(
+            recover_create={"ok": False, "reason": "spawn_create_recovery_missing"},
+            reattach_pre_submit={"ok": True, "reason": "tab_reattached", "tabId": 77},
+            probe={"ok": False, "reason": "spawn_send_button_not_ready"},
+        )
+        result = self.run_with(second, rearm["launch_nonce"])
+
+        self.assertEqual(result["status"], "manual_attach_required")
+        self.assertEqual(
+            load_runner_journal(self.layout)["phase"],
+            "waiting_pre_submit_after_reattach",
+        )
+        self.assertEqual(second.calls.count("reattach_pre_submit"), 1)
+
+        rearm_again = arm_live_slice(
+            self.layout,
+            expected_plan_digest=armed["prepared"]["plan_digest"],
+            ttl_seconds=300,
+            now=self.base_time + timedelta(seconds=2),
+        )
+        third = FakeBrowserSession(
+            recover_create={"ok": False, "reason": "spawn_create_recovery_missing"}
+        )
+        result = self.run_with(third, rearm_again["launch_nonce"])
+
+        self.assertEqual(result["status"], "manual_attach_required")
+        self.assertEqual(third.calls.count("recover_create"), 1)
+        self.assertNotIn("reattach_pre_submit", third.calls)
+        self.assertNotIn("create", third.calls)
 
     def test_failed_submit_becomes_ambiguous_and_never_auto_retries(self) -> None:
         armed = self.prepare_and_arm()
