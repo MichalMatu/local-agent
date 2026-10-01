@@ -45,6 +45,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const real = require(process.env.LOCAL_AGENT_PLAYWRIGHT_REAL_MODULE);
 const fixture = fs.readFileSync(process.env.LOCAL_AGENT_LIVE_SLICE_FIXTURE, "utf8");
+const expectedExecutable = process.env.LOCAL_AGENT_EXPECTED_CHROME_EXECUTABLE || "";
 module.exports = {
   chromium: {
     async launchPersistentContext(profile, options) {
@@ -55,8 +56,17 @@ module.exports = {
       if (!Array.isArray(options.args) || !options.args.includes("--restore-last-session")) {
         throw new Error("live-slice browser must restore the isolated persistent session");
       }
+      if (expectedExecutable) {
+        if (options.executablePath !== expectedExecutable) {
+          throw new Error("live-slice browser must pass the explicit Chrome executable to Playwright");
+        }
+      } else if (Object.prototype.hasOwnProperty.call(options, "executablePath")) {
+        throw new Error("live-slice browser must preserve the default Playwright executable when no override is configured");
+      }
+      const launchOptions = { ...options };
+      delete launchOptions.executablePath;
       const context = await real.chromium.launchPersistentContext(profile, {
-        ...options,
+        ...launchOptions,
         channel: "chromium"
       });
       const realServiceWorkers = context.serviceWorkers.bind(context);
@@ -106,7 +116,20 @@ function bounded(label, promise, timeoutMs = 20_000) {
   ]);
 }
 
-function startActuator({ profile, wrapperPath, fixturePath }) {
+function startActuator({ profile, wrapperPath, fixturePath, chromeExecutable = null }) {
+  const env = {
+    ...process.env,
+    LOCAL_AGENT_PLAYWRIGHT_MODULE: wrapperPath,
+    LOCAL_AGENT_PLAYWRIGHT_REAL_MODULE: playwrightModule,
+    LOCAL_AGENT_LIVE_SLICE_FIXTURE: fixturePath
+  };
+  delete env.LOCAL_AGENT_CHROME_EXECUTABLE;
+  delete env.LOCAL_AGENT_EXPECTED_CHROME_EXECUTABLE;
+  if (chromeExecutable) {
+    env.LOCAL_AGENT_CHROME_EXECUTABLE = chromeExecutable;
+    env.LOCAL_AGENT_EXPECTED_CHROME_EXECUTABLE = chromeExecutable;
+  }
+
   const child = spawn(process.execPath, [
     path.join(root, "scripts", "conversation_live_slice_browser.cjs"),
     "--profile",
@@ -116,12 +139,7 @@ function startActuator({ profile, wrapperPath, fixturePath }) {
     "--headless"
   ], {
     cwd: root,
-    env: {
-      ...process.env,
-      LOCAL_AGENT_PLAYWRIGHT_MODULE: wrapperPath,
-      LOCAL_AGENT_PLAYWRIGHT_REAL_MODULE: playwrightModule,
-      LOCAL_AGENT_LIVE_SLICE_FIXTURE: fixturePath
-    },
+    env,
     stdio: ["pipe", "pipe", "pipe"]
   });
 
@@ -196,8 +214,11 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
   const profile = path.join(temp, "profile");
   const fixturePath = path.join(temp, "fixture.html");
   const wrapperPath = path.join(temp, "playwright-wrapper.cjs");
+  const fakeChromePath = path.join(temp, "fake-system-chrome");
   await fs.writeFile(fixturePath, fixture, "utf8");
   await fs.writeFile(wrapperPath, wrapperSource, "utf8");
+  await fs.writeFile(fakeChromePath, "#!/bin/sh\nexit 1\n", "utf8");
+  await fs.chmod(fakeChromePath, 0o755);
   const staleWorkerSentinel = path.join(profile, "Default", "Service Worker", "stale-worker-sentinel");
   await fs.mkdir(path.dirname(staleWorkerSentinel), { recursive: true });
   await fs.writeFile(staleWorkerSentinel, "stale\n", "utf8");
@@ -207,7 +228,12 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
   try {
     const pending = intent("actuator-smoke");
 
-    first = startActuator({ profile, wrapperPath, fixturePath });
+    first = startActuator({
+      profile,
+      wrapperPath,
+      fixturePath,
+      chromeExecutable: fakeChromePath
+    });
     const ready = await first.request("wait_ready", { timeout_ms: 15_000 }, 20_000);
     assert.equal(ready.ok, true, JSON.stringify(ready));
     assert.equal(ready.reason, "chatgpt_ready");
@@ -237,6 +263,8 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
     await first.stop();
     first = null;
 
+    // The second launch intentionally omits LOCAL_AGENT_CHROME_EXECUTABLE so the
+    // smoke also proves that the default Playwright executable path is unchanged.
     second = startActuator({ profile, wrapperPath, fixturePath });
     const readyAfterRestart = await second.request(
       "wait_ready",
