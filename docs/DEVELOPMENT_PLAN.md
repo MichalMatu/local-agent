@@ -1,101 +1,118 @@
 # Local Agent development plan
 
-Status: current post-release development direction for Conversation Fabric Stage 8.
+Status: current product direction and milestone ordering for Conversation Fabric.
 
-## Production checkpoint
+## Stable production baseline
 
-Production is established as Local Agent v4.19.11 / Chat Bridge 0.6.2 on `main@0088f55ef37eecf26e0d4363f999797b9e340e96` with tag `v4.19.11` pointing to the same commit.
+Production remains Local Agent v4.19.11 / Chat Bridge 0.6.2 on:
 
-The release candidate work is complete. PR #122 is merged, the obsolete checkpoint branch has been removed and production `main` is the stable runtime/source-of-truth baseline.
+- `main@0088f55ef37eecf26e0d4363f999797b9e340e96`
 
-The cleaned Conversation Fabric Stage 8 code baseline on `develop/conversation-fabric` was validated at `96c536a145904ae46add407004d9914d5088e215` with the complete canonical CI matrix green: test, coverage, Python 3.14, macOS smoke and Bridge browser smoke.
+Stage 8 development must not mutate production `main` or the production Chrome profile.
 
 ## Product direction
 
-The canonical target is one user-visible Local Agent product with one long-lived Operator Chat / Superchat.
+The target is one user-visible Local Agent product centered on one long-lived Operator Chat / Superchat:
 
 ```text
 User
   -> Operator Chat / Superchat
-    -> GitHub control + evidence plane
-      -> Local Agent deterministic orchestration/execution
-        -> host-ops deterministic capabilities
-        -> narrow ChatGPT Browser Driver for child-chat UI lifecycle
-      -> GitHub result/evidence
+    -> GitHub durable control/evidence
+      -> Local Agent deterministic orchestration
+        -> host-ops deterministic Mac/host effects
+        -> narrow ChatGPT browser actuator for child-chat lifecycle
+      -> durable result/evidence
     -> Operator Chat synthesis
 ```
 
-Permanent architecture rules:
+Permanent boundaries:
 
 - GitHub is the durable control/evidence plane.
 - Local Agent remains deterministic and model-free.
-- Ordinary ChatGPT conversations remain the reasoning layer.
-- Chat Bridge is a narrow browser lifecycle/transport role.
-- Browser DOM is transport evidence, never workflow/task authority.
-- Child chats never gain independent machine authority.
-- `local-agent` remains `execution_enabled: false` for the Stage 8 reasoning-child slice.
+- ChatGPT conversations remain the reasoning layer.
+- Chat Bridge is a narrow browser transport/actuator, not workflow authority.
+- Browser DOM state is transport evidence, not scheduler or durable workflow state.
+- Child chats have no independent machine authority.
+- `local-agent` remains `execution_enabled=false` for the Stage 8 reasoning-child slice.
 - No second scheduler, executor or control plane.
 - No direct OpenAI API model loop.
-- No Native Messaging control plane or abandoned event-wake direction in the target architecture.
+- No Native Messaging control plane for this architecture.
 
-## Development lanes
+## Branch roles
 
-| Lane | Branch | Role |
-| --- | --- | --- |
-| Production | `main` | released runtime and installed source of truth |
-| Development | `develop/conversation-fabric` | canonical Conversation Fabric / Superchat development line |
-| Operational state | `chat-bridge-state` | GitHub-backed Chat Bridge desired state |
-| Operational control | `operator-control` | global operator safety/control state |
-| Historical safety archive | `archive/conversation-fabric-pre-rebase` | preserved pre-cleanup development history; not an active development lane |
+| Branch | Role |
+| --- | --- |
+| `main` | production runtime/source of truth |
+| `develop/conversation-fabric` | canonical Conversation Fabric development line |
+| `work/conversation-*` | temporary bounded candidate branches only |
+| `chat-bridge-state` | operational desired state, not development |
+| `operator-control` | global operator safety/control, not development |
+| `archive/conversation-fabric-pre-rebase` | historical safety archive only |
 
-Temporary `work/conversation-*` branches may be used only for bounded validation candidates and must be removed after accepted state is promoted back to `develop/conversation-fabric`.
+## Current milestone: Stage 8 one-child proof
 
-## Next development milestone
+Stage 8 is intentionally limited to proving one exact durable reasoning-child request can create one real ChatGPT child in an isolated DEV browser profile and persist matching durable evidence.
 
-The next milestone is Conversation Fabric Stage 8 — the first bounded real child-chat proof on `develop/conversation-fabric`.
+The operator sequence is fixed:
 
-The first live gate is intentionally small:
+```text
+seed -> prepare -> login -> arm -> run
+```
 
-1. perform exact-head preflight on `develop/conversation-fabric`;
-2. use the isolated DEV checkout/profile, never production;
-3. seed exactly one non-executing reasoning request for `MichalMatu/local-agent`;
-4. prepare one exact durable attempt;
-5. prove login/composer readiness;
-6. arm the exact plan digest;
-7. create exactly one ChatGPT child;
-8. discover its canonical `/c/<id>` URL;
-9. persist the exact `ChildRegistration` and `SpawnTransaction=done`;
-10. inspect the bootstrap and durable completion evidence;
-11. stop and review the proof before any lifecycle expansion.
+Each invocation performs one authority step. Do not auto-chain.
 
-Current Stage 8 safety limits:
+Hard limits:
 
-- maximum active children: 1;
-- maximum browser spawn attempts: 1;
-- `local-agent` remains `execution_enabled=false`;
-- no production Chrome profile;
-- no production Native Messaging registration;
-- no automatic production Superchat scheduler;
-- no second Local Agent executor;
-- ambiguous create/submit state fails closed and never blindly replays.
+- one parent;
+- one reasoning child;
+- one durable `ChildRequest`;
+- one browser spawn attempt per proof;
+- one isolated DEV Chrome profile;
+- exact clean repository checkout and source SHA;
+- no Local Agent task execution by the child;
+- no production Chrome/profile mutation;
+- fail closed after any potentially submitted ambiguous external effect.
 
-Do not start the larger acceptance campaign from this gate.
+The current implementation checkpoint and exact next actions are intentionally not duplicated here. They are canonical in:
 
-## After the one-child proof
+- `docs/CURRENT_HANDOFF.md`
+- `docs/conversation_fabric/CURRENT_PLAN.md`
 
-Only after the bounded proof succeeds:
+## Stage 8 completion gate
 
-1. lifecycle extension — checkpoint/terminal recording, adoption and retirement;
-2. restart/recovery proof across every external-effect boundary without duplicates;
-3. manual lifecycle parity as a first-class fallback;
-4. narrow Browser Driver promotion for physical ChatGPT child lifecycle effects only;
-5. Superchat control/fleet layer after the single-child lifecycle is proven;
-6. automatic scheduling only if required after the complete lifecycle is stable.
+Do not move to the next lifecycle milestone until one fresh proof has all of:
 
-The conceptual Superchat lifecycle roadmap remains in `docs/superchat/ROADMAP.md`. The canonical Stage 8 execution ledger remains in `docs/conversation_fabric/CURRENT_PLAN.md`.
+- canonical child `https://chatgpt.com/c/<id>`;
+- matching durable `ChildRegistration`;
+- matching durable `SpawnTransaction=done`;
+- bounded completion evidence tied to the exact admitted request/plan.
+
+## After Stage 8
+
+Only after the one-child proof succeeds, continue in this order:
+
+1. checkpoint and terminal recording;
+2. adoption and retirement;
+3. restart/recovery proof across every external-effect boundary;
+4. manual lifecycle parity as a first-class fallback;
+5. narrow Browser Driver promotion for child-chat lifecycle effects;
+6. Superchat fleet/control layer;
+7. broader automatic scheduling only after the single-child lifecycle is proven stable.
+
+Multi-child fan-out, fleet scheduling and large acceptance campaigns remain out of scope during Stage 8.
 
 ## Verification discipline
 
-Every non-trivial change must start from the correct canonical branch, preserve hard repository binding and GitHub authority, use focused tests first, use real lifecycle evidence for browser/process/resource boundaries, run exact-SHA CI before promotion/release, keep production and DEV state separate, update the current handoff when a milestone changes and remove obsolete candidate branches after accepted promotion.
+For every non-trivial Conversation Fabric change:
 
-Before the Stage 8 live browser effect, re-check the exact development head and its validation evidence. Exact GitHub branch/commit/CI evidence outranks chat prose or browser appearance.
+1. start from the exact canonical development head;
+2. make the smallest bounded change on a temporary candidate branch;
+3. run focused positive and negative tests;
+4. use real browser/process evidence for browser boundaries;
+5. use `host-ops` for all Mac-local operations;
+6. require exact-candidate CI before promotion;
+7. fast-forward only `develop/conversation-fabric` after validation;
+8. update `docs/CURRENT_HANDOFF.md` whenever the active checkpoint changes;
+9. remove obsolete candidate branches/worktrees after accepted promotion.
+
+Exact GitHub state and durable local evidence outrank remembered chat context.
