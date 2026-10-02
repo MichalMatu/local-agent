@@ -4,35 +4,41 @@ Status: canonical Stage 8 execution ledger.
 
 ## Current baseline
 
-Production remains unchanged:
+Production remains unchanged by Stage 8:
 
-- `main@0088f55ef37eecf26e0d4363f999797b9e340e96`
-- Local Agent v4.19.11
+- `main@979ef080ddb69d6e18aaf81510e3175bac2f33d2`
+- Local Agent v4.19.12
 - Chat Bridge 0.6.2
 
 Canonical development branch:
 
 - `develop/conversation-fabric`
-- last runtime/code baseline: `b6f9ce3bb47309474dba7c430df3880912aaa4ef`
-- the branch may contain later documentation-only handoff commits; always verify the actual GitHub head before implementation or live work
+- accepted code checkpoint before the current documentation updates: `d65cbaacf70ee272e4263ab0e73428aa1376210e`
+- accepted commit: `Wait for canonical child identity stabilization`
+- later documentation-only commits may advance the branch head; always distinguish code checkpoint from doc-only head before live work
 
-Current temporary candidate branch:
+Mac DEV checkout:
 
-- `work/conversation-composer-replacement`
-- current runtime/code head is still `b6f9ce3bb47309474dba7c430df3880912aaa4ef`
-- no accepted composer-replacement commit exists yet
+- `/Users/michal/local-agent-dev`
+
+Current isolated live root/profile:
+
+- root: `/Users/michal/Library/Application Support/local-agent-dev-stage8-proof12-auth-gate-3096`
+- browser profile: `/Users/michal/Library/Application Support/local-agent-dev-stage8-proof12-auth-gate-3096/browser-profile/live-slice`
+
+The browser profile is deliberately persistent across proof state resets so ChatGPT login is reused. Production Chrome is never a source profile.
 
 ## Stage 8 goal
 
 Prove one exact durable reasoning-child request can create exactly one real ChatGPT child in the isolated DEV browser profile, discover its canonical identity and persist matching durable evidence without granting child execution authority.
 
-Required sequence:
+Authority sequence:
 
 ```text
 seed -> prepare -> login -> arm -> run
 ```
 
-Each command is one authority step. Never auto-chain.
+Each command is one authority step. Never auto-chain effects.
 
 ## Non-negotiable invariants
 
@@ -49,105 +55,153 @@ Each command is one authority step. Never auto-chain.
 
 ## Completed Stage 8 fixes
 
-### 1. Restart marker recovery
+### Restart and pre-submit recovery
 
-Persistent Chromium may either restore or lose the transaction marker tab after a controlled restart. The runner now handles both bounded cases:
+The runner can recover the exact transaction marker tab after a controlled restart. If durable state still proves `bootstrap_ready` and the original marker tab is gone, one bounded pre-submit reattach is allowed. Create lost-ACK recovery never blindly creates another replacement tab.
 
-- recover the existing exact transaction tab; or
-- while durable state still proves `bootstrap_ready`, perform one bounded pre-submit reattach.
+### Delayed MV3 extension worker startup
 
-Strict create lost-ACK recovery never creates a replacement tab. Reattach is not repeatable indefinitely.
+Extension-worker discovery uses bounded polling instead of the old sub-second race.
 
-### 2. Delayed MV3 extension worker startup
+### Composer replacement safety
 
-The Mac proof exposed a race where the browser actuator effectively abandoned extension-worker discovery after about 300 ms. The current runtime baseline waits with a bounded 8-second polling window.
+ChatGPT may replace the contenteditable composer after input. The current submit path compares the active composer value, not stale DOM object identity: an exact bootstrap-text replacement may continue; changed/operator-edited text still fails before submit.
 
-The accepted code fix is:
+### Authenticated persistent profile
 
-- `b6f9ce3bb47309474dba7c430df3880912aaa4ef` — `Wait for delayed DEV extension worker`
+The live runner no longer treats a guest composer as authenticated readiness. Login is manual once in normal Chrome if needed, then reused through the same persistent isolated profile. The auth gate uses the logged-in account control and a bounded session probe. Shared DEV Playwright/Chrome dependencies are auto-discovered.
 
-## Preserved live evidence
+### Explicit manual attach recovery
 
-The first live proof must remain immutable evidence and must not be retried.
+If submit physically created a child but automatic identity capture ended ambiguous, `live_flow attach --child-conversation-url ...` can register that already-existing child without opening the browser or resubmitting. The ambiguous transaction remains preserved as historical evidence.
+
+### Provisional route classification
+
+Accepted checkpoint:
+
+- `7ceb2fa7b4a8ec037f2d526341a6a0acd34c55f5` — `Handle local ChatGPT provisional conversation routes`
+
+The system now treats `/uc/<id>` and `/c/local-chatgpt%3A<uuid>` as provisional, never as final child identity. It waits for a canonical `/c/<id>` while preserving fail-closed behavior.
+
+### Login-probe time budgeting
+
+Accepted checkpoint:
+
+- `06cf93f4693f81561f00100977a32f9adbbf9729` — `Bound persistent login probe startup time`
+
+The short existing-session probe uses one deadline including navigation and allows 20 seconds for a cold Chrome/ChatGPT start, preventing wrapper timeout races.
+
+### Fresh composer stabilization
+
+Accepted checkpoint:
+
+- `30a8d952ac8a9c2361c0aa4e6eed16a35c4ab71b` — `Wait for fresh chat composer stabilization`
+
+After a new fresh route becomes reachable, the pre-submit actuator waits up to 30 seconds for the composer to stabilize. Browser regression coverage includes a composer appearing after 6.5 seconds.
+
+### Canonical child identity stabilization
+
+Current accepted code checkpoint:
+
+- `d65cbaacf70ee272e4263ab0e73428aa1376210e` — `Wait for canonical child identity stabilization`
+
+Canonical `/c/<id>` may appear before the exact submitted user-message DOM. The route-transition layer now waits up to 30 seconds for identity confirmation while continuously requiring the same claimed tab and canonical child URL. A route change or unresolved identity remains ambiguous/fail-closed.
+
+Focused Mac validation for `d65cbaa...` passed:
+
+- 24 focused Python tests;
+- live-slice bounded restart/recovery browser smoke;
+- provisional `/uc` transition smoke;
+- provisional `local-chatgpt` transition smoke;
+- delayed canonical child user-message identity smoke;
+- Chat Bridge control protocol tests.
+
+No exact-SHA GitHub commit status/check is recorded for `d65cbaa...` at this checkpoint. Do not claim full CI until evidence exists.
+
+## Live proof ledger
+
+### Proof12 — real child + safe manual recovery
+
+- transaction: `spawn-6bc0561cd77398dc2a346c7a059cb318169c763f7010653904661dc97a8009b4`
+- canonical child recovered from the isolated profile: `https://chatgpt.com/c/6abf09ed-9bbc-83ed-a688-4bf9a9ab39f4`
+- automatic result: `spawn_submission_ambiguous`
+- automatic retry: forbidden
+- manual attach: completed registration without another submit
+- lifecycle after attach: `active`
+- transaction: intentionally remains `ambiguous`
+
+This proves the browser can physically create the child and that fail-closed recovery works. It does not satisfy the automatic `SpawnTransaction=done` gate.
+
+### Proof13 — safe pre-submit pause
+
+At `06cf93f...`:
+
+- transaction: `spawn-df6b6d0bf43dd994e8f86078a535fcc4717b1c924137ecd42873e2f01c5176a4`
+- result: `paused`
+- spawn state: `bootstrap_ready`
+- reason: `spawn_composer_not_found`
+- submit did not occur
+- `needs_rearm=true`
+
+This led to `30a8d952...`.
+
+### Proof14 — canonical child route before exact message identity
+
+At `30a8d952...`:
+
+- transaction: `spawn-5af74a34349a69b97e3f2fcb0cf007d4c1ae81713e6edf787b2d748a0755038a`
+- browser route: `child`
+- result: `manual_attach_required`
+- spawn state: `ambiguous`
+- reason: `live submit unresolved: spawn_submission_ambiguous`
+- `needs_rearm=false`
+
+This proved submit had crossed into a real child route while identity confirmation still lagged. It led to `d65cbaa...`. Proof14 must never be retried.
+
+## Current checkpoint — proof15 prepared
+
+Proof15 has been freshly seeded and prepared on exact admitted code SHA `d65cbaacf70ee272e4263ab0e73428aa1376210e` after archiving proof14 state/logs. The persistent browser profile was kept unchanged.
+
+Durable authority:
 
 - workflow: `stage8-live-slice`
 - request: `stage8-live-child-001`
-- transaction: `spawn-3c78a92eb001f46790989f4da8fea0bcca6b1d55035770b7dc48ef40bd72a032`
-- attempt: `1`
-- final durable state: `ambiguous`
-- journal: `ambiguous`
-- reason: `live submit unresolved: spawn_composer_changed`
-- child URL: absent
-- registration: absent
-- arm: consumed
+- request digest: `sha256:799ca488d7de2b2c0049f2dc0a23e16028be46edaf3ba6873c88b0240e5227cd`
+- transaction: `spawn-7fc29442cd190d48e9af2e3a2fec5664c18bf5f29dd182527e1126fe1c45b677`
+- plan digest: `sha256:70ced439858a6a7e1b580d83263eeca333b52418c99b05c5e2027696d6c0ee44`
+- child lifecycle: `requested`
+- prepared: yes
+- armed: no
+- run: not executed
 
-`spawn_composer_changed` is emitted before the content script writes the submission claim and before it clicks Send. Therefore this specific live failure is known to be pre-submit even though the durable transaction remains conservatively terminal `ambiguous`.
+Do not reseed proof15 unless read-only verification shows the prepared authority is invalid.
 
-Do not edit, reset or reuse this attempt.
+## Exact continuation plan
 
-## Active blocker
+1. Verify fresh GitHub refs: production `main` and the accepted Conversation Fabric code checkpoint.
+2. Verify `/Users/michal/local-agent-dev` is clean and contains the accepted code before browser effects.
+3. Read proof15 status and require its plan digest/transaction to match this ledger.
+4. Reuse the persistent isolated profile; run `login` as readiness verification only.
+5. Establish exact-SHA CI if required by the release/qualification gate; current ledger has focused Mac validation but no recorded exact-SHA status for `d65cbaa...`.
+6. `arm` exactly once using proof15 plan digest.
+7. Capture the nonce.
+8. `run` exactly once.
+9. Never auto-retry/re-arm after a potentially submitted ambiguous result.
+10. On `completed`, inspect durable child registration, transaction and result evidence before any new work.
+11. On ambiguity, stop. Recover only the already-created child; never cause a second submit.
 
-The ChatGPT composer can be replaced in the DOM after the bootstrap input event. The current content script treats object identity change as an operator edit even when the new active composer still contains the exact bootstrap text.
+## Completion gate
 
-The fix must preserve value-based safety:
+The automatic Stage 8 one-child milestone is complete only when one fresh bounded run has all of:
 
-- if the active composer text differs from the inserted bootstrap text, fail before submit;
-- if the node was replaced but the active composer still contains exactly the inserted bootstrap text, it may continue;
-- operator edits must remain untouched and unsent;
-- route, digest, transaction, send-button and claim checks remain mandatory;
-- post-click or otherwise genuinely ambiguous outcomes remain fail closed.
-
-## Candidate implementation/test plan
-
-Work only on `work/conversation-composer-replacement` until validated.
-
-Required code scope:
-
-- `chat_bridge/spawn_content.js`
-- `scripts/conversation_spawn_browser_smoke.cjs`
-
-Required regression evidence:
-
-1. exact-text composer DOM replacement between insertion and final submit check succeeds once;
-2. different/operator-edited text returns a pre-submit failure and is never clicked;
-3. existing wrong-route, wrong-claim, duplicate-submit and ambiguous post-submit tests stay green;
-4. `scripts/conversation_live_slice_browser_smoke.cjs` stays green;
-5. focused Python live-runner/live-flow tests stay green.
-
-All Mac-local work, worktrees, browser tests and profile inspection must be executed through `host-ops`.
-
-## Promotion gate
-
-Before moving the composer fix to `develop/conversation-fabric`:
-
-1. exact candidate branch/head identified;
-2. candidate diff limited to the intended scope;
-3. focused tests green;
-4. real browser smokes green on Mac through `host-ops`;
-5. full exact-SHA CI green;
-6. `develop/conversation-fabric` rechecked for drift;
-7. fast-forward promotion only; no force update.
-
-## Fresh final proof
-
-After promotion, do not repair the preserved ambiguous attempt. Create a fresh isolated DEV live state namespace and run a new proof from the beginning:
-
-```text
-seed -> prepare -> login -> arm -> run
-```
-
-Before each live-effect step, recheck the exact source SHA, clean DEV checkout and current durable state. Do not automatically retry a failed `run`.
-
-The final proof succeeds only when all of these exist for the same fresh request:
-
-- exactly one `https://chatgpt.com/c/<id>`;
-- exact matching `ChildRegistration`;
-- exact matching `SpawnTransaction=done`;
-- bounded completion evidence;
+- canonical child `https://chatgpt.com/c/<id>`;
+- matching durable `ChildRegistration`;
+- matching durable `SpawnTransaction=done`;
+- bounded completion evidence tied to the exact admitted request/plan;
 - no production profile mutation;
 - no child execution authority.
 
-Stop there and review evidence before starting any later lifecycle work.
+Proof12 manual attach remains recovery evidence, not automatic completion evidence.
 
 ## Out of scope until Stage 8 succeeds
 
@@ -159,6 +213,7 @@ Do not start:
 - fleet scheduling;
 - rollover;
 - broad Superchat automation;
-- larger acceptance campaigns.
+- larger acceptance campaigns;
+- root-independent shared DEV browser-profile refactoring.
 
-For current operational facts, use `docs/CURRENT_HANDOFF.md`. For longer-term milestone ordering, use `docs/DEVELOPMENT_PLAN.md`.
+For operational continuation use `docs/CURRENT_HANDOFF.md`. For longer-term ordering use `docs/DEVELOPMENT_PLAN.md`.
