@@ -67,7 +67,7 @@ Completion proof22:
 - spawn attempt: `1`
 - durable `SpawnTransaction=done`
 - matching durable `ChildRegistration`
-- child lifecycle: `active`
+- child lifecycle at proof completion: `active`
 - bounded completion evidence: matching
 - manual attach/recovery: not used
 - production profile/main mutation: none
@@ -76,9 +76,14 @@ The accepted post-submit identity model is a chain of custody from the exact com
 
 Historical ambiguous proofs remain recovery evidence and must never be replayed.
 
-## Current milestone: checkpoint and terminal recording
+## Completed milestone: checkpoint and terminal recording
 
-The next required lifecycle path is:
+Accepted CODE checkpoint:
+
+- `a16918d32bc366dbc9d8a8793669baa214d13620` — `Add durable child terminal records`
+- exact-SHA canonical GitHub Actions run `37036591713`: all five jobs passed
+
+This milestone proves the deterministic lifecycle path:
 
 ```text
 active
@@ -86,39 +91,51 @@ active
   -> terminal_recorded
 ```
 
-The existing state machine already reserves these states. The current milestone must add the smallest durable terminal/checkpoint evidence model and enforce the transition contract around it.
+Accepted properties:
 
-Completion requirements for this milestone:
-
-- an active registered child can explicitly enter `terminal_pending_evidence`;
-- `terminal_recorded` cannot be reached without valid durable terminal evidence;
-- terminal evidence is schema-validated, bounded and tied to the exact child request digest and canonical registration;
-- identical terminal evidence recording is idempotent;
+- entry into `terminal_pending_evidence` is an explicit durable state transition;
+- `terminal_recorded` cannot exist without valid durable terminal evidence;
+- terminal evidence is bounded, schema-validated and tied to the exact child request digest plus the canonical durable `ChildRegistration` and child URL;
+- evidence references are non-empty, bounded and digest-addressed;
+- identical semantic terminal recording is idempotent;
 - conflicting terminal evidence fails closed;
-- mutations remain serialized by the existing workflow execution lock;
-- persisted state/evidence survives restart and reload validation;
-- positive and negative tests cover missing registration/evidence, conflicting evidence and invalid lifecycle ordering;
-- no adoption/retirement semantics are introduced yet;
-- no new browser effect is required for the deterministic storage/state proof.
+- writes use the existing workflow execution lock;
+- terminal evidence is persisted before terminal lifecycle state, making a failure between writes restart-recoverable;
+- persisted request, registration, evidence and state relationships are revalidated on reload/restart;
+- positive and negative tests cover missing registration/evidence, conflicts, invalid ordering, exact binding, idempotency, bounds, crash recovery and lock reuse;
+- no adoption/retirement semantics and no new browser effect were introduced.
+
+Implementation lives in:
+
+- `local_agent/conversation/terminal.py`
+- `local_agent/conversation/store.py`
+- `tests/test_conversation_terminal.py`
+
+Documentation-only commits may advance `develop/conversation-fabric`; always distinguish the accepted CODE checkpoint from a later docs-only head.
+
+## Current milestone: adoption and retirement
+
+Adoption and retirement are next. Their exact contract is not yet accepted and must be derived from the current repository rather than previous conversation memory.
+
+Start with one bounded read-only preimplementation audit on the accepted CODE checkpoint. The audit should identify existing lifecycle/state/workflow meanings, required durable evidence or preconditions, transition ordering, idempotency/conflict behavior, reload/restart validation, and locking/atomic-write boundaries. It must also determine whether any browser effect is genuinely part of the boundary.
+
+Only after that audit should the smallest implementation slice and focused tests be defined.
 
 The authoritative operational checkpoint is maintained in:
 
 - `docs/CURRENT_HANDOFF.md`
 - `docs/conversation_fabric/CURRENT_PLAN.md`
 
-Documentation-only commits may advance `develop/conversation-fabric`; always distinguish the accepted code checkpoint from a later doc-only head.
-
-## Ordered milestones after checkpoint and terminal recording
+## Ordered milestones after adoption and retirement
 
 Continue in this order:
 
-1. adoption and retirement;
-2. restart/recovery proof across every external-effect boundary;
-3. manual lifecycle parity as a first-class fallback;
-4. narrow Browser Driver promotion for child-chat lifecycle effects;
-5. normalize the persistent DEV browser profile into a root-independent reusable location if still useful;
-6. Superchat fleet/control layer;
-7. broader automatic scheduling only after the single-child lifecycle is proven stable.
+1. restart/recovery proof across every external-effect boundary;
+2. manual lifecycle parity as a first-class fallback;
+3. narrow Browser Driver promotion for child-chat lifecycle effects;
+4. normalize the persistent DEV browser profile into a root-independent reusable location if still useful;
+5. Superchat fleet/control layer;
+6. broader automatic scheduling only after the single-child lifecycle is proven stable.
 
 Multi-child fan-out, fleet scheduling, rollover and large acceptance campaigns remain out of scope until the corresponding lifecycle primitives are proven.
 
@@ -126,7 +143,7 @@ Multi-child fan-out, fleet scheduling, rollover and large acceptance campaigns r
 
 For every non-trivial Conversation Fabric change:
 
-1. start from the exact canonical development code head;
+1. start from the exact canonical development CODE checkpoint, distinguishing later docs-only commits;
 2. audit the existing contract/store/evidence patterns before changing behavior;
 3. make the smallest bounded change;
 4. run focused positive and negative tests;
@@ -135,6 +152,6 @@ For every non-trivial Conversation Fabric change:
 7. establish exact-candidate CI when required by the qualification/release gate and never claim it without recorded evidence;
 8. advance only `develop/conversation-fabric` after validation;
 9. update `docs/CURRENT_HANDOFF.md` whenever the active checkpoint changes;
-10. remove obsolete candidate branches/worktrees after accepted promotion.
+10. remove obsolete candidate branches/worktrees after accepted promotion when safe.
 
 Exact GitHub state and durable local evidence outrank remembered chat context.

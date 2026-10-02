@@ -14,6 +14,7 @@ Read in this order first:
 2. `docs/CURRENT_HANDOFF.md`
 3. `docs/conversation_fabric/CURRENT_PLAN.md`
 4. `docs/DEVELOPMENT_PLAN.md`
+5. `docs/conversation_fabric/NEXT_CHAT_PROMPT.md`
 
 Then fetch and verify fresh mutable state before any effect:
 
@@ -24,17 +25,19 @@ Then fetch and verify fresh mutable state before any effect:
 - clean DEV checkout at `/Users/michal/local-agent-dev`
 - production checkout at `/Users/michal/local-agent`
 
-Current durable baseline:
+Current durable runtime baseline:
 
 - production `main`: `979ef080ddb69d6e18aaf81510e3175bac2f33d2`
 - Local Agent 4.19.12 / Chat Bridge 0.6.2
 - canonical development branch: `develop/conversation-fabric`
-- accepted Stage 8 CODE checkpoint: `93fb65204db03c54d0080803d26266f3c06d777e`
-- accepted code commit: `Confirm spawn identity from owned route transition`
-- exact-SHA CI run: `37022787748`
-- CI gate for that code checkpoint: all five jobs passed (`test`, `python-314`, `coverage`, `macos-smoke`, `bridge-browser`)
+- accepted CODE checkpoint: `a16918d32bc366dbc9d8a8793669baa214d13620`
+- accepted code commit: `Add durable child terminal records`
+- exact-SHA canonical CI run: `37036591713`
+- all five jobs passed: `test`, `python-314`, `coverage`, `macos-smoke`, `bridge-browser`
 
-Stage 8 automatic one-child proof is COMPLETE.
+Documentation-only commits may advance the canonical branch beyond the accepted CODE checkpoint. Fetch the fresh head and distinguish docs-only commits from runtime changes before effects.
+
+Stage 8 automatic one-child proof is COMPLETE and remains closed.
 
 Proof22 authority/evidence:
 
@@ -47,14 +50,15 @@ Proof22 authority/evidence:
 - spawn attempt: `1`
 - durable `SpawnTransaction=done`
 - matching durable `ChildRegistration`
-- child lifecycle: `active`
 - bounded completion evidence: present and matching
 - manual attach/recovery: not used
 - production mutation: none
 
-Do NOT start another spawn campaign. Stage 8 automatic child creation is already proven.
+Do NOT start another Stage 8 spawn campaign or create another child for that milestone.
 
-Current milestone is checkpoint and terminal recording for an already registered active child:
+The terminal/checkpoint milestone is also COMPLETE on accepted CODE checkpoint `a16918d32bc366dbc9d8a8793669baa214d13620`.
+
+Accepted lifecycle path:
 
 ```text
 active
@@ -62,62 +66,60 @@ active
   -> terminal_recorded
 ```
 
-The preimplementation audit for this milestone has already completed successfully through `host-ops`:
-
-- task/result: `conversation-terminal-evidence-preimplementation-audit-20261002-v1`
-- audit was read-only
-- it ran against clean code checkpoint `93fb65204db03c54d0080803d26266f3c06d777e`
-- it inspected conversation state/store contracts plus existing workflow checkpoint/evidence and locking/atomic-write patterns
-
-The first implementation task did NOT execute:
-
-- task/result: `conversation-terminal-record-implementation-20261002-v1`
-- result: `failed`
-- failure: `invalid_task_file`
-- parser error: `JSONDecodeError: Invalid control character at: line 12 column 2004 (char 2309)`
-- `started_at=null`
-- therefore no implementation commands ran and no source mutation from that task may be assumed
-
-Do not replay that malformed task file as authority. It may be inspected only as a non-authoritative draft. Re-derive the smallest implementation from current repository contracts plus the completed audit.
-
-Required terminal/checkpoint properties remain:
+Accepted terminal-record properties:
 
 - `active -> terminal_pending_evidence` is explicit and durable;
-- `terminal_recorded` is impossible without durable terminal evidence;
-- terminal evidence binds to the exact child request digest and canonical registration;
-- evidence is schema-validated and bounded;
-- identical recording is idempotent;
+- `terminal_recorded` is impossible without valid durable terminal evidence;
+- evidence binds the exact child request ID/digest, canonical durable `ChildRegistration` digest and canonical child URL;
+- evidence and evidence references are bounded and schema-validated;
+- identical semantic recording is idempotent;
 - conflicting evidence fails closed;
-- mutations serialize through the existing workflow execution/mutation locking model;
-- persisted evidence/state survives reload/restart validation;
-- positive and negative tests cover missing registration/evidence, conflict and invalid lifecycle ordering;
-- no adoption/retirement semantics yet;
-- no new browser effect is required for this deterministic storage/state slice.
+- writes use the existing workflow execution lock;
+- evidence is persisted before terminal state, making an interrupted state write restart-recoverable;
+- persisted evidence/state relationships are revalidated on reload/restart;
+- focused tests cover missing registration/evidence, conflict, invalid ordering, exact binding, idempotency, bounds, crash recovery and lock reuse;
+- no adoption/retirement behavior and no browser effect were added by this slice.
 
-Continuation sequence:
+Implementation surfaces to re-open before later lifecycle work:
 
-1. Verify fresh GitHub refs and `host-ops`/daemon state.
-2. Verify the DEV checkout is clean and identify whether it is still at the accepted code checkpoint or has only intentional documentation-only commits ahead.
-3. Read the completed audit result before editing.
-4. Confirm the failed implementation task had no effects; do not reuse it blindly.
-5. Inspect `local_agent/conversation/contract.py`, `state.py`, `store.py`, `tests/test_conversation_store.py` and the existing workflow checkpoint/evidence patterns identified by the audit.
-6. Implement the smallest terminal evidence + recording slice with tests.
-7. Use direct GitHub operations for repository-side inspection/changes where appropriate; use `host-ops` for every Mac-local checkout/test operation.
-8. Run focused positive/negative conversation tests on Mac.
-9. Run repository verification appropriate to the actual diff.
-10. Push one reviewed CODE checkpoint to `develop/conversation-fabric` and establish exact-SHA CI before any further lifecycle proof.
-11. Update `docs/CURRENT_HANDOFF.md` and `docs/conversation_fabric/CURRENT_PLAN.md` when the accepted checkpoint changes.
+- `local_agent/conversation/terminal.py`
+- `local_agent/conversation/state.py`
+- `local_agent/conversation/store.py`
+- `tests/test_conversation_terminal.py`
+- relevant workflow state/store/revision surfaces discovered by the next audit
+
+The next milestone is adoption and retirement.
+
+There is no accepted implementation design for adoption/retirement yet. Do not infer it from old chats and do not blindly extend the terminal design.
+
+First perform one bounded read-only preimplementation audit on the fresh accepted repository state. The audit must establish from current code:
+
+- where adoption and retirement already appear or are consumed;
+- the smallest durable preconditions/evidence needed for each transition;
+- legal ordering and fail-closed behavior;
+- idempotency/conflict semantics;
+- restart/reload validation requirements;
+- locking and atomic-write boundaries;
+- whether any browser effect is actually required.
+
+Persist the audit result through `host-ops`. Do not mutate source during the audit.
+
+If the audit supports a small implementation slice, continue autonomously with that smallest bounded slice: add focused positive/negative/idempotency/restart tests, implement only the audited contract, verify locally through `host-ops`, push one reviewed CODE checkpoint to `develop/conversation-fabric`, close exact-SHA CI, and only then update durable docs.
+
+Use direct GitHub operations for repository-side inspection/changes. Use `host-ops` for every Mac-local checkout, synchronization, test or process operation.
 
 Do not touch:
 
-- production `main` unless there is a separate explicit release decision;
+- production `main` without a separate explicit release decision;
 - `chat-bridge-state`;
 - `operator-control`;
 - production Chrome profile `/Users/michal/Library/Application Support/Google/Chrome`.
 
-Preserved Stage 8 isolated profile/root remain evidence only unless a later milestone explicitly needs browser work:
+Preserved Stage 8 isolated profile/root remain evidence only unless a later audited boundary explicitly needs browser work:
 
 - root: `/Users/michal/Library/Application Support/local-agent-dev-stage8-proof12-auth-gate-3096`
 - persistent profile: `/Users/michal/Library/Application Support/local-agent-dev-stage8-proof12-auth-gate-3096/browser-profile/live-slice`
 
-First perform a short read-only preflight and report whether the terminal/checkpoint implementation slice is safe to continue. If safe, continue autonomously with the smallest bounded implementation according to the durable plan.
+Do not broaden this milestone into restart/recovery campaigns across unrelated external effects, manual lifecycle parity, Browser Driver promotion, multi-child fan-out, fleet scheduling, rollover or broad Superchat automation.
+
+First perform a short read-only preflight and report whether the adoption/retirement audit is safe to continue. If safe, continue autonomously with the bounded read-only audit, then with the smallest implementation slice only if the audit establishes one clearly.
