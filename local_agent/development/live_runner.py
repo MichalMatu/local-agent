@@ -30,6 +30,8 @@ LIVE_RUNNER_SCHEMA_VERSION = 1
 LIVE_RUNNER_JOURNAL_NAME = "runner.json"
 DEFAULT_BROWSER_TIMEOUT_SECONDS = 120
 DEFAULT_LOGIN_TIMEOUT_SECONDS = 10 * 60
+DEFAULT_LOGIN_PROBE_TIMEOUT_SECONDS = 8
+DEFAULT_LOGIN_VERIFY_TIMEOUT_SECONDS = 30
 MAX_BROWSER_TIMEOUT_SECONDS = 30 * 60
 MAX_PROTOCOL_LINE_CHARS = 128 * 1024
 MAX_LIVE_BOOTSTRAP_CHARS = 32_768
@@ -842,10 +844,11 @@ class SubprocessBrowserSession:
         return result
 
     def wait_ready(self, *, timeout_seconds: int) -> dict[str, Any]:
+        response_timeout = min(MAX_BROWSER_TIMEOUT_SECONDS, timeout_seconds + 5)
         return self._request(
             "wait_ready",
             {"timeout_ms": timeout_seconds * 1000},
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=response_timeout,
         )
 
     def create(self, intent: dict[str, Any]) -> dict[str, Any]:
@@ -880,10 +883,10 @@ class SubprocessBrowserSession:
             self._process.wait(timeout=5)
 
 
-def login_live_slice_browser(
+def _probe_live_slice_browser_login(
     layout: DevLabLayout,
     *,
-    timeout_seconds: int = DEFAULT_LOGIN_TIMEOUT_SECONDS,
+    timeout_seconds: int,
     session_factory: Callable[[DevLabLayout], BrowserSession] | None = None,
 ) -> dict[str, Any]:
     factory = session_factory or (lambda current_layout: SubprocessBrowserSession(current_layout))
@@ -895,6 +898,95 @@ def login_live_slice_browser(
         )
     finally:
         session.close()
+
+
+def open_manual_login_browser(layout: DevLabLayout) -> dict[str, Any]:
+    """Open normal Chrome on the persistent isolated DEV profile and wait for close."""
+    validate_dev_lab_layout(layout)
+    if sys.platform != "darwin":
+        raise RuntimeError(
+            "manual DEV ChatGPT login currently requires macOS Google Chrome"
+        )
+    opener = shutil.which("open")
+    if opener is None:
+        raise RuntimeError("macOS open command is required for manual DEV ChatGPT login")
+    profile = _require_descendant(
+        live_slice_paths(layout).browser_profile,
+        layout.root,
+        field="browser profile",
+    )
+    profile.mkdir(parents=True, exist_ok=True)
+    print(
+        "DEV live slice: sign in once in the normal Google Chrome window, "
+        "then close that isolated Chrome window.",
+        file=sys.stderr,
+    )
+    completed = subprocess.run(
+        [
+            opener,
+            "-W",
+            "-n",
+            "-a",
+            "Google Chrome",
+            "--args",
+            f"--user-data-dir={profile}",
+            "--no-first-run",
+            "--disable-background-mode",
+            "--password-store=basic",
+            "--use-mock-keychain",
+            "--new-window",
+            "https://chatgpt.com/",
+        ],
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"normal Chrome manual login exited with status {completed.returncode}"
+        )
+    return {"ok": True, "reason": "manual_login_browser_closed"}
+
+
+def login_live_slice_browser(
+    layout: DevLabLayout,
+    *,
+    timeout_seconds: int = DEFAULT_LOGIN_TIMEOUT_SECONDS,
+    session_factory: Callable[[DevLabLayout], BrowserSession] | None = None,
+    manual_login_factory: Callable[[DevLabLayout], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Ensure the persistent DEV profile has a ChatGPT session.
+
+    Existing sessions are reused. If the isolated profile is logged out, authentication
+    is performed once in normal Chrome rather than in the Playwright-controlled browser.
+    """
+    validate_dev_lab_layout(layout)
+    if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= MAX_BROWSER_TIMEOUT_SECONDS:
+        raise ValueError(
+            f"login timeout must be 1..{MAX_BROWSER_TIMEOUT_SECONDS} seconds"
+        )
+
+    probe_timeout = min(timeout_seconds, DEFAULT_LOGIN_PROBE_TIMEOUT_SECONDS)
+    initial = _probe_live_slice_browser_login(
+        layout,
+        timeout_seconds=probe_timeout,
+        session_factory=session_factory,
+    )
+    if initial.get("ok") is True:
+        return {**initial, "manual_login_used": False}
+    if initial.get("reason") != "chatgpt_login_timeout":
+        return {**initial, "manual_login_used": False}
+
+    launcher = manual_login_factory or open_manual_login_browser
+    manual = _validate_result(launcher(layout), action="manual_login")
+    if not manual["ok"]:
+        return {**manual, "manual_login_used": True}
+
+    verify_timeout = min(timeout_seconds, DEFAULT_LOGIN_VERIFY_TIMEOUT_SECONDS)
+    verified = _probe_live_slice_browser_login(
+        layout,
+        timeout_seconds=verify_timeout,
+        session_factory=session_factory,
+    )
+    return {**verified, "manual_login_used": True}
 
 
 def _path_arg(value: str | None) -> Path | None:

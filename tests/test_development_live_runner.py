@@ -12,6 +12,7 @@ from local_agent.conversation.store import WorkflowConversationStore
 from local_agent.development.lab import build_dev_lab_layout, initialize_dev_lab
 from local_agent.development.live_runner import (
     _write_journal,
+    login_live_slice_browser,
     load_runner_journal,
     run_live_slice,
     runner_paths,
@@ -108,9 +109,11 @@ class FakeBrowserSession:
             },
         }
         self.calls: list[str] = []
+        self.wait_timeouts: list[int] = []
 
     def wait_ready(self, *, timeout_seconds: int) -> dict[str, Any]:
         self.assert_timeout(timeout_seconds)
+        self.wait_timeouts.append(timeout_seconds)
         self.calls.append("wait_ready")
         return dict(self.responses["wait_ready"])
 
@@ -229,6 +232,50 @@ class DevelopmentLiveRunnerTests(unittest.TestCase):
         self.assertFalse(live_slice_paths(self.layout).arm.exists())
         self.assertFalse(runner_paths(self.layout).journal.exists())
         self.assertTrue(runner_paths(self.layout).evidence.is_file())
+
+    def test_login_reuses_existing_profile_without_manual_browser(self) -> None:
+        session = FakeBrowserSession()
+
+        result = login_live_slice_browser(
+            self.layout,
+            timeout_seconds=45,
+            session_factory=lambda _layout: session,
+            manual_login_factory=lambda _layout: self.fail(
+                "manual browser must not open for an authenticated profile"
+            ),
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["manual_login_used"])
+        self.assertEqual(session.calls, ["wait_ready", "close"])
+        self.assertEqual(session.wait_timeouts, [8])
+
+    def test_login_uses_normal_browser_once_then_reuses_persisted_session(self) -> None:
+        guest = FakeBrowserSession(
+            ready={"ok": False, "reason": "chatgpt_login_timeout"}
+        )
+        authenticated = FakeBrowserSession()
+        sessions = [guest, authenticated]
+        manual_calls: list[Path] = []
+
+        def manual_login(layout):
+            manual_calls.append(layout.root)
+            return {"ok": True, "reason": "manual_login_browser_closed"}
+
+        result = login_live_slice_browser(
+            self.layout,
+            timeout_seconds=45,
+            session_factory=lambda _layout: sessions.pop(0),
+            manual_login_factory=manual_login,
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["manual_login_used"])
+        self.assertEqual(manual_calls, [self.layout.root])
+        self.assertEqual(guest.calls, ["wait_ready", "close"])
+        self.assertEqual(authenticated.calls, ["wait_ready", "close"])
+        self.assertEqual(guest.wait_timeouts, [8])
+        self.assertEqual(authenticated.wait_timeouts, [30])
 
     def test_login_pause_consumes_arm_but_keeps_pending_attempt_rearmable(self) -> None:
         armed = self.prepare_and_arm()
