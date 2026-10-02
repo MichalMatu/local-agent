@@ -22,118 +22,93 @@ Then fetch and verify fresh mutable state before any effect:
 - `develop/conversation-fabric`
 - `host-ops:agent-control`
 - `.agent/status/daemon.json`
-- clean DEV checkout at `/Users/michal/local-agent-dev`
-- production checkout at `/Users/michal/local-agent`
+- DEV checkout `/Users/michal/local-agent-dev`
+- production checkout `/Users/michal/local-agent`
 
-Current runtime baseline:
+Current production baseline:
 
-- production `main`: `979ef080ddb69d6e18aaf81510e3175bac2f33d2`
+- `main`: `979ef080ddb69d6e18aaf81510e3175bac2f33d2`
 - Local Agent 4.19.12 / Chat Bridge 0.6.2
-- canonical development branch: `develop/conversation-fabric`
-- accepted CODE checkpoint: `2557f9477ff34ebb5b8502a15747e5d78f29bd5a`
-- accepted code commit: `Add restart recovery boundary proofs`
-- exact-SHA canonical CI run: `37056289262`
+- production must remain unchanged unless the user makes a separate explicit release decision
+- production Chrome profile `/Users/michal/Library/Application Support/Google/Chrome` remains protected
+
+Conversation Fabric accepted development checkpoint:
+
+- canonical branch: `develop/conversation-fabric`
+- accepted CODE: `93494b2a99162eef5bcf44caae087b71459233b4`
+- commit: `Add end-to-end Conversation Fabric MVP`
+- tree: `c4354951c4b4af9c558ce8adc59d2118f51f8146`
+- exact-SHA CI: `37076387941`
 - all five jobs passed: `test`, `python-314`, `coverage`, `macos-smoke`, `bridge-browser`
-- this accepted checkpoint is test-only relative to the prior adoption/retirement runtime checkpoint; runtime behavior did not change
 
-Documentation-only commits may advance the canonical branch beyond the accepted CODE checkpoint. Fetch the fresh head and distinguish docs-only commits from runtime/test changes before effects.
+Documentation-only commits may advance the canonical branch beyond accepted CODE `93494b2...`. Always distinguish the accepted CODE checkpoint from the current docs head before runtime effects.
 
-Stage 8 automatic one-child proof is COMPLETE and closed. Do not start another Stage 8 spawn campaign.
+The end-to-end DEV MVP is COMPLETE. Do not restart old lifecycle milestones merely to continue backend work.
 
-Proof22 authority/evidence remains:
-
-- workflow: `stage8-live-slice`
-- request: `stage8-live-child-001`
-- request digest: `sha256:460bb68b76a73350718a9f091bf3b071cfa8762f3222030e52af58e8b392a79d`
-- transaction: `spawn-92f4107c2bf0bdd6abd122c5ddcfaa6417691c576d811efc6a1973f59c676615`
-- canonical child: `https://chatgpt.com/c/6abfcdf9-8438-83eb-86da-1c4b209afc47`
-- spawn attempt: `1`
-- matching durable registration/completion evidence
-- no manual attach/recovery
-- no production mutation
-
-The terminal/checkpoint milestone is COMPLETE on CODE `a16918d32bc366dbc9d8a8793669baa214d13620` with canonical CI `37036591713` fully green.
-
-Accepted terminal path:
+Accepted bounded lifecycle:
 
 ```text
-active -> terminal_pending_evidence -> terminal_recorded
-```
-
-The adoption/retirement milestone is COMPLETE on CODE `e76dc4a114f750cc0beabdbb2ad626d41ff2e986` with canonical CI `37054505079` fully green.
-
-Accepted path:
-
-```text
-terminal_recorded
-  -> durable adoption record
+ChildRequest
+  -> durable spawn intent
+  -> owned ChatGPT child tab
+  -> exact bootstrap submit
+  -> canonical child identity
+  -> ChildRegistration
+  -> active
+  -> bounded assistant-result observation
+  -> durable result evidence
+  -> terminal_pending_evidence
+  -> terminal_recorded
+  -> durable adoption
   -> workflow reasoning node succeeded
   -> retired
+  -> close exact owned child tab
 ```
 
-The restart/recovery boundary-proof milestone is COMPLETE on accepted CODE `2557f9477ff34ebb5b8502a15747e5d78f29bd5a`.
+The accepted MVP also supports a small bounded set of independent child tasks. Browser spawn effects remain serialized; registered children may reason concurrently and the parent may collect results in one campaign.
 
-Durable boundary audit evidence:
+Important accepted safety/recovery properties:
 
-- `conversation-restart-recovery-boundary-summary-20261002-v2`: `done`, read-only
+- no blind resubmit after a potentially submitted effect;
+- lost create/submit acknowledgement recovery and restart reconciliation;
+- transient provisional-route evidence bound to the exact claimed spawn tab/transaction;
+- exact bootstrap-bound identity, including collapsed user turns;
+- one bounded observer-session retry after transport stall;
+- restart-safe terminal/adoption/retirement ordering;
+- first-class fresh manual lifecycle path;
+- ambiguous manual attach without resubmit;
+- unrecoverable ambiguity abandonment preserves the original ambiguous transaction and never authorizes replacement;
+- observer/close ownership is bound to exact transaction/request/bootstrap identity rather than URL alone.
 
-The audit found no missing runtime recovery contract. Existing runner and Chromium/MV3 evidence already proved:
+Final clean live acceptance proof:
 
-- lost browser-create ACK recovers the same transaction/tab and never creates a replacement;
-- pre-submit restart performs strict recovery or one bounded reattach only before submit;
-- `bootstrap_submitting` restart reconciles rather than resubmitting;
-- MV3 termination during submit recovers the same canonical child without a second submit;
-- ambiguous submission fails closed and requires manual attach;
-- terminal/adoption ordering already had restart failure-injection proofs.
+- workflow: `mvp-clean-final-canary-v1`
+- request: `mvp-clean-final-child-001`
+- request digest: `sha256:3bfdcf5a72c6f9b8094f74d6d9bb72609d1ce46fb5168cac4b9b1a7473153e91`
+- canonical child: `https://chatgpt.com/c/6ac03b3b-cc70-83eb-8f75-09fcbf277733`
+- child state: `retired`
+- workflow state: `completed`
+- terminal record: present
+- adoption record: present
+- result: `MVP_CLEAN_FINAL_OK` plus exact accepted SHA `93494b2a99162eef5bcf44caae087b71459233b4`
+- failures: none
+- production mutation: none
 
-The only missing explicit evidence was B4-B6 runner restart coverage:
+The MVP was also used during development to delegate real lifecycle/browser review tasks. Those child reviews found defects; the defects were fixed before the accepted checkpoint. Do not rerun those historical review campaigns.
 
-```text
-identity_discovered -> registration_submitting
-registration_submitting -> ChildRegistration -> done
-done + ChildRegistration -> completion evidence/cleanup
-```
+Current product priority is operator-visible integration / controlled release decision.
 
-Those proofs were added in `tests/test_conversation_restart_recovery.py`; no runtime source changed.
+Do not begin another abstract lifecycle-hardening milestone. Start with a short read-only product/ownership audit that answers:
 
-Verification evidence:
+- what is the smallest operator-facing entrypoint from the intended long-lived Operator Chat / Superchat into the accepted MVP;
+- how bounded child progress/results should be surfaced to the operator;
+- which existing `mvp_flow`/conversation APIs can be wrapped directly without duplicating lifecycle state;
+- whether a controlled production release should happen now or after one small operator-facing DEV slice;
+- what exact version/changelog/release work would be required if release is selected.
 
-- `conversation-restart-recovery-proof-verify-20261002-v1`: compile, Ruff, 49 focused tests and diff check passed;
-- a local `bridge-browser` attempt failed only because the DEV checkout did not expose the `playwright` Node module and made no source changes;
-- exact-SHA GitHub CI installed isolated browser tooling and passed `bridge-browser` and every other job;
-- production remained clean and unchanged.
+Prefer using the accepted MVP itself for a small bounded set of independent reasoning/review tasks when that materially accelerates the next DEV slice. This is not a general fleet scheduler: broad autonomous scheduling, rollover and fleet management remain out of scope.
 
-Current milestone is manual lifecycle parity.
-
-Do not begin by creating a new child or launching a browser campaign. First perform one bounded read-only ownership/contract audit on accepted CODE `2557f9477ff34ebb5b8502a15747e5d78f29bd5a`.
-
-Re-open current code and tests around:
-
-- `attach_ambiguous_live_slice` and related manual recovery entrypoints in `local_agent/development/live_runner.py`;
-- conversation registration/state ownership in `local_agent/conversation/store.py`;
-- spawn ambiguity/queue ownership in `local_agent/conversation/spawn_store.py`;
-- terminal evidence/state ordering in `local_agent/conversation/terminal.py`;
-- adoption/retirement in `local_agent/conversation/adoption.py`;
-- workflow reasoning-node state/store contracts.
-
-For every manual lifecycle operation identify:
-
-- durable authority and preconditions;
-- exact request/transaction/child binding;
-- state transition and evidence ordering;
-- idempotency and conflict behavior;
-- restart/resume behavior;
-- whether browser access is actually required;
-- existing positive/negative tests;
-- smallest missing parity proof or contract.
-
-The target is one lifecycle shared by automatic and manual paths. Do not introduce a second scheduler, alternate lifecycle store or browser-owned durable state.
-
-Persist the audit through `host-ops`. Do not mutate source during the audit.
-
-If the audit identifies a missing deterministic parity contract, add focused positive/negative/idempotency/restart tests and implement only the smallest gap. Reuse existing registration, terminal, adoption and retirement APIs whenever possible. Use a live browser effect only if the smallest missing proof truly requires it.
-
-Use direct GitHub operations for repository-side inspection/changes and `host-ops` for every Mac-local checkout, synchronization, test, process or browser-profile operation.
+Use direct GitHub operations for repository-side work and `host-ops` for every Mac-local checkout, synchronization, test, process or browser-profile operation.
 
 Do not touch:
 
@@ -142,11 +117,6 @@ Do not touch:
 - `operator-control`;
 - production Chrome profile `/Users/michal/Library/Application Support/Google/Chrome`.
 
-Preserved Stage 8 isolated evidence remains:
+Do not repeat the Stage 8 campaign or historical MVP acceptance canaries unless runtime code changes require a new proof of the changed external-effect boundary.
 
-- root: `/Users/michal/Library/Application Support/local-agent-dev-stage8-proof12-auth-gate-3096`
-- profile: `/Users/michal/Library/Application Support/local-agent-dev-stage8-proof12-auth-gate-3096/browser-profile/live-slice`
-
-Do not broaden the milestone into Browser Driver promotion, multi-child fan-out, fleet scheduling, rollover or broad Superchat automation.
-
-First perform a short read-only preflight and report whether the manual lifecycle parity audit is safe to continue. If safe, continue autonomously with the bounded audit and then only the smallest gap it identifies.
+First verify fresh canonical/docs head, clean DEV, clean production and fresh daemon state. Then continue autonomously with the smallest operator-visible integration audit/slice. If that slice changes runtime behavior, require focused tests and exact-SHA CI; use live browser proof only when the changed boundary actually requires it.
