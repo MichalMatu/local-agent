@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from local_agent.conversation import contract, state
+from local_agent.conversation import contract, state, terminal
 from local_agent.foundation.process import atomic_write_text, fsync_directory
 from local_agent.workflow import publishing, revisions
 from local_agent.workflow.revision_store import WorkflowRevisionStore
@@ -96,6 +96,7 @@ class WorkflowConversationStore:
         self.root = self.workflow_store.root / self.workflow_id / "conversations"
         self.requests_root = self.root / "requests"
         self.registrations_root = self.root / "registrations"
+        self.terminals_root = self.root / "terminals"
         self.states_root = self.root / "state"
 
     def _request_path(self, request_id: str) -> Path:
@@ -103,6 +104,9 @@ class WorkflowConversationStore:
 
     def _registration_path(self, request_id: str) -> Path:
         return self.registrations_root / f"{_validate_request_id(request_id)}.json"
+
+    def _terminal_path(self, request_id: str) -> Path:
+        return self.terminals_root / f"{_validate_request_id(request_id)}.json"
 
     def _state_path(self, request_id: str) -> Path:
         return self.states_root / f"{_validate_request_id(request_id)}.json"
@@ -115,7 +119,12 @@ class WorkflowConversationStore:
         if root_created:
             fsync_directory(workflow_dir)
 
-        for path in (self.requests_root, self.registrations_root, self.states_root):
+        for path in (
+            self.requests_root,
+            self.registrations_root,
+            self.terminals_root,
+            self.states_root,
+        ):
             created = not path.exists()
             path.mkdir(exist_ok=True)
             if created:
@@ -297,6 +306,43 @@ class WorkflowConversationStore:
             )
         return payload
 
+    def load_terminal_record(self, request_id: str) -> dict[str, Any] | None:
+        canonical = _validate_request_id(request_id)
+        path = self._terminal_path(canonical)
+        if not path.exists():
+            return None
+        request = self.load_request(canonical)
+        registration = self.load_registration(canonical)
+        if registration is None:
+            raise ValueError(
+                f"invalid child terminal record: {canonical!r}: durable registration is missing"
+            )
+        try:
+            if path.is_symlink() or not path.is_file():
+                raise OSError("terminal record path is not a regular file")
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise ValueError(f"child terminal record is unavailable: {canonical!r}") from exc
+        if len(raw) > terminal.MAX_TERMINAL_RECORD_BYTES + 1:
+            raise ValueError(
+                f"invalid child terminal record: {canonical!r}: file exceeds bounds"
+            )
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid child terminal record: {canonical!r}") from exc
+        try:
+            terminal.validate_terminal_record(
+                payload,
+                request=request,
+                registration=registration,
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid child terminal record: {canonical!r}: {exc}"
+            ) from exc
+        return payload
+
     def load_state(self, request_id: str) -> dict[str, Any]:
         canonical = _validate_request_id(request_id)
         request = self.load_request(canonical)
@@ -330,6 +376,13 @@ class WorkflowConversationStore:
                 return current
             if next_state == "active" and self.load_registration(canonical) is None:
                 raise ValueError("active child state requires a durable registration")
+            if (
+                next_state == "terminal_recorded"
+                and self.load_terminal_record(canonical) is None
+            ):
+                raise ValueError(
+                    "terminal_recorded child state requires durable terminal evidence"
+                )
             updated = dict(current)
             updated["state"] = next_state
             updated["updated_at"] = now_iso()
@@ -367,6 +420,58 @@ class WorkflowConversationStore:
                 updated["state"] = state.transition_child_state(
                     current["state"],
                     "active",
+                )
+                updated["updated_at"] = now_iso()
+                self._write_state(request_id, updated)
+            return resolved
+
+    def record_terminal(self, record: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(record, dict):
+            raise ValueError("child terminal record must be an object")
+        request_id = _validate_request_id(record.get("child_request_id"))
+        with self._mutation_lock():
+            request = self.load_request(request_id)
+            registration = self.load_registration(request_id)
+            if registration is None:
+                raise ValueError("child terminal record requires a durable registration")
+            terminal.validate_terminal_record(
+                record,
+                request=request,
+                registration=registration,
+            )
+            current = self.load_state(request_id)
+            if current["state"] not in {
+                "terminal_pending_evidence",
+                "terminal_recorded",
+            }:
+                raise ValueError(
+                    "child terminal record requires terminal_pending_evidence state"
+                )
+
+            existing = self.load_terminal_record(request_id)
+            if existing is None:
+                if current["state"] != "terminal_pending_evidence":
+                    raise ValueError(
+                        "terminal_recorded state requires existing terminal evidence"
+                    )
+                atomic_write_text(
+                    self._terminal_path(request_id),
+                    _json_text(record),
+                )
+                resolved = dict(record)
+            else:
+                resolved = terminal.reconcile_terminal_record(
+                    existing,
+                    record,
+                    request=request,
+                    registration=registration,
+                )
+
+            if current["state"] == "terminal_pending_evidence":
+                updated = dict(current)
+                updated["state"] = state.transition_child_state(
+                    current["state"],
+                    "terminal_recorded",
                 )
                 updated["updated_at"] = now_iso()
                 self._write_state(request_id, updated)
@@ -413,6 +518,10 @@ class WorkflowConversationStore:
             raise ValueError("requested child state cannot already have a registration")
         if child_state in _REGISTRATION_REQUIRED_STATES and registration is None:
             raise ValueError(f"{child_state} child state requires a durable registration")
+        if child_state == "terminal_recorded" and self.load_terminal_record(request_id) is None:
+            raise ValueError(
+                "terminal_recorded child state requires durable terminal evidence"
+            )
 
     def _write_state(self, request_id: str, payload: dict[str, Any]) -> None:
         request = self.load_request(request_id)
