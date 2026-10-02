@@ -170,6 +170,10 @@ def run_bridge_browser() -> None:
         [node, "scripts/conversation_spawn_current_dom_identity_smoke.cjs"],
     )
     _run(
+        "Conversation spawn collapsed ChatGPT DOM identity smoke",
+        [node, "scripts/conversation_spawn_collapsed_identity_smoke.cjs"],
+    )
+    _run(
         "Conversation spawn selectorless exact-text identity smoke",
         [node, "scripts/conversation_spawn_selectorless_identity_smoke.cjs"],
     )
