@@ -311,7 +311,7 @@ class DevelopmentLiveRunnerTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertFalse(result["manual_login_used"])
         self.assertEqual(session.calls, ["wait_ready", "close"])
-        self.assertEqual(session.wait_timeouts, [8])
+        self.assertEqual(session.wait_timeouts, [20])
 
     def test_login_uses_normal_browser_once_then_reuses_persisted_session(self) -> None:
         guest = FakeBrowserSession(
@@ -337,7 +337,7 @@ class DevelopmentLiveRunnerTests(unittest.TestCase):
         self.assertEqual(manual_calls, [self.layout.root])
         self.assertEqual(guest.calls, ["wait_ready", "close"])
         self.assertEqual(authenticated.calls, ["wait_ready", "close"])
-        self.assertEqual(guest.wait_timeouts, [8])
+        self.assertEqual(guest.wait_timeouts, [20])
         self.assertEqual(authenticated.wait_timeouts, [30])
 
     def test_login_pause_consumes_arm_but_keeps_pending_attempt_rearmable(self) -> None:

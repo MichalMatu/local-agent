@@ -197,13 +197,14 @@ async function waitForLoginReady(context, timeoutMs) {
     maximum: 30 * 60 * 1000,
     field: "login timeout_ms"
   });
+  const deadline = Date.now() + timeoutMs;
   const page = await context.newPage();
   try {
+    const navigationBudget = Math.max(1, deadline - Date.now());
     await page.goto("https://chatgpt.com/", {
       waitUntil: "domcontentloaded",
-      timeout: Math.min(timeoutMs, 30_000)
+      timeout: Math.min(navigationBudget, 5_000)
     }).catch(() => null);
-    const deadline = Date.now() + timeoutMs;
     let nextNotice = 0;
     let nextAuthProbe = 0;
     while (Date.now() < deadline) {

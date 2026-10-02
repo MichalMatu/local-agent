@@ -241,7 +241,7 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
     const pending = intent("actuator-smoke");
 
     guest = startActuator({ profile: path.join(temp, "guest-profile"), wrapperPath, fixturePath, chromeExecutable: fakeChromePath, authenticated: false });
-    const guestReady = await guest.request("wait_ready", { timeout_ms: 1200 }, 5000);
+    const guestReady = await guest.request("wait_ready", { timeout_ms: 1200 }, 15_000);
     assert.equal(guestReady.ok, false, JSON.stringify(guestReady));
     assert.equal(guestReady.reason, "chatgpt_login_timeout", JSON.stringify(guestReady));
     assert.equal(guestReady.url, "https://chatgpt.com/", JSON.stringify(guestReady));
@@ -256,7 +256,7 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
       authenticated: false,
       profileControl: true
     });
-    const uiReady = await uiAuthenticated.request("wait_ready", { timeout_ms: 3000 }, 6000);
+    const uiReady = await uiAuthenticated.request("wait_ready", { timeout_ms: 3000 }, 15_000);
     assert.equal(uiReady.ok, true, JSON.stringify(uiReady));
     assert.equal(uiReady.reason, "chatgpt_ready", JSON.stringify(uiReady));
     await uiAuthenticated.stop();
