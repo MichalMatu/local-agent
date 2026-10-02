@@ -18,6 +18,7 @@ try {
 
 const MAX_PROTOCOL_LINE_CHARS = 128 * 1024;
 const DEFAULT_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
+const AUTH_SESSION_PROBE_TIMEOUT_MS = 1500;
 const ALLOWED_ACTIONS = new Set([
   "wait_ready",
   "create",
@@ -142,18 +143,52 @@ async function pageComposerReady(page) {
   }
 }
 
-async function pageAuthenticated(page) {
+function accountControlSelector() {
+  return '[data-testid="accounts-profile-button"]';
+}
+
+async function pageAccountControlReady(page) {
   if (!page || page.isClosed() || !canonicalChatHome(page.url())) return false;
   try {
-    return await page.evaluate(async () => {
-      const response = await fetch('/api/auth/session', { credentials: 'include', cache: 'no-store' });
-      if (!response.ok) return false;
-      const session = await response.json().catch(() => null);
-      return Boolean(session && typeof session === 'object' && session.user && typeof session.user === 'object');
-    });
+    return await page.locator(accountControlSelector()).count() > 0;
   } catch (_error) {
     return false;
   }
+}
+
+async function pageSessionAuthenticated(page) {
+  if (!page || page.isClosed() || !canonicalChatHome(page.url())) return false;
+  try {
+    return await page.evaluate(async (timeoutMs) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetch('/api/auth/session', {
+          credentials: 'include',
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        if (!response.ok) return false;
+        const session = await response.json().catch(() => null);
+        return Boolean(
+          session && typeof session === 'object' &&
+          session.user && typeof session.user === 'object'
+        );
+      } catch (_error) {
+        return false;
+      } finally {
+        clearTimeout(timer);
+      }
+    }, AUTH_SESSION_PROBE_TIMEOUT_MS);
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function pageAuthenticated(page) {
+  if (!page || page.isClosed() || !canonicalChatHome(page.url())) return false;
+  if (await pageAccountControlReady(page)) return true;
+  return pageSessionAuthenticated(page);
 }
 
 async function waitForLoginReady(context, timeoutMs) {
