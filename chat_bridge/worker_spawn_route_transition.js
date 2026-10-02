@@ -85,6 +85,28 @@
             };
           }
 
+          const latestTextContent = contract.normalizedText(latest?.textContent || "");
+          const latestTurn = latest?.closest?.('[data-turn-key]') || latest;
+          const latestTurnTextContent = contract.normalizedText(latestTurn?.textContent || "");
+          if (
+            latest &&
+            messages.length === 1 &&
+            expectedNormalized &&
+            (
+              latestTextContent.includes(expectedNormalized) ||
+              latestTurnTextContent.includes(expectedNormalized)
+            )
+          ) {
+            return {
+              ok: true,
+              exactUserMessage: true,
+              identitySource: "dom_contract_embedded_text",
+              userMessageCount: 1,
+              exactTextCandidateCount: 0,
+              mainPresent: Boolean(document.querySelector("main, [role=\"main\"]"))
+            };
+          }
+
           const scope = document.querySelector("main") || document.querySelector('[role="main"]');
           if (!scope || !expectedNormalized || !digest) {
             return {
