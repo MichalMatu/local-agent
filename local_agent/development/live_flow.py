@@ -82,11 +82,12 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "command",
-        choices=("seed", "prepare", "login", "arm", "run", "status"),
+        choices=("seed", "prepare", "login", "arm", "run", "attach", "status"),
     )
     parser.add_argument("--parent-conversation-url")
     parser.add_argument("--plan-digest")
     parser.add_argument("--launch-nonce")
+    parser.add_argument("--child-conversation-url")
     parser.add_argument(
         "--ttl-seconds",
         type=int,
@@ -179,6 +180,15 @@ def _run_step(args: argparse.Namespace, layout: DevLabLayout) -> tuple[dict[str,
             ),
             0,
         )
+
+    if args.command == "attach":
+        if not args.child_conversation_url:
+            raise ValueError("--child-conversation-url is required for attach")
+        result = live_runner.attach_ambiguous_live_slice(
+            layout,
+            child_conversation_url=str(args.child_conversation_url),
+        )
+        return _output(step="attach", result=result), 0
 
     if args.command == "run":
         if not args.launch_nonce:

@@ -112,6 +112,29 @@ class DevelopmentLiveFlowTests(unittest.TestCase):
         self.assertNotIn("next_action", payload)
         load.assert_not_called()
 
+    def test_attach_requires_explicit_child_url_and_has_no_next_effect(self) -> None:
+        attached = {
+            "status": "completed",
+            "recovered": True,
+            "resolution": "manual_attach",
+            "child_conversation_url": "https://chatgpt.com/c/22222222-2222-4222-8222-222222222222",
+        }
+        with patch.object(
+            live_flow.live_runner,
+            "attach_ambiguous_live_slice",
+            return_value=attached,
+        ) as attach:
+            code, payload, stderr = self.invoke(
+                "attach",
+                "--child-conversation-url",
+                attached["child_conversation_url"],
+            )
+
+        self.assertEqual(code, 0, stderr)
+        self.assertEqual(payload["result"], attached)
+        self.assertNotIn("next_action", payload)
+        attach.assert_called_once()
+
     def test_arm_points_to_run_with_exact_nonce_and_timeout(self) -> None:
         arm = {
             "schema_version": 1,

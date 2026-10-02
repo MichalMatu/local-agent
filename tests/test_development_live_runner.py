@@ -14,6 +14,7 @@ from local_agent.development.lab import build_dev_lab_layout, initialize_dev_lab
 from local_agent.development.live_runner import (
     _browser_environment,
     _write_journal,
+    attach_ambiguous_live_slice,
     login_live_slice_browser,
     load_runner_journal,
     run_live_slice,
@@ -502,6 +503,44 @@ class DevelopmentLiveRunnerTests(unittest.TestCase):
         self.assertEqual(third.calls.count("recover_create"), 1)
         self.assertNotIn("reattach_pre_submit", third.calls)
         self.assertNotIn("create", third.calls)
+
+    def test_manual_attach_registers_existing_ambiguous_child_without_retry(self) -> None:
+        armed = self.prepare_and_arm()
+        session = FakeBrowserSession(
+            submit={
+                "ok": False,
+                "reason": "spawn_submission_ambiguous",
+                "route": "child",
+            }
+        )
+        result = self.run_with(session, armed["arm"]["launch_nonce"])
+        self.assertEqual(result["status"], "manual_attach_required")
+        self.assertEqual(self.spawns.load_attempt(REQUEST_ID, 1)["state"], "ambiguous")
+
+        attached = attach_ambiguous_live_slice(
+            self.layout,
+            child_conversation_url=CHILD_URL,
+            now=self.base_time + timedelta(seconds=2),
+        )
+
+        self.assertEqual(attached["status"], "completed")
+        self.assertTrue(attached["recovered"])
+        self.assertEqual(attached["resolution"], "manual_attach")
+        self.assertEqual(attached["child_conversation_url"], CHILD_URL)
+        self.assertEqual(self.spawns.load_attempt(REQUEST_ID, 1)["state"], "ambiguous")
+        self.assertEqual(
+            self.conversations.load_registration(REQUEST_ID)["child_conversation_url"],
+            CHILD_URL,
+        )
+        self.assertEqual(self.conversations.load_state(REQUEST_ID)["state"], "active")
+        self.assertNotIn(
+            self.spawns.load_attempt(REQUEST_ID, 1)["id"],
+            self.spawns.queue_snapshot()["unresolved_ambiguous_ids"],
+        )
+        self.assertFalse(live_slice_paths(self.layout).plan.exists())
+        self.assertFalse(runner_paths(self.layout).journal.exists())
+        self.assertTrue(runner_paths(self.layout).evidence.is_file())
+        self.assertEqual(session.calls.count("submit"), 1)
 
     def test_failed_submit_becomes_ambiguous_and_never_auto_retries(self) -> None:
         armed = self.prepare_and_arm()

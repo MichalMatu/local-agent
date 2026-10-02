@@ -407,6 +407,81 @@ def _write_completion_evidence(
     return payload
 
 
+def attach_ambiguous_live_slice(
+    layout: DevLabLayout,
+    *,
+    child_conversation_url: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    # Explicit operator recovery for one already-created child after ambiguous submit.
+    # This never launches a browser and never retries submission.
+    validate_dev_lab_layout(layout)
+    current = (now or _utc_now()).astimezone(timezone.utc)
+    journal = load_runner_journal(layout)
+    if journal is None or journal.get("phase") != "ambiguous":
+        raise RuntimeError("manual live attach requires an ambiguous runner journal")
+
+    workflow_store, conversation_store, spawn_store = _stores(
+        layout, str(journal["workflow_id"])
+    )
+    request = conversation_store.load_request(str(journal["request_id"]))
+    attempts = spawn_store.load_attempts(request["id"])
+    if len(attempts) != 1:
+        raise RuntimeError("manual live attach requires exactly one spawn attempt")
+    transaction = attempts[0]
+    if transaction["id"] != journal["transaction_id"]:
+        raise RuntimeError("manual live attach journal conflicts with spawn identity")
+    if transaction["state"] != "ambiguous":
+        raise RuntimeError("manual live attach requires an ambiguous spawn transaction")
+    if conversation_store.load_registration(request["id"]) is not None:
+        raise RuntimeError("manual live attach refuses to replace an existing registration")
+    lifecycle = conversation_store.load_state(request["id"])
+    if lifecycle["state"] != "registration_pending":
+        raise RuntimeError("manual live attach requires registration_pending child state")
+
+    canonical = contract.canonical_conversation_url(str(child_conversation_url))
+    if canonical != str(child_conversation_url):
+        raise ValueError("manual live attach requires canonical child conversation URL")
+    if canonical == request["parent_conversation_url"]:
+        raise ValueError("manual live attach child URL must differ from parent")
+
+    registration = {
+        "schema_version": contract.CHILD_REGISTRATION_SCHEMA_VERSION,
+        "child_request_id": request["id"],
+        "child_request_digest": contract.child_request_digest(request),
+        "parent_conversation_url": request["parent_conversation_url"],
+        "child_conversation_url": canonical,
+        "registered_at": _iso(current),
+    }
+    conversation_store.register_child(registration)
+    lifecycle = conversation_store.load_state(request["id"])
+    snapshot = spawn_store.queue_snapshot()
+    if transaction["id"] in snapshot["unresolved_ambiguous_ids"]:
+        raise RuntimeError("manual live attach did not resolve queue ambiguity")
+
+    payload = {
+        "schema_version": LIVE_RUNNER_SCHEMA_VERSION,
+        "completed_at": _iso(current),
+        "plan_digest": journal["plan_digest"],
+        "workflow_id": request["workflow_id"],
+        "request_id": request["id"],
+        "transaction_id": transaction["id"],
+        "spawn_state": transaction["state"],
+        "child_state": lifecycle["state"],
+        "child_conversation_url": canonical,
+        "resolution": "manual_attach",
+        "failure_reason": transaction["failure_reason"],
+    }
+    paths = runner_paths(layout)
+    paths.evidence.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(paths.evidence, _json_text(payload))
+    for path in (paths.journal, live_slice_paths(layout).plan, live_slice_paths(layout).arm):
+        if path.exists() and not path.is_symlink():
+            path.unlink()
+    fsync_directory(paths.evidence.parent)
+    return {"status": "completed", "recovered": True, **payload}
+
+
 def _recover_registered_completion(
     layout: DevLabLayout,
     *,
