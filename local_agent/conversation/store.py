@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from local_agent.conversation import contract, state, terminal
+from local_agent.conversation import adoption, contract, state, terminal
 from local_agent.foundation.process import atomic_write_text, fsync_directory
 from local_agent.workflow import publishing, revisions
 from local_agent.workflow.revision_store import WorkflowRevisionStore
@@ -97,6 +97,7 @@ class WorkflowConversationStore:
         self.requests_root = self.root / "requests"
         self.registrations_root = self.root / "registrations"
         self.terminals_root = self.root / "terminals"
+        self.adoptions_root = self.root / "adoptions"
         self.states_root = self.root / "state"
 
     def _request_path(self, request_id: str) -> Path:
@@ -107,6 +108,9 @@ class WorkflowConversationStore:
 
     def _terminal_path(self, request_id: str) -> Path:
         return self.terminals_root / f"{_validate_request_id(request_id)}.json"
+
+    def _adoption_path(self, request_id: str) -> Path:
+        return self.adoptions_root / f"{_validate_request_id(request_id)}.json"
 
     def _state_path(self, request_id: str) -> Path:
         return self.states_root / f"{_validate_request_id(request_id)}.json"
@@ -123,6 +127,7 @@ class WorkflowConversationStore:
             self.requests_root,
             self.registrations_root,
             self.terminals_root,
+            self.adoptions_root,
             self.states_root,
         ):
             created = not path.exists()
@@ -343,6 +348,49 @@ class WorkflowConversationStore:
             ) from exc
         return payload
 
+    def load_adoption_record(self, request_id: str) -> dict[str, Any] | None:
+        canonical = _validate_request_id(request_id)
+        path = self._adoption_path(canonical)
+        if not path.exists():
+            return None
+        request = self.load_request(canonical)
+        registration = self.load_registration(canonical)
+        if registration is None:
+            raise ValueError(
+                f"invalid child adoption record: {canonical!r}: durable registration is missing"
+            )
+        terminal_record = self.load_terminal_record(canonical)
+        if terminal_record is None:
+            raise ValueError(
+                f"invalid child adoption record: {canonical!r}: durable terminal evidence is missing"
+            )
+        try:
+            if path.is_symlink() or not path.is_file():
+                raise OSError("adoption record path is not a regular file")
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise ValueError(f"child adoption record is unavailable: {canonical!r}") from exc
+        if len(raw) > adoption.MAX_ADOPTION_RECORD_BYTES + 1:
+            raise ValueError(
+                f"invalid child adoption record: {canonical!r}: file exceeds bounds"
+            )
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"invalid child adoption record: {canonical!r}") from exc
+        try:
+            adoption.validate_adoption_record(
+                payload,
+                request=request,
+                registration=registration,
+                terminal_record=terminal_record,
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid child adoption record: {canonical!r}: {exc}"
+            ) from exc
+        return payload
+
     def load_state(self, request_id: str) -> dict[str, Any]:
         canonical = _validate_request_id(request_id)
         request = self.load_request(canonical)
@@ -383,6 +431,16 @@ class WorkflowConversationStore:
                 raise ValueError(
                     "terminal_recorded child state requires durable terminal evidence"
                 )
+            if next_state == "retired":
+                request = self.load_request(canonical)
+                if self.load_adoption_record(canonical) is None:
+                    raise ValueError("retired child state requires durable adoption")
+                workflow_state = self.workflow_store.load_state(self.workflow_id)
+                node_state = workflow_state["node_states"].get(request["workflow_node_id"])
+                if node_state != "succeeded":
+                    raise ValueError(
+                        "retired child state requires adopted workflow node to be succeeded"
+                    )
             updated = dict(current)
             updated["state"] = next_state
             updated["updated_at"] = now_iso()
@@ -477,6 +535,68 @@ class WorkflowConversationStore:
                 self._write_state(request_id, updated)
             return resolved
 
+    def record_adoption(self, record: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(record, dict):
+            raise ValueError("child adoption record must be an object")
+        request_id = _validate_request_id(record.get("child_request_id"))
+        with self._mutation_lock():
+            self._ensure_layout()
+            request = self.load_request(request_id)
+            registration = self.load_registration(request_id)
+            if registration is None:
+                raise ValueError("child adoption record requires a durable registration")
+            terminal_record = self.load_terminal_record(request_id)
+            if terminal_record is None:
+                raise ValueError("child adoption record requires durable terminal evidence")
+            current = self.load_state(request_id)
+            if current["state"] not in {"terminal_recorded", "retired"}:
+                raise ValueError(
+                    "child adoption record requires terminal_recorded state"
+                )
+            adoption.validate_adoption_record(
+                record,
+                request=request,
+                registration=registration,
+                terminal_record=terminal_record,
+            )
+
+            node_id = str(request["workflow_node_id"])
+            workflow_state = self.workflow_store.load_state(self.workflow_id)
+            node_state = workflow_state["node_states"].get(node_id)
+            if node_state not in {"waiting_conversation", "succeeded"}:
+                raise ValueError(
+                    "child adoption requires workflow reasoning node to be "
+                    "waiting_conversation or succeeded"
+                )
+
+            existing = self.load_adoption_record(request_id)
+            if existing is None:
+                if current["state"] != "terminal_recorded":
+                    raise ValueError(
+                        "retired child state requires existing durable adoption"
+                    )
+                atomic_write_text(
+                    self._adoption_path(request_id),
+                    _json_text(record),
+                )
+                resolved = dict(record)
+            else:
+                resolved = adoption.reconcile_adoption_record(
+                    existing,
+                    record,
+                    request=request,
+                    registration=registration,
+                    terminal_record=terminal_record,
+                )
+
+            if node_state == "waiting_conversation":
+                self.workflow_store.set_node_state(
+                    self.workflow_id,
+                    node_id,
+                    "succeeded",
+                )
+            return resolved
+
     def _initial_state(self, request: dict[str, Any]) -> dict[str, Any]:
         return {
             "schema_version": CONVERSATION_STATE_SCHEMA_VERSION,
@@ -518,10 +638,21 @@ class WorkflowConversationStore:
             raise ValueError("requested child state cannot already have a registration")
         if child_state in _REGISTRATION_REQUIRED_STATES and registration is None:
             raise ValueError(f"{child_state} child state requires a durable registration")
-        if child_state == "terminal_recorded" and self.load_terminal_record(request_id) is None:
+        if child_state in {"terminal_recorded", "retired"} and self.load_terminal_record(
+            request_id
+        ) is None:
             raise ValueError(
-                "terminal_recorded child state requires durable terminal evidence"
+                f"{child_state} child state requires durable terminal evidence"
             )
+        if child_state == "retired":
+            if self.load_adoption_record(request_id) is None:
+                raise ValueError("retired child state requires durable adoption")
+            workflow_state = self.workflow_store.load_state(self.workflow_id)
+            node_state = workflow_state["node_states"].get(request["workflow_node_id"])
+            if node_state != "succeeded":
+                raise ValueError(
+                    "retired child state requires adopted workflow node to be succeeded"
+                )
 
     def _write_state(self, request_id: str, payload: dict[str, Any]) -> None:
         request = self.load_request(request_id)
