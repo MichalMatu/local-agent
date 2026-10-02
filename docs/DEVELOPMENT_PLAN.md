@@ -8,7 +8,7 @@ Production remains Local Agent v4.19.12 / Chat Bridge 0.6.2 on:
 
 - `main@979ef080ddb69d6e18aaf81510e3175bac2f33d2`
 
-Stage 8 development must not mutate production `main` or the production Chrome profile.
+Conversation Fabric development must not mutate production `main` or the production Chrome profile without a separate explicit release decision.
 
 ## Product direction
 
@@ -33,7 +33,7 @@ Permanent boundaries:
 - Chat Bridge is a narrow browser transport/actuator, not workflow authority.
 - Browser DOM state is transport evidence, not scheduler or durable workflow state.
 - Child chats have no independent machine authority.
-- `local-agent` remains `execution_enabled=false` for the Stage 8 reasoning-child slice.
+- `local-agent` remains `execution_enabled=false` for reasoning-child browser work.
 - No second scheduler, executor or control plane.
 - No direct OpenAI API model loop.
 - No Native Messaging control plane for this architecture.
@@ -49,79 +49,92 @@ Permanent boundaries:
 | `operator-control` | global operator safety/control, not development |
 | `archive/conversation-fabric-pre-rebase` | historical safety archive only |
 
-## Current milestone: Stage 8 automatic one-child proof
+## Completed milestone: Stage 8 automatic one-child proof
 
-Stage 8 is intentionally limited to proving one exact durable reasoning-child request can create one real ChatGPT child in an isolated persistent DEV browser profile and persist matching durable evidence automatically.
+Stage 8 proved that one exact durable reasoning-child request can automatically create one real ChatGPT child in an isolated persistent DEV browser profile and persist matching durable evidence without granting the child execution authority.
 
-The operator sequence remains:
+Accepted Stage 8 code checkpoint:
+
+- `93fb65204db03c54d0080803d26266f3c06d777e` — `Confirm spawn identity from owned route transition`
+- exact-SHA GitHub Actions run `37022787748`: all jobs passed
+
+Completion proof22:
+
+- request digest: `sha256:460bb68b76a73350718a9f091bf3b071cfa8762f3222030e52af58e8b392a79d`
+- transaction: `spawn-92f4107c2bf0bdd6abd122c5ddcfaa6417691c576d811efc6a1973f59c676615`
+- plan digest: `sha256:43581f5fc966859b7339ddbdb0cc24de26fbe3ec30841784bc851ebd322dc61a`
+- canonical child: `https://chatgpt.com/c/6abfcdf9-8438-83eb-86da-1c4b209afc47`
+- spawn attempt: `1`
+- durable `SpawnTransaction=done`
+- matching durable `ChildRegistration`
+- child lifecycle: `active`
+- bounded completion evidence: matching
+- manual attach/recovery: not used
+- production profile/main mutation: none
+
+The accepted post-submit identity model is a chain of custody from the exact composer text and submitted claim through the supported provisional route to the same claimed canonical child tab. Full expanded long-message DOM text is not required because ChatGPT may lazily render collapsed messages.
+
+Historical ambiguous proofs remain recovery evidence and must never be replayed.
+
+## Current milestone: checkpoint and terminal recording
+
+The next required lifecycle path is:
 
 ```text
-seed -> prepare -> login -> arm -> run
+active
+  -> terminal_pending_evidence
+  -> terminal_recorded
 ```
 
-Each invocation performs one authority step. Do not auto-chain.
+The existing state machine already reserves these states. The current milestone must add the smallest durable terminal/checkpoint evidence model and enforce the transition contract around it.
 
-Hard limits:
+Completion requirements for this milestone:
 
-- one parent;
-- one reasoning child;
-- one durable `ChildRequest`;
-- one browser spawn attempt per proof;
-- one isolated persistent DEV Chrome profile;
-- exact clean repository checkout and source SHA;
-- no Local Agent task execution by the child;
-- no production Chrome/profile mutation;
-- fail closed after any potentially submitted ambiguous external effect.
+- an active registered child can explicitly enter `terminal_pending_evidence`;
+- `terminal_recorded` cannot be reached without valid durable terminal evidence;
+- terminal evidence is schema-validated, bounded and tied to the exact child request digest and canonical registration;
+- identical terminal evidence recording is idempotent;
+- conflicting terminal evidence fails closed;
+- mutations remain serialized by the existing workflow execution lock;
+- persisted state/evidence survives restart and reload validation;
+- positive and negative tests cover missing registration/evidence, conflicting evidence and invalid lifecycle ordering;
+- no adoption/retirement semantics are introduced yet;
+- no new browser effect is required for the deterministic storage/state proof.
 
-A manually attached child is valid recovery evidence but does not complete the automatic Stage 8 gate unless the same fresh proof also has the required automatic terminal durable evidence.
-
-The current accepted code checkpoint and proof authority are intentionally canonical in:
+The authoritative operational checkpoint is maintained in:
 
 - `docs/CURRENT_HANDOFF.md`
 - `docs/conversation_fabric/CURRENT_PLAN.md`
 
-At the 2026-10-02 checkpoint, accepted code had reached `d65cbaacf70ee272e4263ab0e73428aa1376210e` (`Wait for canonical child identity stabilization`) and proof15 was freshly prepared but not armed or run. Later documentation-only commits may advance `develop/conversation-fabric`; verify code-vs-doc head before effects.
+Documentation-only commits may advance `develop/conversation-fabric`; always distinguish the accepted code checkpoint from a later doc-only head.
 
-## Stage 8 completion gate
+## Ordered milestones after checkpoint and terminal recording
 
-Do not move to the next lifecycle milestone until one fresh proof has all of:
+Continue in this order:
 
-- canonical child `https://chatgpt.com/c/<id>`;
-- matching durable `ChildRegistration`;
-- matching durable `SpawnTransaction=done`;
-- bounded completion evidence tied to the exact admitted request/plan;
-- no production profile mutation;
-- no child execution authority.
+1. adoption and retirement;
+2. restart/recovery proof across every external-effect boundary;
+3. manual lifecycle parity as a first-class fallback;
+4. narrow Browser Driver promotion for child-chat lifecycle effects;
+5. normalize the persistent DEV browser profile into a root-independent reusable location if still useful;
+6. Superchat fleet/control layer;
+7. broader automatic scheduling only after the single-child lifecycle is proven stable.
 
-No blind retry is allowed after submit may have happened. An ambiguous live effect must be inspected/recovered as the existing child, never replayed.
-
-## After Stage 8
-
-Only after the automatic one-child proof succeeds, continue in this order:
-
-1. checkpoint and terminal recording;
-2. adoption and retirement;
-3. restart/recovery proof across every external-effect boundary;
-4. manual lifecycle parity as a first-class fallback;
-5. narrow Browser Driver promotion for child-chat lifecycle effects;
-6. normalize the persistent DEV browser profile into a root-independent reusable location if still useful;
-7. Superchat fleet/control layer;
-8. broader automatic scheduling only after the single-child lifecycle is proven stable.
-
-Multi-child fan-out, fleet scheduling and large acceptance campaigns remain out of scope during Stage 8.
+Multi-child fan-out, fleet scheduling, rollover and large acceptance campaigns remain out of scope until the corresponding lifecycle primitives are proven.
 
 ## Verification discipline
 
 For every non-trivial Conversation Fabric change:
 
 1. start from the exact canonical development code head;
-2. make the smallest bounded change on a temporary candidate branch;
-3. run focused positive and negative tests;
-4. use real browser/process evidence for browser boundaries;
-5. use `host-ops` for all Mac-local operations;
-6. establish exact-candidate CI when required by the qualification/release gate and never claim it without recorded evidence;
-7. fast-forward only `develop/conversation-fabric` after validation;
-8. update `docs/CURRENT_HANDOFF.md` whenever the active checkpoint changes;
-9. remove obsolete candidate branches/worktrees after accepted promotion.
+2. audit the existing contract/store/evidence patterns before changing behavior;
+3. make the smallest bounded change;
+4. run focused positive and negative tests;
+5. use real browser/process evidence only when the boundary under test actually requires it;
+6. use `host-ops` for all Mac-local operations;
+7. establish exact-candidate CI when required by the qualification/release gate and never claim it without recorded evidence;
+8. advance only `develop/conversation-fabric` after validation;
+9. update `docs/CURRENT_HANDOFF.md` whenever the active checkpoint changes;
+10. remove obsolete candidate branches/worktrees after accepted promotion.
 
 Exact GitHub state and durable local evidence outrank remembered chat context.
