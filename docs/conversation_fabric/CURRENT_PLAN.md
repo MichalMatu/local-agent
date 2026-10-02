@@ -1,6 +1,6 @@
 # Conversation Fabric — current execution plan
 
-Status: Stage 8, terminal recording, adoption/retirement, and restart/recovery boundary proof are complete. Manual lifecycle parity is next.
+Status: the end-to-end Conversation Fabric MVP is accepted on the canonical development line. The current priority is operator-visible integration or a controlled production release decision, not another hidden lifecycle milestone.
 
 ## Current baseline
 
@@ -9,178 +9,127 @@ Production remains unchanged:
 - `main@979ef080ddb69d6e18aaf81510e3175bac2f33d2`
 - Local Agent v4.19.12
 - Chat Bridge 0.6.2
+- production checkout: `/Users/michal/local-agent`
 
 Canonical development line:
 
 - branch: `develop/conversation-fabric`
-- accepted CODE checkpoint: `2557f9477ff34ebb5b8502a15747e5d78f29bd5a`
-- accepted commit: `Add restart recovery boundary proofs`
-- exact-SHA canonical CI run: `37056289262`
-- CI result: all five jobs passed (`test`, `python-314`, `coverage`, `macos-smoke`, `bridge-browser`)
-- accepted checkpoint is test-only relative to the adoption/retirement runtime checkpoint; no runtime behavior changed
+- accepted CODE checkpoint: `93494b2a99162eef5bcf44caae087b71459233b4`
+- accepted commit: `Add end-to-end Conversation Fabric MVP`
+- exact-SHA CI: `37076387941`
+- all five jobs passed: `test`, `python-314`, `coverage`, `macos-smoke`, `bridge-browser`
+- DEV checkout: `/Users/michal/local-agent-dev`
 
-Documentation-only commits may advance the canonical branch; always distinguish accepted CODE from later docs-only heads before effects.
+Documentation-only commits may advance the canonical branch beyond the accepted CODE checkpoint. Runtime/effect work must always identify the accepted CODE SHA separately from the current docs head.
 
-Mac DEV checkout:
+## What is complete
 
-- `/Users/michal/local-agent-dev`
+The following lifecycle milestones are closed:
 
-Production checkout:
+- automatic one-child spawn/identity proof;
+- durable terminal recording;
+- durable adoption and retirement;
+- restart/recovery boundary proofs;
+- first-class manual lifecycle parity;
+- complete DEV MVP child orchestration, result collection and exact owned-tab cleanup;
+- bounded multi-child delegation used for real review work.
 
-- `/Users/michal/local-agent`
-
-Preserved Stage 8 evidence:
-
-- root: `/Users/michal/Library/Application Support/local-agent-dev-stage8-proof12-auth-gate-3096`
-- browser profile: `/Users/michal/Library/Application Support/local-agent-dev-stage8-proof12-auth-gate-3096/browser-profile/live-slice`
-
-Production Chrome is never a source profile.
-
-## Closed milestone ledger
-
-### Stage 8 automatic one-child proof
-
-- accepted CODE: `93fb65204db03c54d0080803d26266f3c06d777e` — `Confirm spawn identity from owned route transition`
-- exact-SHA CI `37022787748`: all five jobs passed
-- Proof22 created exactly one canonical child automatically with matching durable request/registration/spawn completion evidence and no production mutation.
-
-Do not repeat this spawn milestone. Historical ambiguous attempts remain recovery evidence and must never be blindly replayed.
-
-### Checkpoint and terminal recording
-
-- accepted CODE: `a16918d32bc366dbc9d8a8793669baa214d13620` — `Add durable child terminal records`
-- exact-SHA canonical CI: `37036591713`, all five jobs passed
-
-Proven lifecycle:
+The accepted MVP path is:
 
 ```text
-active -> terminal_pending_evidence -> terminal_recorded
-```
-
-Terminal evidence is bounded, exact-request/registration-bound, persisted before state completion, retry-idempotent, conflict-fail-closed and reload-validated.
-
-### Adoption and retirement
-
-- accepted CODE: `e76dc4a114f750cc0beabdbb2ad626d41ff2e986` — `Add durable child adoption and retirement`
-- exact-SHA canonical CI: `37054505079`, all five jobs passed
-
-Accepted path:
-
-```text
-terminal_recorded
-  -> durable adoption record
-  -> workflow reasoning node succeeded
+request
+  -> spawn
+  -> exact bootstrap
+  -> canonical identity
+  -> registration
+  -> active
+  -> result observation
+  -> durable result evidence
+  -> terminal
+  -> adoption
+  -> succeeded reasoning node
   -> retired
+  -> exact owned-tab close
 ```
 
-The durable adoption record binds the exact child request digest, terminal-record digest, workflow ID and reasoning-node ID. It is persisted before workflow-node success so interruption is restart-recoverable. Identical semantic retries are idempotent, conflicts fail closed, and retirement requires both durable adoption and a succeeded bound workflow node. Reload validation enforces those invariants.
+Recovery/fail-closed behavior includes:
 
-No browser effect was added by terminal or adoption/retirement slices.
+- strict create/pre-submit recovery;
+- no blind replay after ambiguous submit;
+- exact transient-route ownership evidence;
+- collapsed-turn exact identity handling;
+- bounded observer-session retry;
+- manual attach for an already-created ambiguous child;
+- safe abandonment of an unrecoverable ambiguous child while preserving the original ambiguous spawn and forbidding replacement;
+- restart-safe terminal/adoption/retirement ordering;
+- observer/close cache bound to exact child ownership identity, not URL alone.
 
-### Restart/recovery boundary proof
+## Acceptance evidence
 
-- accepted CODE: `2557f9477ff34ebb5b8502a15747e5d78f29bd5a` — `Add restart recovery boundary proofs`
-- exact-SHA canonical CI: `37056289262`, all five jobs passed
+Accepted CODE:
 
-Durable read-only boundary evidence:
+- `93494b2a99162eef5bcf44caae087b71459233b4`
+- tree: `c4354951c4b4af9c558ce8adc59d2118f51f8146`
+- exact-SHA CI run: `37076387941`, 5/5 green
 
-- `conversation-restart-recovery-boundary-summary-20261002-v2`: `done`
+Final clean live canary:
 
-The audit classified the lifecycle boundaries as follows:
+- workflow: `mvp-clean-final-canary-v1`
+- request: `mvp-clean-final-child-001`
+- canonical child: `https://chatgpt.com/c/6ac03b3b-cc70-83eb-8f75-09fcbf277733`
+- child state: `retired`
+- workflow state: `completed`
+- terminal record: present
+- adoption record: present
+- result: `MVP_CLEAN_FINAL_OK` plus exact accepted SHA
+- failures: none
 
-- B1 create: durable create intent before browser create; lost acknowledgement recovers the same transaction/tab and replacement creation is prohibited;
-- B2 pre-submit: durable tab/bootstrap state allows strict recovery or one bounded reattach while submit has not happened;
-- B3 submit/identity: `bootstrap_submitting` restart reconciles instead of resubmitting; ambiguity requires manual attach;
-- B4 identity/registration intent: `identity_discovered -> registration_submitting`, no browser effect;
-- B5 registration write: `registration_submitting -> ChildRegistration -> done`;
-- B6 completion evidence: durable registration plus `done` recovers completion evidence/cleanup;
-- B7 terminal: terminal record persists before `terminal_recorded`;
-- B8 adoption: adoption record persists before reasoning-node `succeeded`;
-- B9 retirement: durable adoption plus succeeded node allows `retired`; no external cleanup effect currently exists.
+The MVP was also used to delegate its own bounded lifecycle and browser reviews. Findings from those child reviews were fixed before the accepted clean checkpoint.
 
-B1-B3 were already covered by runner tests and Chromium/MV3 restart smokes. B7-B9 already had restart/failure-injection proof. The smallest missing proof was explicit runner restart coverage for B4-B6.
-
-The accepted change adds only `tests/test_conversation_restart_recovery.py`; runtime source is unchanged.
-
-Verification:
-
-- `conversation-restart-recovery-proof-verify-20261002-v1`: compile passed, Ruff passed, 49 focused tests passed, diff check passed;
-- local `bridge-browser` could not start because the DEV checkout lacked a visible `playwright` Node module; this was environment-only and made no source change;
-- exact-SHA GitHub CI installed isolated tooling and passed `bridge-browser` and every other job;
-- production remained unchanged and clean.
-
-## Non-negotiable invariants
+## Permanent architecture boundaries
 
 - GitHub is the durable control/evidence plane.
-- Local Agent remains deterministic and model-free.
-- Chat Bridge remains a bounded browser actuator, not workflow authority.
-- child chats never receive independent machine execution authority.
+- Local Agent is deterministic orchestration and remains model-free.
+- ChatGPT conversations are the reasoning layer.
+- Chat Bridge is a bounded browser transport/actuator, not durable workflow authority.
+- Browser DOM state is transport evidence, not scheduler state.
+- Child chats have no independent machine execution authority.
 - `local-agent` remains `execution_enabled=false` for reasoning-child browser work.
-- no production Chrome/profile mutation.
-- no Native Messaging control plane.
-- no blind replay after a potentially submitted ambiguous effect.
-- browser DOM is transport evidence, not durable workflow state.
+- No blind replay after a potentially submitted browser effect.
+- No production Chrome-profile mutation.
+- No second scheduler or Native Messaging control plane.
 
-## Current milestone — manual lifecycle parity
+## Current product milestone
 
-The next goal is to make the manual fallback path first-class while preserving one durable lifecycle and one source of authority.
+The next work should make the accepted capability visible/useful rather than adding more hidden lifecycle machinery.
 
-Begin with a bounded read-only ownership/contract audit. Do not change behavior before the audit identifies a concrete parity gap.
+Preferred order:
 
-The audit must map manual operations for:
+1. define the smallest operator-facing entrypoint from the intended long-lived Operator Chat / Superchat into the accepted MVP;
+2. use the MVP itself for bounded child delegation while implementing/reviewing that work;
+3. decide whether the accepted checkpoint is ready for a controlled production release;
+4. if releasing, perform the repository's normal version/changelog/release validation, exact-SHA CI and production rollout discipline;
+5. only add more lifecycle/browser hardening when a concrete defect from real use requires it.
 
-- attaching an existing/ambiguous child to the exact admitted request and spawn transaction;
-- canonical registration and conflicting/idempotent registration behavior;
-- continuing a manually attached child through active, terminal evidence, adoption and retirement;
-- restart/resume behavior for manual evidence and operator intervention;
-- automatic-only browser assumptions that must not become durable manual-state assumptions;
-- existing APIs that already provide parity versus the smallest missing contract/test.
+Production `main` must remain untouched until an explicit release decision is made.
 
-Required matrix columns:
+## Bounded delegation policy
 
-- manual operation;
-- durable owner/precondition;
-- exact lifecycle transition;
-- durable evidence before/after effect;
-- idempotency/conflict rule;
-- restart/recovery rule;
-- browser dependency, if any;
-- existing tests/proofs;
-- smallest missing parity proof.
+The MVP may be used in DEV for up to a small bounded set of independent reasoning/review children. Spawn effects remain serialized; child reasoning and result collection can overlap.
 
-At minimum inspect:
+This is not yet a general fleet scheduler. Broad autonomous scheduling, rollover, fleet management and large fan-out remain later product work and should not be introduced merely to expand scope.
 
-- `attach_ambiguous_live_slice` and related manual recovery paths in `local_agent/development/live_runner.py`;
-- conversation registration/state store;
-- spawn store ambiguity/queue resolution;
-- terminal record path;
-- adoption/retirement path;
-- workflow reasoning-node transition contracts.
+## Verification discipline
 
-Do not create a new child or launch a broad browser campaign for the audit. Reuse the existing lifecycle primitives wherever possible and do not introduce a second scheduler or parallel state machine.
+For future runtime changes:
 
-## Immediate execution plan
+1. start from the accepted canonical CODE checkpoint, distinguishing later docs-only heads;
+2. identify the concrete user-visible or reliability gap first;
+3. make the smallest bounded change;
+4. add focused positive/negative/idempotency/restart tests appropriate to the boundary;
+5. use real browser evidence only where the changed boundary crosses a browser effect;
+6. run Mac-local checks through `host-ops`;
+7. establish exact-SHA CI before accepting another CODE checkpoint;
+8. update durable handoff docs only after acceptance.
 
-1. Fetch fresh mutable refs and daemon state.
-2. Verify DEV clean and production unchanged.
-3. Reopen manual attach/recovery, conversation/spawn stores, terminal/adoption and workflow state/tests.
-4. Run one bounded read-only manual lifecycle parity audit through `host-ops` and persist its result.
-5. Build the ownership/state-transition matrix from repository evidence.
-6. Classify current manual operations as already parity-safe versus missing proof/contract.
-7. Select the smallest genuine parity gap.
-8. Add positive, negative, idempotency and restart tests before behavior changes.
-9. Implement only the smallest gap and reuse existing durable APIs.
-10. Use browser evidence only if that gap genuinely crosses a browser boundary.
-11. Establish exact-SHA CI before accepting another CODE checkpoint.
-12. Update durable docs only after acceptance.
-
-## Ordered milestones after manual lifecycle parity
-
-1. narrow Browser Driver promotion for child-chat lifecycle effects;
-2. normalize the persistent DEV browser profile into a root-independent reusable location if still useful;
-3. Superchat fleet/control layer;
-4. broader automatic scheduling only after the single-child lifecycle is proven stable.
-
-Multi-child fan-out, fleet scheduling, rollover and broad Superchat automation remain out of scope.
-
-For operational continuation use `docs/CURRENT_HANDOFF.md`. A ready-to-paste next-chat bootstrap is maintained in `docs/conversation_fabric/NEXT_CHAT_PROMPT.md`. For longer-term ordering use `docs/DEVELOPMENT_PLAN.md`.
+For operational continuation, use `docs/CURRENT_HANDOFF.md`. A ready-to-paste continuation prompt is maintained in `docs/conversation_fabric/NEXT_CHAT_PROMPT.md`.
