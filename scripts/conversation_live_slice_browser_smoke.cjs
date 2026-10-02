@@ -49,6 +49,7 @@ const expectedExecutable = process.env.LOCAL_AGENT_EXPECTED_CHROME_EXECUTABLE ||
 const authenticated = process.env.LOCAL_AGENT_LIVE_SLICE_AUTHENTICATED !== "0";
 const profileControl = process.env.LOCAL_AGENT_LIVE_SLICE_PROFILE_CONTROL === "1";
 const realChromeExecutable = process.env.LOCAL_AGENT_LIVE_SLICE_REAL_CHROME_EXECUTABLE || "";
+const composerDelayMs = Number(process.env.LOCAL_AGENT_LIVE_SLICE_COMPOSER_DELAY_MS || "0");
 module.exports = {
   chromium: {
     async launchPersistentContext(profile, options) {
@@ -104,7 +105,13 @@ module.exports = {
           const renderedFixture = profileControl
             ? fixture.replace("</body>", '<button data-testid="accounts-profile-button">Account</button></body>')
             : fixture;
-          return route.fulfill({ status: 200, contentType: "text/html", body: renderedFixture });
+          const delayedFixture = composerDelayMs > 0
+            ? renderedFixture.replace(
+                '<div id="prompt-textarea" class="ProseMirror" contenteditable="true" role="textbox"></div>',
+                '<div id="delayed-composer-anchor"></div><script>setTimeout(function(){const anchor=document.getElementById("delayed-composer-anchor");if(!anchor)return;const composer=document.createElement("div");composer.id="prompt-textarea";composer.className="ProseMirror";composer.contentEditable="true";composer.setAttribute("role","textbox");anchor.replaceWith(composer);},' + composerDelayMs + ');</script>'
+              )
+            : renderedFixture;
+          return route.fulfill({ status: 200, contentType: "text/html", body: delayedFixture });
         }
         return route.abort();
       });
@@ -124,14 +131,15 @@ function bounded(label, promise, timeoutMs = 20_000) {
   ]);
 }
 
-function startActuator({ profile, wrapperPath, fixturePath, chromeExecutable = null, authenticated = true, profileControl = false }) {
+function startActuator({ profile, wrapperPath, fixturePath, chromeExecutable = null, authenticated = true, profileControl = false, composerDelayMs = 0 }) {
   const env = {
     ...process.env,
     LOCAL_AGENT_PLAYWRIGHT_MODULE: wrapperPath,
     LOCAL_AGENT_PLAYWRIGHT_REAL_MODULE: playwrightModule,
     LOCAL_AGENT_LIVE_SLICE_FIXTURE: fixturePath,
     LOCAL_AGENT_LIVE_SLICE_AUTHENTICATED: authenticated ? "1" : "0",
-    LOCAL_AGENT_LIVE_SLICE_PROFILE_CONTROL: profileControl ? "1" : "0"
+    LOCAL_AGENT_LIVE_SLICE_PROFILE_CONTROL: profileControl ? "1" : "0",
+    LOCAL_AGENT_LIVE_SLICE_COMPOSER_DELAY_MS: String(composerDelayMs)
   };
   delete env.LOCAL_AGENT_CHROME_EXECUTABLE;
   delete env.LOCAL_AGENT_EXPECTED_CHROME_EXECUTABLE;
@@ -235,6 +243,7 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
 
   let guest = null;
   let uiAuthenticated = null;
+  let slowComposer = null;
   let first = null;
   let second = null;
   try {
@@ -261,6 +270,29 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
     assert.equal(uiReady.reason, "chatgpt_ready", JSON.stringify(uiReady));
     await uiAuthenticated.stop();
     uiAuthenticated = null;
+
+    slowComposer = startActuator({
+      profile: path.join(temp, "slow-composer-profile"),
+      wrapperPath,
+      fixturePath,
+      chromeExecutable: fakeChromePath,
+      composerDelayMs: 6500
+    });
+    const slowReady = await slowComposer.request("wait_ready", { timeout_ms: 15_000 }, 25_000);
+    assert.equal(slowReady.ok, true, JSON.stringify(slowReady));
+    const slowPending = intent("slow-composer");
+    const slowCreated = await slowComposer.request("create", { intent: slowPending });
+    assert.equal(slowCreated.ok, true, JSON.stringify(slowCreated));
+    const slowDurable = intent("slow-composer", slowCreated.tabId);
+    const slowRecovered = await recoverMarker(slowComposer.request, slowDurable);
+    assert.equal(slowRecovered?.ok, true, JSON.stringify(slowRecovered));
+    const slowProbeStarted = Date.now();
+    const slowProbe = await slowComposer.request("probe", { intent: slowDurable }, 35_000);
+    assert.equal(slowProbe.ok, true, JSON.stringify(slowProbe));
+    assert.equal(slowProbe.reason, "spawn_ready", JSON.stringify(slowProbe));
+    assert.ok(Date.now() - slowProbeStarted >= 6000, "probe must wait for delayed composer stabilization");
+    await slowComposer.stop();
+    slowComposer = null;
 
     first = startActuator({
       profile,
@@ -340,7 +372,7 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
     second = null;
     console.log("Conversation live slice bounded restart recovery smoke passed.");
   } finally {
-    for (const actuator of [guest, uiAuthenticated, first, second]) {
+    for (const actuator of [guest, uiAuthenticated, slowComposer, first, second]) {
       if (!actuator) continue;
       if (actuator.child.exitCode === null) actuator.child.kill("SIGTERM");
       actuator.closeLines();

@@ -19,6 +19,8 @@ try {
 const MAX_PROTOCOL_LINE_CHARS = 128 * 1024;
 const DEFAULT_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 const AUTH_SESSION_PROBE_TIMEOUT_MS = 1500;
+const PRE_SUBMIT_CONTENT_WAIT_MS = 5000;
+const PRE_SUBMIT_COMPOSER_STABILIZATION_MS = 30000;
 const ALLOWED_ACTIONS = new Set([
   "wait_ready",
   "create",
@@ -274,13 +276,14 @@ async function probeBeforeSubmit(context, intent) {
   if (!Number.isInteger(tabId) || tabId < 1) {
     return { ok: false, reason: "spawn_tab_unavailable" };
   }
-  const deadline = Date.now() + 5000;
+  const contentDeadline = Date.now() + PRE_SUBMIT_CONTENT_WAIT_MS;
+  let readinessDeadline = null;
   while (true) {
     const content = await callWorker(context, "ensureConversationSpawnContent", tabId);
     if (!content?.ok) {
       if (
         ["spawn_content_unavailable", "spawn_page_not_ready"].includes(String(content?.reason || "")) &&
-        Date.now() < deadline
+        Date.now() < contentDeadline
       ) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         continue;
@@ -290,6 +293,9 @@ async function probeBeforeSubmit(context, intent) {
     if (content.route !== "fresh") {
       return { ok: false, reason: "spawn_unexpected_route", route: content.route || "unknown" };
     }
+    if (readinessDeadline === null) {
+      readinessDeadline = Date.now() + PRE_SUBMIT_COMPOSER_STABILIZATION_MS;
+    }
     const readiness = content.readiness;
     if (!readiness || typeof readiness !== "object" || typeof readiness.ok !== "boolean") {
       return { ok: false, reason: "spawn_readiness_unavailable" };
@@ -298,7 +304,7 @@ async function probeBeforeSubmit(context, intent) {
     if (!["spawn_page_not_ready", "spawn_composer_not_found"].includes(String(readiness.reason || ""))) {
       return readiness;
     }
-    if (Date.now() >= deadline) return readiness;
+    if (Date.now() >= readinessDeadline) return readiness;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 }
