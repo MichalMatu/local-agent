@@ -8,7 +8,37 @@
   const MAX_BOOTSTRAP_CHARS = 32_768;
   const TRANSACTION_RE = /^spawn-[0-9a-f]{64}$/;
   const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
+  const COMMIT_SHA_RE = /^[0-9a-f]{40}$/;
   const CLAIM_PREFIX = "local-agent:conversation-spawn:";
+  const BOOTSTRAP_HEADER = "LOCAL AGENT CHILD BOOTSTRAP";
+  const BOOTSTRAP_INSTRUCTIONS = Object.freeze([
+    "Treat this bootstrap as the complete admitted startup authority for this child conversation.",
+    "Work only from the immutable request fields and content-addressed context references below.",
+    "Do not substitute browser state, a moved repository ref, or unreferenced transcript history for admitted authority."
+  ]);
+  const BOOTSTRAP_RECORD_KEYS = Object.freeze([
+    "bootstrap_contract_version",
+    "child_request_digest",
+    "instructions",
+    "request"
+  ]);
+  const CHILD_REQUEST_IDENTITY_KEYS = Object.freeze([
+    "agent_binding",
+    "bootstrap_contract_version",
+    "context_refs",
+    "id",
+    "parent_conversation_url",
+    "repository_commit_sha",
+    "repository_id",
+    "repository_ref",
+    "role",
+    "schema_version",
+    "scope",
+    "workflow_id",
+    "workflow_node_id",
+    "workflow_node_introduction_digest",
+    "workflow_node_revision"
+  ]);
   const COMPOSER_BLOCK_TAGS = new Set([
     "ADDRESS",
     "ARTICLE",
@@ -130,6 +160,73 @@
     return composerTextVariants(composer).some((variant) => variant === expected);
   }
 
+  function exactObjectKeys(value, expected) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const actual = Object.keys(value).sort();
+    return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+  }
+
+  function exactStringArray(value, expected) {
+    return Array.isArray(value) &&
+      value.length === expected.length &&
+      value.every((item, index) => item === expected[index]);
+  }
+
+  function canonicalJson(value) {
+    if (value === null) return "null";
+    if (typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) throw new Error("non-finite canonical JSON number");
+      return JSON.stringify(value);
+    }
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+    }
+    if (typeof value === "object") {
+      return `{${Object.keys(value).sort().map((key) => (
+        `${JSON.stringify(key)}:${canonicalJson(value[key])}`
+      )).join(",")}}`;
+    }
+    throw new Error("unsupported canonical JSON value");
+  }
+
+  async function ownedBootstrapDraftText(composer) {
+    for (const variant of composerTextVariants(composer)) {
+      const normalized = normalizeContentEditableText(variant);
+      if (!normalized.startsWith(`${BOOTSTRAP_HEADER}\n`)) continue;
+      let record;
+      try {
+        record = JSON.parse(normalized.slice(BOOTSTRAP_HEADER.length + 1).trim());
+      } catch (_error) {
+        continue;
+      }
+      if (!exactObjectKeys(record, BOOTSTRAP_RECORD_KEYS)) continue;
+      if (record.bootstrap_contract_version !== 1) continue;
+      if (!DIGEST_RE.test(String(record.child_request_digest || ""))) continue;
+      if (!exactStringArray(record.instructions, BOOTSTRAP_INSTRUCTIONS)) continue;
+      const request = record.request;
+      if (!exactObjectKeys(request, CHILD_REQUEST_IDENTITY_KEYS)) continue;
+      if (request.schema_version !== 2 || request.bootstrap_contract_version !== 1) continue;
+      if (!COMMIT_SHA_RE.test(String(request.repository_commit_sha || ""))) continue;
+      if (!DIGEST_RE.test(String(request.workflow_node_introduction_digest || ""))) continue;
+      if (!Number.isInteger(request.workflow_node_revision) || request.workflow_node_revision < 0) continue;
+      if (!["research", "implementation", "verification", "integration"].includes(request.role)) continue;
+      if (!Array.isArray(request.context_refs)) continue;
+      if (!request.scope || typeof request.scope !== "object" || Array.isArray(request.scope)) continue;
+      if (typeof request.scope.summary !== "string" || !request.scope.summary.trim()) continue;
+      if (normalizeConversationUrl(request.parent_conversation_url) !== request.parent_conversation_url) continue;
+      let actualRequestDigest;
+      try {
+        actualRequestDigest = `sha256:${await sha256(canonicalJson(request))}`;
+      } catch (_error) {
+        continue;
+      }
+      if (actualRequestDigest !== record.child_request_digest) continue;
+      return variant;
+    }
+    return null;
+  }
+
   function selectContent(element) {
     const selection = window.getSelection();
     if (!selection) return;
@@ -197,7 +294,7 @@
     return null;
   }
 
-  function preSubmitReadiness() {
+  async function preSubmitReadiness() {
     const route = routeState();
     if (route.kind !== "fresh") {
       return { ok: false, reason: "spawn_unexpected_route", route: route.kind };
@@ -211,7 +308,9 @@
     const composer = findComposer();
     if (!composer) return { ok: false, reason: "spawn_composer_not_found" };
     if (composerText(composer).trim()) {
-      return { ok: false, reason: "spawn_composer_not_empty" };
+      const ownedDraft = await ownedBootstrapDraftText(composer);
+      if (!ownedDraft) return { ok: false, reason: "spawn_composer_not_empty" };
+      return { ok: true, reason: "spawn_ready", ownedBootstrapDraft: true };
     }
     return { ok: true, reason: "spawn_ready" };
   }
@@ -367,10 +466,17 @@
       return { ok: false, reason: "spawn_assistant_busy" };
     }
 
-    const composer = findComposer();
+    let composer = findComposer();
     if (!composer) return { ok: false, reason: "spawn_composer_not_found" };
     if (composerText(composer).trim()) {
-      return { ok: false, reason: "spawn_composer_not_empty" };
+      const ownedDraft = await ownedBootstrapDraftText(composer);
+      if (!ownedDraft) return { ok: false, reason: "spawn_composer_not_empty" };
+      clearComposer(composer, ownedDraft);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      composer = findComposer() || composer;
+      if (composerText(composer).trim()) {
+        return { ok: false, reason: "spawn_composer_not_empty" };
+      }
     }
 
     try {
@@ -474,14 +580,21 @@
 
   const listener = (message, _sender, sendResponse) => {
     if (message?.type === "bridge:spawn-capabilities") {
-      sendResponse({
-        ok: true,
-        reason: "ready",
-        protocolVersion: SPAWN_PROTOCOL_VERSION,
-        route: routeState().kind,
-        readiness: preSubmitReadiness()
-      });
-      return false;
+      preSubmitReadiness()
+        .then((readiness) => sendResponse({
+          ok: true,
+          reason: "ready",
+          protocolVersion: SPAWN_PROTOCOL_VERSION,
+          route: routeState().kind,
+          readiness
+        }))
+        .catch((error) => sendResponse({
+          ok: false,
+          reason: "spawn_unexpected_error",
+          error: String(error),
+          protocolVersion: SPAWN_PROTOCOL_VERSION
+        }));
+      return true;
     }
     if (message?.type === "bridge:spawn-diagnostic") {
       inspectSpawnDiagnostic(message)
