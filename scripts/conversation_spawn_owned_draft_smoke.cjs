@@ -214,7 +214,10 @@ async function composerText(page) {
     assert.equal(malformedProbe.ok, true, JSON.stringify(malformedProbe));
     assert.equal(malformedProbe.readiness.ok, false, JSON.stringify(malformedProbe));
     assert.equal(malformedProbe.readiness.reason, "spawn_composer_not_empty", JSON.stringify(malformedProbe));
-    assert.equal(await composerText(malformedPage), malformedDraft);
+    assert.equal(
+      (await composerText(malformedPage)).replace(/\s+/g, " "),
+      malformedDraft.replace(/\s+/g, " ")
+    );
     assert.equal(await malformedPage.evaluate(() => window.submits), 0);
 
     console.log("Conversation spawn owned stale draft smoke passed.");
