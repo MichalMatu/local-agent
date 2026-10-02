@@ -1,6 +1,6 @@
 # Conversation Fabric — current execution plan
 
-Status: Stage 8 automatic one-child milestone completed; current milestone is checkpoint and terminal recording.
+Status: Stage 8 automatic one-child milestone completed; terminal/checkpoint preimplementation audit completed; implementation has not started successfully yet.
 
 ## Current baseline
 
@@ -13,14 +13,20 @@ Production remains unchanged:
 Canonical development line:
 
 - branch: `develop/conversation-fabric`
-- accepted Stage 8 code checkpoint before documentation-only updates: `93fb65204db03c54d0080803d26266f3c06d777e`
+- accepted Stage 8 CODE checkpoint before documentation-only updates: `93fb65204db03c54d0080803d26266f3c06d777e`
 - accepted commit: `Confirm spawn identity from owned route transition`
 - exact-SHA CI run: `37022787748`
 - CI result: all five jobs passed (`test`, `python-314`, `coverage`, `macos-smoke`, `bridge-browser`)
 
+Documentation-only commits may advance `develop/conversation-fabric`; always distinguish the accepted CODE checkpoint from the current docs branch head before effects.
+
 Mac DEV checkout:
 
 - `/Users/michal/local-agent-dev`
+
+Production checkout:
+
+- `/Users/michal/local-agent`
 
 Preserved isolated live root/profile:
 
@@ -50,7 +56,7 @@ Proof22 is the automatic completion proof.
 
 The bounded Chrome History check found exactly one canonical child URL in the transition window after the matching provisional route.
 
-Stage 8 completion gate is therefore satisfied.
+Stage 8 completion gate is satisfied. Do not start another spawn campaign for this milestone.
 
 ## Accepted browser identity model
 
@@ -103,22 +109,58 @@ Required properties:
 2. `terminal_recorded` is impossible without durable terminal evidence.
 3. evidence binds to the exact child request digest and canonical child registration.
 4. identical recording is idempotent; conflicting recording fails closed.
-5. writes serialize through the existing workflow execution lock.
-6. evidence is bounded, schema-validated and restart-safe.
+5. writes serialize through the existing workflow/conversation mutation locking model.
+6. evidence is bounded, schema-validated and restart/reload safe.
 7. no browser effect is required to prove the deterministic storage/state contract.
 8. no adoption/retirement behavior is introduced in this slice.
 
+## Preimplementation audit checkpoint
+
+The required read-only preimplementation audit has already completed successfully through `host-ops`:
+
+- task/result: `conversation-terminal-evidence-preimplementation-audit-20261002-v1`
+- status: `done`
+- code audited: `93fb65204db03c54d0080803d26266f3c06d777e`
+- DEV checkout was clean at audit start
+- production `main` remained unchanged
+
+The audit inspected:
+
+- `local_agent/conversation/state.py` lifecycle transitions;
+- conversation request/registration/state validation and storage;
+- `ConversationStore.transition_state`, `register_child`, registration loading and atomic state writes;
+- workflow store checkpoint/evidence patterns;
+- workflow mutation/execution locking primitives;
+- existing bounded atomic write helpers and tests.
+
+The audit is evidence only; it made no repository changes.
+
+## Failed implementation attempt — no effects
+
+The first queued implementation task did not execute:
+
+- task/result: `conversation-terminal-record-implementation-20261002-v1`
+- status: `failed`
+- failure: `invalid_task_file`
+- parser error: `JSONDecodeError: Invalid control character at: line 12 column 2004 (char 2309)`
+- `started_at=null`
+
+Therefore no commands from that task ran and no source mutation from it is authoritative. Its payload may be inspected as a draft only. Do not replay it blindly; reconstruct the smallest implementation from current repository contracts and the completed audit.
+
 ## Immediate execution plan
 
-1. Audit the current conversation contracts, state machine, store implementation and tests before editing.
-2. Audit existing durable evidence/checkpoint patterns elsewhere in the repository and reuse established primitives rather than inventing a second storage model.
-3. Define the minimum terminal/checkpoint record schema and validation rules.
-4. Add positive, idempotency, conflict, missing-registration/evidence and invalid-transition tests.
-5. Implement the smallest store mutation API that atomically persists terminal evidence and advances lifecycle only when its preconditions hold.
-6. Run focused tests on the Mac through `host-ops`.
-7. Run repository/bridge verification appropriate to the diff.
-8. Push one accepted checkpoint to `develop/conversation-fabric` and establish exact-SHA CI.
-9. Only after this milestone passes may work continue to adoption and retirement.
+1. Fetch fresh `main`, `develop/conversation-fabric`, `host-ops:agent-control` and daemon state.
+2. Verify `/Users/michal/local-agent-dev` is clean and determine whether it is still on the accepted code checkpoint or only intentional documentation commits ahead.
+3. Read the completed audit result before editing.
+4. Re-inspect the exact current `contract.py`, `state.py`, `store.py` and `tests/test_conversation_store.py` surfaces identified by the audit.
+5. Define the minimum terminal/checkpoint record schema and validation rules; do not treat the malformed implementation task as accepted design.
+6. Add positive, idempotency, conflict, missing-registration/evidence and invalid-transition tests.
+7. Implement the smallest store mutation API that atomically persists terminal evidence and advances lifecycle only when its preconditions hold.
+8. Run focused tests on the Mac through `host-ops`.
+9. Run repository/bridge verification appropriate to the actual diff.
+10. Push one accepted CODE checkpoint to `develop/conversation-fabric` and establish exact-SHA CI.
+11. Update durable handoff docs when the accepted checkpoint changes.
+12. Only after this milestone passes may work continue to adoption and retirement.
 
 ## Ordered milestones after this one
 
@@ -132,4 +174,4 @@ Required properties:
 
 Multi-child fan-out, fleet scheduling, rollover and broad Superchat automation remain out of scope.
 
-For operational continuation use `docs/CURRENT_HANDOFF.md`. For longer-term ordering use `docs/DEVELOPMENT_PLAN.md`.
+For operational continuation use `docs/CURRENT_HANDOFF.md`. A ready-to-paste next-chat bootstrap is maintained in `docs/conversation_fabric/NEXT_CHAT_PROMPT.md`. For longer-term ordering use `docs/DEVELOPMENT_PLAN.md`.
