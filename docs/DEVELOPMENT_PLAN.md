@@ -77,7 +77,7 @@ Terminal evidence is bounded, exact-request/registration-bound, persisted before
 - accepted CODE: `e76dc4a114f750cc0beabdbb2ad626d41ff2e986` — `Add durable child adoption and retirement`
 - exact-SHA canonical CI: `37054505079`, all five jobs passed
 
-The accepted adoption/retirement contract is:
+Accepted path:
 
 ```text
 terminal_recorded
@@ -86,47 +86,74 @@ terminal_recorded
   -> retired
 ```
 
-The durable adoption record binds the exact child request digest, exact terminal-record digest, workflow ID and reasoning-node ID. It is persisted before workflow-node success so interruption is restart-recoverable. Identical semantic retries are idempotent, conflicts fail closed, and retirement requires both durable adoption and a succeeded bound workflow node. Reload validation enforces those invariants.
+The durable adoption record binds the exact child request digest, terminal-record digest, workflow ID and reasoning-node ID. It persists before workflow-node success, identical semantic retries are idempotent, conflicts fail closed, and retirement requires both durable adoption and a succeeded bound workflow node. Reload validation enforces those invariants.
 
-No browser effect was added by terminal or adoption/retirement slices.
+### Restart/recovery proof across external-effect boundaries
+
+- accepted CODE: `2557f9477ff34ebb5b8502a15747e5d78f29bd5a` — `Add restart recovery boundary proofs`
+- exact-SHA canonical CI: `37056289262`, all five jobs passed
+- runtime behavior unchanged; accepted change is test-only
+
+The read-only boundary inventory found the runtime contracts already restart-safe at browser create/pre-submit/submit, registration, terminal, adoption and retirement boundaries. The only missing evidence was explicit runner restart coverage for:
+
+```text
+identity_discovered -> registration_submitting
+registration_submitting -> ChildRegistration -> done
+done + ChildRegistration -> completion evidence/cleanup
+```
+
+Those B4-B6 restart proofs now live in `tests/test_conversation_restart_recovery.py`.
+
+Existing Chromium/MV3 smokes already prove lost-create recovery, pre-submit restart/reattach, lost-submit-ACK reconciliation and service-worker termination during submit without a second submit. Ambiguous submit remains manual-attach-only and fail-closed.
+
+No new browser effect or runtime state transition was introduced by this milestone.
 
 Documentation-only commits may advance `develop/conversation-fabric`; always distinguish the accepted CODE checkpoint from a later docs-only head.
 
-## Current milestone: restart/recovery proof across external-effect boundaries
+## Current milestone: manual lifecycle parity
 
-The next goal is to prove that the complete proven single-child lifecycle is restart-safe at every external-effect boundary, not merely at the deterministic file-write boundaries already unit-tested.
+The next goal is to make manual fallback a first-class route through the same lifecycle rather than an exceptional side path.
 
-The first step is a bounded read-only boundary inventory on accepted CODE `e76dc4a114f750cc0beabdbb2ad626d41ff2e986`.
+Start with a bounded read-only ownership/contract audit on accepted CODE `2557f9477ff34ebb5b8502a15747e5d78f29bd5a`.
 
-The inventory must map, for each external effect:
+The audit must establish whether an operator can safely take an existing/ambiguous child and continue it through the exact same durable lifecycle:
 
-- durable intent/checkpoint before effect;
-- the effect itself;
-- durable evidence/completion after effect;
-- observable state after restart at every interruption point;
-- whether retry is safe, prohibited, or must use recovery/attach;
-- ambiguity/conflict handling;
-- current test/live-proof coverage;
-- smallest missing proof.
+```text
+request / spawn identity
+  -> canonical registration
+  -> active
+  -> terminal evidence
+  -> terminal_recorded
+  -> adoption
+  -> workflow reasoning node succeeded
+  -> retired
+```
 
-Priority boundaries include spawn/browser submission and canonical identity, durable registration/spawn completion, terminal recording, adoption/workflow advancement, and any real cleanup/retirement effect if one exists.
+Audit requirements:
 
-The audit may conclude that a boundary is already sufficiently proven by existing code/tests/evidence. Do not create a new live browser campaign unless a specific missing proof requires it.
+- identify the current manual attach/recovery entrypoints and their owners;
+- prove exact request/transaction binding and canonical child identity;
+- map registration idempotency/conflict rules;
+- map restart/resume behavior for operator/manual evidence;
+- confirm terminal/adoption/retirement APIs are reusable without browser-specific assumptions;
+- identify automatic-only behavior that must remain transport-only;
+- find the smallest missing test or contract rather than creating a parallel manual state machine.
+
+Do not launch a new child or broad live browser campaign during the audit. Use browser evidence only if the smallest selected parity gap genuinely requires it.
 
 The authoritative operational checkpoint is maintained in:
 
 - `docs/CURRENT_HANDOFF.md`
 - `docs/conversation_fabric/CURRENT_PLAN.md`
 
-## Ordered milestones after restart/recovery proof
+## Ordered milestones after manual lifecycle parity
 
 Continue in this order:
 
-1. manual lifecycle parity as a first-class fallback;
-2. narrow Browser Driver promotion for child-chat lifecycle effects;
-3. normalize the persistent DEV browser profile into a root-independent reusable location if still useful;
-4. Superchat fleet/control layer;
-5. broader automatic scheduling only after the single-child lifecycle is proven stable.
+1. narrow Browser Driver promotion for child-chat lifecycle effects;
+2. normalize the persistent DEV browser profile into a root-independent reusable location if still useful;
+3. Superchat fleet/control layer;
+4. broader automatic scheduling only after the single-child lifecycle is proven stable.
 
 Multi-child fan-out, fleet scheduling, rollover and large acceptance campaigns remain out of scope until the corresponding lifecycle primitives are proven.
 

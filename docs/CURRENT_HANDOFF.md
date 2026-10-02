@@ -1,7 +1,7 @@
-# Current handoff — Conversation Fabric after adoption and retirement
+# Current handoff — Conversation Fabric after restart/recovery proof
 
 Date: 2026-10-02
-Status: Stage 8, terminal recording, and adoption/retirement milestones are complete. Restart/recovery proof across external-effect boundaries is next.
+Status: Stage 8, terminal recording, adoption/retirement, and restart/recovery boundary proof are complete. Manual lifecycle parity is next.
 
 ## Read this first
 
@@ -25,14 +25,16 @@ Production remains unchanged:
 Conversation Fabric development:
 
 - canonical branch: `develop/conversation-fabric`
-- accepted CODE checkpoint: `e76dc4a114f750cc0beabdbb2ad626d41ff2e986`
-- accepted commit: `Add durable child adoption and retirement`
-- exact-SHA canonical CI run: `37054505079`
+- accepted CODE checkpoint: `2557f9477ff34ebb5b8502a15747e5d78f29bd5a`
+- accepted commit: `Add restart recovery boundary proofs`
+- exact-SHA canonical CI run: `37056289262`
 - all jobs passed: `test`, `python-314`, `coverage`, `macos-smoke`, `bridge-browser`
 - Mac DEV checkout: `/Users/michal/local-agent-dev`
 - production checkout: `/Users/michal/local-agent`
 
-Documentation-only commits may advance the canonical branch beyond the accepted CODE checkpoint. Always distinguish runtime CODE from later docs-only heads before effects.
+The accepted restart/recovery checkpoint is test-only relative to the prior adoption/retirement runtime checkpoint: no runtime behavior changed.
+
+Documentation-only commits may advance the canonical branch beyond the accepted CODE checkpoint. Always distinguish runtime/test CODE from later docs-only heads before effects.
 
 The preserved Stage 8 evidence root/profile remains:
 
@@ -81,89 +83,118 @@ Accepted CODE checkpoint:
 - `e76dc4a114f750cc0beabdbb2ad626d41ff2e986` — `Add durable child adoption and retirement`
 - canonical exact-SHA CI: `37054505079`, all five jobs passed
 
-Preimplementation evidence:
-
-- `conversation-adoption-retirement-preimplementation-audit-20261002-v1`: `done`, read-only
-- `conversation-adoption-retirement-audit-summary-20261002-v1`: `done`, read-only
-
-The audit found no pre-existing Conversation Fabric adoption subsystem. The existing contracts already supplied the two required state transitions:
+Accepted path:
 
 ```text
-workflow reasoning node: waiting_conversation -> succeeded
-child lifecycle:        terminal_recorded -> retired
+terminal_recorded
+  -> durable adoption record
+  -> workflow reasoning node succeeded
+  -> retired
 ```
-
-The accepted bounded contract adds a durable adoption record between them.
-
-Implementation surfaces:
-
-- `local_agent/conversation/adoption.py`
-- `local_agent/conversation/store.py`
-- `tests/test_conversation_adoption.py`
 
 Accepted properties:
 
-- adoption requires an admitted request, durable canonical registration, durable terminal record and child state `terminal_recorded`;
-- the adoption record binds the exact child request digest, exact terminal-record digest, workflow ID and workflow node ID;
-- the adoption record is bounded and schema-validated;
-- the adoption record is persisted before the workflow node moves from `waiting_conversation` to `succeeded`;
-- a crash after adoption persistence but before workflow-state advancement is restart-recoverable by an idempotent retry;
-- semantically identical adoption retries are idempotent; conflicting identities/digests fail closed;
-- `retired` is allowed only after durable adoption exists and the bound workflow node is `succeeded`;
-- reload/restart validation fails closed if a retired child loses its adoption record, terminal evidence, or succeeded workflow-node state;
-- mutations reuse the existing workflow execution lock;
+- adoption requires the exact admitted request, canonical registration and durable terminal record;
+- the adoption record binds the exact child request digest, terminal-record digest, workflow ID and workflow node ID;
+- adoption persists before workflow-node success and interrupted ordering is restart-recoverable by idempotent retry;
+- identical semantic adoption retries are idempotent; conflicts fail closed;
+- retirement requires durable adoption plus the bound workflow node in `succeeded`;
+- reload/restart validation fails closed if retired state loses adoption, terminal evidence or succeeded workflow-node state;
 - no browser effect was added.
+
+## Completed restart/recovery boundary proof
+
+Accepted CODE checkpoint:
+
+- `2557f9477ff34ebb5b8502a15747e5d78f29bd5a` — `Add restart recovery boundary proofs`
+- exact-SHA canonical CI: `37056289262`, all five jobs passed
+
+Durable audit evidence:
+
+- `conversation-restart-recovery-boundary-audit-20261002-v1`: read-only audit, completed
+- `conversation-restart-recovery-boundary-summary-20261002-v2`: `done`, read-only authoritative boundary summary
+
+The boundary inventory found no missing runtime recovery contract. The smallest missing evidence was three explicit runner restart proofs:
+
+- B4: restart from durable `identity_discovered` before registration intent is advanced;
+- B5: restart from `registration_submitting` before durable `ChildRegistration` is written;
+- B6: restart from durable registration plus `done` before completion evidence/cleanup is written.
+
+Implementation scope:
+
+- new test-only file: `tests/test_conversation_restart_recovery.py`
+- no runtime source changed
+- no new browser effect was introduced
+
+Existing browser/runtime evidence already covered the external-effect boundaries:
+
+- lost browser-create acknowledgement recovers the same transaction/tab and never creates a replacement;
+- pre-submit restart uses strict recovery or one bounded reattach while no submit has happened;
+- `bootstrap_submitting` restart reconciles instead of resubmitting;
+- Chromium/MV3 smoke terminates the extension worker during submit and recovers the same canonical child without a second submit;
+- ambiguous submit remains fail-closed and requires manual attach rather than blind replay;
+- terminal recording and adoption already had failure-injection/restart proofs.
 
 Verification ledger:
 
-- first integration task `conversation-adoption-retirement-implementation-20261002-v1` failed before source mutation because its transported patch script had invalid UTF-8; DEV remained clean;
-- retry `conversation-adoption-retirement-implementation-20261002-v2`: `done`, focused suite 47 tests passed;
-- squashed accepted candidate verification `conversation-adoption-retirement-candidate-verify-20261002-v1`: `done`;
-- exact squashed SHA verification: compile passed, Ruff passed, 56 focused/workflow tests passed, `git diff --check` passed;
-- DEV synchronized clean to accepted CODE SHA;
-- production remained clean at `979ef080ddb69d6e18aaf81510e3175bac2f33d2`.
+- `conversation-restart-recovery-boundary-summary-20261002-v2`: `done` and identified B4+B5+B6 as the smallest missing proof;
+- `conversation-restart-recovery-proof-verify-20261002-v1`: compile passed, Ruff passed, 49 focused restart/spawn/terminal/adoption tests passed, diff check passed;
+- a local `bridge-browser` verification attempt failed only because the DEV checkout did not expose the `playwright` Node module; it made no source changes and is non-authoritative;
+- exact-SHA GitHub CI installed isolated browser tooling and passed `bridge-browser` plus all other jobs on `2557f947...`;
+- production remained clean and unchanged at `979ef080ddb69d6e18aaf81510e3175bac2f33d2`.
 
-## Current milestone — restart/recovery proof across external-effect boundaries
+## Current milestone — manual lifecycle parity
 
-This milestone is next. No new implementation or live campaign is accepted yet.
+Start with a preimplementation read-only ownership/contract audit. Do not change behavior in the first step.
 
-Start with a bounded read-only boundary inventory/audit on the accepted CODE checkpoint. The audit must identify every Conversation Fabric external-effect boundary that can be interrupted after durable intent but before durable completion, and map the already-existing recovery evidence/state for each boundary.
+The goal is to make the manual fallback path a first-class lifecycle path with the same durable authority and fail-closed guarantees as the automatic path, not to create a second scheduler or alternate state machine.
 
-At minimum inspect the proven single-child lifecycle surfaces around:
+Audit the current manual/attach/recovery surfaces and identify semantic owners for:
 
-- child spawn intent/transaction versus browser submit/canonical identity;
-- registration and durable completion evidence;
-- terminal evidence/state ordering;
-- adoption record versus workflow-node success;
-- retirement and any later cleanup effect, if one exists;
-- existing workflow publication/checkpoint/evidence patterns that participate in those boundaries.
+- attaching an already-created or ambiguous child to the exact admitted request/transaction;
+- canonical `ChildRegistration` creation and idempotency/conflict behavior;
+- progression from registered/active child through terminal evidence;
+- adoption into the exact reasoning node and retirement;
+- operator-visible/manual evidence and how it is resumed after restart;
+- which automatic-only browser assumptions must not leak into the manual path;
+- which existing APIs can be reused unchanged versus the smallest actual parity gap.
 
-For each boundary record:
+At minimum reopen:
 
-- durable pre-effect intent/checkpoint;
-- the external effect itself;
-- durable post-effect evidence/completion;
-- what a restart can observe;
-- whether retry is safe, prohibited, or requires recovery/attach;
-- exact fail-closed behavior when evidence is ambiguous or conflicting;
-- existing tests/proofs and the smallest missing proof.
+- `local_agent/development/live_runner.py` manual attach/recovery entrypoints;
+- `local_agent/conversation/store.py`;
+- `local_agent/conversation/spawn_store.py`;
+- `local_agent/conversation/terminal.py`;
+- `local_agent/conversation/adoption.py`;
+- workflow node/state/store contracts and focused tests.
 
-Do not launch a new browser campaign merely to perform the audit. Do not broaden into multi-child scheduling, fleet control or rollout. Implement or run live recovery proof only after the audit identifies the smallest missing boundary proof.
+For every manual lifecycle operation record:
+
+- durable authority/precondition;
+- exact state transition;
+- evidence written before/after the transition;
+- idempotency and conflict behavior;
+- restart/recovery behavior;
+- whether browser access is actually required;
+- existing test coverage and smallest missing parity proof.
+
+Do not launch a new child or broad browser campaign merely for this audit. Do not broaden into Browser Driver promotion, multi-child scheduling, fleet control or rollout.
 
 ## Exact continuation sequence
 
 1. Fetch fresh `main`, `develop/conversation-fabric`, `host-ops:agent-control` and daemon state.
-2. Verify DEV is clean and distinguish the accepted CODE checkpoint from docs-only commits.
+2. Verify DEV is clean and distinguish accepted CODE `2557f947...` from later docs-only commits.
 3. Verify production remains clean and unchanged.
-4. Read this handoff, `CURRENT_PLAN.md`, `DEVELOPMENT_PLAN.md`, then re-open spawn/store/terminal/adoption/workflow recovery surfaces.
-5. Run one bounded read-only external-effect boundary inventory through `host-ops`; persist the result durably.
-6. Build a boundary matrix from repository evidence, not chat memory.
-7. Select only the smallest missing restart/recovery proof.
-8. Add focused failure-injection/restart tests before changing behavior.
-9. Use live browser evidence only if the selected missing proof genuinely crosses the browser boundary.
-10. Use direct GitHub operations for repository changes and `host-ops` for all Mac-local operations.
-11. Accept another CODE checkpoint only after focused verification and exact-SHA CI.
-12. Update durable docs only after that checkpoint is accepted.
+4. Read this handoff, `CURRENT_PLAN.md`, `DEVELOPMENT_PLAN.md`, then reopen manual attach/store/terminal/adoption/workflow surfaces.
+5. Run one bounded read-only manual-lifecycle parity audit through `host-ops`; persist the result durably.
+6. Build the ownership/state-transition matrix from repository evidence, not chat memory.
+7. Select only the smallest real parity gap.
+8. Add focused positive/negative/idempotency/restart tests before changing behavior.
+9. Implement only the smallest gap; reuse existing durable contracts instead of duplicating lifecycle logic.
+10. Use live browser evidence only if the selected gap genuinely requires a browser effect.
+11. Use direct GitHub operations for repository changes and `host-ops` for all Mac-local operations.
+12. Accept another CODE checkpoint only after focused verification and exact-SHA CI.
+13. Update durable docs only after that checkpoint is accepted.
 
 ## Safety invariants
 
@@ -180,12 +211,11 @@ Do not launch a new browser campaign merely to perform the audit. Do not broaden
 
 ## Later milestones
 
-After restart/recovery proof:
+After manual lifecycle parity:
 
-1. manual lifecycle parity as a first-class fallback;
-2. narrow Browser Driver promotion for child-chat lifecycle effects;
-3. normalize the persistent DEV browser profile into a reusable root-independent location if still useful;
-4. Superchat fleet/control layer;
-5. broader automatic scheduling only after the single-child lifecycle is proven stable.
+1. narrow Browser Driver promotion for child-chat lifecycle effects;
+2. normalize the persistent DEV browser profile into a reusable root-independent location if still useful;
+3. Superchat fleet/control layer;
+4. broader automatic scheduling only after the single-child lifecycle is proven stable.
 
 Multi-child fan-out, fleet scheduling, rollover and broad Superchat automation remain out of scope.
