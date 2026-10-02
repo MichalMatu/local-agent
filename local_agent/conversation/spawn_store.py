@@ -278,8 +278,12 @@ class WorkflowConversationSpawnStore:
             transaction = entry["transaction"]
             if transaction["state"] != "ambiguous":
                 continue
-            if self._matching_registration(entry["store"], transaction) is None:
-                unresolved.append(entry)
+            if self._matching_registration(entry["store"], transaction) is not None:
+                continue
+            lifecycle = entry["store"].load_state(transaction["child_request_id"])
+            if lifecycle["state"] == "abandoned":
+                continue
+            unresolved.append(entry)
 
         pending = [
             entry for entry in entries if entry["transaction"]["state"] == "pending"
@@ -299,6 +303,39 @@ class WorkflowConversationSpawnStore:
             "pending_owner_id": owner["transaction"]["id"] if owner else None,
             "pending_count": len(pending),
         }
+
+    def abandon_ambiguous(
+        self,
+        request_id: str,
+        attempt: int,
+        *,
+        updated_at: str,
+    ) -> dict[str, Any]:
+        """Terminally abandon an unresolved ambiguous child without authorizing replacement.
+
+        The original spawn transaction remains ``ambiguous`` forever. Only the child
+        lifecycle moves from ``registration_pending`` to ``abandoned`` so unrelated
+        workflows can acquire the globally serialized browser after an operator has
+        determined that the original child identity can no longer be recovered.
+        """
+        del updated_at  # Lifecycle storage owns its canonical transition timestamp.
+        with self._global_lock():
+            transaction = self.load_attempt(request_id, attempt)
+            if transaction["state"] != "ambiguous":
+                raise ValueError("ambiguous abandonment requires an ambiguous spawn transaction")
+            if self.store.load_registration(request_id) is not None:
+                raise ValueError("registered ambiguous child must be reconciled, not abandoned")
+            lifecycle = self.store.load_state(request_id)
+            if lifecycle["state"] == "abandoned":
+                return lifecycle
+            if lifecycle["state"] != "registration_pending":
+                raise ValueError(
+                    "ambiguous abandonment requires registration_pending child state"
+                )
+            abandoned = self.store.transition_state(request_id, "abandoned")
+            if transaction["id"] in self._queue_snapshot_locked()["unresolved_ambiguous_ids"]:
+                raise RuntimeError("abandoned ambiguous spawn still blocks the global queue")
+            return abandoned
 
     def begin_browser_attempt(
         self,

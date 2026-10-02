@@ -14,6 +14,7 @@ const CONVERSATION_SPAWN_FIELDS = new Set([
 const CONVERSATION_SPAWN_MARKER = "la-spawn";
 const CONVERSATION_SPAWN_STAGING_PAGE = "spawn_staging.html";
 const CONVERSATION_SPAWN_TAB_CLAIM_PREFIX = "conversation-spawn-tab:";
+const CONVERSATION_SPAWN_PROVISIONAL_EVIDENCE_PREFIX = "conversation-spawn-provisional:";
 
 function validateConversationSpawnBrowserIntent(intent, { requireTab = false } = {}) {
   if (!intent || typeof intent !== "object" || Array.isArray(intent)) {
@@ -149,6 +150,40 @@ async function conversationSpawnClaimedTabId(transactionId) {
 
 async function conversationSpawnTabClaimMatches(transactionId, tabId) {
   return await conversationSpawnClaimedTabId(transactionId) === tabId;
+}
+
+function conversationSpawnProvisionalEvidenceKey(transactionId) {
+  if (!CONVERSATION_SPAWN_TRANSACTION_RE.test(String(transactionId || ""))) {
+    throw new Error("conversation spawn transaction_id is invalid");
+  }
+  return `${CONVERSATION_SPAWN_PROVISIONAL_EVIDENCE_PREFIX}${transactionId}`;
+}
+
+async function conversationSpawnTransactionForClaimedTab(tabId) {
+  if (!Number.isInteger(tabId) || tabId < 1) return "";
+  const stored = await chrome.storage.session.get(null);
+  const matches = Object.entries(stored).filter(([key, value]) =>
+    key.startsWith(CONVERSATION_SPAWN_TAB_CLAIM_PREFIX) && value === tabId
+  );
+  if (matches.length !== 1) return "";
+  const transactionId = matches[0][0].slice(CONVERSATION_SPAWN_TAB_CLAIM_PREFIX.length);
+  return CONVERSATION_SPAWN_TRANSACTION_RE.test(transactionId) ? transactionId : "";
+}
+
+async function rememberConversationSpawnProvisionalRoute(tabId) {
+  const transactionId = await conversationSpawnTransactionForClaimedTab(tabId);
+  if (!transactionId) return false;
+  await chrome.storage.session.set({
+    [conversationSpawnProvisionalEvidenceKey(transactionId)]: true
+  });
+  return true;
+}
+
+async function conversationSpawnSawProvisionalRoute(transactionId, tabId) {
+  if (!await conversationSpawnTabClaimMatches(transactionId, tabId)) return false;
+  const key = conversationSpawnProvisionalEvidenceKey(transactionId);
+  const stored = await chrome.storage.session.get(key);
+  return stored?.[key] === true;
 }
 
 function conversationSpawnFreshChatUrl(rawUrl) {

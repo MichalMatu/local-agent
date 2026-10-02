@@ -33,6 +33,15 @@ function intent(label, tabId = null) {
   };
 }
 
+function ownership(label) {
+  const value = intent(label);
+  return {
+    transaction_id: value.transaction_id,
+    child_request_digest: value.child_request_digest,
+    bootstrap_digest: value.bootstrap_digest
+  };
+}
+
 const fixture = `<!doctype html><html><body>
 <form id="composer-form">
   <div id="prompt-textarea" class="ProseMirror" contenteditable="true" role="textbox"></div>
@@ -40,11 +49,26 @@ const fixture = `<!doctype html><html><body>
 </form>
 </body></html>`;
 
+const childResultUrl = "https://chatgpt.com/c/44444444-4444-4444-8444-444444444444";
+const childResultFixture = `<!doctype html><html><body>
+<div data-turn-key="assistant-turn-1">
+  <div data-user-message-bubble="true">USER TEXT MUST NOT LEAK</div>
+  <div class="analysis-status">Worked for 9s</div>
+  <div class="assistant-block">
+    <h4 class="sr-only">ChatGPT said:</h4>
+    <div class="markdown">RESULT_ALPHA</div>
+  </div>
+  <div class="feedback-copy">Do you like this personality?</div>
+</div>
+</body></html>`;
+
 const wrapperSource = `"use strict";
 const fs = require("node:fs");
 const path = require("node:path");
 const real = require(process.env.LOCAL_AGENT_PLAYWRIGHT_REAL_MODULE);
 const fixture = fs.readFileSync(process.env.LOCAL_AGENT_LIVE_SLICE_FIXTURE, "utf8");
+const childFixture = process.env.LOCAL_AGENT_LIVE_SLICE_CHILD_FIXTURE ? fs.readFileSync(process.env.LOCAL_AGENT_LIVE_SLICE_CHILD_FIXTURE, "utf8") : "";
+const childUrl = process.env.LOCAL_AGENT_LIVE_SLICE_CHILD_URL || "";
 const expectedExecutable = process.env.LOCAL_AGENT_EXPECTED_CHROME_EXECUTABLE || "";
 const authenticated = process.env.LOCAL_AGENT_LIVE_SLICE_AUTHENTICATED !== "0";
 const profileControl = process.env.LOCAL_AGENT_LIVE_SLICE_PROFILE_CONTROL === "1";
@@ -101,6 +125,9 @@ module.exports = {
         if (url === "https://chatgpt.com/api/auth/session") {
           return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(authenticated ? { user: { id: "synthetic-user" } } : { WARNING_BANNER: "guest" }) });
         }
+        if (childFixture && childUrl && url === childUrl) {
+          return route.fulfill({ status: 200, contentType: "text/html", body: childFixture });
+        }
         if (url.startsWith("https://chatgpt.com/") || url.startsWith("https://chat.openai.com/")) {
           const renderedFixture = profileControl
             ? fixture.replace("</body>", '<button data-testid="accounts-profile-button">Account</button></body>')
@@ -131,7 +158,7 @@ function bounded(label, promise, timeoutMs = 20_000) {
   ]);
 }
 
-function startActuator({ profile, wrapperPath, fixturePath, chromeExecutable = null, authenticated = true, profileControl = false, composerDelayMs = 0 }) {
+function startActuator({ profile, wrapperPath, fixturePath, childFixturePath = null, childUrl = "", chromeExecutable = null, authenticated = true, profileControl = false, composerDelayMs = 0 }) {
   const env = {
     ...process.env,
     LOCAL_AGENT_PLAYWRIGHT_MODULE: wrapperPath,
@@ -141,6 +168,13 @@ function startActuator({ profile, wrapperPath, fixturePath, chromeExecutable = n
     LOCAL_AGENT_LIVE_SLICE_PROFILE_CONTROL: profileControl ? "1" : "0",
     LOCAL_AGENT_LIVE_SLICE_COMPOSER_DELAY_MS: String(composerDelayMs)
   };
+  if (childFixturePath && childUrl) {
+    env.LOCAL_AGENT_LIVE_SLICE_CHILD_FIXTURE = childFixturePath;
+    env.LOCAL_AGENT_LIVE_SLICE_CHILD_URL = childUrl;
+  } else {
+    delete env.LOCAL_AGENT_LIVE_SLICE_CHILD_FIXTURE;
+    delete env.LOCAL_AGENT_LIVE_SLICE_CHILD_URL;
+  }
   delete env.LOCAL_AGENT_CHROME_EXECUTABLE;
   delete env.LOCAL_AGENT_EXPECTED_CHROME_EXECUTABLE;
   if (chromeExecutable) {
@@ -231,9 +265,11 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), "conversation-live-slice-browser-"));
   const profile = path.join(temp, "profile");
   const fixturePath = path.join(temp, "fixture.html");
+  const childFixturePath = path.join(temp, "child-result.html");
   const wrapperPath = path.join(temp, "playwright-wrapper.cjs");
   const fakeChromePath = path.join(temp, "fake-system-chrome");
   await fs.writeFile(fixturePath, fixture, "utf8");
+  await fs.writeFile(childFixturePath, childResultFixture, "utf8");
   await fs.writeFile(wrapperPath, wrapperSource, "utf8");
   await fs.writeFile(fakeChromePath, "#!/bin/sh\nexit 1\n", "utf8");
   await fs.chmod(fakeChromePath, 0o755);
@@ -246,6 +282,7 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
   let slowComposer = null;
   let first = null;
   let second = null;
+  let lifecycle = null;
   try {
     const pending = intent("actuator-smoke");
 
@@ -370,9 +407,57 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
 
     await second.stop();
     second = null;
-    console.log("Conversation live slice bounded restart recovery smoke passed.");
+
+    lifecycle = startActuator({
+      profile: path.join(temp, "child-lifecycle-profile"),
+      wrapperPath,
+      fixturePath,
+      childFixturePath,
+      childUrl: childResultUrl
+    });
+    const childReady = await lifecycle.request("wait_ready", { timeout_ms: 15_000 }, 20_000);
+    assert.equal(childReady.ok, true, JSON.stringify(childReady));
+    const ownershipA = ownership("child-owner-a");
+    const ownershipB = ownership("child-owner-b");
+    const childOpened = await lifecycle.request("open_child", {
+      child_conversation_url: childResultUrl,
+      ownership: ownershipA
+    });
+    assert.equal(childOpened.ok, true, JSON.stringify(childOpened));
+    assert.equal(childOpened.reason, "child_opened");
+    assert.equal(childOpened.ownership_source, "observer_created");
+    const conflictingClose = await lifecycle.request("close_child", {
+      child_conversation_url: childResultUrl,
+      ownership: ownershipB
+    });
+    assert.equal(conflictingClose.ok, false, JSON.stringify(conflictingClose));
+    assert.equal(conflictingClose.reason, "child_ownership_conflict", JSON.stringify(conflictingClose));
+    const childObserved = await lifecycle.request("observe_child", {
+      child_conversation_url: childResultUrl,
+      ownership: ownershipA
+    });
+    assert.equal(childObserved.ok, true, JSON.stringify(childObserved));
+    assert.equal(childObserved.reason, "child_result_ready", JSON.stringify(childObserved));
+    assert.equal(childObserved.assistant_text, "RESULT_ALPHA", JSON.stringify(childObserved));
+    assert.equal(childObserved.assistant_identity, "assistant-turn-1", JSON.stringify(childObserved));
+    const childClosed = await lifecycle.request("close_child", {
+      child_conversation_url: childResultUrl,
+      ownership: ownershipA
+    });
+    assert.equal(childClosed.ok, true, JSON.stringify(childClosed));
+    assert.equal(childClosed.reason, "child_closed");
+    const childClosedAgain = await lifecycle.request("close_child", {
+      child_conversation_url: childResultUrl,
+      ownership: ownershipA
+    });
+    assert.equal(childClosedAgain.ok, true, JSON.stringify(childClosedAgain));
+    assert.equal(childClosedAgain.reason, "child_already_closed");
+    await lifecycle.stop();
+    lifecycle = null;
+
+    console.log("Conversation live slice bounded restart and child lifecycle smoke passed.");
   } finally {
-    for (const actuator of [guest, uiAuthenticated, slowComposer, first, second]) {
+    for (const actuator of [guest, uiAuthenticated, slowComposer, first, second, lifecycle]) {
       if (!actuator) continue;
       if (actuator.child.exitCode === null) actuator.child.kill("SIGTERM");
       actuator.closeLines();

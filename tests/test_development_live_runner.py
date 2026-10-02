@@ -14,6 +14,7 @@ from local_agent.development.lab import build_dev_lab_layout, initialize_dev_lab
 from local_agent.development.live_runner import (
     _browser_environment,
     _write_journal,
+    abandon_ambiguous_live_slice,
     attach_ambiguous_live_slice,
     login_live_slice_browser,
     load_runner_journal,
@@ -541,6 +542,86 @@ class DevelopmentLiveRunnerTests(unittest.TestCase):
         self.assertFalse(runner_paths(self.layout).journal.exists())
         self.assertTrue(runner_paths(self.layout).evidence.is_file())
         self.assertEqual(session.calls.count("submit"), 1)
+
+    def test_registered_ambiguous_attach_crash_recovers_idempotently(self) -> None:
+        armed = self.prepare_and_arm()
+        session = FakeBrowserSession(
+            submit={
+                "ok": False,
+                "reason": "spawn_submission_ambiguous",
+                "route": "child",
+            }
+        )
+        result = self.run_with(session, armed["arm"]["launch_nonce"])
+        self.assertEqual(result["status"], "manual_attach_required")
+        request = self.conversations.load_request(REQUEST_ID)
+        self.conversations.register_child(
+            {
+                "schema_version": contract.CHILD_REGISTRATION_SCHEMA_VERSION,
+                "child_request_id": REQUEST_ID,
+                "child_request_digest": contract.child_request_digest(request),
+                "parent_conversation_url": PARENT_URL,
+                "child_conversation_url": CHILD_URL,
+                "registered_at": "2026-09-24T18:33:00Z",
+            }
+        )
+        self.assertEqual(self.conversations.load_state(REQUEST_ID)["state"], "active")
+        self.assertEqual(self.spawns.load_attempt(REQUEST_ID, 1)["state"], "ambiguous")
+
+        recovered = run_live_slice(
+            self.layout,
+            launch_nonce="already-consumed",
+            session_factory=lambda _layout: self.fail("browser must not start"),
+            now=lambda: self.base_time + timedelta(seconds=4),
+        )
+
+        self.assertEqual(recovered["status"], "completed")
+        self.assertTrue(recovered["recovered"])
+        self.assertEqual(recovered["resolution"], "manual_attach")
+        self.assertEqual(recovered["spawn_state"], "ambiguous")
+        self.assertEqual(recovered["child_state"], "active")
+        self.assertFalse(runner_paths(self.layout).journal.exists())
+        self.assertTrue(runner_paths(self.layout).evidence.is_file())
+
+    def test_abandon_ambiguous_preserves_spawn_and_clears_runner_block(self) -> None:
+        armed = self.prepare_and_arm()
+        session = FakeBrowserSession(
+            submit={
+                "ok": False,
+                "reason": "spawn_submission_ambiguous",
+                "route": "child_identity_timeout",
+            }
+        )
+        result = self.run_with(session, armed["arm"]["launch_nonce"])
+        self.assertEqual(result["status"], "manual_attach_required")
+        transaction = self.spawns.load_attempt(REQUEST_ID, 1)
+        self.assertEqual(transaction["state"], "ambiguous")
+
+        abandoned = abandon_ambiguous_live_slice(
+            self.layout,
+            now=self.base_time + timedelta(seconds=3),
+        )
+
+        self.assertEqual(abandoned["status"], "completed")
+        self.assertTrue(abandoned["abandoned"])
+        self.assertEqual(abandoned["resolution"], "abandoned_unresolved")
+        self.assertEqual(abandoned["spawn_state"], "ambiguous")
+        self.assertEqual(abandoned["child_state"], "abandoned")
+        self.assertEqual(self.spawns.load_attempt(REQUEST_ID, 1)["state"], "ambiguous")
+        self.assertEqual(self.conversations.load_state(REQUEST_ID)["state"], "abandoned")
+        self.assertNotIn(
+            transaction["id"],
+            self.spawns.queue_snapshot()["unresolved_ambiguous_ids"],
+        )
+        self.assertFalse(live_slice_paths(self.layout).plan.exists())
+        self.assertFalse(runner_paths(self.layout).journal.exists())
+        self.assertTrue(runner_paths(self.layout).evidence.is_file())
+        with self.assertRaisesRegex(ValueError, "requested or registration_pending"):
+            self.spawns.enqueue(
+                REQUEST_ID,
+                created_at="2026-09-24T18:40:00Z",
+            )
+        self.assertEqual(len(self.spawns.load_attempts(REQUEST_ID)), 1)
 
     def test_failed_submit_becomes_ambiguous_and_never_auto_retries(self) -> None:
         armed = self.prepare_and_arm()

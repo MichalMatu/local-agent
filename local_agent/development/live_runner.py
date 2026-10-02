@@ -32,6 +32,7 @@ DEFAULT_BROWSER_TIMEOUT_SECONDS = 120
 DEFAULT_LOGIN_TIMEOUT_SECONDS = 10 * 60
 DEFAULT_LOGIN_PROBE_TIMEOUT_SECONDS = 20
 DEFAULT_LOGIN_VERIFY_TIMEOUT_SECONDS = 30
+CHILD_OBSERVE_BROWSER_TIMEOUT_SECONDS = 40
 MAX_BROWSER_TIMEOUT_SECONDS = 30 * 60
 MAX_PROTOCOL_LINE_CHARS = 128 * 1024
 MAX_LIVE_BOOTSTRAP_CHARS = 32_768
@@ -61,6 +62,12 @@ class BrowserSession(Protocol):
     def submit(self, intent: dict[str, Any]) -> dict[str, Any]: ...
 
     def reconcile(self, intent: dict[str, Any]) -> dict[str, Any]: ...
+
+    def open_child(self, child_conversation_url: str, ownership: dict[str, Any] | None = None) -> dict[str, Any]: ...
+
+    def observe_child(self, child_conversation_url: str, ownership: dict[str, Any] | None = None) -> dict[str, Any]: ...
+
+    def close_child(self, child_conversation_url: str, ownership: dict[str, Any] | None = None) -> dict[str, Any]: ...
 
     def close(self) -> None: ...
 
@@ -407,6 +414,66 @@ def _write_completion_evidence(
     return payload
 
 
+def abandon_ambiguous_live_slice(
+    layout: DevLabLayout,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Explicitly retire one unrecoverable ambiguous child without spawning again."""
+    validate_dev_lab_layout(layout)
+    current = (now or _utc_now()).astimezone(timezone.utc)
+    journal = load_runner_journal(layout)
+    if journal is None or journal.get("phase") != "ambiguous":
+        raise RuntimeError("ambiguous abandonment requires an ambiguous runner journal")
+
+    workflow_store, conversation_store, spawn_store = _stores(
+        layout, str(journal["workflow_id"])
+    )
+    request = conversation_store.load_request(str(journal["request_id"]))
+    attempts = spawn_store.load_attempts(request["id"])
+    if len(attempts) != 1:
+        raise RuntimeError("ambiguous abandonment requires exactly one spawn attempt")
+    transaction = attempts[0]
+    if transaction["id"] != journal["transaction_id"]:
+        raise RuntimeError("ambiguous abandonment journal conflicts with spawn identity")
+    if transaction["state"] != "ambiguous":
+        raise RuntimeError("ambiguous abandonment requires an ambiguous spawn transaction")
+    if conversation_store.load_registration(request["id"]) is not None:
+        raise RuntimeError("registered ambiguous child must be reconciled, not abandoned")
+
+    lifecycle = spawn_store.abandon_ambiguous(
+        request["id"],
+        1,
+        updated_at=_iso(current),
+    )
+    durable = spawn_store.load_attempt(request["id"], 1)
+    if durable["state"] != "ambiguous":
+        raise RuntimeError("ambiguous abandonment must preserve ambiguous spawn evidence")
+    if durable["id"] in spawn_store.queue_snapshot()["unresolved_ambiguous_ids"]:
+        raise RuntimeError("ambiguous abandonment did not release global spawn blocking")
+
+    payload = {
+        "schema_version": LIVE_RUNNER_SCHEMA_VERSION,
+        "completed_at": _iso(current),
+        "plan_digest": journal["plan_digest"],
+        "workflow_id": request["workflow_id"],
+        "request_id": request["id"],
+        "transaction_id": durable["id"],
+        "spawn_state": durable["state"],
+        "child_state": lifecycle["state"],
+        "resolution": "abandoned_unresolved",
+        "failure_reason": durable["failure_reason"],
+    }
+    paths = runner_paths(layout)
+    paths.evidence.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(paths.evidence, _json_text(payload))
+    for path in (paths.journal, live_slice_paths(layout).plan, live_slice_paths(layout).arm):
+        if path.exists() and not path.is_symlink():
+            path.unlink()
+    fsync_directory(paths.evidence.parent)
+    return {"status": "completed", "abandoned": True, **payload}
+
+
 def attach_ambiguous_live_slice(
     layout: DevLabLayout,
     *,
@@ -433,11 +500,12 @@ def attach_ambiguous_live_slice(
         raise RuntimeError("manual live attach journal conflicts with spawn identity")
     if transaction["state"] != "ambiguous":
         raise RuntimeError("manual live attach requires an ambiguous spawn transaction")
-    if conversation_store.load_registration(request["id"]) is not None:
-        raise RuntimeError("manual live attach refuses to replace an existing registration")
     lifecycle = conversation_store.load_state(request["id"])
-    if lifecycle["state"] != "registration_pending":
-        raise RuntimeError("manual live attach requires registration_pending child state")
+    existing_registration = conversation_store.load_registration(request["id"])
+    if lifecycle["state"] not in {"registration_pending", "active"}:
+        raise RuntimeError(
+            "manual live attach requires registration_pending or active child state"
+        )
 
     canonical = contract.canonical_conversation_url(str(child_conversation_url))
     if canonical != str(child_conversation_url):
@@ -451,7 +519,11 @@ def attach_ambiguous_live_slice(
         "child_request_digest": contract.child_request_digest(request),
         "parent_conversation_url": request["parent_conversation_url"],
         "child_conversation_url": canonical,
-        "registered_at": _iso(current),
+        "registered_at": (
+            existing_registration["registered_at"]
+            if existing_registration is not None
+            else _iso(current)
+        ),
     }
     conversation_store.register_child(registration)
     lifecycle = conversation_store.load_state(request["id"])
@@ -506,6 +578,40 @@ def _recover_registered_completion(
             target="done",
             updated_at=_iso(now),
         )
+    elif transaction["state"] == "ambiguous" and journal.get("phase") == "ambiguous":
+        lifecycle = conversation_store.load_state(request["id"])
+        if lifecycle["state"] == "registration_pending":
+            conversation_store.register_child(registration)
+            lifecycle = conversation_store.load_state(request["id"])
+        if lifecycle["state"] != "active":
+            raise RuntimeError(
+                "registered ambiguous recovery requires active child state"
+            )
+        payload = {
+            "schema_version": LIVE_RUNNER_SCHEMA_VERSION,
+            "completed_at": _iso(now),
+            "plan_digest": journal["plan_digest"],
+            "workflow_id": request["workflow_id"],
+            "request_id": request["id"],
+            "transaction_id": transaction["id"],
+            "spawn_state": transaction["state"],
+            "child_state": lifecycle["state"],
+            "child_conversation_url": registration["child_conversation_url"],
+            "resolution": "manual_attach",
+            "failure_reason": transaction["failure_reason"],
+        }
+        paths = runner_paths(layout)
+        paths.evidence.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(paths.evidence, _json_text(payload))
+        for cleanup_path in (
+            paths.journal,
+            live_slice_paths(layout).plan,
+            live_slice_paths(layout).arm,
+        ):
+            if cleanup_path.exists() and not cleanup_path.is_symlink():
+                cleanup_path.unlink()
+        fsync_directory(paths.evidence.parent)
+        return payload
     elif transaction["state"] != "done":
         raise RuntimeError(
             "durable child registration exists outside recoverable registration_submitting state"
@@ -990,6 +1096,41 @@ class SubprocessBrowserSession:
 
     def reconcile(self, intent: dict[str, Any]) -> dict[str, Any]:
         return self._request("reconcile", {"intent": intent})
+
+    @staticmethod
+    def _child_payload(
+        child_conversation_url: str,
+        ownership: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"child_conversation_url": child_conversation_url}
+        if ownership is not None:
+            payload["ownership"] = dict(ownership)
+        return payload
+
+    def open_child(
+        self,
+        child_conversation_url: str,
+        ownership: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._request("open_child", self._child_payload(child_conversation_url, ownership))
+
+    def observe_child(
+        self,
+        child_conversation_url: str,
+        ownership: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "observe_child",
+            self._child_payload(child_conversation_url, ownership),
+            timeout_seconds=CHILD_OBSERVE_BROWSER_TIMEOUT_SECONDS,
+        )
+
+    def close_child(
+        self,
+        child_conversation_url: str,
+        ownership: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._request("close_child", self._child_payload(child_conversation_url, ownership))
 
     def close(self) -> None:
         if self._process.poll() is not None:

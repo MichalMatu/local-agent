@@ -1,5 +1,6 @@
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const readline = require("node:readline");
@@ -21,6 +22,10 @@ const DEFAULT_LOGIN_TIMEOUT_MS = 10 * 60 * 1000;
 const AUTH_SESSION_PROBE_TIMEOUT_MS = 1500;
 const PRE_SUBMIT_CONTENT_WAIT_MS = 5000;
 const PRE_SUBMIT_COMPOSER_STABILIZATION_MS = 30000;
+const CHILD_TRANSACTION_RE = /^spawn-[0-9a-f]{64}$/;
+const CHILD_DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
+const CHILD_CLAIM_PREFIX = "local-agent:conversation-spawn:";
+const ownedChildPages = new Map();
 const ALLOWED_ACTIONS = new Set([
   "wait_ready",
   "create",
@@ -29,6 +34,9 @@ const ALLOWED_ACTIONS = new Set([
   "probe",
   "submit",
   "reconcile",
+  "open_child",
+  "observe_child",
+  "close_child",
   "shutdown"
 ]);
 
@@ -134,6 +142,227 @@ function canonicalChatHome(rawUrl) {
   } catch (_error) {
     return false;
   }
+}
+
+function canonicalConversationUrl(rawUrl) {
+  try {
+    const url = new URL(String(rawUrl || ""));
+    const match = url.pathname.replace(/\/+$/, "").match(/^\/c\/([A-Za-z0-9-]+)$/);
+    if (url.protocol !== "https:" || !["chatgpt.com", "chat.openai.com"].includes(url.hostname) || !match || url.search || url.hash) return "";
+    return `https://chatgpt.com/c/${match[1]}`;
+  } catch (_error) {
+    return "";
+  }
+}
+
+function requireChildUrl(payload) {
+  const raw = String(payload?.child_conversation_url || "");
+  const canonical = canonicalConversationUrl(raw);
+  if (!canonical || canonical !== raw) throw new Error("child lifecycle action requires canonical child_conversation_url");
+  return canonical;
+}
+
+function exactChildPages(context, childUrl) {
+  return context.pages().filter((page) => !page.isClosed() && canonicalConversationUrl(page.url()) === childUrl);
+}
+
+function childOwnership(payload) {
+  const raw = payload?.ownership;
+  if (raw === undefined || raw === null) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("child ownership must be an object");
+  }
+  const transactionId = String(raw.transaction_id || "");
+  const childRequestDigest = String(raw.child_request_digest || "");
+  const bootstrapDigest = String(raw.bootstrap_digest || "");
+  if (!CHILD_TRANSACTION_RE.test(transactionId)) throw new Error("child ownership transaction_id is invalid");
+  if (!CHILD_DIGEST_RE.test(childRequestDigest)) throw new Error("child ownership child_request_digest is invalid");
+  if (!CHILD_DIGEST_RE.test(bootstrapDigest)) throw new Error("child ownership bootstrap_digest is invalid");
+  return { transactionId, childRequestDigest, bootstrapDigest };
+}
+
+function sameChildOwnership(left, right) {
+  if (left === null || right === null) return left === right;
+  if (!left || !right) return false;
+  return (
+    left.transactionId === right.transactionId &&
+    left.childRequestDigest === right.childRequestDigest &&
+    left.bootstrapDigest === right.bootstrapDigest
+  );
+}
+
+async function pageMatchesChildOwnership(page, ownership) {
+  if (!ownership || page.isClosed()) return false;
+  try {
+    return await page.evaluate(({ prefix, transactionId, childRequestDigest, bootstrapDigest }) => {
+      try {
+        const raw = sessionStorage.getItem(`${prefix}${transactionId}`);
+        if (!raw) return false;
+        const claim = JSON.parse(raw);
+        return Boolean(
+          claim &&
+          claim.transactionId === transactionId &&
+          claim.childRequestDigest === childRequestDigest &&
+          claim.bootstrapDigest === bootstrapDigest &&
+          ["submitting", "submitted"].includes(String(claim.state || ""))
+        );
+      } catch (_error) {
+        return false;
+      }
+    }, { prefix: CHILD_CLAIM_PREFIX, ...ownership });
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function resolveOwnedChildPage(context, payload, { createIfMissing }) {
+  const childUrl = requireChildUrl(payload);
+  const ownership = childOwnership(payload);
+  const cached = ownedChildPages.get(childUrl);
+  if (
+    cached?.page &&
+    !cached.page.isClosed() &&
+    canonicalConversationUrl(cached.page.url()) === childUrl
+  ) {
+    if (!sameChildOwnership(cached.ownership, ownership)) {
+      return { ok: false, reason: "child_ownership_conflict", childUrl };
+    }
+    if (
+      cached.source === "spawn_claim" &&
+      ownership &&
+      !await pageMatchesChildOwnership(cached.page, ownership)
+    ) {
+      ownedChildPages.delete(childUrl);
+      return { ok: false, reason: "child_ownership_conflict", childUrl };
+    }
+    return {
+      ok: true,
+      page: cached.page,
+      childUrl,
+      ownership,
+      source: "actuator_owned"
+    };
+  }
+  ownedChildPages.delete(childUrl);
+
+  if (ownership) {
+    const claimed = [];
+    for (const page of exactChildPages(context, childUrl)) {
+      if (await pageMatchesChildOwnership(page, ownership)) claimed.push(page);
+    }
+    if (claimed.length > 1) return { ok: false, reason: "child_owned_tab_ambiguous", childUrl };
+    if (claimed.length === 1) {
+      ownedChildPages.set(childUrl, { page: claimed[0], ownership, source: "spawn_claim" });
+      return { ok: true, page: claimed[0], childUrl, ownership, source: "spawn_claim" };
+    }
+  }
+
+  if (!createIfMissing) {
+    return { ok: false, reason: "child_owned_tab_missing", childUrl };
+  }
+  const page = await context.newPage();
+  await page.goto(childUrl, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => null);
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline && canonicalConversationUrl(page.url()) !== childUrl) {
+    await page.waitForTimeout(100);
+  }
+  if (canonicalConversationUrl(page.url()) !== childUrl) {
+    if (!page.isClosed()) await page.close().catch(() => null);
+    return { ok: false, reason: "child_route_not_ready", childUrl };
+  }
+  ownedChildPages.set(childUrl, { page, ownership, source: "observer_created" });
+  return { ok: true, page, childUrl, ownership, source: "observer_created" };
+}
+
+async function openChild(context, payload) {
+  const resolved = await resolveOwnedChildPage(context, payload, { createIfMissing: true });
+  if (!resolved.ok) return { ok: false, reason: resolved.reason };
+  return {
+    ok: true,
+    reason: "child_opened",
+    child_conversation_url: resolved.childUrl,
+    ownership_source: resolved.source
+  };
+}
+
+async function observeChild(context, payload) {
+  const childUrl = requireChildUrl(payload);
+  const resolved = await resolveOwnedChildPage(context, payload, { createIfMissing: true });
+  if (!resolved.ok) return { ok: false, reason: resolved.reason };
+  const snapshot = await resolved.page.evaluate((maxChars) => {
+    const visible = (element) => {
+      if (!(element instanceof HTMLElement)) return false;
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+    };
+    const generating = Array.from(document.querySelectorAll('button[data-testid="stop-button"], button[data-testid="composer-stop-button"]')).some(visible);
+    const clean = (root) => {
+      const clone = root.cloneNode(true);
+      clone.querySelectorAll(
+        '[data-message-author-role="user"], [data-conversation-role="user"], [data-user-message-bubble], button, [role="button"], form, textarea, .sr-only'
+      ).forEach((item) => item.remove());
+      return String(clone.textContent || "").trim();
+    };
+    const markerSelectors = 'h1,h2,h3,h4,h5,h6,[data-message-author-role="assistant"],[data-conversation-role="assistant"]';
+    let text = "";
+    let identity = "";
+    const turns = Array.from(document.querySelectorAll('[data-turn-key]'));
+    for (let index = turns.length - 1; index >= 0; index -= 1) {
+      const turn = turns[index];
+      const markers = Array.from(turn.querySelectorAll(markerSelectors)).filter(
+        (item) => String(item.textContent || "").trim() === "ChatGPT said:"
+      );
+      const marker = markers[markers.length - 1] || null;
+      if (marker?.parentElement) {
+        const candidate = clean(marker.parentElement);
+        if (candidate) {
+          text = candidate;
+          identity = String(turn.getAttribute("data-turn-key") || "");
+          break;
+        }
+      }
+      const clone = turn.cloneNode(true);
+      clone.querySelectorAll(
+        '[data-message-author-role="user"], [data-conversation-role="user"], [data-user-message-bubble], button, [role="button"], form, textarea'
+      ).forEach((item) => item.remove());
+      const grouped = String(clone.textContent || "").trim();
+      const anchor = grouped.lastIndexOf("ChatGPT said:");
+      const candidate = anchor >= 0 ? grouped.slice(anchor + "ChatGPT said:".length).trim() : "";
+      if (!candidate) continue;
+      text = candidate;
+      identity = String(turn.getAttribute("data-turn-key") || "");
+      break;
+    }
+    const truncated = text.length > maxChars;
+    if (truncated) text = text.slice(0, maxChars);
+    return { generating, text, identity, truncated };
+  }, 16384);
+  const fallbackIdentity = snapshot.text
+    ? `assistant:${crypto.createHash("sha256").update(`${childUrl}\n${snapshot.text}`, "utf8").digest("hex")}`
+    : "";
+  return {
+    ok: true,
+    reason: snapshot.generating ? "child_generating" : (snapshot.text ? "child_result_ready" : "child_result_missing"),
+    child_conversation_url: childUrl,
+    assistant_identity: snapshot.identity || fallbackIdentity,
+    assistant_text: snapshot.text,
+    truncated: snapshot.truncated === true
+  };
+}
+
+async function closeChild(context, payload) {
+  const childUrl = requireChildUrl(payload);
+  const resolved = await resolveOwnedChildPage(context, payload, { createIfMissing: false });
+  if (!resolved.ok) {
+    if (resolved.reason === "child_owned_tab_missing") {
+      return { ok: true, reason: "child_already_closed", child_conversation_url: childUrl };
+    }
+    return { ok: false, reason: resolved.reason };
+  }
+  await resolved.page.close();
+  ownedChildPages.delete(childUrl);
+  return { ok: true, reason: "child_closed", child_conversation_url: childUrl };
 }
 
 async function pageComposerReady(page) {
@@ -360,6 +589,12 @@ async function main() {
           result = await callWorker(context, "submitConversationSpawnBootstrap", request.payload.intent);
         } else if (request.action === "reconcile") {
           result = await callWorker(context, "reconcileConversationSpawn", request.payload.intent);
+        } else if (request.action === "open_child") {
+          result = await openChild(context, request.payload);
+        } else if (request.action === "observe_child") {
+          result = await observeChild(context, request.payload);
+        } else if (request.action === "close_child") {
+          result = await closeChild(context, request.payload);
         } else {
           result = { ok: true, reason: "shutdown" };
           writeResponse(id, result);

@@ -178,6 +178,10 @@ def run_bridge_browser() -> None:
         [node, "scripts/conversation_spawn_owned_route_identity_smoke.cjs"],
     )
     _run(
+        "Conversation spawn owned direct-to-canonical identity smoke",
+        [node, "scripts/conversation_spawn_direct_route_identity_smoke.cjs"],
+    )
+    _run(
         "Conversation spawn selectorless exact-text identity smoke",
         [node, "scripts/conversation_spawn_selectorless_identity_smoke.cjs"],
     )

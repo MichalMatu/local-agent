@@ -27,6 +27,14 @@
     }
   }
 
+  if (chrome.tabs?.onUpdated?.addListener) {
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      const candidate = String(changeInfo?.url || tab?.pendingUrl || tab?.url || "");
+      if (!provisionalConversationSpawnUrl(candidate)) return;
+      rememberConversationSpawnProvisionalRoute(tabId).catch((error) => console.error(error));
+    });
+  }
+
   async function claimedSpawnTab(intent) {
     let tab;
     try {
@@ -101,6 +109,27 @@
               ok: true,
               exactUserMessage: true,
               identitySource: "dom_contract_embedded_text",
+              userMessageCount: 1,
+              exactTextCandidateCount: 0,
+              mainPresent: Boolean(document.querySelector("main, [role=\"main\"]"))
+            };
+          }
+
+          const expanders = Array.from(
+            latestTurn?.querySelectorAll?.('button, [role="button"]') || []
+          ).filter((control) => {
+            const label = contract.normalizedText(
+              control.getAttribute?.("aria-label") || control.innerText || control.textContent || ""
+            ).toLowerCase();
+            return label === "show more";
+          });
+          if (latest && messages.length === 1 && expanders.length === 1) {
+            try { expanders[0].click(); } catch (_error) {}
+            return {
+              ok: true,
+              exactUserMessage: false,
+              identitySource: null,
+              expansionRequested: true,
               userMessageCount: 1,
               exactTextCandidateCount: 0,
               mainPresent: Boolean(document.querySelector("main, [role=\"main\"]"))
@@ -248,14 +277,21 @@
         }
         if (identity?.ok && identity.userMessageCount === 1) {
           const routeEvidence = await inspectConversationSpawnContentState(intent);
-          lastIdentityProbe = { ...identity, routeEvidence };
-          if (
+          const sawProvisionalEvent = await conversationSpawnSawProvisionalRoute(
+            intent.transaction_id,
+            claimed.tab.id
+          );
+          lastIdentityProbe = { ...identity, routeEvidence, sawProvisionalEvent };
+          const ownedCanonicalTransition = Boolean(
             routeEvidence?.ok &&
             routeEvidence.claimState === "submitted" &&
-            routeEvidence.sawProvisionalRoute === true &&
             routeEvidence.contentRoute === "child" &&
             routeEvidence.composerPresent === true &&
             routeEvidence.composerHasText === false
+          );
+          if (
+            ownedCanonicalTransition &&
+            (routeEvidence.sawProvisionalRoute === true || sawProvisionalEvent)
           ) {
             return {
               ok: true,

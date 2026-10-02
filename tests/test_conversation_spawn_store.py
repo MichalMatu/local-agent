@@ -248,6 +248,43 @@ class SpawnStoreTests(unittest.TestCase):
                 created_at="2026-09-24T00:04:01Z",
             )
 
+    def test_abandoned_ambiguous_releases_global_queue_without_replacement(self) -> None:
+        first, second = self.enqueue_pair()
+        self.advance_to_submitting(self.req_a["id"], first["attempt"], 41)
+        ambiguous = self.spawns.fail(
+            self.req_a["id"],
+            first["attempt"],
+            reason="submitted child identity became unrecoverable",
+            updated_at="2026-09-24T00:03:03Z",
+        )
+        self.assertEqual(ambiguous["state"], "ambiguous")
+        self.assertIn(ambiguous["id"], self.spawns.queue_snapshot()["unresolved_ambiguous_ids"])
+
+        abandoned = self.spawns.abandon_ambiguous(
+            self.req_a["id"],
+            first["attempt"],
+            updated_at="2026-09-24T00:04:00Z",
+        )
+        self.assertEqual(abandoned["state"], "abandoned")
+        self.assertEqual(self.spawns.load_attempt(self.req_a["id"], 1)["state"], "ambiguous")
+        self.assertEqual(len(self.spawns.load_attempts(self.req_a["id"])), 1)
+        self.assertNotIn(
+            ambiguous["id"],
+            self.spawns.queue_snapshot()["unresolved_ambiguous_ids"],
+        )
+        next_active = self.spawns.begin_browser_attempt(
+            self.req_b["id"],
+            second["attempt"],
+            tab_id=52,
+            updated_at="2026-09-24T00:04:01Z",
+        )
+        self.assertEqual(next_active["state"], "tab_created")
+        with self.assertRaisesRegex(ValueError, "requested or registration_pending"):
+            self.spawns.enqueue(
+                self.req_a["id"],
+                created_at="2026-09-24T00:04:02Z",
+            )
+
     def test_manual_registration_resolves_ambiguity_without_replacement(self) -> None:
         first, second = self.enqueue_pair()
         self.advance_to_submitting(self.req_a["id"], first["attempt"], 41)
