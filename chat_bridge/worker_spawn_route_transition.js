@@ -53,11 +53,11 @@
     }
   }
 
-  async function probeConversationSpawnUserIdentity(tabId, expectedText) {
+  async function probeConversationSpawnUserIdentity(tabId, expectedText, expectedDigest) {
     try {
       const results = await chrome.scripting.executeScript({
         target: { tabId, frameIds: [0] },
-        func: (expected) => {
+        func: (expected, digest) => {
           const contract = globalThis.LocalAgentChatDomContract;
           if (
             !contract ||
@@ -66,17 +66,70 @@
           ) {
             return { ok: false, reason: "spawn_dom_contract_unavailable" };
           }
+
+          const expectedNormalized = contract.normalizedText(expected);
           const messages = contract.messageElements(document, "user");
           const latest = messages[messages.length - 1];
           const actual = latest?.innerText || latest?.textContent || "";
+          if (
+            latest &&
+            contract.normalizedText(actual) === expectedNormalized
+          ) {
+            return {
+              ok: true,
+              exactUserMessage: true,
+              identitySource: "dom_contract",
+              userMessageCount: messages.length,
+              exactTextCandidateCount: 0,
+              mainPresent: Boolean(document.querySelector("main, [role=\"main\"]"))
+            };
+          }
+
+          const scope = document.querySelector("main") || document.querySelector('[role="main"]');
+          if (!scope || !expectedNormalized || !digest) {
+            return {
+              ok: true,
+              exactUserMessage: false,
+              identitySource: null,
+              userMessageCount: messages.length,
+              exactTextCandidateCount: 0,
+              mainPresent: Boolean(scope)
+            };
+          }
+
+          const candidateContainers = new Set();
+          const walker = document.createTreeWalker(scope, NodeFilter.SHOW_TEXT);
+          let node = walker.nextNode();
+          while (node) {
+            if (String(node.nodeValue || "").includes(digest)) {
+              let element = node.parentElement;
+              while (element && scope.contains(element)) {
+                const text = contract.normalizedText(element.innerText || element.textContent || "");
+                if (text === expectedNormalized) {
+                  candidateContainers.add(element);
+                  break;
+                }
+                element = element.parentElement;
+              }
+            }
+            node = walker.nextNode();
+          }
+
+          const minimalCandidates = Array.from(candidateContainers).filter((candidate) =>
+            !Array.from(candidateContainers).some(
+              (other) => other !== candidate && candidate.contains(other)
+            )
+          );
           return {
             ok: true,
-            exactUserMessage: Boolean(latest) &&
-              contract.normalizedText(actual) === contract.normalizedText(expected),
-            userMessageCount: messages.length
+            exactUserMessage: minimalCandidates.length === 1,
+            identitySource: minimalCandidates.length === 1 ? "dom_exact_text" : null,
+            userMessageCount: messages.length,
+            exactTextCandidateCount: minimalCandidates.length,
+            mainPresent: true
           };
         },
-        args: [String(expectedText || "")]
+        args: [String(expectedText || ""), String(expectedDigest || "")]
       });
       const result = results?.[0]?.result;
       return result && typeof result === "object"
@@ -121,6 +174,7 @@
     const deadline = Date.now() + CHILD_IDENTITY_WAIT_MS;
     let domContractReady = false;
     let nextDomContractAttempt = 0;
+    let lastIdentityProbe = null;
     while (Date.now() < deadline) {
       const claimed = await claimedSpawnTab(intent);
       if (!claimed.ok) return claimed;
@@ -152,19 +206,22 @@
       if (!domContractReady && Date.now() >= nextDomContractAttempt) {
         const installed = await installConversationSpawnDomContract(claimed.tab.id);
         domContractReady = installed.ok === true;
+        lastIdentityProbe = installed.ok ? lastIdentityProbe : installed;
         nextDomContractAttempt = Date.now() + DOM_CONTRACT_RETRY_MS;
       }
       if (domContractReady) {
         const identity = await probeConversationSpawnUserIdentity(
           claimed.tab.id,
-          intent.bootstrap_text
+          intent.bootstrap_text,
+          intent.child_request_digest
         );
+        lastIdentityProbe = identity;
         if (identity?.ok && identity.exactUserMessage === true) {
           return {
             ok: true,
             reason: "identity_discovered",
             childConversationUrl,
-            identitySource: "dom_contract"
+            identitySource: String(identity.identitySource || "dom_contract")
           };
         }
         if (identity?.reason === "spawn_dom_contract_unavailable") {
@@ -179,7 +236,10 @@
       ok: false,
       reason: "spawn_submission_ambiguous",
       route: "child_identity_timeout",
-      diagnostic
+      diagnostic: {
+        ...diagnostic,
+        identityProbe: lastIdentityProbe
+      }
     };
   }
 
