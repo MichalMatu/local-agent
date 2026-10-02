@@ -3,6 +3,8 @@
 
   const PROVISIONAL_ROUTE_WAIT_MS = 60_000;
   const PROVISIONAL_ROUTE_POLL_MS = 100;
+  const CHILD_IDENTITY_WAIT_MS = 30_000;
+  const CHILD_IDENTITY_POLL_MS = 100;
   const originalSubmitConversationSpawnBootstrap = submitConversationSpawnBootstrap;
   const originalReconcileConversationSpawn = reconcileConversationSpawn;
 
@@ -68,31 +70,71 @@
     };
   }
 
-  async function reconcileAfterProvisionalRoute(intent, fallback) {
+  async function waitForChildIdentity(intent, childConversationUrl, fallback) {
+    const deadline = Date.now() + CHILD_IDENTITY_WAIT_MS;
+    while (Date.now() < deadline) {
+      const claimed = await claimedSpawnTab(intent);
+      if (!claimed.ok) return claimed;
+      const canonical = normalizeConversationUrl(String(claimed.tab.url || ""));
+      if (!canonical || canonical !== childConversationUrl) {
+        return {
+          ok: false,
+          reason: "spawn_submission_ambiguous",
+          route: "child_route_changed_before_identity"
+        };
+      }
+
+      const reconciled = await originalReconcileConversationSpawn(intent);
+      if (reconciled?.ok) {
+        if (reconciled.childConversationUrl !== childConversationUrl) {
+          return { ok: false, reason: "spawn_child_identity_invalid" };
+        }
+        return reconciled;
+      }
+      const reason = String(reconciled?.reason || "");
+      if (![
+        "spawn_submission_ambiguous",
+        "spawn_content_unavailable",
+        "spawn_page_not_ready"
+      ].includes(reason)) {
+        return reconciled || fallback;
+      }
+      await new Promise((resolve) => setTimeout(resolve, CHILD_IDENTITY_POLL_MS));
+    }
+
+    const diagnostic = await inspectConversationSpawnContentState(intent);
+    return {
+      ok: false,
+      reason: "spawn_submission_ambiguous",
+      route: "child_identity_timeout",
+      diagnostic
+    };
+  }
+
+  async function reconcileAfterAmbiguousRoute(intent, fallback) {
     const claimed = await claimedSpawnTab(intent);
     if (!claimed.ok) return claimed;
-    if (!provisionalConversationSpawnUrl(claimed.tab.url)) return fallback;
 
-    const settled = await waitForCanonicalConversation(intent);
-    if (!settled.ok) return settled;
-    return originalReconcileConversationSpawn(intent);
+    if (provisionalConversationSpawnUrl(claimed.tab.url)) {
+      const settled = await waitForCanonicalConversation(intent);
+      if (!settled.ok) return settled;
+      return waitForChildIdentity(intent, settled.childConversationUrl, fallback);
+    }
+
+    const canonical = normalizeConversationUrl(String(claimed.tab.url || ""));
+    if (!canonical) return fallback;
+    return waitForChildIdentity(intent, canonical, fallback);
   }
 
   globalThis.submitConversationSpawnBootstrap = async (intent) => {
     const result = await originalSubmitConversationSpawnBootstrap(intent);
     if (result?.ok || result?.reason !== "spawn_submission_ambiguous") return result;
-    return reconcileAfterProvisionalRoute(intent, result);
+    return reconcileAfterAmbiguousRoute(intent, result);
   };
 
   globalThis.reconcileConversationSpawn = async (intent) => {
-    const claimed = await claimedSpawnTab(intent);
-    if (!claimed.ok) return claimed;
-    if (!provisionalConversationSpawnUrl(claimed.tab.url)) {
-      return originalReconcileConversationSpawn(intent);
-    }
-
-    const settled = await waitForCanonicalConversation(intent);
-    if (!settled.ok) return settled;
-    return originalReconcileConversationSpawn(intent);
+    const initial = await originalReconcileConversationSpawn(intent);
+    if (initial?.ok || initial?.reason !== "spawn_submission_ambiguous") return initial;
+    return reconcileAfterAmbiguousRoute(intent, initial);
   };
 })();

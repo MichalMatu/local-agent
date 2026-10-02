@@ -41,11 +41,20 @@ document.querySelector("form").addEventListener("submit", (event) => {
   window.submits++;
   const composer = document.querySelector("#prompt-textarea");
   const text = composer.innerText || composer.textContent || "";
-  const message = document.createElement("div");
-  message.dataset.messageAuthorRole = "user";
-  message.textContent = text;
-  document.body.append(message);
+  const appendUserMessage = () => {
+    const message = document.createElement("div");
+    message.dataset.messageAuthorRole = "user";
+    message.textContent = text;
+    document.body.append(message);
+  };
+  const delayedUserMessage = text.includes("request=child-message-delayed");
+  if (delayedUserMessage) setTimeout(appendUserMessage, 6_500);
+  else appendUserMessage();
   composer.textContent = "";
+  if (delayedUserMessage) {
+    history.pushState({}, "", "/c/synthetic-message-delayed-child");
+    return;
+  }
   const localPlaceholder = text.includes("request=local-to-child");
   history.pushState(
     {},
@@ -166,6 +175,25 @@ async function prepareSpawn(worker, pending) {
     assert.equal(successResult.childConversationUrl, "https://chatgpt.com/c/synthetic-final-child");
     assert.ok(!successResult.childConversationUrl.includes("/uc/"));
     console.log("PASS: transient /uc route settles to canonical /c before child identity is accepted");
+
+    const messageDelayed = await prepareSpawn(worker, spawnIntent("child-message-delayed"));
+    const messageDelayedStarted = Date.now();
+    const messageDelayedResult = await callWorker(
+      worker,
+      "submitConversationSpawnBootstrap",
+      messageDelayed.value
+    );
+    assert.equal(messageDelayedResult.ok, true, JSON.stringify(messageDelayedResult));
+    assert.equal(messageDelayedResult.reason, "identity_discovered", JSON.stringify(messageDelayedResult));
+    assert.equal(
+      messageDelayedResult.childConversationUrl,
+      "https://chatgpt.com/c/synthetic-message-delayed-child"
+    );
+    assert.ok(
+      Date.now() - messageDelayedStarted >= 6000,
+      "canonical child identity must wait for delayed exact user message"
+    );
+    console.log("PASS: canonical /c waits for delayed user-message DOM before accepting identity");
 
     const local = await prepareSpawn(worker, spawnIntent("local-to-child"));
     const localResult = await callWorker(worker, "submitConversationSpawnBootstrap", local.value);
