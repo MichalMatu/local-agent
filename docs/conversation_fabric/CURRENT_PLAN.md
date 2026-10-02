@@ -1,6 +1,6 @@
 # Conversation Fabric — current execution plan
 
-Status: Stage 8 automatic one-child proof completed; durable terminal/checkpoint recording accepted; adoption and retirement are next.
+Status: Stage 8, terminal recording, and adoption/retirement are complete. Restart/recovery proof across external-effect boundaries is next.
 
 ## Current baseline
 
@@ -13,13 +13,12 @@ Production remains unchanged:
 Canonical development line:
 
 - branch: `develop/conversation-fabric`
-- accepted CODE checkpoint: `a16918d32bc366dbc9d8a8793669baa214d13620`
-- accepted commit: `Add durable child terminal records`
-- exact-SHA canonical CI run: `37036591713`
+- accepted CODE checkpoint: `e76dc4a114f750cc0beabdbb2ad626d41ff2e986`
+- accepted commit: `Add durable child adoption and retirement`
+- exact-SHA canonical CI run: `37054505079`
 - CI result: all five jobs passed (`test`, `python-314`, `coverage`, `macos-smoke`, `bridge-browser`)
-- same-SHA isolated candidate CI run: `37035403791`, also passed
 
-Documentation-only commits may advance `develop/conversation-fabric`; always distinguish the accepted CODE checkpoint from the current docs branch head before effects.
+Documentation-only commits may advance the canonical branch; always distinguish accepted runtime CODE from later docs-only heads before effects.
 
 Mac DEV checkout:
 
@@ -29,39 +28,104 @@ Production checkout:
 
 - `/Users/michal/local-agent`
 
-Preserved isolated Stage 8 root/profile:
+Preserved Stage 8 evidence:
 
 - root: `/Users/michal/Library/Application Support/local-agent-dev-stage8-proof12-auth-gate-3096`
 - browser profile: `/Users/michal/Library/Application Support/local-agent-dev-stage8-proof12-auth-gate-3096/browser-profile/live-slice`
 
 Production Chrome is never a source profile.
 
-## Stage 8 completion ledger
+## Closed milestone ledger
 
-Proof22 remains the automatic one-child completion proof.
+### Stage 8 automatic one-child proof
+
+Accepted Stage 8 CODE checkpoint:
+
+- `93fb65204db03c54d0080803d26266f3c06d777e` — `Confirm spawn identity from owned route transition`
+- exact-SHA CI `37022787748`: all five jobs passed
+
+Proof22 remains authoritative:
 
 - workflow: `stage8-live-slice`
 - request: `stage8-live-child-001`
-- admitted Stage 8 code SHA: `93fb65204db03c54d0080803d26266f3c06d777e`
 - request digest: `sha256:460bb68b76a73350718a9f091bf3b071cfa8762f3222030e52af58e8b392a79d`
 - transaction: `spawn-92f4107c2bf0bdd6abd122c5ddcfaa6417691c576d811efc6a1973f59c676615`
-- plan digest: `sha256:43581f5fc966859b7339ddbdb0cc24de26fbe3ec30841784bc851ebd322dc61a`
 - canonical child: `https://chatgpt.com/c/6abfcdf9-8438-83eb-86da-1c4b209afc47`
 - spawn attempt: `1`
-- durable spawn state: `done`
-- durable child state at proof completion: `active`
-- durable registration: matching
-- bounded completion evidence: matching
-- recovery/manual attach: not used
-- production mutation: none
+- matching durable registration/completion evidence
+- no manual attach/recovery
+- no production mutation
 
-Stage 8 completion gate is satisfied. Do not start another spawn campaign for this milestone.
+Do not start another Stage 8 spawn campaign.
+
+### Terminal/checkpoint recording
+
+Accepted CODE checkpoint:
+
+- `a16918d32bc366dbc9d8a8793669baa214d13620` — `Add durable child terminal records`
+- canonical exact-SHA CI `37036591713`: all five jobs passed
+
+Accepted path:
+
+```text
+active -> terminal_pending_evidence -> terminal_recorded
+```
+
+Terminal evidence is durable, bounded, schema-validated, exact-request/registration-bound, persisted before lifecycle completion, idempotent for the same semantic record, conflicting records fail closed, and reload validation rechecks the cross-record invariants.
+
+### Adoption and retirement
+
+Accepted CODE checkpoint:
+
+- `e76dc4a114f750cc0beabdbb2ad626d41ff2e986` — `Add durable child adoption and retirement`
+- canonical exact-SHA CI `37054505079`: all five jobs passed
+
+Audit evidence:
+
+- `conversation-adoption-retirement-preimplementation-audit-20261002-v1`: `done`
+- `conversation-adoption-retirement-audit-summary-20261002-v1`: `done`
+
+The audit found no existing Conversation Fabric adoption subsystem. The smallest contract uses the already-legal transitions:
+
+```text
+child:    terminal_recorded -> retired
+workflow: waiting_conversation -> succeeded
+```
+
+with a durable adoption record between them.
+
+Accepted properties:
+
+1. adoption requires the exact admitted request, canonical registration and durable terminal record;
+2. the adoption record binds request digest, terminal-record digest, workflow ID and reasoning-node ID;
+3. the adoption record is bounded and schema-validated;
+4. adoption is persisted before workflow-node success;
+5. interrupted adoption-write/workflow-state ordering is retryable and restart-safe;
+6. identical semantic adoption is idempotent and conflicts fail closed;
+7. retirement requires durable adoption plus the bound workflow node in `succeeded`;
+8. retired reload fails closed if adoption, terminal evidence or succeeded workflow state is missing;
+9. mutations use the existing workflow execution lock;
+10. no browser effect was introduced.
+
+Implementation:
+
+- `local_agent/conversation/adoption.py`
+- `local_agent/conversation/store.py`
+- `tests/test_conversation_adoption.py`
+
+Verification:
+
+- `conversation-adoption-retirement-implementation-20261002-v2`: focused 47 tests passed;
+- squashed verification `conversation-adoption-retirement-candidate-verify-20261002-v1`: compile, Ruff, 56 focused/workflow tests and `git diff --check` passed;
+- first integration task v1 failed before source mutation because of patch-script encoding and is non-authoritative;
+- DEV was synchronized clean to the accepted SHA;
+- production remained unchanged and clean.
 
 ## Non-negotiable invariants
 
 - GitHub is the durable control/evidence plane.
 - Local Agent remains deterministic and model-free.
-- Chat Bridge remains a bounded browser actuator.
+- Chat Bridge remains a bounded browser actuator, not workflow authority.
 - child chats never receive independent machine execution authority.
 - `local-agent` remains `execution_enabled=false` for reasoning-child browser work.
 - no production Chrome/profile mutation.
@@ -69,100 +133,56 @@ Stage 8 completion gate is satisfied. Do not start another spawn campaign for th
 - no blind replay after a potentially submitted ambiguous effect.
 - browser DOM is transport evidence, not durable workflow state.
 
-## Completed milestone — checkpoint and terminal recording
+## Current milestone — restart/recovery proof across external-effect boundaries
 
-Accepted CODE checkpoint `a16918d32bc366dbc9d8a8793669baa214d13620` completes:
+The next milestone is not a broad live campaign. First produce a read-only boundary inventory on the accepted CODE checkpoint.
 
-```text
-active
-  -> terminal_pending_evidence
-  -> terminal_recorded
-```
+The audit must enumerate every external-effect boundary in the proven single-child lifecycle where a process can stop after durable intent/checkpoint but before durable completion evidence.
 
-The state-machine states already existed. The accepted slice adds the minimum durable record and enforcement around them.
+Required boundary matrix columns:
 
-Contract summary:
+- operation/effect boundary;
+- pre-effect durable intent/checkpoint;
+- external effect;
+- post-effect durable evidence/completion;
+- observable restart state;
+- safe retry / prohibited retry / attach-or-recover rule;
+- ambiguity/conflict fail-closed rule;
+- existing unit/integration/live proof;
+- smallest missing proof.
 
-1. `active -> terminal_pending_evidence` remains an explicit durable transition.
-2. `terminal_recorded` is impossible without a valid durable terminal record.
-3. terminal evidence binds to the exact child request ID/digest, the digest of the canonical durable `ChildRegistration`, and canonical child URL.
-4. terminal evidence is bounded and schema-validated, including non-empty bounded evidence references.
-5. identical semantic recording is idempotent; conflicting recording fails closed.
-6. writes serialize through the existing workflow execution lock.
-7. evidence is atomically persisted before terminal lifecycle state, giving a recoverable pending state if the state write fails after evidence persistence.
-8. persisted request/registration/evidence/state relationships are revalidated on reload/restart.
-9. no browser effect, adoption semantics or retirement semantics were added.
+At minimum inspect:
 
-Implementation:
+- spawn transaction and exact browser submit/canonical identity;
+- child registration and spawn completion evidence;
+- terminal evidence before terminal lifecycle state;
+- adoption record before workflow-node success;
+- retirement and any external cleanup boundary if one actually exists;
+- workflow publication/checkpoint/evidence primitives used by these flows.
 
-- `local_agent/conversation/terminal.py`
-- `local_agent/conversation/store.py`
-- `tests/test_conversation_terminal.py`
-
-Focused coverage includes missing registration, missing evidence, conflicting evidence, invalid lifecycle ordering, exact digest/registration binding, idempotency, bounded schema validation, crash recovery between evidence/state writes, reload fail-closed behavior and lock reuse.
-
-## Terminal milestone verification
-
-Preimplementation audit:
-
-- `conversation-terminal-evidence-preimplementation-audit-20261002-v1`
-- status: `done`
-- read-only against `93fb65204db03c54d0080803d26266f3c06d777e`
-
-The malformed task `conversation-terminal-record-implementation-20261002-v1` never started and remains non-authoritative.
-
-Accepted local/candidate verification on `a16918d32bc366dbc9d8a8793669baa214d13620`:
-
-- focused conversation tests: 38 passed
-- compile: passed
-- Ruff: passed
-- `git diff --check`: passed
-- DEV checkout clean after synchronization
-- production checkout unchanged and clean
-
-The broad local smoke environment had missing `mcp`/`httpx2` dependencies after sanitizing an inherited host-ops lease descriptor. Canonical exact-SHA GitHub CI installed its declared dependencies and passed all five jobs, including `macos-smoke` and `bridge-browser`; that run is the acceptance gate.
-
-## Current milestone — adoption and retirement
-
-Adoption and retirement are the next ordered milestone. Their implementation contract has not yet been accepted.
-
-The first step is a bounded read-only preimplementation audit on the accepted CODE checkpoint, not a speculative implementation.
-
-The audit must establish from current repository contracts:
-
-- where adoption and retirement already appear in lifecycle/state/workflow code;
-- which durable records or evidence, if any, must precede each transition;
-- exact ordering and fail-closed behavior;
-- idempotency and conflict behavior;
-- restart/reload validation requirements;
-- locking/atomic-write boundaries;
-- whether any browser effect is actually required.
-
-Do not broaden the audit into multi-child orchestration or invent semantics from older chats. The smallest accepted contract must be derived from current code and durable evidence.
+Do not infer a missing proof from memory. Re-open current code and durable proof artifacts. Do not launch browser effects during the audit.
 
 ## Immediate execution plan
 
-1. Fetch fresh `main`, `develop/conversation-fabric`, `host-ops:agent-control` and daemon state.
-2. Verify `/Users/michal/local-agent-dev` is clean and distinguish the accepted CODE checkpoint from docs-only commits.
-3. Verify production remains clean and unchanged.
-4. Read the current handoff and re-open the accepted terminal record implementation/tests.
-5. Run one read-only adoption/retirement preimplementation audit through `host-ops` and persist its result.
-6. Define the minimum next state/evidence contract from repository state plus that audit.
-7. Add focused positive/negative/idempotency/restart tests before behavior changes.
-8. Implement one bounded slice only after the audit supports it.
-9. Use direct GitHub operations for repository changes and `host-ops` for all Mac-local effects.
-10. Run focused and diff-appropriate verification.
-11. Push one accepted CODE checkpoint to `develop/conversation-fabric` and close exact-SHA CI.
-12. Only then update durable handoff docs again.
+1. Fetch fresh mutable refs and daemon state.
+2. Verify DEV clean and production unchanged.
+3. Re-open spawn transaction/store, conversation store, terminal/adoption contracts, workflow checkpoint/evidence/recovery code and their tests.
+4. Run one bounded read-only boundary inventory through `host-ops` and persist its result.
+5. Classify existing boundaries as already proven versus missing proof.
+6. Select the smallest genuinely missing restart/recovery boundary.
+7. Add failure-injection/restart tests before behavior changes.
+8. Implement only if the audit exposes a contract gap; otherwise prove the existing contract without code changes.
+9. Use a live browser proof only when the selected missing boundary necessarily crosses the browser effect.
+10. Establish exact-SHA CI for any new CODE checkpoint before accepting it.
+11. Update durable docs only after acceptance.
 
-## Ordered milestones after adoption and retirement
+## Ordered milestones after restart/recovery proof
 
-1. restart/recovery proof across every external-effect boundary;
-2. manual lifecycle parity as a first-class fallback;
-3. narrow Browser Driver promotion for child-chat lifecycle effects;
-4. normalize the persistent DEV browser profile into a root-independent reusable location if still useful;
-5. Superchat fleet/control layer;
-6. broader automatic scheduling only after the single-child lifecycle is proven stable.
+1. manual lifecycle parity as a first-class fallback;
+2. narrow Browser Driver promotion for child-chat lifecycle effects;
+3. normalize the persistent DEV browser profile into a root-independent reusable location if still useful;
+4. Superchat fleet/control layer;
+5. broader automatic scheduling only after the single-child lifecycle is proven stable.
 
 Multi-child fan-out, fleet scheduling, rollover and broad Superchat automation remain out of scope.
 
