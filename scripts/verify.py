@@ -169,6 +169,10 @@ def run_bridge_browser() -> None:
         "Conversation spawn current ChatGPT DOM identity smoke",
         [node, "scripts/conversation_spawn_current_dom_identity_smoke.cjs"],
     )
+    _run(
+        "Conversation spawn selectorless exact-text identity smoke",
+        [node, "scripts/conversation_spawn_selectorless_identity_smoke.cjs"],
+    )
 
 
 def parse_args() -> argparse.Namespace:
