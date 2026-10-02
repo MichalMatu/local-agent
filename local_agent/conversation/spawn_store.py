@@ -130,6 +130,57 @@ class WorkflowConversationSpawnStore:
             )
         return attempts[attempt - 1]
 
+    def attach_manual_child(
+        self,
+        request_id: str,
+        *,
+        child_conversation_url: str,
+        registered_at: str,
+    ) -> dict[str, Any]:
+        """Register one user-created child without creating a spawn transaction.
+
+        Fresh manual attachment and automatic spawning share the global spawn lock so
+        they cannot race. Any existing spawn attempt belongs to the automatic/recovery
+        path and must be resolved there instead of being silently replaced.
+        """
+        with self._global_lock():
+            request = self.store.load_request(request_id)
+            attempts = self.load_attempts(request_id)
+            if attempts:
+                raise ValueError(
+                    "fresh manual child attach requires zero spawn attempts; "
+                    "use spawn recovery instead"
+                )
+
+            canonical = contract.canonical_conversation_url(child_conversation_url)
+            if canonical != child_conversation_url:
+                raise ValueError(
+                    "manual child conversation URL must use canonical ChatGPT URL form"
+                )
+            registration = {
+                "schema_version": contract.CHILD_REGISTRATION_SCHEMA_VERSION,
+                "child_request_id": request["id"],
+                "child_request_digest": contract.child_request_digest(request),
+                "parent_conversation_url": request["parent_conversation_url"],
+                "child_conversation_url": canonical,
+                "registered_at": registered_at,
+            }
+
+            existing = self.store.load_registration(request_id)
+            if existing is not None:
+                return self.store.register_child(registration)
+
+            lifecycle = self.store.load_state(request_id)
+            if lifecycle["state"] == "requested":
+                self.store.transition_state(request_id, "registration_pending")
+                lifecycle = self.store.load_state(request_id)
+            if lifecycle["state"] != "registration_pending":
+                raise ValueError(
+                    "fresh manual child attach requires requested or "
+                    "registration_pending state"
+                )
+            return self.store.register_child(registration)
+
     def enqueue(self, request_id: str, *, created_at: str) -> dict[str, Any]:
         """Create or return the request's one queued/nonterminal transaction.
 
