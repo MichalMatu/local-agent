@@ -5,6 +5,7 @@
   const PROVISIONAL_ROUTE_POLL_MS = 100;
   const CHILD_IDENTITY_WAIT_MS = 30_000;
   const CHILD_IDENTITY_POLL_MS = 100;
+  const DOM_CONTRACT_RETRY_MS = 1000;
   const originalSubmitConversationSpawnBootstrap = submitConversationSpawnBootstrap;
   const originalReconcileConversationSpawn = reconcileConversationSpawn;
 
@@ -40,6 +41,52 @@
     return { ok: true, tab };
   }
 
+  async function installConversationSpawnDomContract(tabId) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [0] },
+        files: ["dom_contract.js"]
+      });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, reason: "spawn_dom_contract_unavailable", error: String(error) };
+    }
+  }
+
+  async function probeConversationSpawnUserIdentity(tabId, expectedText) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, frameIds: [0] },
+        func: (expected) => {
+          const contract = globalThis.LocalAgentChatDomContract;
+          if (
+            !contract ||
+            typeof contract.messageElements !== "function" ||
+            typeof contract.normalizedText !== "function"
+          ) {
+            return { ok: false, reason: "spawn_dom_contract_unavailable" };
+          }
+          const messages = contract.messageElements(document, "user");
+          const latest = messages[messages.length - 1];
+          const actual = latest?.innerText || latest?.textContent || "";
+          return {
+            ok: true,
+            exactUserMessage: Boolean(latest) &&
+              contract.normalizedText(actual) === contract.normalizedText(expected),
+            userMessageCount: messages.length
+          };
+        },
+        args: [String(expectedText || "")]
+      });
+      const result = results?.[0]?.result;
+      return result && typeof result === "object"
+        ? result
+        : { ok: false, reason: "spawn_dom_contract_unavailable" };
+    } catch (error) {
+      return { ok: false, reason: "spawn_dom_contract_unavailable", error: String(error) };
+    }
+  }
+
   async function waitForCanonicalConversation(intent) {
     const deadline = Date.now() + PROVISIONAL_ROUTE_WAIT_MS;
     while (Date.now() < deadline) {
@@ -72,6 +119,8 @@
 
   async function waitForChildIdentity(intent, childConversationUrl, fallback) {
     const deadline = Date.now() + CHILD_IDENTITY_WAIT_MS;
+    let domContractReady = false;
+    let nextDomContractAttempt = 0;
     while (Date.now() < deadline) {
       const claimed = await claimedSpawnTab(intent);
       if (!claimed.ok) return claimed;
@@ -98,6 +147,29 @@
         "spawn_page_not_ready"
       ].includes(reason)) {
         return reconciled || fallback;
+      }
+
+      if (!domContractReady && Date.now() >= nextDomContractAttempt) {
+        const installed = await installConversationSpawnDomContract(claimed.tab.id);
+        domContractReady = installed.ok === true;
+        nextDomContractAttempt = Date.now() + DOM_CONTRACT_RETRY_MS;
+      }
+      if (domContractReady) {
+        const identity = await probeConversationSpawnUserIdentity(
+          claimed.tab.id,
+          intent.bootstrap_text
+        );
+        if (identity?.ok && identity.exactUserMessage === true) {
+          return {
+            ok: true,
+            reason: "identity_discovered",
+            childConversationUrl,
+            identitySource: "dom_contract"
+          };
+        }
+        if (identity?.reason === "spawn_dom_contract_unavailable") {
+          domContractReady = false;
+        }
       }
       await new Promise((resolve) => setTimeout(resolve, CHILD_IDENTITY_POLL_MS));
     }
