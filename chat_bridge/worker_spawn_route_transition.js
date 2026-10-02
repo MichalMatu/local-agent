@@ -246,6 +246,25 @@
             identitySource: String(identity.identitySource || "dom_contract")
           };
         }
+        if (identity?.ok && identity.userMessageCount === 1) {
+          const routeEvidence = await inspectConversationSpawnContentState(intent);
+          lastIdentityProbe = { ...identity, routeEvidence };
+          if (
+            routeEvidence?.ok &&
+            routeEvidence.claimState === "submitted" &&
+            routeEvidence.sawProvisionalRoute === true &&
+            routeEvidence.contentRoute === "child" &&
+            routeEvidence.composerPresent === true &&
+            routeEvidence.composerHasText === false
+          ) {
+            return {
+              ok: true,
+              reason: "identity_discovered",
+              childConversationUrl,
+              identitySource: "owned_provisional_canonical_transition"
+            };
+          }
+        }
         if (identity?.reason === "spawn_dom_contract_unavailable") {
           domContractReady = false;
         }

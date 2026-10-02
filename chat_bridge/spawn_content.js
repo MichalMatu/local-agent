@@ -371,12 +371,17 @@
     }
   }
 
-  function writeClaim(validated, state) {
+  function writeClaim(validated, state, evidence = {}) {
+    const existing = readClaim(validated.transactionId);
     const claim = {
       transactionId: validated.transactionId,
       childRequestDigest: validated.childRequestDigest,
       bootstrapDigest: validated.bootstrapDigest,
-      state
+      state,
+      sawProvisionalRoute: Boolean(
+        evidence.sawProvisionalRoute ||
+        (claimMatches(existing, validated) && existing.sawProvisionalRoute === true)
+      )
     };
     sessionStorage.setItem(claimKey(validated.transactionId), JSON.stringify(claim));
     return claim;
@@ -409,6 +414,7 @@
       ok: true,
       reason: "spawn_provisional_diagnostic",
       claimState: typeof claim.state === "string" ? claim.state : "unknown",
+      sawProvisionalRoute: claim.sawProvisionalRoute === true,
       contentRoute: routeState().kind,
       exactUserMessage: latestExactUserMessage(validated.bootstrapText),
       userMessageCount: userMessages.length,
@@ -442,7 +448,9 @@
       ok: false,
       reason: "spawn_submission_ambiguous",
       route: route.kind,
-      exactUserMessage: latestExactUserMessage(validated.bootstrapText)
+      exactUserMessage: latestExactUserMessage(validated.bootstrapText),
+      claimState: typeof claim.state === "string" ? claim.state : "unknown",
+      sawProvisionalRoute: claim.sawProvisionalRoute === true
     };
   }
 
@@ -540,6 +548,7 @@
       }
       if (route.kind === "provisional") {
         sawProvisionalRoute = true;
+        writeClaim(validated, "submitted", { sawProvisionalRoute: true });
       } else if (sawProvisionalRoute && ["fresh", "unexpected"].includes(route.kind)) {
         return {
           ok: false,
