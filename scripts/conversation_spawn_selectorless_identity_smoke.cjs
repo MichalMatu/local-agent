@@ -20,8 +20,7 @@ function spawnIntent(label, tabId = null) {
     "{",
     `  \"child_request_digest\": \"${requestDigest}\",`,
     `  \"request\": \"${label}\"`,
-    "}",
-    ""
+    "}"
   ].join("\n");
   return {
     schema_version: 1,
