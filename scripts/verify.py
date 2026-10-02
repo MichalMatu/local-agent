@@ -165,6 +165,10 @@ def run_bridge_browser() -> None:
         "Conversation spawn transient UC route smoke",
         [node, "scripts/conversation_spawn_uc_transition_smoke.cjs"],
     )
+    _run(
+        "Conversation spawn current ChatGPT DOM identity smoke",
+        [node, "scripts/conversation_spawn_current_dom_identity_smoke.cjs"],
+    )
 
 
 def parse_args() -> argparse.Namespace:
