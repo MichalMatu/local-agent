@@ -129,6 +129,53 @@ def runner_paths(layout: DevLabLayout) -> RunnerPaths:
     )
 
 
+def _shared_dev_node_deps(layout: DevLabLayout) -> Path:
+    return _resolved(
+        layout.home / "Library" / "Application Support" / "local-agent-dev" / "node-deps"
+    )
+
+
+def _chrome_version_key(path: Path) -> tuple[int, ...]:
+    prefix = "chrome-for-testing-"
+    name = next((part for part in path.parts if part.startswith(prefix)), "")
+    raw = name[len(prefix):]
+    try:
+        return tuple(int(part) for part in raw.split("."))
+    except ValueError:
+        return ()
+
+
+def _browser_environment(layout: DevLabLayout) -> dict[str, str]:
+    """Build browser actuator environment with shared DEV tooling auto-discovery.
+
+    Explicit operator overrides always win. Otherwise use the already-installed shared
+    local-agent-dev Playwright package and newest valid Chrome for Testing bundle.
+    """
+    env = os.environ.copy()
+    deps = _shared_dev_node_deps(layout)
+
+    if not str(env.get("LOCAL_AGENT_PLAYWRIGHT_MODULE", "")).strip():
+        playwright = deps / "node_modules" / "playwright"
+        if playwright.is_dir() and not playwright.is_symlink():
+            env["LOCAL_AGENT_PLAYWRIGHT_MODULE"] = str(playwright)
+
+    if not str(env.get("LOCAL_AGENT_CHROME_EXECUTABLE", "")).strip() and sys.platform == "darwin":
+        suffix = Path(
+            "chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+        )
+        candidates = []
+        if deps.is_dir() and not deps.is_symlink():
+            for bundle in deps.glob("chrome-for-testing-*"):
+                candidate = bundle / suffix
+                if candidate.is_file() and not candidate.is_symlink() and os.access(candidate, os.X_OK):
+                    candidates.append(candidate)
+        if candidates:
+            selected = max(candidates, key=lambda item: (_chrome_version_key(item), str(item)))
+            env["LOCAL_AGENT_CHROME_EXECUTABLE"] = str(_resolved(selected))
+
+    return env
+
+
 def _load_object(path: Path, *, field: str) -> dict[str, Any]:
     if path.is_symlink() or not path.is_file():
         raise RuntimeError(f"live runner {field} is missing or unsafe: {path}")
@@ -786,7 +833,7 @@ class SubprocessBrowserSession:
             text=True,
             encoding="utf-8",
             bufsize=1,
-            env=os.environ.copy(),
+            env=_browser_environment(layout),
         )
 
     def _request(

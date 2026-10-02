@@ -5,12 +5,14 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from local_agent.conversation import contract
 from local_agent.conversation.spawn_store import WorkflowConversationSpawnStore
 from local_agent.conversation.store import WorkflowConversationStore
 from local_agent.development.lab import build_dev_lab_layout, initialize_dev_lab
 from local_agent.development.live_runner import (
+    _browser_environment,
     _write_journal,
     login_live_slice_browser,
     load_runner_journal,
@@ -232,6 +234,66 @@ class DevelopmentLiveRunnerTests(unittest.TestCase):
         self.assertFalse(live_slice_paths(self.layout).arm.exists())
         self.assertFalse(runner_paths(self.layout).journal.exists())
         self.assertTrue(runner_paths(self.layout).evidence.is_file())
+
+    def test_browser_environment_auto_discovers_shared_dev_tooling(self) -> None:
+        deps = (
+            self.home
+            / "Library"
+            / "Application Support"
+            / "local-agent-dev"
+            / "node-deps"
+        )
+        playwright = deps / "node_modules" / "playwright"
+        playwright.mkdir(parents=True)
+        older = (
+            deps
+            / "chrome-for-testing-153.0.1.2"
+            / "chrome-mac-arm64"
+            / "Google Chrome for Testing.app"
+            / "Contents"
+            / "MacOS"
+            / "Google Chrome for Testing"
+        )
+        newer = (
+            deps
+            / "chrome-for-testing-154.0.8037.92"
+            / "chrome-mac-arm64"
+            / "Google Chrome for Testing.app"
+            / "Contents"
+            / "MacOS"
+            / "Google Chrome for Testing"
+        )
+        for executable in (older, newer):
+            executable.parent.mkdir(parents=True)
+            executable.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            executable.chmod(0o755)
+
+        with patch.dict(
+            "os.environ",
+            {
+                "LOCAL_AGENT_PLAYWRIGHT_MODULE": "",
+                "LOCAL_AGENT_CHROME_EXECUTABLE": "",
+            },
+            clear=False,
+        ), patch("local_agent.development.live_runner.sys.platform", "darwin"):
+            env = _browser_environment(self.layout)
+
+        self.assertEqual(env["LOCAL_AGENT_PLAYWRIGHT_MODULE"], str(playwright.resolve()))
+        self.assertEqual(env["LOCAL_AGENT_CHROME_EXECUTABLE"], str(newer.resolve()))
+
+    def test_browser_environment_preserves_explicit_overrides(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "LOCAL_AGENT_PLAYWRIGHT_MODULE": "/explicit/playwright",
+                "LOCAL_AGENT_CHROME_EXECUTABLE": "/explicit/chrome",
+            },
+            clear=False,
+        ):
+            env = _browser_environment(self.layout)
+
+        self.assertEqual(env["LOCAL_AGENT_PLAYWRIGHT_MODULE"], "/explicit/playwright")
+        self.assertEqual(env["LOCAL_AGENT_CHROME_EXECUTABLE"], "/explicit/chrome")
 
     def test_login_reuses_existing_profile_without_manual_browser(self) -> None:
         session = FakeBrowserSession()
