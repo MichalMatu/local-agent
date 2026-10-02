@@ -46,16 +46,25 @@ document.querySelector("form").addEventListener("submit", (event) => {
   message.textContent = text;
   document.body.append(message);
   composer.textContent = "";
-  history.pushState({}, "", "/uc/transient-synthetic-child");
-  const delayed = text.includes("request=uc-to-child-delayed");
-  const target = delayed
-    ? "/c/synthetic-delayed-final-child"
-    : text.includes("request=uc-to-child")
-      ? "/c/synthetic-final-child"
-      : text.includes("request=uc-to-root")
-        ? "/"
-        : "/unexpected-after-uc";
-  setTimeout(() => history.pushState({}, "", target), delayed ? 11_000 : 350);
+  const localPlaceholder = text.includes("request=local-to-child");
+  history.pushState(
+    {},
+    "",
+    localPlaceholder
+      ? "/c/local-chatgpt%3A65b0b0eb-b67b-415a-a1e5-92715bc5855f"
+      : "/uc/transient-synthetic-child"
+  );
+  const delayed = text.includes("request=uc-to-child-delayed") || text.includes("request=local-to-child-delayed");
+  const target = text.includes("request=local-to-child")
+    ? "/c/synthetic-local-final-child"
+    : delayed
+      ? "/c/synthetic-delayed-final-child"
+      : text.includes("request=uc-to-child")
+        ? "/c/synthetic-final-child"
+        : text.includes("request=uc-to-root")
+          ? "/"
+          : "/unexpected-after-uc";
+  setTimeout(() => history.pushState({}, "", target), text.includes("request=local-to-child-delayed") ? 6_500 : delayed ? 11_000 : 350);
 });
 </script>
 </body></html>`;
@@ -86,8 +95,9 @@ async function prepareSpawn(worker, pending) {
   let context;
   try {
     const extension = path.join(root, "chat_bridge");
+    const executablePath = process.env.LOCAL_AGENT_CHROME_EXECUTABLE || undefined;
     context = await chromium.launchPersistentContext(profile, {
-      channel: "chromium",
+      ...(executablePath ? { executablePath } : { channel: "chromium" }),
       headless: true,
       args: [
         `--disable-extensions-except=${extension}`,
@@ -136,7 +146,7 @@ async function prepareSpawn(worker, pending) {
     assert.equal(diagnosticResult.ok, true, JSON.stringify(diagnosticResult));
     assert.equal(diagnosticResult.reason, "spawn_provisional_diagnostic");
     assert.equal(diagnosticResult.claimState, "submitted");
-    assert.equal(diagnosticResult.contentRoute, "unexpected");
+    assert.equal(diagnosticResult.contentRoute, "provisional");
     assert.equal(diagnosticResult.exactUserMessage, true);
     assert.equal(diagnosticResult.userMessageCount, 1);
     assert.equal(diagnosticResult.assistantMessageCount, 1);
@@ -156,6 +166,21 @@ async function prepareSpawn(worker, pending) {
     assert.equal(successResult.childConversationUrl, "https://chatgpt.com/c/synthetic-final-child");
     assert.ok(!successResult.childConversationUrl.includes("/uc/"));
     console.log("PASS: transient /uc route settles to canonical /c before child identity is accepted");
+
+    const local = await prepareSpawn(worker, spawnIntent("local-to-child"));
+    const localResult = await callWorker(worker, "submitConversationSpawnBootstrap", local.value);
+    assert.equal(localResult.ok, true, JSON.stringify(localResult));
+    assert.equal(localResult.reason, "identity_discovered", JSON.stringify(localResult));
+    assert.equal(localResult.childConversationUrl, "https://chatgpt.com/c/synthetic-local-final-child");
+    assert.ok(!localResult.childConversationUrl.includes("local-chatgpt"));
+    console.log("PASS: local-chatgpt placeholder settles to canonical /c before identity is accepted");
+
+    const localDelayed = await prepareSpawn(worker, spawnIntent("local-to-child-delayed"));
+    const localDelayedResult = await callWorker(worker, "submitConversationSpawnBootstrap", localDelayed.value);
+    assert.equal(localDelayedResult.ok, true, JSON.stringify(localDelayedResult));
+    assert.equal(localDelayedResult.reason, "identity_discovered", JSON.stringify(localDelayedResult));
+    assert.equal(localDelayedResult.childConversationUrl, "https://chatgpt.com/c/synthetic-local-final-child");
+    console.log("PASS: local-chatgpt placeholder can outlive the 5s content wait and settle via worker fallback");
 
     const delayed = await prepareSpawn(worker, spawnIntent("uc-to-child-delayed"));
     const delayedResult = await callWorker(worker, "submitConversationSpawnBootstrap", delayed.value);

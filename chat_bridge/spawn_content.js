@@ -43,9 +43,15 @@
       if (url.protocol !== "https:" || !["chatgpt.com", "chat.openai.com"].includes(url.hostname)) {
         return { kind: "unexpected" };
       }
+      const path = url.pathname.replace(/\/+$/, "") || "/";
+      if (
+        /^\/uc\/[^/]+$/.test(path) ||
+        /^\/c\/local-chatgpt%3a[A-Za-z0-9-]+$/i.test(path)
+      ) {
+        return { kind: "provisional" };
+      }
       const childConversationUrl = normalizeConversationUrl(url.href);
       if (childConversationUrl) return { kind: "child", childConversationUrl };
-      const path = url.pathname.replace(/\/+$/, "") || "/";
       return path === "/" ? { kind: "fresh" } : { kind: "unexpected" };
     } catch (_error) {
       return { kind: "unexpected" };
@@ -416,6 +422,7 @@
     }
 
     const deadline = Date.now() + 5000;
+    let sawProvisionalRoute = false;
     while (Date.now() < deadline) {
       const route = routeState();
       if (route.kind === "child" && latestExactUserMessage(validated.bootstrapText)) {
@@ -425,7 +432,15 @@
           childConversationUrl: route.childConversationUrl
         };
       }
-      if (route.kind === "unexpected") {
+      if (route.kind === "provisional") {
+        sawProvisionalRoute = true;
+      } else if (sawProvisionalRoute && ["fresh", "unexpected"].includes(route.kind)) {
+        return {
+          ok: false,
+          reason: "spawn_submission_ambiguous",
+          route: "unexpected_after_provisional"
+        };
+      } else if (route.kind === "unexpected") {
         return {
           ok: false,
           reason: "spawn_submission_ambiguous",

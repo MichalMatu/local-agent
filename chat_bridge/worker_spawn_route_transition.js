@@ -13,7 +13,12 @@
         return false;
       }
       const path = url.pathname.replace(/\/+$/, "");
-      return /^\/uc\/[^/]+$/.test(path) && !url.hash;
+      return Boolean(
+        !url.hash && (
+          /^\/uc\/[^/]+$/.test(path) ||
+          /^\/c\/local-chatgpt%3a[A-Za-z0-9-]+$/i.test(path)
+        )
+      );
     } catch (_error) {
       return false;
     }
@@ -38,6 +43,10 @@
     while (Date.now() < deadline) {
       const claimed = await claimedSpawnTab(intent);
       if (!claimed.ok) return claimed;
+      if (provisionalConversationSpawnUrl(claimed.tab.url)) {
+        await new Promise((resolve) => setTimeout(resolve, PROVISIONAL_ROUTE_POLL_MS));
+        continue;
+      }
       const canonical = normalizeConversationUrl(String(claimed.tab.url || ""));
       if (canonical) {
         return { ok: true, reason: "canonical_child_route", childConversationUrl: canonical };
@@ -49,7 +58,6 @@
           route: "unexpected_after_provisional"
         };
       }
-      await new Promise((resolve) => setTimeout(resolve, PROVISIONAL_ROUTE_POLL_MS));
     }
     const diagnostic = await inspectConversationSpawnContentState(intent);
     return {
