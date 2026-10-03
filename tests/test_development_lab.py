@@ -7,6 +7,7 @@ from pathlib import Path
 
 from local_agent.development.lab import (
     PROTECTED_OPERATIONAL_BRANCHES,
+    adopt_existing_browser_profile,
     build_dev_lab_layout,
     dev_lab_status,
     initialize_dev_lab,
@@ -15,6 +16,22 @@ from local_agent.development.lab import (
 
 
 class DevelopmentLabTests(unittest.TestCase):
+    @staticmethod
+    def _seed_adoptable_profile(layout) -> dict[str, bytes]:
+        profile = layout.browser_profile_dir
+        default = profile / "Default"
+        default.mkdir(parents=True)
+        payloads = {
+            "Local State": b"local-state",
+            "Default/Preferences": b"preferences",
+            "Default/Cookies": b"cookies",
+        }
+        for relative, payload in payloads.items():
+            path = profile / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(payload)
+        return payloads
+
     def test_default_layout_is_separate_and_synthetic_only(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
@@ -81,6 +98,77 @@ class DevelopmentLabTests(unittest.TestCase):
             status = dev_lab_status(layout)
             self.assertTrue(status["healthy"])
             self.assertEqual(status["problems"], [])
+
+    def test_adopt_profile_adds_only_lab_metadata_and_preserves_browser_data(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            layout = build_dev_lab_layout(home=home)
+            payloads = self._seed_adoptable_profile(layout)
+
+            adopted = adopt_existing_browser_profile(layout)
+
+            self.assertEqual(adopted, layout.manifest())
+            self.assertEqual(
+                json.loads(layout.marker_path.read_text(encoding="utf-8")),
+                layout.manifest(),
+            )
+            for relative, payload in payloads.items():
+                self.assertEqual((layout.browser_profile_dir / relative).read_bytes(), payload)
+            for path in (
+                layout.state_dir,
+                layout.repositories_dir,
+                layout.browser_profile_dir,
+                layout.logs_dir,
+                layout.fixtures_dir,
+            ):
+                self.assertTrue(path.is_dir())
+            self.assertTrue(dev_lab_status(layout)["healthy"])
+
+    def test_adopt_profile_rejects_unexpected_root_entries_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            layout = build_dev_lab_layout(home=home)
+            payloads = self._seed_adoptable_profile(layout)
+            unexpected = layout.root / "unexpected.txt"
+            unexpected.write_text("do not adopt", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "contain only browser-profile"):
+                adopt_existing_browser_profile(layout)
+
+            self.assertFalse(layout.marker_path.exists())
+            self.assertEqual(unexpected.read_text(encoding="utf-8"), "do not adopt")
+            for relative, payload in payloads.items():
+                self.assertEqual((layout.browser_profile_dir / relative).read_bytes(), payload)
+
+    def test_adopt_profile_rejects_missing_chromium_identity_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            layout = build_dev_lab_layout(home=home)
+            default = layout.browser_profile_dir / "Default"
+            default.mkdir(parents=True)
+            (default / "Preferences").write_text("preferences", encoding="utf-8")
+
+            with self.assertRaisesRegex(RuntimeError, "Local State"):
+                adopt_existing_browser_profile(layout)
+
+            self.assertFalse(layout.marker_path.exists())
+            self.assertFalse(layout.state_dir.exists())
+
+    def test_adopt_profile_rejects_profile_symlink_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            layout = build_dev_lab_layout(home=home)
+            self._seed_adoptable_profile(layout)
+            external = home / "external.txt"
+            external.write_text("external", encoding="utf-8")
+            link = layout.browser_profile_dir / "Default" / "linked"
+            link.symlink_to(external)
+
+            with self.assertRaisesRegex(RuntimeError, "refuses symbolic links"):
+                adopt_existing_browser_profile(layout)
+
+            self.assertFalse(layout.marker_path.exists())
+            self.assertEqual(external.read_text(encoding="utf-8"), "external")
 
     def test_rejects_root_or_checkout_overlapping_production_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

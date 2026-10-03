@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.20.1`; current production release is `v4.20.0` / Chat Bridge `0.7.0`. The 4.20.1 candidate keeps Chat Bridge 0.7.0 and extends Conversation Fabric operator requests with a fail-closed canonical target-repository identity while retaining runtime schema 3, content protocol v13 and assistant guard v8. The deployed production release remains `v4.20.0` until the explicit release decision advances `main`; Candidate source must not be described as current production before the explicit release decision advances `main`. Conversation Fabric operator intake remains default-disabled until explicit runtime configuration, and child chats remain reasoning-only while `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
+This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.20.2`; current production release is `v4.20.1` / Chat Bridge `0.7.0`. The 4.20.2 candidate keeps Chat Bridge 0.7.0 and adds one explicit fail-closed migration for a pre-existing isolated Chromium `browser-profile`, allowing the authenticated Conversation Fabric lab profile to be adopted without copying or mutating production/daily Chrome state. The deployed production release remains `v4.20.1` until the explicit release decision advances `main`; Candidate source must not be described as current production before the explicit release decision advances `main`. Conversation Fabric operator intake remains default-disabled until explicit runtime configuration, and child chats remain reasoning-only while `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
 
 ## Release/runtime invariants
 
@@ -32,6 +32,7 @@ This file records the current release/runtime invariants for `MichalMatu/local-a
 - Self-update accepts only a validated fast-forward from a clean `main` checkout and rolls back validation failure.
 - Self-update validation compiles production entrypoints and runs the bounded verification suite before restart.
 - Control checkout recovery removes only daemon-owned control artifacts plus explicitly allowlisted host metadata.
+- Arbitrary non-empty unmarked Conversation Fabric lab roots are never silently adopted. The explicit profile-adoption path accepts only an isolated root containing exactly `browser-profile`, recognizable regular Chromium identity files and no symbolic links; it writes only inert lab directories and the exact layout marker and does not rewrite browser-profile bytes.
 
 ## Repository/binding invariants
 
@@ -112,7 +113,7 @@ For an exact managed `conversation_controls` record, GitHub is authoritative for
 - `NEXT`;
 - `INTERVAL`.
 
-Every schedule mutation increments `control_generation`; status reads do not. Repository/binding/binding-revision mismatch fails closed. Applied state is scoped to binding revision, remote control generation and local conversation generation.
+Every schedule mutation increments `control_generation`; status reads do not. Repository/binding/revision mismatches fail closed. Applied state is scoped to binding revision, remote control generation and local conversation generation.
 
 A confirmed `conversation_exhausted` state is terminal for the same hard binding and must not be repaired away as GitHub schedule drift. `assistant_retry_exhausted` is likewise preserved against reconciliation of the already-applied remote generation; a strictly newer GitHub generation may serve as an explicit recovery decision. Manual `Run now` must not bypass confirmed conversation exhaustion.
 

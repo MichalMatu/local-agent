@@ -196,6 +196,63 @@ def _validate_existing_lab_entries(layout: DevLabLayout) -> None:
             raise RuntimeError(f"DEV lab directory path is not a directory: {path}")
 
 
+def _validate_adoptable_browser_profile(layout: DevLabLayout) -> None:
+    root = layout.root
+    if not root.is_dir():
+        raise RuntimeError(f"browser profile adoption requires an existing DEV lab root: {root}")
+    _validate_existing_lab_entries(layout)
+    if layout.marker_path.exists() or layout.marker_path.is_symlink():
+        raise RuntimeError("browser profile adoption requires an unmarked DEV lab root")
+
+    entries = tuple(root.iterdir())
+    if len(entries) != 1 or entries[0] != layout.browser_profile_dir:
+        raise RuntimeError(
+            "browser profile adoption requires the unmarked root to contain only browser-profile"
+        )
+
+    profile = layout.browser_profile_dir
+    if not profile.is_dir() or profile.is_symlink():
+        raise RuntimeError("browser profile adoption requires a regular browser-profile directory")
+
+    local_state = profile / "Local State"
+    if local_state.is_symlink() or not local_state.is_file():
+        raise RuntimeError("browser profile adoption requires a regular Local State file")
+
+    usable_profiles = []
+    for child in profile.iterdir():
+        if child.is_symlink() or not child.is_dir():
+            continue
+        preferences = child / "Preferences"
+        if preferences.is_file() and not preferences.is_symlink():
+            usable_profiles.append(child)
+    if not usable_profiles:
+        raise RuntimeError("browser profile adoption requires at least one profile Preferences file")
+
+    for path in profile.rglob("*"):
+        if path.is_symlink():
+            raise RuntimeError(
+                f"browser profile adoption refuses symbolic links inside browser-profile: {path}"
+            )
+
+
+def adopt_existing_browser_profile(layout: DevLabLayout) -> dict[str, Any]:
+    """Adopt one isolated browser profile without copying or modifying its browser data.
+
+    This is deliberately narrower than normal initialization: the unmarked lab root
+    must contain exactly one pre-existing ``browser-profile`` directory with a
+    recognizable Chromium profile shape and no symbolic links. The operation only
+    creates the missing inert lab directories plus the exact layout marker.
+    """
+    validate_dev_lab_layout(layout)
+    _validate_adoptable_browser_profile(layout)
+    expected = layout.manifest()
+
+    for path in _lab_directories(layout):
+        path.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(layout.marker_path, _json_text(expected))
+    return expected
+
+
 def initialize_dev_lab(layout: DevLabLayout) -> dict[str, Any]:
     """Create only the inert DEV namespace; never clone, launch or register Chrome."""
     validate_dev_lab_layout(layout)
@@ -275,9 +332,9 @@ def _build_from_args(args: argparse.Namespace) -> DevLabLayout:
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Plan or initialize the synthetic-only Conversation Fabric DEV lab"
+        description="Plan, initialize, adopt or inspect the synthetic-only Conversation Fabric DEV lab"
     )
-    parser.add_argument("command", choices=("plan", "init", "status"))
+    parser.add_argument("command", choices=("plan", "init", "adopt-profile", "status"))
     parser.add_argument("--home")
     parser.add_argument("--root")
     parser.add_argument("--checkout")
@@ -294,6 +351,9 @@ def main(argv: Iterable[str] | None = None) -> int:
             return_code = 0
         elif args.command == "init":
             payload = initialize_dev_lab(layout)
+            return_code = 0
+        elif args.command == "adopt-profile":
+            payload = adopt_existing_browser_profile(layout)
             return_code = 0
         else:
             payload = dev_lab_status(layout)
