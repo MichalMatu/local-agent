@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from local_agent.development import operator_campaign
+from local_agent.development.live_seed import CheckoutIdentity
 
 
 PARENT_URL = "https://chatgpt.com/c/6abfcdf9-8438-83eb-86da-1c4b209afc47"
@@ -32,6 +33,13 @@ def request_payload() -> dict:
     }
 
 
+def targeted_request_payload() -> dict:
+    payload = request_payload()
+    payload["schema_version"] = 2
+    payload["repository_id"] = "growclip"
+    return payload
+
+
 def completed_campaign() -> dict:
     return {
         "schema_version": 1,
@@ -54,10 +62,10 @@ def completed_campaign() -> dict:
 
 
 class OperatorCampaignTests(unittest.TestCase):
-    def _paths(self, root: Path) -> tuple[Path, Path]:
+    def _paths(self, root: Path, payload: dict | None = None) -> tuple[Path, Path]:
         request_path = root / "request.json"
         result_path = root / "result.json"
-        request_path.write_text(json.dumps(request_payload()), encoding="utf-8")
+        request_path.write_text(json.dumps(payload or request_payload()), encoding="utf-8")
         return request_path, result_path
 
     def test_runner_maps_request_to_existing_mvp_and_persists_result(self) -> None:
@@ -86,11 +94,45 @@ class OperatorCampaignTests(unittest.TestCase):
             self.assertIs(args[0], layout)
             self.assertEqual(args[1]["workflow_id"], "operator-workflow-001")
             self.assertNotIn("id", args[1])
+            self.assertNotIn("identity_provider", kwargs)
             self.assertEqual(kwargs["login_timeout_seconds"], 12)
             self.assertEqual(kwargs["result_timeout_seconds"], 34)
             self.assertEqual(result["state"], "completed")
             self.assertEqual(result["children"][0]["summary"], "OPERATOR_SLICE_OK")
             self.assertEqual(json.loads(result_path.read_text(encoding="utf-8")), result)
+
+    def test_v2_request_injects_validated_target_identity_provider(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            home = root / "home"
+            request_path, result_path = self._paths(root, targeted_request_payload())
+            layout = object()
+            identity = CheckoutIdentity(
+                repository_id="growclip",
+                repository="MichalMatu/growclip",
+                agent_binding="2db52048-57ea-4643-bf4b-1ea5c5c3fa86",
+                repository_ref="main",
+                repository_commit_sha="a" * 40,
+            )
+            with mock.patch.object(
+                operator_campaign, "build_dev_lab_layout", return_value=layout
+            ), mock.patch.object(
+                operator_campaign, "inspect_operator_target", return_value=identity
+            ) as inspect_target, mock.patch.object(
+                operator_campaign, "run_mvp_campaign", return_value=completed_campaign()
+            ) as run_campaign:
+                operator_campaign.run_operator_campaign(
+                    request_path=request_path,
+                    result_path=result_path,
+                    home=home,
+                    root=root / "lab",
+                    checkout=root / "checkout",
+                    production_checkout=root / "production",
+                )
+
+            provider = run_campaign.call_args.kwargs["identity_provider"]
+            self.assertEqual(provider(layout), identity)
+            inspect_target.assert_called_once_with(home=home, repository_id="growclip")
 
     def test_persist_result_is_idempotent_for_exact_same_outcome(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
