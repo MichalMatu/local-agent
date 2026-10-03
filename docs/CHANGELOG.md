@@ -2,6 +2,14 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
+## v4.20.4
+
+- Decouple Superchat conversation transport/scheduling identity from repository execution binding; normal multirepo and donor/target reasoning no longer requires Bridge rebind.
+- Add operator request schema v3 with ordered `repository_ids` reasoning context while preserving v1/v2 compatibility and removing target execution-identity injection from Conversation Fabric campaigns.
+- Advance Chat Bridge to 0.8.0; admit concrete managed chats without a repository binding selection and make GitHub conversation schedule ownership chat-scoped.
+- Retain legacy rebind only as compatibility metadata/epoch refresh so stale-generation and race guards remain intact.
+- Preserve the real security boundary: every executable `.agent/tasks` payload still requires the exact canonical `agent_binding` of its target repository and remains subject to registry/catalog/origin/execution admission.
+
 ## v4.20.3
 
 - Add an explicit fail-closed `rebind-checkout` DEV-lab operation for moving an already adopted, unused Conversation Fabric lab marker from its original isolated checkout identity to one intended isolated operator checkout.

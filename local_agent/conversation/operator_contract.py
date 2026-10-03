@@ -11,7 +11,8 @@ from typing import Any
 from local_agent.conversation import contract
 
 LEGACY_OPERATOR_REQUEST_SCHEMA_VERSION = 1
-OPERATOR_REQUEST_SCHEMA_VERSION = 2
+TARGETED_OPERATOR_REQUEST_SCHEMA_VERSION = 2
+OPERATOR_REQUEST_SCHEMA_VERSION = 3
 OPERATOR_RESULT_SCHEMA_VERSION = 1
 MAX_OPERATOR_REQUEST_BYTES = 128 * 1024
 MAX_OPERATOR_RESULT_BYTES = 64 * 1024
@@ -22,6 +23,7 @@ MAX_OPERATOR_PATHS = 64
 MAX_OPERATOR_PATH_CHARS = 1024
 MAX_OPERATOR_ID_CHARS = 120
 MAX_OPERATOR_REPOSITORY_ID_CHARS = 120
+MAX_OPERATOR_REPOSITORY_IDS = 16
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
 _REPOSITORY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
@@ -58,12 +60,42 @@ def _repository_id(value: Any) -> str:
     return value
 
 
+def _repository_ids(value: Any) -> list[str]:
+    if not isinstance(value, list) or not 1 <= len(value) <= MAX_OPERATOR_REPOSITORY_IDS:
+        raise ValueError(
+            f"operator repository_ids must contain 1..{MAX_OPERATOR_REPOSITORY_IDS} items"
+        )
+    result: list[str] = []
+    seen: set[str] = set()
+    for raw in value:
+        repository_id = _repository_id(raw)
+        key = repository_id.casefold()
+        if key in seen:
+            raise ValueError(f"duplicate operator repository_id: {repository_id!r}")
+        seen.add(key)
+        result.append(repository_id)
+    return result
+
+
+def _reasoning_scope_summary(summary: str, repository_ids: list[str]) -> str:
+    if not repository_ids:
+        return summary
+    return (
+        "Reasoning repository context (not execution authority): "
+        + ", ".join(repository_ids)
+        + ". "
+        + summary
+    )
+
+
 def validate_operator_request(request: dict[str, Any]) -> None:
     if not isinstance(request, dict):
         raise ValueError("operator request must be an object")
     if len(_canonical_bytes(request)) > MAX_OPERATOR_REQUEST_BYTES:
         raise ValueError(f"operator request exceeds {MAX_OPERATOR_REQUEST_BYTES} bytes")
+
     schema_version = request.get("schema_version")
+    repository_ids: list[str] = []
     if schema_version == LEGACY_OPERATOR_REQUEST_SCHEMA_VERSION:
         required = {
             "schema_version",
@@ -72,7 +104,7 @@ def validate_operator_request(request: dict[str, Any]) -> None:
             "parent_conversation_url",
             "children",
         }
-    elif schema_version == OPERATOR_REQUEST_SCHEMA_VERSION:
+    elif schema_version == TARGETED_OPERATOR_REQUEST_SCHEMA_VERSION:
         required = {
             "schema_version",
             "id",
@@ -81,17 +113,28 @@ def validate_operator_request(request: dict[str, Any]) -> None:
             "repository_id",
             "children",
         }
+        repository_ids = [_repository_id(request.get("repository_id"))]
+    elif schema_version == OPERATOR_REQUEST_SCHEMA_VERSION:
+        required = {
+            "schema_version",
+            "id",
+            "workflow_id",
+            "parent_conversation_url",
+            "repository_ids",
+            "children",
+        }
+        repository_ids = _repository_ids(request.get("repository_ids"))
     else:
         raise ValueError(
             "operator request schema_version must be "
-            f"{LEGACY_OPERATOR_REQUEST_SCHEMA_VERSION} or {OPERATOR_REQUEST_SCHEMA_VERSION}"
+            f"{LEGACY_OPERATOR_REQUEST_SCHEMA_VERSION}, "
+            f"{TARGETED_OPERATOR_REQUEST_SCHEMA_VERSION}, or {OPERATOR_REQUEST_SCHEMA_VERSION}"
         )
+
     if set(request) != required:
         raise ValueError("operator request fields do not match schema")
     _bounded_id(request.get("id"), field="operator request id")
     _bounded_id(request.get("workflow_id"), field="operator workflow id")
-    if schema_version == OPERATOR_REQUEST_SCHEMA_VERSION:
-        _repository_id(request.get("repository_id"))
     parent = contract.canonical_conversation_url(request.get("parent_conversation_url"))
     if parent != request.get("parent_conversation_url"):
         raise ValueError("operator parent_conversation_url must be canonical")
@@ -122,6 +165,8 @@ def validate_operator_request(request: dict[str, Any]) -> None:
             or len(summary) > MAX_OPERATOR_SUMMARY_CHARS
         ):
             raise ValueError("operator child summary must be a bounded non-empty string")
+        if len(_reasoning_scope_summary(summary, repository_ids)) > contract.MAX_SCOPE_SUMMARY_CHARS:
+            raise ValueError("operator child summary plus repository context exceeds child scope bound")
         paths = child.get("paths")
         if not isinstance(paths, list) or not 1 <= len(paths) <= MAX_OPERATOR_PATHS:
             raise ValueError("operator child paths must be a bounded non-empty list")
@@ -134,12 +179,20 @@ def validate_operator_request(request: dict[str, Any]) -> None:
                 raise ValueError("operator child path must be a bounded non-empty string")
 
 
-def operator_request_repository_id(request: dict[str, Any]) -> str | None:
-    """Return the explicit v2 target, preserving accepted v1 local-agent semantics."""
+def operator_request_repository_ids(request: dict[str, Any]) -> list[str]:
+    """Return repository names as non-authoritative reasoning context."""
     validate_operator_request(request)
     if request["schema_version"] == LEGACY_OPERATOR_REQUEST_SCHEMA_VERSION:
-        return None
-    return str(request["repository_id"])
+        return []
+    if request["schema_version"] == TARGETED_OPERATOR_REQUEST_SCHEMA_VERSION:
+        return [str(request["repository_id"])]
+    return list(request["repository_ids"])
+
+
+def operator_request_repository_id(request: dict[str, Any]) -> str | None:
+    """Compatibility helper for one-repository reasoning requests."""
+    repository_ids = operator_request_repository_ids(request)
+    return repository_ids[0] if len(repository_ids) == 1 else None
 
 
 def operator_request_digest(request: dict[str, Any]) -> str:
@@ -148,13 +201,19 @@ def operator_request_digest(request: dict[str, Any]) -> str:
 
 
 def request_to_mvp_spec(request: dict[str, Any]) -> dict[str, Any]:
-    """Return the accepted MVP semantic input without creating a second lifecycle model."""
+    """Map repository names into child prose without granting execution authority."""
     validate_operator_request(request)
+    repository_ids = operator_request_repository_ids(request)
+    children: list[dict[str, Any]] = []
+    for raw in request["children"]:
+        child = dict(raw)
+        child["summary"] = _reasoning_scope_summary(str(child["summary"]), repository_ids)
+        children.append(child)
     return {
         "schema_version": 1,
         "workflow_id": request["workflow_id"],
         "parent_conversation_url": request["parent_conversation_url"],
-        "children": [dict(child) for child in request["children"]],
+        "children": children,
     }
 
 

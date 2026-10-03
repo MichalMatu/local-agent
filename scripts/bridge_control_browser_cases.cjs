@@ -307,7 +307,7 @@ module.exports = async function verifyDecoratedControls({ page, request, readCha
   const firstUnconfirmed = await request({ type: "bridge:run-now", conversationId: retainedId });
   assert.equal(firstUnconfirmed.reason, "delivery_unconfirmed");
   const retainedPrompt = await page.locator("#prompt-textarea").textContent();
-  assert.match(retainedPrompt, /\[LA_REPO=tracker\]/);
+  assert.match(retainedPrompt, /\[LA_CHAT=chat-[0-9a-f]{8}\]/);
   assert.equal(await page.evaluate(() => window.submits), 1);
   await page.locator("#prompt-textarea").fill(`${retainedPrompt} operator-edit`);
   const blockedRetry = await request({ type: "bridge:run-now", conversationId: retainedId });

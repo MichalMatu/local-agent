@@ -12,6 +12,7 @@ from local_agent.conversation.operator_contract import (
     load_operator_request,
     operator_request_digest,
     operator_request_repository_id,
+    operator_request_repository_ids,
     request_to_mvp_spec,
     validate_operator_request,
     validate_operator_result,
@@ -55,8 +56,15 @@ def targeted_request() -> dict:
     return request
 
 
+def multirepo_request() -> dict:
+    request = sample_request()
+    request["schema_version"] = 3
+    request["repository_ids"] = ["shelly-link", "growclip"]
+    return request
+
+
 class OperatorContractTests(unittest.TestCase):
-    def test_request_digest_is_stable_and_mvp_mapping_is_semantic_only(self) -> None:
+    def test_request_digest_is_stable_and_v1_mapping_is_unchanged(self) -> None:
         request = sample_request()
         validate_operator_request(request)
         first = operator_request_digest(request)
@@ -73,28 +81,59 @@ class OperatorContractTests(unittest.TestCase):
             },
         )
         self.assertIsNone(operator_request_repository_id(request))
+        self.assertEqual(operator_request_repository_ids(request), [])
 
-    def test_v2_request_binds_target_repository_into_digest_but_not_mvp_spec(self) -> None:
+    def test_v2_repository_id_is_reasoning_context_not_execution_identity(self) -> None:
         request = targeted_request()
         validate_operator_request(request)
         digest = operator_request_digest(request)
         self.assertEqual(operator_request_repository_id(request), "growclip")
-        self.assertNotIn("repository_id", request_to_mvp_spec(request))
+        self.assertEqual(operator_request_repository_ids(request), ["growclip"])
+        spec = request_to_mvp_spec(request)
+        self.assertNotIn("repository_id", spec)
+        self.assertTrue(
+            spec["children"][0]["summary"].startswith(
+                "Reasoning repository context (not execution authority): growclip. "
+            )
+        )
 
         changed = copy.deepcopy(request)
         changed["repository_id"] = "shelly-link"
         self.assertNotEqual(operator_request_digest(changed), digest)
 
-    def test_v2_request_requires_canonical_repository_id(self) -> None:
+    def test_v3_multirepo_context_preserves_order_without_selecting_a_binding(self) -> None:
+        request = multirepo_request()
+        validate_operator_request(request)
+        self.assertEqual(operator_request_repository_ids(request), ["shelly-link", "growclip"])
+        self.assertIsNone(operator_request_repository_id(request))
+        spec = request_to_mvp_spec(request)
+        self.assertTrue(
+            spec["children"][0]["summary"].startswith(
+                "Reasoning repository context (not execution authority): shelly-link, growclip. "
+            )
+        )
+        self.assertNotIn("repository_ids", spec)
+
+        duplicate = multirepo_request()
+        duplicate["repository_ids"] = ["growclip", "GROWCLIP"]
+        with self.assertRaisesRegex(ValueError, "duplicate operator repository_id"):
+            validate_operator_request(duplicate)
+
+    def test_v2_and_v3_require_canonical_repository_context(self) -> None:
         missing = targeted_request()
         missing.pop("repository_id")
-        with self.assertRaisesRegex(ValueError, "fields do not match schema"):
+        with self.assertRaisesRegex(ValueError, "repository_id"):
             validate_operator_request(missing)
 
         invalid = targeted_request()
         invalid["repository_id"] = "Grow Clip"
         with self.assertRaisesRegex(ValueError, "repository_id"):
             validate_operator_request(invalid)
+
+        empty = multirepo_request()
+        empty["repository_ids"] = []
+        with self.assertRaisesRegex(ValueError, "repository_ids"):
+            validate_operator_request(empty)
 
     def test_request_rejects_duplicate_child_identity_and_unknown_role(self) -> None:
         duplicate = sample_request()

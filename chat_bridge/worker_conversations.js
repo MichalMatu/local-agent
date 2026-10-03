@@ -16,31 +16,34 @@ async function upsertConversation(patch) {
   if (!url) throw new Error("Open a concrete ChatGPT conversation first.");
   const id = conversationId(url);
   const existing = currentState.conversations[id];
-  const agent = existing ? runtimeAgentForConversation(runtime, existing) : resolveBindingInput(runtime, patch);
-  if (!agent) throw new Error("Existing conversation binding is invalid; remove and add the chat again.");
+  const agent = existing
+    ? (runtimeAgentForConversation(runtime, existing) || transportAgent(runtime))
+    : resolveBindingInput(runtime, patch);
 
   const result = await mutateState((state) => {
     const previous = state.conversations[id];
-    const currentAgent = previous ? runtimeAgentForConversation(runtime, previous) : agent;
-    if (!currentAgent || (previous && previous.url !== url)) {
+    if (previous && previous.url !== url) {
       throw new Error("Conversation identity changed during update; reopen the popup.");
     }
+    const currentAgent = previous
+      ? (runtimeAgentForConversation(runtime, previous) || agent)
+      : agent;
     const upserted = stateModel.upsertConversation(state, {
       label: patch.label,
       enabled: previous ? previous.enabled : patch.enabled,
       preferredTabId: patch.preferredTabId,
       url,
-      repositoryId: currentAgent.repositoryId,
-      repository: currentAgent.repository,
-      agentBinding: currentAgent.agentBinding,
+      // These fields are compatibility metadata only. The selected transport workspace
+      // never determines the repository target of executable work.
+      repositoryId: currentAgent?.repositoryId || previous?.repositoryId || null,
+      repository: currentAgent?.repository || previous?.repository || null,
+      agentBinding: currentAgent?.agentBinding || previous?.agentBinding || null,
       bindingRevision: previous?.bindingRevision || 1,
       bindingSetAt: previous?.bindingSetAt || new Date().toISOString(),
       assistantBaseline: previous?.assistantBaseline || String(patch.assistantBaseline || ""),
-      bootstrapPending: previous ? previous.bootstrapPending : true
+      bootstrapPending: previous ? previous.bootstrapPending : true,
+      lastStatus: previous?.lastStatus || "transport_ready"
     });
-    if (!stateModel.isBoundConversation(upserted.conversation)) {
-      throw new Error("conversation binding is required");
-    }
     return { state: upserted.state, conversation: upserted.conversation };
   });
   if (!existing) await clearAssistantErrorRecovery(result.conversation.id);
@@ -51,12 +54,15 @@ async function upsertConversation(patch) {
 }
 
 async function rebindConversation(chatId, patch) {
+  // Compatibility-only metadata transition. Repository scope is no longer constrained
+  // by this tuple, but changing it still advances an epoch so in-flight retry/race
+  // guards can reject stale browser work safely.
   return serializeGithubControlOperation(async () => {
     const state = await getBridgeState();
     const previous = state.conversations[chatId];
     if (!previous) throw new Error("conversation not found");
     if (inFlightDeliveries.has(chatId)) {
-      throw new Error("Wait for the in-progress wake before changing this conversation.");
+      throw new Error("Wait for the in-progress wake before refreshing this conversation.");
     }
     const runtime = await loadRuntimeConfig(state, previous);
     const agent = resolveBindingInput(runtime, patch);
@@ -67,7 +73,7 @@ async function rebindConversation(chatId, patch) {
         repositoryId: agent.repositoryId,
         repository: agent.repository,
         agentBinding: agent.agentBinding,
-        bindingRevision: Math.max(0, current.bindingRevision || 0) + 1,
+        bindingRevision: Math.max(0, Number(current.bindingRevision) || 0) + 1,
         bindingSetAt: new Date().toISOString(),
         generation: current.generation + 1,
         assistantBaseline: "",
@@ -75,7 +81,7 @@ async function rebindConversation(chatId, patch) {
         lastControlFingerprint: "",
         lastControlAction: "",
         lastControlAt: null,
-        lastStatus: "rebound_by_operator",
+        lastStatus: "transport_metadata_refreshed",
         enabled: true
       });
       return { state: updated.state, conversation: updated.conversation };
@@ -107,9 +113,6 @@ async function updateConversation(chatId, patch) {
     if ("enabled" in patch) safePatch.enabled = Boolean(patch.enabled);
     if ("label" in patch) safePatch.label = patch.label;
     if ("intervalOverrideMinutes" in patch) safePatch.intervalOverrideMinutes = patch.intervalOverrideMinutes;
-    if (safePatch.enabled && !stateModel.isBoundConversation(previous)) {
-      throw new Error("conversation must be explicitly bound before it can be enabled");
-    }
     if ("enabled" in safePatch || "intervalOverrideMinutes" in safePatch) {
       safePatch.generation = previous.generation + 1;
     }

@@ -11,10 +11,6 @@ function serializeGithubControlOperation(operation) {
 function githubControlSignature(control) {
   return JSON.stringify([
     control.conversationId,
-    control.repositoryId,
-    control.repository,
-    control.agentBinding,
-    control.bindingRevision,
     control.controlGeneration,
     control.enabled,
     control.intervalMinutes,
@@ -44,7 +40,7 @@ async function readAppliedGithubControls() {
     if (!protocol.CHAT_ID_RE.test(chatId) || !Number.isSafeInteger(generation) || generation < 1) continue;
     result[chatId] = {
       generation,
-      bindingRevision: Number.isSafeInteger(bindingRevision) && bindingRevision >= 1 ? bindingRevision : 0,
+      bindingRevision: Number.isSafeInteger(bindingRevision) && bindingRevision >= 0 ? bindingRevision : 0,
       localGeneration: Number.isSafeInteger(localGeneration) && localGeneration >= 0 ? localGeneration : -1,
       controlSignature: typeof value?.controlSignature === "string" ? value.controlSignature : "",
       at: Number(value?.at) || 0
@@ -57,7 +53,7 @@ async function writeAppliedGithubControl(chatId, generation, bindingRevision, lo
   const current = await readAppliedGithubControls();
   current[chatId] = {
     generation,
-    bindingRevision,
+    bindingRevision: Math.max(0, Number(bindingRevision) || 0),
     localGeneration,
     controlSignature: String(controlSignature || ""),
     at: Date.now()
@@ -83,22 +79,21 @@ async function ensureGithubControlPollAlarm() {
 }
 
 async function githubScheduleAuthority(conversation, state = null) {
-  if (!conversation || !stateModel.isBoundConversation(conversation)) return null;
+  if (!conversation) return null;
   const basis = state || await getBridgeState();
   const [runtime, applied] = await Promise.all([
     fetchRuntime(basis.settings, { fresh: true }),
     readAppliedGithubControls()
   ]);
-  const cached = applied[conversation.id];
-  const cachedMatches = cached?.bindingRevision === conversation.bindingRevision;
+  const cached = applied[conversation.id] || null;
 
   if (runtime.source === "remote") {
     const control = githubControlModel.findConversationControl(runtime, conversation.id);
     if (control && githubControlModel.controlMatchesConversation(control, conversation)) {
       const signature = githubControlSignature(control);
-      const remoteIsStale = cachedMatches && control.controlGeneration < cached.generation;
+      const remoteIsStale = cached && control.controlGeneration < cached.generation;
       const sameGenerationConflict =
-        cachedMatches &&
+        cached &&
         control.controlGeneration === cached.generation &&
         cached.controlSignature &&
         cached.controlSignature !== signature;
@@ -107,22 +102,22 @@ async function githubScheduleAuthority(conversation, state = null) {
           managed: true,
           source: "remote",
           controlGeneration: control.controlGeneration,
-          bindingRevision: control.bindingRevision
+          bindingRevision: Number(conversation.bindingRevision) || 0
         };
       }
     }
   }
 
-  // Once a matching GitHub desired state has been applied, a transient fetch failure,
-  // malformed publication, stale rollback, same-generation rewrite, or temporarily missing
-  // record must not silently hand schedule ownership back to DOM/local pacing controls.
-  // Rebind creates a new revision and exits this sticky ownership boundary explicitly.
-  if (!cachedMatches) return null;
+  // Once GitHub desired state has been applied to a chat, transient runtime failure,
+  // stale rollback, or a same-generation rewrite must not silently hand scheduling
+  // authority back to local/DOM pacing. Ownership is keyed by chat identity only;
+  // repository binding metadata is deliberately not part of this boundary.
+  if (!cached) return null;
   return {
     managed: true,
     source: "cached",
     controlGeneration: cached.generation,
-    bindingRevision: cached.bindingRevision
+    bindingRevision: Number(conversation.bindingRevision) || 0
   };
 }
 
@@ -130,17 +125,15 @@ async function githubOwnershipSnapshot(state, runtime = null) {
   const applied = await readAppliedGithubControls();
   const ownership = {};
   for (const conversation of Object.values(state?.conversations || {})) {
-    if (!stateModel.isBoundConversation(conversation)) continue;
-    const cached = applied[conversation.id];
-    const cachedMatches = cached?.bindingRevision === conversation.bindingRevision;
+    const cached = applied[conversation.id] || null;
     const control = runtime?.source === "remote"
       ? githubControlModel.findConversationControl(runtime, conversation.id)
       : null;
     if (control && githubControlModel.controlMatchesConversation(control, conversation)) {
       const signature = githubControlSignature(control);
-      const remoteIsStale = cachedMatches && control.controlGeneration < cached.generation;
+      const remoteIsStale = cached && control.controlGeneration < cached.generation;
       const sameGenerationConflict =
-        cachedMatches &&
+        cached &&
         control.controlGeneration === cached.generation &&
         cached.controlSignature &&
         cached.controlSignature !== signature;
@@ -149,17 +142,17 @@ async function githubOwnershipSnapshot(state, runtime = null) {
           managed: true,
           source: "remote",
           controlGeneration: control.controlGeneration,
-          bindingRevision: control.bindingRevision
+          bindingRevision: Number(conversation.bindingRevision) || 0
         };
         continue;
       }
     }
-    if (cachedMatches) {
+    if (cached) {
       ownership[conversation.id] = {
         managed: true,
         source: "cached",
         controlGeneration: cached.generation,
-        bindingRevision: cached.bindingRevision
+        bindingRevision: Number(conversation.bindingRevision) || 0
       };
     }
   }
@@ -183,15 +176,13 @@ async function reconcileGithubConversationControlsOnce() {
     if (!control || !githubControlModel.controlMatchesConversation(control, conversation)) continue;
 
     const appliedEntry = applied[conversation.id] || null;
-    const sameBinding = appliedEntry?.bindingRevision === control.bindingRevision;
-    const appliedGeneration = sameBinding ? Number(appliedEntry?.generation || 0) : 0;
+    const appliedGeneration = Number(appliedEntry?.generation || 0);
     if (control.controlGeneration < appliedGeneration) continue;
 
     const controlSignature = githubControlSignature(control);
     if (
-      sameBinding &&
       control.controlGeneration === appliedGeneration &&
-      appliedEntry.controlSignature &&
+      appliedEntry?.controlSignature &&
       appliedEntry.controlSignature !== controlSignature
     ) {
       conflicts.push({
@@ -202,16 +193,14 @@ async function reconcileGithubConversationControlsOnce() {
       continue;
     }
 
-    // Validate the effective deadline before mutating local desired state. A malformed or
-    // excessively distant one-shot must fail closed without leaving a half-applied generation.
     const desiredDeadline = control.enabled
       ? githubControlModel.scheduleDeadline(control, runtime.intervalMinutes)
       : null;
 
     const mutation = await mutateState((currentState) => {
       const current = currentState.conversations[conversation.id];
-      if (!current || !githubControlModel.controlMatchesConversation(control, current)) {
-        return { state: currentState, value: { ok: false, reason: "binding_changed" } };
+      if (!current) {
+        return { state: currentState, value: { ok: false, reason: "conversation_removed" } };
       }
       const fresh = control.controlGeneration > appliedGeneration;
       const preservedLocalSafety = githubControlPreservedLocalSafety(current, fresh);
@@ -255,6 +244,7 @@ async function reconcileGithubConversationControlsOnce() {
     });
 
     if (!mutation.value?.ok) continue;
+    const bindingRevision = Number(conversation.bindingRevision) || 0;
     if (!mutation.value.changed) {
       if (mutation.value.preservedLocalSafety) {
         await clearConversationAlarm(conversation.id, mutation.value.localGeneration);
@@ -263,7 +253,7 @@ async function reconcileGithubConversationControlsOnce() {
         await writeAppliedGithubControl(
           conversation.id,
           control.controlGeneration,
-          control.bindingRevision,
+          bindingRevision,
           mutation.value.localGeneration,
           controlSignature
         );
@@ -280,7 +270,7 @@ async function reconcileGithubConversationControlsOnce() {
     await writeAppliedGithubControl(
       chatId,
       control.controlGeneration,
-      control.bindingRevision,
+      bindingRevision,
       localGeneration,
       controlSignature
     );

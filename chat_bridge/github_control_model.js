@@ -32,20 +32,44 @@
     return number;
   }
 
+  function legacyBindingMetadata(raw) {
+    const values = [raw.repository_id, raw.repository, raw.agent_binding, raw.binding_revision];
+    if (values.every((value) => value === undefined || value === null || value === "")) {
+      return {
+        repositoryId: null,
+        repository: null,
+        agentBinding: null,
+        bindingRevision: 0
+      };
+    }
+    const repositoryId = String(raw.repository_id || "").trim();
+    const repository = String(raw.repository || "").trim();
+    const agentBinding = String(raw.agent_binding || "").trim();
+    if (!REPOSITORY_ID_RE.test(repositoryId)) throw new Error("invalid legacy conversation control repository_id");
+    if (!REPOSITORY_RE.test(repository)) throw new Error("invalid legacy conversation control repository");
+    if (!AGENT_BINDING_RE.test(agentBinding)) throw new Error("invalid legacy conversation control agent_binding");
+    return {
+      repositoryId,
+      repository,
+      agentBinding,
+      bindingRevision: integerInRange(
+        raw.binding_revision,
+        1,
+        Number.MAX_SAFE_INTEGER,
+        "legacy conversation control binding_revision"
+      )
+    };
+  }
+
   function sanitizeConversationControl(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       throw new Error("conversation control must be an object");
     }
     const conversationId = String(raw.conversation_id || "").trim();
-    const repositoryId = String(raw.repository_id || "").trim();
-    const repository = String(raw.repository || "").trim();
-    const agentBinding = String(raw.agent_binding || "").trim();
     if (!protocol.CHAT_ID_RE.test(conversationId)) throw new Error("invalid conversation control conversation_id");
-    if (!REPOSITORY_ID_RE.test(repositoryId)) throw new Error("invalid conversation control repository_id");
-    if (!REPOSITORY_RE.test(repository)) throw new Error("invalid conversation control repository");
-    if (!AGENT_BINDING_RE.test(agentBinding)) throw new Error("invalid conversation control agent_binding");
     if (typeof raw.enabled !== "boolean") throw new Error("conversation control enabled must be a boolean");
 
+    const legacy = legacyBindingMetadata(raw);
     const intervalMinutes = raw.interval_minutes === null || raw.interval_minutes === undefined
       ? null
       : integerInRange(
@@ -72,11 +96,13 @@
 
     return Object.freeze({
       conversationId,
-      repositoryId,
-      repository,
-      agentBinding,
-      bindingRevision: integerInRange(raw.binding_revision, 1, Number.MAX_SAFE_INTEGER, "conversation control binding_revision"),
-      controlGeneration: integerInRange(raw.control_generation, 1, Number.MAX_SAFE_INTEGER, "conversation control control_generation"),
+      ...legacy,
+      controlGeneration: integerInRange(
+        raw.control_generation,
+        1,
+        Number.MAX_SAFE_INTEGER,
+        "conversation control control_generation"
+      ),
       enabled: raw.enabled,
       intervalMinutes,
       nextWakeAt,
@@ -84,12 +110,11 @@
     });
   }
 
-  function validateConversationControls(rawControls, agents) {
+  function validateConversationControls(rawControls, _agents) {
     if (rawControls === undefined || rawControls === null) return [];
     if (!Array.isArray(rawControls)) throw new Error("runtime conversation_controls must be a list");
     if (rawControls.length > 128) throw new Error("runtime conversation_controls exceeds 128 entries");
 
-    const agentById = new Map((agents || []).map((agent) => [agent.repositoryId, agent]));
     const seen = new Set();
     return rawControls.map((raw) => {
       const control = sanitizeConversationControl(raw);
@@ -97,10 +122,6 @@
         throw new Error(`duplicate runtime conversation control: ${control.conversationId}`);
       }
       seen.add(control.conversationId);
-      const agent = agentById.get(control.repositoryId);
-      if (!agent || agent.repository !== control.repository || agent.agentBinding !== control.agentBinding) {
-        throw new Error(`conversation control binding is absent from runtime agents: ${control.conversationId}`);
-      }
       return control;
     });
   }
@@ -110,15 +131,7 @@
   }
 
   function controlMatchesConversation(control, conversation) {
-    return Boolean(
-      control &&
-      conversation &&
-      control.conversationId === conversation.id &&
-      control.repositoryId === conversation.repositoryId &&
-      control.repository === conversation.repository &&
-      control.agentBinding === conversation.agentBinding &&
-      control.bindingRevision === conversation.bindingRevision
-    );
+    return Boolean(control && conversation && control.conversationId === conversation.id);
   }
 
   function scheduleDeadline(control, fallbackIntervalMinutes, nowMs = Date.now()) {

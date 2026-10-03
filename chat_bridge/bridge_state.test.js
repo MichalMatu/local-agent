@@ -12,7 +12,7 @@ assert.deepEqual(scopedAgents.map((agent) => [agent.repository_id, agent.planner
 const MATRIX_BINDING = "033327ab-700d-43b4-9b3b-caff1acaa2c7";
 const TRACKER_BINDING = "be481b25-9d97-4205-b93f-95f5c5827441";
 
-// v2 conversations migrate fail-closed: no binding means no wake/admission.
+// v2 conversations migrate as transport-ready; legacy repository binding is not admission authority.
 const migratedV2 = stateModel.migrateLegacyStorage({
   bridgeState: {
     schemaVersion: 2,
@@ -30,11 +30,11 @@ const migratedV2 = stateModel.migrateLegacyStorage({
 });
 assert.equal(migratedV2.migrated, true);
 const old = Object.values(migratedV2.state.conversations)[0];
-assert.equal(old.enabled, false);
-assert.equal(old.bootstrapPending, true);
-assert.equal(old.lastStatus, "binding_required");
+assert.equal(old.enabled, true);
+assert.equal(old.bootstrapPending, false);
+assert.equal(old.lastStatus, "sent");
 assert.equal(old.agentBinding, null);
-assert.equal(stateModel.isBoundConversation(old), false);
+assert.equal(stateModel.isBoundConversation(old), true);
 
 const migratedLegacy = stateModel.migrateLegacyStorage({
   enabled: true,
@@ -54,7 +54,7 @@ assert.equal(legacy.enabled, false);
 assert.equal(legacy.bootstrapPending, true);
 assert.equal(legacy.intervalOverrideMinutes, 12);
 assert.equal(legacy.lastControlFingerprint, "abcd1234");
-assert.equal(legacy.lastStatus, "binding_required");
+assert.equal(legacy.lastStatus, "transport_ready");
 
 // Old delivery uncertainty state is erased during schema-3 normalization.
 const migratedDeliveryState = stateModel.migrateLegacyStorage({
@@ -126,7 +126,7 @@ assert.equal(state.conversations[aId].agentBinding, MATRIX_BINDING);
 assert.equal(state.conversations[bId].enabled, true);
 assert.equal(state.conversations[bId].intervalOverrideMinutes, null);
 
-// Invalid binding format sanitizes to unbound and therefore cannot be runnable.
+// Invalid legacy binding metadata does not block transport.
 result = stateModel.upsertConversation(state, {
   url: "https://chatgpt.com/c/invalid",
   label: "Invalid binding",
@@ -135,7 +135,7 @@ result = stateModel.upsertConversation(state, {
   agentBinding: "MATRIX"
 });
 assert.equal(result.conversation.agentBinding, null);
-assert.equal(stateModel.isBoundConversation(result.conversation), false);
+assert.equal(stateModel.isBoundConversation(result.conversation), true);
 
 assert.equal(stateModel.findConversationByUrl(state, "https://chat.openai.com/c/b")?.id, bId);
 state = stateModel.removeConversation(state, aId);

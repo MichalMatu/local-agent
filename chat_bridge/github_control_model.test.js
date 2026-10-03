@@ -45,8 +45,8 @@ const localConversation = {
   bindingRevision: 1
 };
 assert.equal(model.controlMatchesConversation(control, localConversation), true);
-assert.equal(model.controlMatchesConversation(control, { ...localConversation, bindingRevision: 2 }), false);
-assert.equal(model.controlMatchesConversation(control, { ...localConversation, repositoryId: "growclip" }), false);
+assert.equal(model.controlMatchesConversation(control, { ...localConversation, bindingRevision: 2 }), true);
+assert.equal(model.controlMatchesConversation(control, { ...localConversation, repositoryId: "growclip" }), true);
 
 const now = Date.parse("2026-09-29T22:00:00.000Z");
 assert.equal(
@@ -75,10 +75,18 @@ assert.throws(
   () => model.validateConversationControls([raw(), raw({ control_generation: 8 })], [AGENT]),
   /duplicate runtime conversation control/
 );
-assert.throws(
-  () => model.validateConversationControls([raw({ agent_binding: "2180d453-1357-4fbc-be1a-e1e5b8fbb10a" })], [AGENT]),
-  /binding is absent from runtime agents/
-);
+const transportOnly = model.sanitizeConversationControl({
+  conversation_id: "chat-00000001",
+  control_generation: 1,
+  enabled: true,
+  interval_minutes: 10,
+  next_wake_at: null,
+  updated_at: "2026-09-30T00:28:00+02:00"
+});
+assert.equal(transportOnly.repositoryId, null);
+assert.equal(transportOnly.agentBinding, null);
+assert.equal(transportOnly.bindingRevision, 0);
+assert.equal(model.controlMatchesConversation(transportOnly, { id: "chat-00000001" }), true);
 assert.throws(
   () => model.sanitizeConversationControl(raw({ binding_revision: 0 })),
   /binding_revision/

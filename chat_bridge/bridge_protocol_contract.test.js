@@ -37,7 +37,7 @@ assert.match(
 );
 
 const manifest = JSON.parse(read("manifest.json"));
-assert.equal(manifest.version, "0.7.0", "Conversation Fabric release must have an unambiguous Bridge version");
+assert.equal(manifest.version, "0.8.0", "Conversation Fabric release must have an unambiguous Bridge version");
 const scripts = manifest.content_scripts?.[0]?.js || [];
 const retryIndex = scripts.indexOf("content_retry.js");
 const contentIndex = scripts.indexOf("content.js");
@@ -92,7 +92,8 @@ assert.ok(Array.isArray(runtimeExample.conversation_controls), "runtime schema 3
 
 const githubWorker = read("worker_github_control.js");
 assert.match(githubWorker, /bridgeGithubControlApplied/, "GitHub control generations must be durably deduplicated");
-assert.match(githubWorker, /bindingRevision === control\.bindingRevision/, "applied generations must be scoped to binding revision");
+assert.doesNotMatch(githubWorker, /bindingRevision === control\.bindingRevision/, "GitHub schedule ownership must not depend on repository binding revision");
+assert.match(githubWorker, /Ownership is keyed by chat identity only/, "GitHub schedule ownership must be keyed by chat identity");
 assert.match(githubWorker, /localGeneration/, "local generation must participate in GitHub drift detection");
 assert.match(githubWorker, /controlGeneration < appliedGeneration/, "stale GitHub control generations must fail closed");
 assert.match(githubWorker, /github_control_reconciled/, "GitHub desired state must repair local schedule drift");
