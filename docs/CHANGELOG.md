@@ -2,6 +2,14 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
+## v4.20.2
+
+- Add an explicit fail-closed `adopt-profile` DEV-lab operation for one pre-existing isolated Chromium `browser-profile` so a previously authenticated Conversation Fabric profile can be reused without copying production/daily Chrome state or repeating the login loop.
+- Require an unmarked lab root containing exactly `browser-profile`, a regular Chromium `Local State`, at least one regular profile `Preferences` file and no symbolic links anywhere inside the adopted profile before any lab metadata is written.
+- Preserve the existing browser profile bytes during adoption; create only the missing inert lab directories plus the exact `lab.json` layout marker.
+- Keep ordinary `init` behavior unchanged: arbitrary non-empty unmarked roots remain rejected and cannot be silently adopted.
+- Keep Chat Bridge at 0.7.0 and Conversation Fabric operator intake default-disabled; profile adoption, Superchat onboarding and intake activation remain separate explicit actions.
+
 ## v4.20.1
 
 - Extend Conversation Fabric operator requests with schema v2 and one explicit canonical `repository_id`, while preserving legacy schema v1 compatibility.
