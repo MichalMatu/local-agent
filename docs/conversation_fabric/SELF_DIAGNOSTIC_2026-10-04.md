@@ -33,7 +33,7 @@ Current production child delegation is not trustworthy/available yet:
 
 A concrete defect was isolated in that browser path: `waitForLoginReady()` gated session authentication probing on composer DOM visibility. Therefore a valid authenticated session with a delayed or changed composer could be mislabeled as a login timeout. The later pre-submit `probe` already owns bounded composer stabilization, so authentication readiness does not need that DOM dependency.
 
-Repair candidate: draft PR #135 (`work/selfdiag-child-auth-decouple-20261004`) decouples authentication from composer visibility and adds a synthetic delayed-composer regression. It is intentionally unmerged pending CI and the end of this diagnostic.
+Repair candidate: draft PR #135 (`work/selfdiag-child-auth-decouple-20261004`) decouples authentication from composer visibility and adds a synthetic delayed-composer regression. Exact repair SHA `25e817c79086f3962a4cee1b23515a11ebedffd3` completed a full five-job CI run successfully, including `bridge-browser` and `macos-smoke`. It remains intentionally unmerged; CI success is not a release decision.
 
 ### Repository routing / bindings
 
@@ -78,18 +78,18 @@ Children therefore performed no host commands and received no machine execution 
 ## Accepted changes made during this diagnostic
 
 1. Disabled stale previous-parent scheduling state for `chat-7781d9b9` on `chat-bridge-state`.
-2. Prepared draft PR #135 for the isolated child authentication/composer coupling defect; no merge/release yet.
+2. Prepared draft PR #135 for the isolated child authentication/composer coupling defect and verified its exact SHA with a five-job green CI run; no merge/release performed.
 3. Used only exact-bound, read-only `host-ops` tasks for host evidence. No Local Agent task was targeted at the execution-disabled `local-agent` repository.
+4. Recorded this durable checkpoint in draft PR #136.
 
 ## Remaining work before calling child delegation healthy
 
-1. CI for PR #135 must be green.
-2. Review/merge requires a separate release decision; this diagnostic does not make one.
-3. After deployment, use one bounded child pilot rather than repeating manual login/Cloudflare loops.
-4. Only after that pilot passes should Conversation Operator intake be considered trustworthy for parent fan-out.
-5. Reconcile current durable release docs and add Conversation Operator configuration state to normal diagnostics/observability.
-6. Evaluate workspace/storage-policy maintenance after the self-diagnostic; do not mix it into the child transport repair.
+1. Review/merge of PR #135 requires a separate release decision; this diagnostic does not make one.
+2. After deployment, use one bounded child pilot rather than repeating manual login/Cloudflare loops.
+3. Only after that pilot passes should Conversation Operator intake be considered trustworthy for parent fan-out.
+4. Reconcile current durable release docs and add Conversation Operator configuration state to normal diagnostics/observability.
+5. Evaluate workspace/storage-policy maintenance after the self-diagnostic; do not mix it into the child transport repair.
 
 ## Current verdict
 
-Core executor/scheduler/routing/process safety boundaries are healthy on 4.20.5. The primary functional blocker discovered by the Superchat self-diagnostic is child browser delegation readiness; the primary quality issues are stale release documentation and incomplete operator observability. Parent-level Superchat coordination remains usable while the child path stays disabled.
+Core executor/scheduler/routing/process safety boundaries are healthy on 4.20.5. The primary functional blocker discovered by the Superchat self-diagnostic is production child delegation readiness; the browser authentication/composer defect now has a CI-green repair candidate but is not deployed. The primary quality issues are stale release documentation and incomplete operator observability. Parent-level Superchat coordination remains usable while the child path stays disabled.
