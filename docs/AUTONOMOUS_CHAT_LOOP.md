@@ -22,6 +22,8 @@ The active user goal or durable Conversation Fabric request supplies repository 
 
 Every Local Agent task still uses the exact canonical `agent_binding` of its actual **target** repository. An execution-disabled target such as `local-agent` may be inspected/edited through direct GitHub operations but must not receive a Local Agent task.
 
+The canonical `host-ops` entry remains the execution-enabled multirepo transport/host-operations workspace; its binding is never inherited by another target repository task.
+
 ## Schedule/status control: GitHub only
 
 For a conversation with an exact `conversation_controls` record in `chat-bridge-state/chat_bridge/runtime.json`, GitHub is authoritative for:
