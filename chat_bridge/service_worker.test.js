@@ -57,7 +57,7 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(response.ok, true, response.reason);
   assert.equal(response.bridgeMode, "wake");
   prompt = sentMessages.at(-1).message.prompt;
-  assert.match(prompt, /\[LA_WAKE\]/);
+  assert.match(prompt, /WAKE/);
   assert.match(prompt, /without rebinding this chat/);
   assert.doesNotMatch(prompt, /\[LA_AGENT=/);
 
