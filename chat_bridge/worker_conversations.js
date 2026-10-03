@@ -53,9 +53,10 @@ async function upsertConversation(patch) {
   return result.conversation;
 }
 
-async function rebindConversation(chatId, _patch) {
-  // Bridge 0.8 compatibility path: repository rebinding is no longer meaningful.
-  // Refresh only the transport-workspace metadata so old callers do not fail.
+async function rebindConversation(chatId, patch) {
+  // Compatibility-only metadata transition. Repository scope is no longer constrained
+  // by this tuple, but changing it still advances an epoch so in-flight retry/race
+  // guards can reject stale browser work safely.
   return serializeGithubControlOperation(async () => {
     const state = await getBridgeState();
     const previous = state.conversations[chatId];
@@ -64,23 +65,23 @@ async function rebindConversation(chatId, _patch) {
       throw new Error("Wait for the in-progress wake before refreshing this conversation.");
     }
     const runtime = await loadRuntimeConfig(state, previous);
-    const agent = transportAgent(runtime);
+    const agent = resolveBindingInput(runtime, patch);
     const result = await mutateState((nextState) => {
       const current = nextState.conversations[chatId];
       if (!current) throw new Error("conversation not found");
       const updated = stateModel.patchConversation(nextState, chatId, {
-        repositoryId: agent?.repositoryId || current.repositoryId,
-        repository: agent?.repository || current.repository,
-        agentBinding: agent?.agentBinding || current.agentBinding,
-        bindingRevision: Math.max(1, Number(current.bindingRevision) || 0),
-        bindingSetAt: current.bindingSetAt || new Date().toISOString(),
+        repositoryId: agent.repositoryId,
+        repository: agent.repository,
+        agentBinding: agent.agentBinding,
+        bindingRevision: Math.max(0, Number(current.bindingRevision) || 0) + 1,
+        bindingSetAt: new Date().toISOString(),
         generation: current.generation + 1,
         assistantBaseline: "",
         bootstrapPending: true,
         lastControlFingerprint: "",
         lastControlAction: "",
         lastControlAt: null,
-        lastStatus: "transport_scope_refreshed",
+        lastStatus: "transport_metadata_refreshed",
         enabled: true
       });
       return { state: updated.state, conversation: updated.conversation };
