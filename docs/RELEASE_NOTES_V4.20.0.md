@@ -38,6 +38,12 @@ Local Agent 4.20.0 is the first release candidate that carries the accepted Conv
 - Production remains Local Agent 4.19.12 / Chat Bridge 0.6.2 until an explicit release decision advances `main`, tags `v4.20.0`, updates/reloads the unpacked Bridge and validates the installed runtime.
 - Downstream planner documentation does not require task-construction changes because executable `.agent/tasks` fields and binding/resource semantics are unchanged. The new operator namespace is Local Agent/Superchat control-plane functionality and is documented in the canonical Local Agent operations and Conversation Fabric documents.
 
+## Release-decision evidence
+
+- The exact-RC live proof was attempted in the isolated DEV profile and failed closed before child creation because the profile required ChatGPT login (`chatgpt_login_timeout`). No production Chrome/profile was mutated, and the attempt is intentionally not repeated.
+- The accepted operator-visible CODE `37e480d3b36a5c15db89c944ef46f01225a4b379` has a clean live operator proof; the accepted browser/operator lifecycle files are byte-identical to the corresponding RC files, and the RC passed exact-SHA CI.
+- On 2026-10-03 the user explicitly approved a controlled production rollout with Conversation Fabric operator intake remaining disabled. This documented release decision accepts the existing lifecycle evidence and closes the external-login proof loop; it is not a claim that the blocked exact-RC child was created.
+
 ## Required release gates
 
-Before `main` may advance, the exact final candidate must pass focused Conversation Fabric and 4.19.12 network-resilience regression tests, repository-wide verification, Python compatibility/coverage, macOS smoke and Bridge browser CI. A production-shaped operator request/result proof must confirm the default-disabled/explicit-enable boundary and the child lifecycle without mutating the production Chrome profile.
+Before `main` may advance, the exact final candidate must pass focused Conversation Fabric and 4.19.12 network-resilience regression tests, repository-wide verification, Python compatibility/coverage, macOS smoke and Bridge browser CI. The operator boundary must additionally have either a production-shaped request/result proof confirming the default-disabled/explicit-enable boundary and child lifecycle without mutating production Chrome, or a documented release-decision exception grounded in accepted live evidence and byte-identical external-effect files; this RC uses the latter.
