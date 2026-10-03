@@ -385,7 +385,6 @@ async function addOrUpdateCurrent() {
     conversation: {
       url: currentTab.normalizedUrl,
       label: chatLabelFromTitle(currentTab.title),
-      agentBinding,
       enabled: false,
       preferredTabId: currentTab.id,
       assistantBaseline: capabilities?.assistantIdentity || ""

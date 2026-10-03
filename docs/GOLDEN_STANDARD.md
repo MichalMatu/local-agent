@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.20.4`; current production release is `v4.20.3` / Chat Bridge `0.7.0`. The 4.20.4 candidate advances Chat Bridge to 0.8.0 and makes a managed conversation a transport/scheduling channel rather than a repository execution binding. Repository scope may include multiple donor/target repositories without chat rebinding; executable `.agent/tasks` still require the exact canonical binding of the actual target repository. The deployed production release remains `v4.20.3` until the explicit release decision advances `main`. Candidate source must not be described as current production before the explicit release decision advances `main`. Conversation Fabric operator intake remains explicit runtime configuration, child chats remain reasoning-only, and `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
+This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.20.5` with Chat Bridge `0.8.1`; the current production release is `v4.20.4`. The 4.20.5 candidate is not production yet: the deployed production release remains `v4.20.4` until the explicit release decision advances `main`. Candidate source must not be described as current production before the explicit release decision advances `main`. A managed conversation is a transport/scheduling channel rather than a repository execution binding. Repository reasoning may span donor/target repositories without chat rebinding; executable `.agent/tasks` still require the exact canonical binding of the actual target repository. Conversation Fabric operator intake remains explicit runtime configuration, child chats remain reasoning-only, and `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
 
 ## Release/runtime invariants
 
@@ -94,14 +94,15 @@ This file records the current release/runtime invariants for `MichalMatu/local-a
 - Local Agent is the deterministic executor.
 - The ChatGPT DOM is never repository identity and, for GitHub-managed chats, is not pacing/status authority.
 
-### Planner scope
+### Superchat repository scope
 
-- Every conversation has one canonical Bridge binding revision.
-- `planner_scope=repository` restricts planning to the bound repository.
-- Explicit validated `planner_scope=multirepo` may widen targets without changing conversation binding.
-- The canonical `host-ops` binding is the multirepo operator workspace and may target only repositories in the current validated runtime catalog.
-- Normal multirepo work must not Rebind merely to switch target repository.
-- Execution-disabled catalog targets may be inspected/edited through direct GitHub operations but may not receive a Local Agent task; `local-agent` remains intentionally self-execution-disabled.
+- Every managed conversation has one concrete chat identity used for Bridge transport and GitHub-backed scheduling.
+- The chat is not hard-bound to a repository for reasoning. The active user goal or durable Conversation Fabric request may name multiple donor and target repositories without Rebind.
+- `repository_id` / `repository_ids` in reasoning requests are context only; they do not create machine authority.
+- Legacy `planner_scope`, `repositoryId`, `agentBinding` and `bindingRevision` fields may remain in migrated Bridge state or the runtime catalog for compatibility/transport-workspace selection. They must not be interpreted as repository authorization.
+- Before any executable work, resolve the actual target repository and create `.agent/tasks` only with that target's exact canonical `agent_binding`.
+- Execution-disabled catalog targets may be inspected/reasoned about through allowed GitHub operations but may not receive Local Agent tasks; `local-agent` remains intentionally self-execution-disabled.
+- The canonical `host-ops` entry remains the execution-enabled multirepo transport/host-operations workspace; it does not confer target-repository task authority.
 - A planner must never invoke/delegate local Codex or another local coding-agent/LLM CLI through Local Agent.
 
 ### GitHub-backed schedule/status authority
@@ -114,15 +115,15 @@ For an exact managed `conversation_controls` record, GitHub is authoritative for
 - `NEXT`;
 - `INTERVAL`.
 
-Every schedule mutation increments `control_generation`; status reads do not. Repository/binding/revision mismatches fail closed. Applied state is scoped to binding revision, remote control generation and local conversation generation.
+Every schedule mutation increments `control_generation`; status reads do not. Schedule ownership is keyed by exact chat identity plus remote control generation and local conversation generation. Legacy repository/binding/revision fields are not schedule authority.
 
-A confirmed `conversation_exhausted` state is terminal for the same hard binding and must not be repaired away as GitHub schedule drift. `assistant_retry_exhausted` is likewise preserved against reconciliation of the already-applied remote generation; a strictly newer GitHub generation may serve as an explicit recovery decision. Manual `Run now` must not bypass confirmed conversation exhaustion.
+A confirmed `conversation_exhausted` state is terminal for that conversation safety epoch and must not be repaired away as GitHub schedule drift. `assistant_retry_exhausted` is likewise preserved against reconciliation of the already-applied remote generation; a strictly newer GitHub generation may serve as an explicit recovery decision. Manual `Run now` must not bypass confirmed conversation exhaustion.
 
 The global Bridge Master switch is independent local operator state and is never changed by conversation desired state.
 
 Legacy assistant schedule markers and user `OP:ENABLE` / `OP:DISABLE` / `OP:INTERVAL` are compatibility no-ops for a GitHub-managed chat. They must not be the normal scheduling path.
 
-Binding controls (`ADD`, `REBIND`, `REMOVE`) and Bridge maintenance remain explicit migration paths until separately moved to a reviewed GitHub control contract.
+Legacy binding controls (`ADD`, `REBIND`) remain compatibility/migration paths only and must not be used for normal repository routing. `REMOVE` and Bridge maintenance remain explicit local controls.
 
 ### GitHub-control discovery
 
@@ -193,7 +194,7 @@ A non-trivial runtime release requires:
 
 `AGENTS.md` defines registered downstream documentation targets. A release is not operationally complete when downstream planners materially describe an obsolete task schema, concurrency/resource model, status/control surface or deployment flow.
 
-`docs/HOST_OPS_MULTIREPO.md` is the canonical planner-scope extension. `docs/GITHUB_BRIDGE_CONTROL.md` is the canonical conversation pacing/status extension. Historical dated handoffs/release notes are evidence only.
+`docs/HOST_OPS_MULTIREPO.md` is the canonical transport-only multirepo planner guide. `docs/GITHUB_BRIDGE_CONTROL.md` is the canonical conversation pacing/status extension. Historical dated handoffs/release notes are evidence only.
 
 ## Retry/logging invariants
 

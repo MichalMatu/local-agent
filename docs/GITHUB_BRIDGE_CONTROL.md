@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the canonical conversation scheduling/control contract for the Chat Bridge 0.7.0 / Local Agent 4.20.0 candidate. The GitHub pacing/control semantics remain compatible with the 0.6.2 / 4.19.12 production baseline; 0.7.0 adds the bounded Conversation Fabric spawn actuator without moving scheduling authority out of GitHub.
+This is the canonical conversation scheduling/control contract for Chat Bridge 0.8.1. GitHub desired state owns managed-chat pacing; Bridge remains browser transport and repository authorization remains at executable `.agent/tasks`.
 
 Normal `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL` operations for a managed conversation are no longer transported by assistant text in the ChatGPT DOM. GitHub desired state in `chat_bridge/runtime.json` on `chat-bridge-state` is authoritative.
 
@@ -15,10 +15,6 @@ The ChatGPT DOM remains a delivery surface only: generation-state checks, exact-
 ```json
 {
   "conversation_id": "chat-e8ad8275",
-  "repository_id": "host-ops",
-  "repository": "MichalMatu/host-ops",
-  "agent_binding": "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
-  "binding_revision": 1,
   "control_generation": 4,
   "enabled": false,
   "interval_minutes": 5,
@@ -27,9 +23,9 @@ The ChatGPT DOM remains a delivery surface only: generation-state checks, exact-
 }
 ```
 
-The worker accepts a control only when conversation id, repository id/name, canonical binding and binding revision match both the validated runtime catalog and the locally configured conversation.
+The worker accepts a control when the exact conversation id matches the locally configured conversation and the control payload is valid. Legacy `repository_id`, `repository`, `agent_binding` and `binding_revision` fields may appear in migrated records and are validated when present, but they are not schedule ownership or repository execution authority.
 
-`control_generation` is a positive monotonically increasing integer within one binding revision. Every schedule mutation increments it. `STATUS` is a read and does not increment it. Once a generation has been applied, its desired-state payload is immutable: rewriting `enabled`, interval, deadline or update evidence under the same generation fails closed instead of being treated as local drift. A lower remote generation is a rollback and cannot replace the applied state.
+`control_generation` is a positive monotonically increasing integer for one managed conversation control stream. Every schedule mutation increments it. `STATUS` is a read and does not increment it. Once a generation has been applied, its desired-state payload is immutable: rewriting `enabled`, interval, deadline or update evidence under the same generation fails closed instead of being treated as local drift. A lower remote generation is a rollback and cannot replace the applied state.
 
 A disabled control must have `next_wake_at=null`. A one-shot deadline must not precede `updated_at` and must be no more than 24 hours after `updated_at`. This keeps GitHub NEXT semantics bounded by the same maximum horizon as the compatibility protocol.
 
@@ -47,7 +43,7 @@ The global Bridge Master switch is never changed by a conversation desired-state
 
 ## Reconciliation and idempotence
 
-Applied GitHub state is tracked by `(bindingRevision, controlGeneration, localGeneration)` plus a canonical signature of the applied desired-state payload.
+Applied GitHub state is tracked by chat identity, `controlGeneration`, `localGeneration` and a canonical signature of the applied desired-state payload. Legacy binding revision may remain in compatibility state but is not schedule ownership.
 
 - A higher GitHub generation applies new desired state.
 - Re-reading an already-correct generation does not re-arm an unchanged one-shot wake.
@@ -55,13 +51,13 @@ Applied GitHub state is tracked by `(bindingRevision, controlGeneration, localGe
 - A lower remote generation is ignored and cached applied ownership remains authoritative locally.
 - A local popup/legacy pacing mutation changes local generation and is repaired on the next reconcile.
 - A consumed/past one-shot wake falls back to normal interval scheduling instead of being replayed forever, including when a fresh/cold Chrome profile first observes that already-expired generation.
-- Rebind creates a new binding revision and therefore an independent generation space.
+- Legacy Rebind may refresh a compatibility/local-generation epoch, but normal repository routing does not use it.
 - Reconciliation is serialized within one MV3 worker instance so concurrent activation/popup/alarm paths cannot apply the same remote generation twice.
 - Control-boundary reconciliation bypasses both the ordinary 30-second runtime cache and any older in-flight configuration request. Fetch sequence ordering prevents an older request from overwriting a newer control-boundary result in the cache.
 
-Once a matching GitHub generation has been applied, schedule ownership is sticky for that binding revision. Network failure, malformed remote state, a stale rollback, a same-generation rewrite, or a temporarily missing exact control record preserves the last applied GitHub ownership instead of silently handing pacing authority back to DOM/local controls. Explicit Rebind creates a new binding revision. Explicit Remove deletes the local conversation and clears its applied-ownership journal entry so a later re-add starts cleanly.
+Once a matching GitHub generation has been applied, schedule ownership is sticky for that managed chat control stream. Network failure, malformed remote state, a stale rollback, a same-generation rewrite, or a temporarily missing exact control record preserves the last applied GitHub ownership instead of silently handing pacing authority back to DOM/local controls. Explicit Rebind creates a new binding revision. Explicit Remove deletes the local conversation and clears its applied-ownership journal entry so a later re-add starts cleanly.
 
-Malformed controls, duplicate conversation records, stale binding revisions, invalid timestamps/ranges or identity mismatches fail closed.
+Malformed controls, duplicate conversation records, stale control generations, invalid timestamps/ranges or conversation identity mismatches fail closed.
 
 ## Discovery lifecycle
 

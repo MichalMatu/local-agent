@@ -27,7 +27,7 @@ flowchart LR
 
 The important boundaries are:
 
-1. **Bridge → planner authorization** — one immutable conversation binding carries a validated planner scope. Normal scope is one repository; explicit `multirepo` scope may select only current runtime-catalog targets. Repository identities and binding UUIDs are never inferred from natural-language context.
+1. **Bridge → planner transport** — one concrete conversation identity owns delivery/scheduling only. Repository reasoning scope comes from the active goal or durable request; Bridge metadata never grants repository execution authority.
 2. **Planner → control state** — planner intent becomes immutable task data for one exact target repository. A multirepo conversation still uses that target repository's canonical binding.
 3. **Control state → executor** — schema, digest, repository identity, hard target binding and resource admission are checked before execution.
 4. **Supervisor → worker** — repository work runs in short-lived isolated worker processes with process-group tracking and inherited execution/resource leases.
@@ -39,9 +39,9 @@ The important boundaries are:
 
 One executable repository has one canonical opaque `agent_binding` UUID. Before claim/execution, the executor requires agreement between the machine-local registry, `.agent/binding.json` and the task binding. Missing or mismatched binding fails closed before task commands execute.
 
-Chat Bridge conversation identity is not inferred from model context. A normal `planner_scope=repository` binding authorizes only its bound repository and changing the conversation binding requires an explicit operator Rebind/remove-add boundary. An explicitly catalog-authorized `planner_scope=multirepo` binding may select another current runtime-catalog repository without changing the conversation binding, but that selection does **not** weaken executor identity: the resulting task still has to carry the selected target repository's exact binding and pass the same registry/control/task equality checks.
+Chat Bridge conversation identity is transport/scheduling identity only. A parent Superchat may reason across multiple repositories, including donor and target repositories, without changing Bridge metadata. Natural-language repository names or durable `repository_id` / `repository_ids` fields are reasoning context, never executor authorization.
 
-The canonical `host-ops` binding is the multirepo operator workspace. Unknown planner scopes fail closed, target identities must come from the validated runtime catalog, and execution-disabled targets cannot receive Local Agent tasks. See [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md).
+For executable work, the selected target must still resolve to a registered repository whose registry binding, `.agent/binding.json` binding and task `agent_binding` agree exactly. Execution-disabled targets cannot receive Local Agent tasks. Legacy `planner_scope` and conversation binding metadata may remain for compatibility or transport-workspace selection but are not security boundaries. See [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md).
 
 ### Task identity and replay
 
@@ -95,7 +95,7 @@ The executor intentionally refuses or terminally rejects work when identity or t
 - changed repository configuration between scheduling and dispatch;
 - malformed persistent disable state.
 
-The Bridge likewise fails closed on unknown planner scopes, invalid multirepo authorization or runtime-catalog mismatch. Multirepo planner authorization is not accepted as substitute evidence for a target repository binding.
+Bridge schedule/delivery validation remains fail closed for invalid conversation or control state, but Bridge repository metadata is not executor authorization. No chat state is accepted as substitute evidence for the target repository binding.
 
 Unexpected checkout state is not automatically overwritten. Self-update must validate before restart and roll back on validation failure.
 
@@ -104,7 +104,7 @@ Unexpected checkout state is not automatically overwritten. Self-update must val
 Before enabling autonomous execution:
 
 - verify the running daemon revision/status rather than relying only on the checkout;
-- keep repository bindings, planner scopes and the local registry intentional and unique;
+- keep repository bindings and the local registry intentional and unique; treat Bridge planner-scope/binding metadata as compatibility state only;
 - keep `operator-control` available as an independent stop path;
 - do not share control-plane write access with untrusted principals;
 - treat credentials available to the Local Agent OS user as potentially available to executed tasks;

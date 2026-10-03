@@ -124,7 +124,7 @@ Detection is not authorization. Automatic Retry requires worker revalidation of:
 - conversation enabled state;
 - Bridge ownership of the triggering user message.
 
-Bridge ownership is derived from the exact current wake/binding envelope. A terminal error following a normal operator-authored prompt may be diagnosed but must not be clicked automatically.
+Bridge ownership is derived from the exact current chat wake envelope. Legacy binding revision may remain part of local retry epochs, but repository metadata is not execution authority. A terminal error following a normal operator-authored prompt may be diagnosed but must not be clicked automatically.
 
 Immediately before Retry the guard rechecks the same live error snapshot, generation state and Retry-button usability. Bridge clicks ChatGPT's native Retry button and never resubmits an already-accepted prompt for these error classes.
 
@@ -142,13 +142,13 @@ attempt 3: 15 s
 
 After the third unsuccessful Retry, Bridge records `assistant_retry_exhausted`, disables only that conversation and clears its alarm. Normal wake delivery is blocked as `assistant_recovery_pending` while a recognized current error remains unresolved.
 
-## Binding semantics relevant to DOM
+## Conversation identity relevant to DOM
 
-One ChatGPT conversation has one current Bridge binding revision. Explicit `ADD`/`REBIND` may create a new revision. A wake emitted under a revision carries that exact immutable binding envelope.
+One ChatGPT conversation has one concrete Bridge chat identity. Legacy ADD/REBIND metadata may create a new local generation/compatibility epoch, but it does not authorize repository work. Wake ownership and DOM safety are scoped to the exact conversation and current delivery/safety generation.
 
-`planner_scope=multirepo` does not make DOM identity ambiguous. The canonical `host-ops` conversation remains bound to `host-ops`; any Local Agent task uses the exact binding of its target repository.
+A parent Superchat may reason across multiple donor/target repositories without making DOM identity ambiguous. Any Local Agent task still uses the exact canonical binding of its actual target repository.
 
-Never infer repository identity from DOM ids, assistant/user text, renderer structure or model output.
+Never infer repository execution authority from DOM ids, assistant/user text, renderer structure, Bridge binding metadata or model output.
 
 ## Intentionally unsupported assumptions
 

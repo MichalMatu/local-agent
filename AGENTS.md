@@ -44,10 +44,11 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - Before claim/execution, both parallel and serial repository workers require local registry `agent_binding == .agent/binding.json agent_binding == task.agent_binding`.
 - Missing repository binding is fail-closed `unbound`; invalid/mismatched control binding is fail-closed `binding_error`; missing/wrong task binding is a terminal pre-claim rejection and must execute no task command.
 - Global operator `disabled` state takes precedence over repository binding admission so emergency stop remains authoritative during partial migrations or broken binding state.
-- Chat Bridge conversations must never infer repository identities or binding UUIDs from model context. A normal `planner_scope=repository` binding remains single-repository and changes repository only through an explicit operator Rebind.
-- A catalog entry with explicit `planner_scope=multirepo` authorizes that conversation to work across repositories present in the current validated runtime catalog without rebinding. The conversation binding is planner authorization only: every Local Agent task still uses the exact canonical binding of its target repository, and executor binding/lease/resource checks are unchanged. See `docs/HOST_OPS_MULTIREPO.md`.
-- `planner_scope` defaults to `repository`; unknown values fail closed and `multirepo` requires an execution-enabled operator binding. The canonical `host-ops` entry is the multirepo operator workspace.
-- The `local-agent` catalog binding is bridge/operator-only (`execution_enabled: false`) and must never be used to queue project work. A multirepo planner may still inspect or edit `MichalMatu/local-agent` through direct GitHub operations without changing the conversation binding.
+- Chat Bridge conversation identity is transport/scheduling identity only. It never grants repository execution authority and normal repository routing must not depend on chat Rebind.
+- Repository ids named in the active user goal or durable Conversation Fabric request are reasoning context. A parent Superchat may reason across donor and target repositories without rebinding; every executable Local Agent task still uses the exact canonical binding of its actual target repository.
+- Runtime `planner_scope` and legacy conversation binding metadata remain compatibility/transport-workspace metadata only. They are not authorization evidence for repository work.
+- `host-ops` remains the canonical execution-enabled multirepo transport/host-operations workspace; using it does not let a chat reuse the Host Ops binding for another repository's executable task.
+- The `local-agent` catalog entry remains `execution_enabled: false` and must never receive executable project work. It may still be inspected or edited through allowed GitHub operations while another execution-enabled target owns any required `.agent/tasks`.
 - MCP server identity and authorization are machine-local explicit configuration. Discovery never grants execution permission; unknown servers/tools, disabled policies and non-loopback endpoints fail closed.
 - MCP `write` and `arbitrary_code` tools require both a matching local risk policy and matching explicit invocation intent. Server-provided tool names, descriptions and annotations are not authorization evidence.
 - MCP stdio is unsupported until it can use the existing registered spawn/process-group lifecycle contract; an SDK must never spawn an unregistered daemon child.
@@ -83,103 +84,18 @@ The bounded-parallel production coordinator is `local_agent/supervisor/orchestra
 - default remains `1`;
 - `agent_multirepo.py` remains the known-safe serial fallback and preserves the same hard binding admission contract;
 - serial and parallel supervisors share the same daemon lock and must never run simultaneously;
-- every task must declare `resources` explicitly; missing, malformed, duplicated or non-canonical declarations are terminal task-contract errors, never silent fallbacks;
-- `resources: []` means the task needs no exclusive external resource beyond the repository lease;
-- the currently registered project repositories intentionally use `resources: []` for executable project work, including project-dedicated hardware operations; device/port identity is discovered and verified inside task commands rather than encoded as a scheduler resource;
-- named resources remain available for genuinely shared external resources, and serialize only tasks sharing the same concrete resource name;
-- `resources: ["machine"]` is reserved for operations that truly require the whole host and must not be used merely because a task is a build, hardware test or has a large RSS limit;
-- `memory_limit_mb` is a per-task watchdog bound and is independent from resource classification;
-- every normal task holds the shared machine lock so a true `machine` task can drain and acquire global exclusivity;
-- machine and named-resource descriptors are inherited into command descendants so locks survive worker death until the last holder exits;
-- resource acquisition is non-blocking admission before claim/execution; contention leaves the immutable task pending and retries with bounded backoff instead of failing or disappearing;
-- repository workers publish `waiting_resource` with the pending task/resource when admission is blocked;
-- machine contention retains priority/drain fairness so full-host maintenance cannot starve;
-- while workers are active, supervisor-wide maintenance may only probe control state; actual restart/status/self-update handling waits for a quiescent worker set and acquires all configured repository identities;
-- control retry/backoff and the true consecutive-`LEASE_BUSY` streak are separate scheduling state;
-- `DEFERRED` probe failures keep bounded retry/backoff but break the consecutive lease-busy streak;
-- fewer than six consecutive `LEASE_BUSY` outcomes cause retry only;
-- six consecutive `LEASE_BUSY` outcomes caused by the supervisor's own known active control-repository worker pause only new control-repository admission, leaving unrelated repositories admissible when capacity/resources permit;
-- six consecutive `LEASE_BUSY` outcomes with no known active control worker retain the defensive global drain;
-- confirmed `PENDING` control always drains immediately;
-- successful control recovery and configured control-repository identity changes clear stale retry/pause evidence; an identity change also invalidates the previous normal control-poll clock;
-- registry entries must not be removed or identity-mutated while workers may still be alive.
+- one repository has at most one active worker process at a time;
+- independent repositories may overlap only after repository and external-resource admission succeeds;
+- worker subprocesses inherit only the execution/resource lease descriptors required for their repository turn;
+- retry/backoff/resource waiting remains bounded and never mutates immutable task payloads;
+- global control probing may pause only the control repository after proven repeated control-lease ownership; unrelated repositories remain eligible unless the defensive unknown-owner global-drain path is required;
+- a confirmed pending global restart/self-update request drains all new admission before maintenance;
+- Conversation Fabric operator campaigns, when explicitly enabled, run outside repository/resource leases and must not create a second scheduler.
 
-Repository isolation, hard agent binding and external-resource isolation are separate contracts. One repository still runs one task at a time, while independent hard-bound repositories may compile/test or use their project-dedicated hardware concurrently whenever resource policy permits it.
+## Verification expectations
 
-## Release and branch policy
-
-- `main` is the production/runtime source of truth.
-- Normal installed runtime must execute from `~/local-agent` on `main` so validated self-update and revision reporting work normally.
-- Non-trivial runtime changes are prepared on isolated candidate branches/worktrees.
-- Candidate branches are validation infrastructure, not long-lived production branches.
-- Behavior-changing releases must update `local_agent.version.RELEASE_VERSION` and have matching release notes/changelog before the final suite can pass.
-- Require exact-candidate focused positive/negative tests, full CI matrix and macOS smoke before advancing `main`.
-- MCP boundary changes additionally require a real hermetic loopback HTTP MCP integration test; a release enabling a new live MCP target also requires read-only live discovery/invocation evidence before merge.
-- Scheduler/control changes additionally require real temporary-Git overlap/control tests; mocks alone are insufficient.
-- Hard-binding or planner-scope releases additionally require positive/negative coverage proving normal repository scope remains isolated, multirepo scope resolves only catalog targets, target task bindings remain exact, and parallel/serial executor binding admission is unchanged.
-- Advance `main` only after an explicit release decision and successful exact-candidate validation.
-- Tag the released main commit with `vX.Y.Z` and keep `local_agent.version.RELEASE_VERSION` synchronized with that tag.
-- After live verification from `main`, remove obsolete candidate worktrees/branches instead of accumulating them.
-
-## Downstream documentation synchronization
-
-Planner-facing Local Agent behavior is a cross-repository contract. Any change that materially affects task fields, control-plane paths, status/result fields, execution model, agent binding, planner scope, resource classification, concurrency, launchd deployment, self-update behavior, release flow or planner instructions must include a downstream documentation audit before release.
-
-The currently registered downstream repositories are:
-
-- `MichalMatu/growclip` — update `LOCAL_AGENT_FLOW.md`, `LOCAL_AGENT_AUTOPILOT.md` when task construction/autonomy changes, and `AGENTS.md` when the contract is repeated there.
-- `MichalMatu/bloomml` — update root `AGENTS.md` on `main` and any active long-lived work branch that carries its own Local Agent bootstrap; no additional active long-lived work branch currently requires synchronization.
-- `MichalMatu/MatrixHub` — update root `AGENTS.md` on `main` and the active long-lived development branch when it differs; currently `develop` must stay synchronized.
-- `MichalMatu/tracker` (repository id: `tracker`) — update root `AGENTS.md` on `main` when the Local Agent or planner contract changes.
-
-Do not hard-code downstream release numbers unless a repository intentionally documents a historical baseline. Runtime compatibility instructions should prefer `.agent/status/daemon.json` plus canonical `MichalMatu/local-agent/main`.
-
-The release audit is incomplete when these downstream instructions materially contradict the candidate runtime. Update downstream docs before moving `main` or explicitly document why no downstream change is required.
-
-## Verification policy
-
-Verification is impact-driven:
-
-- run the narrowest test/build that can detect a realistic regression from the current diff;
-- add broader coverage for shared/cross-cutting changes, uncertain dependency impact, explicit repository requirements or user requests;
-- new binding/control/progress/watchdog/process-lifecycle behavior requires unit coverage;
-- scheduler, isolation, provisioning or resource-arbitration changes require real temporary-Git integration coverage;
-- repository lease/process-lifecycle changes require real SIGTERM/SIGKILL process tests;
-- bounded parallel changes require real overlap and exclusivity evidence, not only mocks;
-- hard binding and planner-scope policy must have positive and negative admission/routing evidence while executor binding validation remains covered on both the production parallel worker and serial fallback;
-- package ownership moves require `tests/test_package_layout.py` plus the normal full suite;
-- MCP boundary changes require real loopback Streamable HTTP integration coverage in addition to policy/unit tests;
-- current operational documentation and release metadata must pass automated drift checks.
-
-Use `workflow_policy: "efficient-verification-v1"` for staged coding tasks that must make verification cost explicit. Use `work` for implementation, `focused` for affected regression/static checks and exactly one final `full` verification stage.
-
-For repository-wide daemon verification, the executable source of truth is:
-
-```bash
-python scripts/verify.py
-```
-
-CI additionally runs branch-aware coverage, Python 3.14 compatibility and the macOS smoke suite. Do not recreate static compile/Ruff file lists in documentation or workflows; extend `scripts/verify.py` when verification scope changes.
-
-For v4.18.14/BUG-002, the exact final SHA must have three independent pre-merge verification layers recorded: focused control-admission policy/integration evidence, the complete CI matrix, and macOS ARM64 smoke/recheck including the new control-admission tests.
-
-## Documentation
-
-- Canonical workflow: `docs/OPERATIONS.md`.
-- Current package/dependency map: `docs/ARCHITECTURE.md`.
-- Generic local MCP boundary: `docs/MCP_INTEGRATION.md`.
-- Autonomous ChatGPT planner/Chat Bridge loop: `docs/AUTONOMOUS_CHAT_LOOP.md`.
-- Host Ops multirepo planner scope: `docs/HOST_OPS_MULTIREPO.md`.
-- Multi-repository architecture: `docs/MULTI_REPOSITORY.md`.
-- Emergency controls: `docs/EMERGENCY_CONTROLS.md`.
-- v4.11 parallel design/audit/live evidence: `docs/PARALLEL_EXECUTION_PLAN.md`.
-- Established Mac/ESP32 setup: `docs/SESSION_BOOTSTRAP.md`.
-- Current release/runtime invariants: `docs/GOLDEN_STANDARD.md`.
-- Frozen v4.18.13 rollback baseline and BUG-002 evidence: `docs/PRODUCTION_BASELINE_V4.18.13.md`.
-- Historical notes under `docs/history/` are non-canonical.
-
-## Verification output policy
-
-- Structured `steps` and `verify_steps` may declare `output_policy: "stream"` or `"summary"`.
-- `summary` suppresses routine live command lines but preserves bounded raw output in terminal result evidence.
-- Failed summary stages emit a bounded diagnostic tail; explicit progress markers remain visible and heartbeat, timeout, RSS and process cleanup behavior remains unchanged.
+- Keep `python scripts/verify.py` green for normal changes and use focused tests first when practical.
+- Use `python scripts/verify.py --profile macos-smoke` for release/installation/runtime boundary changes.
+- Bridge changes require the focused Node suite plus browser/DOM contract coverage when the content/transport boundary changes.
+- Transport/repository-routing releases additionally require positive/negative coverage proving chat metadata cannot grant execution authority, selected target task bindings remain exact, execution-disabled targets remain non-executable, and parallel/serial executor binding admission is unchanged.
+- Release metadata/version/changelog/docs must agree before tagging.

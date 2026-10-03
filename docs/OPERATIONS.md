@@ -64,9 +64,9 @@ The parallel worker and serial fallback both enforce this. Failure is fail-close
 
 The global operator `disabled` marker is checked before repository binding admission. Emergency stop therefore remains authoritative even during a partial/broken migration.
 
-Repository binding is operational identity. Do not rotate a UUID to repair a task or switch a chat. Every Chat Bridge conversation keeps one immutable conversation binding. Normal `planner_scope=repository` conversations may change that binding only through explicit **Rebind**/remove-add. An explicitly catalog-authorized `planner_scope=multirepo` conversation may select another current runtime-catalog target without changing its conversation binding; every Local Agent task still uses the exact canonical binding of the selected target repository. Executor configuration changes require an intentional disabled migration.
+Repository binding is operational execution identity. Do not rotate a UUID to repair a task. Chat Bridge conversation metadata is not repository authorization: a parent Superchat may reason across donor and target repositories without Rebind. Every Local Agent task still uses the exact canonical binding of the selected target repository, and executor configuration changes still require an intentional disabled migration.
 
-The canonical `host-ops` binding is the multirepo operator workspace. The `local-agent` catalog entry remains `execution_enabled: false`: a host-ops multirepo conversation may inspect or edit `MichalMatu/local-agent` through direct GitHub operations, but it must not queue a Local Agent task targeting the execution-disabled `local-agent` entry. See [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md).
+The `local-agent` catalog entry remains `execution_enabled: false`: a Superchat may inspect or edit `MichalMatu/local-agent` through direct GitHub operations, but it must not queue a Local Agent task targeting that execution-disabled entry. See [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md).
 
 ## Binding migration while disabled
 
@@ -94,31 +94,13 @@ Before enabling, verify every enabled repository has a matching committed `.agen
 
 Do not enable execution while any repository reports `unbound` or `binding_error`.
 
-## Chat Bridge schema-3 rollout
+## Chat Bridge schema-3 transport/control
 
-The current Bridge state stores immutable conversation binding fields:
+Bridge state may still contain legacy repository/binding fields (`repositoryId`, `repository`, `agentBinding`, `bindingRevision`, `bindingSetAt`) for migration compatibility and epoch/race protection. They are not normal repository-routing or execution-authorization fields. New Superchat onboarding is repository-agnostic.
 
-```text
-repositoryId
-repository
-agentBinding
-bindingRevision
-bindingSetAt
-```
+Remote runtime schema 3 publishes the repository catalog plus optional compatibility `planner_scope` metadata and `conversation_controls`. For an exact `conversation_controls` record, GitHub desired state is authoritative for STATUS/PAUSE/RESUME/NEXT/INTERVAL and every schedule mutation increments `control_generation`. Schedule ownership is keyed by chat identity, not repository/binding revision. Assistant LAB schedule markers are legacy no-ops for managed chats. Production runtime is served from branch `chat-bridge-state`, file `chat_bridge/runtime.json`. See [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md).
 
-Legacy/unbound conversations migrate disabled with `binding_required`; they receive no alarm. Normal conversation edits cannot alter binding fields. Explicit Rebind changes the conversation binding and forces a new bootstrap. It is not required merely to change target repositories inside a validated `planner_scope=multirepo` conversation.
-
-Remote runtime schema 3 publishes the canonical agent catalog plus optional `planner_scope` and `conversation_controls`. The default planner scope is `repository`; only `repository` and `multirepo` are valid, and `multirepo` requires an execution-enabled operator binding. For a conversation with an exact `conversation_controls` record, GitHub desired state is authoritative for STATUS/PAUSE/RESUME/NEXT/INTERVAL and every schedule mutation increments `control_generation`; assistant LAB schedule markers are legacy no-ops. Production runtime is served from branch `chat-bridge-state`, file `chat_bridge/runtime.json`. See [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md). Rollout order matters:
-
-1. keep Local Agent globally disabled;
-2. release/fast-forward Local Agent code and validate exact-candidate CI;
-3. update/reload the matching Chat Bridge when the bridge contract changed;
-4. publish runtime schema 3 with the matching catalog/scope data when runtime data changed;
-5. verify migrated chats are fail-closed, normal chats preserve repository scope, and intended multirepo chats receive only their explicit catalog authorization;
-6. run binding/planner-scope negative E2E plus emergency-control E2E when those boundaries changed;
-7. enable Local Agent only after required checks are green.
-
-Publishing a new bridge runtime before an old bridge is replaced is not a reason to enable execution. Older Bridge code ignores the optional scope field and therefore retains its existing stricter repository-only behavior until the matching worker code is loaded. The kill switch remains the safety boundary during rollout. Detailed current planner/Bridge semantics live in [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) and [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md).
+Rollout checks for Bridge changes must prove: concrete conversation identity, GitHub schedule reconciliation, no accidental global Master mutation, target `.agent/tasks` retaining exact target bindings, execution-disabled targets remaining non-executable, and emergency controls remaining authoritative. Legacy ADD/REBIND commands may remain for migration compatibility but must not be required for normal donor/target work.
 
 ## Control data
 

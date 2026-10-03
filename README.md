@@ -39,7 +39,7 @@ flowchart LR
     Worker -->|progress / status / result| Control
 ```
 
-A ChatGPT conversation always keeps one canonical Bridge binding. Normal bindings authorize only that repository; an explicitly catalog-authorized multirepo planner binding may target other repositories from the validated runtime catalog without changing the conversation binding. Local Agent independently validates the target repository's registry binding, control binding and task binding before work may be claimed.
+A ChatGPT conversation is a Bridge transport/scheduling identity, not a repository authorization boundary. The active goal may use multiple donor/target repositories without rebinding the chat. Local Agent independently validates the actual target repository's registry binding, control binding and task binding before executable work may be claimed.
 
 ## Core capabilities
 
@@ -54,7 +54,7 @@ A ChatGPT conversation always keeps one canonical Bridge binding. Normal binding
 - transient Git-network retry with actionable terminal diagnostics;
 - validated fast-forward self-update from a clean `main` checkout;
 - repository-scoped task cancellation and persistent global emergency disable;
-- immutable Chat Bridge conversation binding with fail-closed repository or explicit multirepo planner scope;
+- transport-only Chat Bridge conversation identity with repository-agnostic reasoning scope;
 - generated, user-portable macOS `launchd` deployment.
 
 ## Production execution model

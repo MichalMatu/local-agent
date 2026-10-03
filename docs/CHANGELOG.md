@@ -2,6 +2,15 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
+## v4.20.5
+
+- Finalize the transport-only Superchat rollout: fix popup `Add current chat` after repository selection was removed from normal onboarding.
+- Reduce Bridge bootstrap/wake payloads to the stable chat envelope plus runtime prompt, avoiding repeated catalog/binding policy text in user-visible turns.
+- Match assistant delivery-error ownership by the stable chat envelope after prompt simplification.
+- Keep legacy add/rebind/planner-scope metadata only as compatibility state; it is not normal repository routing or execution authority.
+- Preserve the real security boundary: executable `.agent/tasks` still require the exact canonical `agent_binding` of the actual target repository and remain subject to registry/control identity, execution-enabled, lease/resource and emergency-control admission.
+- Advance Chat Bridge to 0.8.1. No task schema, executor binding, resource, concurrency or child machine-authority expansion.
+
 ## v4.20.4
 
 - Decouple Superchat conversation transport/scheduling identity from repository execution binding; normal multirepo and donor/target reasoning no longer requires Bridge rebind.
