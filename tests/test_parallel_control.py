@@ -213,6 +213,31 @@ class ParallelControlProbeTests(unittest.TestCase):
         self.assertEqual(status["state"], "disabled")
         self.assertNotIn("supervisor_control_repository", status)
 
+    def test_publication_only_service_does_not_run_global_control_or_self_update(self) -> None:
+        target = repository(self.root)
+        with mock.patch.object(parallel, "publish_local_supervisor_status"), mock.patch.object(
+            parallel, "supervisor_control_leases", return_value=contextlib.nullcontext()
+        ), mock.patch.object(
+            parallel.supervisor_control, "bind_supervisor_control"
+        ), mock.patch.object(
+            parallel.supervisor_control, "sync_control_quietly"
+        ), mock.patch.object(
+            parallel.conversation_supervisor, "publish_pending_result_only", return_value=True
+        ) as publish, mock.patch.object(
+            parallel, "handle_bound_disable_control"
+        ) as disable, mock.patch.object(
+            parallel.agentd, "handle_control_request"
+        ) as control, mock.patch.object(
+            parallel.agentd, "maybe_self_update"
+        ) as update:
+            self.assertTrue(
+                parallel.service_operator_result_publication([target], max_workers=2)
+            )
+        publish.assert_called_once_with()
+        disable.assert_not_called()
+        control.assert_not_called()
+        update.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -53,6 +53,34 @@ class InterruptedRuntimeTaskRecoveryTests(unittest.TestCase):
             )
             self.assertEqual(status.stdout, "")
 
+    def test_interrupted_conversation_result_is_recoverable_daemon_output(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "storage-test"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "storage@example.invalid"], cwd=repo, check=True)
+            marker = repo / ".agent" / "status" / "base.json"
+            marker.parent.mkdir(parents=True)
+            marker.write_text("{}\n", encoding="utf-8")
+            subprocess.run(["git", "add", ".agent/status/base.json"], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "base"], cwd=repo, check=True)
+            result = repo / ".agent" / "conversation" / "results" / "operator-1.json"
+            result.parent.mkdir(parents=True)
+            result.write_text('{"state":"completed"}\n', encoding="utf-8")
+
+            def process(args, cwd, **_kwargs):
+                completed = subprocess.run(
+                    args, cwd=cwd, text=True, stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT, check=False,
+                )
+                return {"exit_code": completed.returncode, "output": completed.stdout}
+
+            core = mock.Mock()
+            core.CONTROL = repo
+            core.process.side_effect = process
+            storage.recover_daemon_owned_control_changes(core)
+            self.assertFalse(result.exists())
+
     def test_modified_task_file_remains_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

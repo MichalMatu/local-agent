@@ -56,6 +56,41 @@ class WorkspaceCheckpointTests(unittest.TestCase):
         finally:
             core.CONTROL = original_control
 
+    def test_publish_control_json_is_path_scoped_and_rejects_escape(self) -> None:
+        original_control = core.CONTROL
+        core.CONTROL = self.repo
+        try:
+            with mock.patch.object(
+                core, "process", return_value={"exit_code": 0, "output": ""}
+            ) as process, mock.patch.object(
+                core.storage,
+                "run_git_with_network_retry",
+                return_value={"exit_code": 0, "output": ""},
+            ):
+                core.publish_control_json(
+                    ".agent/conversation/results/operator-1.json",
+                    {"state": "completed"},
+                    commit_message="Conversation result: operator-1",
+                )
+            commit_calls = [
+                call
+                for call in process.call_args_list
+                if len(call.args[0]) > 1 and call.args[0][1] == "commit"
+            ]
+            self.assertEqual(len(commit_calls), 1)
+            self.assertEqual(
+                commit_calls[0].args[0][-2:],
+                ["--", ".agent/conversation/results/operator-1.json"],
+            )
+            with self.assertRaisesRegex(ValueError, "below .agent"):
+                core.publish_control_json(
+                    "../escape.json",
+                    {},
+                    commit_message="invalid",
+                )
+        finally:
+            core.CONTROL = original_control
+
     def test_clean_worktree_does_not_create_checkpoint(self) -> None:
         self.assertIsNone(core.checkpoint_worktree("task-clean", reason="unit"))
         self.assertFalse(self.checkpoints.exists())

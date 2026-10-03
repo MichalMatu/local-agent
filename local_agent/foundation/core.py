@@ -1095,23 +1095,45 @@ def process_task(
                 )
 
 
-def publish_result(task_id: str, result: dict[str, Any]) -> None:
-    """Publish a durable result with quiet successful control-plane Git plumbing."""
+def publish_control_json(
+    relative: str | Path,
+    payload: dict[str, Any],
+    *,
+    commit_message: str,
+) -> None:
+    """Publish one path-scoped JSON object on the bound control branch."""
+    relative_path = Path(relative)
+    if (
+        relative_path.is_absolute()
+        or not relative_path.parts
+        or relative_path.parts[0] != ".agent"
+        or ".." in relative_path.parts
+        or "\x00" in str(relative_path)
+    ):
+        raise ValueError("control JSON path must stay below .agent")
+    if (
+        not isinstance(commit_message, str)
+        or not commit_message.strip()
+        or len(commit_message) > 200
+        or "\n" in commit_message
+        or "\r" in commit_message
+    ):
+        raise ValueError("control JSON commit message is invalid")
+
     with CONTROL_GIT_LOCK:
         root = CONTROL.resolve()
-        results_dir = (CONTROL / ".agent" / "results").resolve()
-        if root not in results_dir.parents:
-            raise ValueError("result directory escapes control repository")
-        results_dir.mkdir(parents=True, exist_ok=True)
-        path = results_dir / f"{task_id}.json"
+        path = (CONTROL / relative_path).resolve()
+        if root not in path.parents:
+            raise ValueError("control JSON path escapes control repository")
+        path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(
             path,
-            json.dumps(result, indent=2, ensure_ascii=False) + "\n",
+            json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
         )
 
-        relative = str(path.relative_to(root))
+        scoped = str(path.relative_to(root))
         add = process(
-            ["git", "add", "--", relative],
+            ["git", "add", "--", scoped],
             CONTROL,
             log_commands=False,
         )
@@ -1119,13 +1141,13 @@ def publish_result(task_id: str, result: dict[str, Any]) -> None:
             raise RuntimeError(storage.git_failure_diagnostic(add))
 
         commit = process(
-            ["git", "commit", "-m", f"Agent result: {task_id}", "--", relative],
+            ["git", "commit", "-m", commit_message, "--", scoped],
             CONTROL,
             log_commands=False,
         )
         if commit["exit_code"] != 0:
             status = process(
-                ["git", "status", "--short", "--", relative],
+                ["git", "status", "--short", "--", scoped],
                 CONTROL,
                 log_commands=False,
             )
@@ -1152,4 +1174,13 @@ def publish_result(task_id: str, result: dict[str, Any]) -> None:
         if push["exit_code"] != 0:
             raise RuntimeError(push["output"])
 
-    log(f"published result {task_id}")
+    log(f"published control JSON {relative_path}")
+
+
+def publish_result(task_id: str, result: dict[str, Any]) -> None:
+    """Publish a durable result with quiet successful control-plane Git plumbing."""
+    publish_control_json(
+        Path(".agent") / "results" / f"{task_id}.json",
+        result,
+        commit_message=f"Agent result: {task_id}",
+    )
