@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from functools import partial
 from pathlib import Path
 
 from local_agent.conversation.operator_contract import (
@@ -22,6 +21,13 @@ from local_agent.development.mvp_flow import (
     run_mvp_campaign,
 )
 from local_agent.development.operator_target import inspect_operator_target
+
+
+def _target_identity_provider(*, home: Path, repository_id: str):
+    def resolve(_layout):
+        return inspect_operator_target(home=home, repository_id=repository_id)
+
+    return resolve
 
 
 def run_operator_campaign(
@@ -48,8 +54,7 @@ def run_operator_campaign(
         "result_timeout_seconds": result_timeout_seconds,
     }
     if repository_id is not None:
-        kwargs["identity_provider"] = partial(
-            inspect_operator_target,
+        kwargs["identity_provider"] = _target_identity_provider(
             home=home,
             repository_id=repository_id,
         )
