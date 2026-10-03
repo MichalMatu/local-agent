@@ -33,13 +33,25 @@
       "conversation_id": "chat-bb38a747",
       "repository_id": "local-agent",
       "repository": "MichalMatu/local-agent",
-      "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+      "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8a2a275150e42f06b",
       "binding_revision": 1,
       "control_generation": 5,
       "enabled": false,
       "interval_minutes": 5,
       "next_wake_at": null,
       "updated_at": "2026-09-30T23:30:42.175Z"
+    },
+    {
+      "conversation_id": "chat-7781d9b9",
+      "repository_id": "host-ops",
+      "repository": "MichalMatu/host-ops",
+      "agent_binding": "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
+      "binding_revision": 1,
+      "control_generation": 1,
+      "enabled": true,
+      "interval_minutes": 10,
+      "next_wake_at": "2026-10-03T21:34:00+02:00",
+      "updated_at": "2026-10-03T21:30:00+02:00"
     }
   ],
   "agents": [
