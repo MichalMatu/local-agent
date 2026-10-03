@@ -4,9 +4,10 @@ Status: Local Agent 4.20.5 / Chat Bridge 0.8.1 is released and live. Parent Supe
 
 ## Current release line
 
-- `main` / `v4.20.5` = `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`;
-- production runtime has naturally advanced to Local Agent 4.20.5 at the exact release SHA;
-- Chat Bridge source = 0.8.1;
+- released/tagged runtime commit: `v4.20.5` = `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`;
+- production runtime naturally advanced to Local Agent 4.20.5 at that exact release commit;
+- current `main` may advance beyond the release tag for verified documentation-only maintenance and is not itself proof of the installed runtime revision;
+- Chat Bridge release source = 0.8.1;
 - `chat-bridge-state` is operational schedule/runtime desired state, not a development branch;
 - `operator-control` is global safety/control state, not a development branch;
 - `local-agent` remains execution-disabled as a Local Agent task target.
@@ -41,13 +42,13 @@ Permanent boundaries:
 
 The 2026-10-04 parent-led self-diagnostic established:
 
-- Local Agent 4.20.5 is live on the exact release SHA;
+- Local Agent 4.20.5 is live on the exact release commit;
 - scheduler/control, exact target binding/routing and process lifecycle/resource boundaries have no identified P0/P1 regression;
 - the previous parent schedule was disabled to prevent duplicate periodic wakes;
 - child delegation remains the one functional blocker;
 - current production Conversation Operator intake is not enabled/configured.
 
-The child-browser failure mechanism was narrowed to authentication probing being gated by composer DOM visibility. Draft PR #135 fixes that coupling only. Exact SHA `25e817c79086f3962a4cee1b23515a11ebedffd3` has 5/5 green CI.
+The child-browser failure mechanism was narrowed to authentication probing being gated by composer DOM visibility. Draft PR #135 fixes that coupling only. It is now one clean commit on the post-cleanup `main`, `ba884c206925e6e25041657a0250a9459e3aa8f2`, with fresh exact-head CI 5/5 green.
 
 ## Current milestone: child delegation acceptance
 
