@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest import mock
 
 from local_agent.development import operator_campaign
-from local_agent.development.live_seed import CheckoutIdentity
 
 
 PARENT_URL = "https://chatgpt.com/c/6abfcdf9-8438-83eb-86da-1c4b209afc47"
@@ -37,6 +36,13 @@ def targeted_request_payload() -> dict:
     payload = request_payload()
     payload["schema_version"] = 2
     payload["repository_id"] = "growclip"
+    return payload
+
+
+def multirepo_request_payload() -> dict:
+    payload = request_payload()
+    payload["schema_version"] = 3
+    payload["repository_ids"] = ["shelly-link", "growclip"]
     return payload
 
 
@@ -101,37 +107,37 @@ class OperatorCampaignTests(unittest.TestCase):
             self.assertEqual(result["children"][0]["summary"], "OPERATOR_SLICE_OK")
             self.assertEqual(json.loads(result_path.read_text(encoding="utf-8")), result)
 
-    def test_v2_request_injects_validated_target_identity_provider(self) -> None:
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            home = root / "home"
-            request_path, result_path = self._paths(root, targeted_request_payload())
-            layout = object()
-            identity = CheckoutIdentity(
-                repository_id="growclip",
-                repository="MichalMatu/growclip",
-                agent_binding="2db52048-57ea-4643-bf4b-1ea5c5c3fa86",
-                repository_ref="main",
-                repository_commit_sha="a" * 40,
-            )
-            with mock.patch.object(
-                operator_campaign, "build_dev_lab_layout", return_value=layout
-            ), mock.patch.object(
-                operator_campaign, "inspect_operator_target", return_value=identity
-            ) as inspect_target, mock.patch.object(
-                operator_campaign, "run_mvp_campaign", return_value=completed_campaign()
-            ) as run_campaign:
-                operator_campaign.run_operator_campaign(
-                    request_path=request_path,
-                    result_path=result_path,
-                    home=home,
-                    root=root / "lab",
-                    checkout=root / "checkout",
-                    production_checkout=root / "production",
-                )
-                provider = run_campaign.call_args.kwargs["identity_provider"]
-                self.assertEqual(provider(layout), identity)
-                inspect_target.assert_called_once_with(home=home, repository_id="growclip")
+    def test_repository_context_never_injects_execution_identity_provider(self) -> None:
+        cases = (
+            (targeted_request_payload(), "growclip"),
+            (multirepo_request_payload(), "shelly-link, growclip"),
+        )
+        for payload, expected in cases:
+            with self.subTest(schema_version=payload["schema_version"]):
+                with tempfile.TemporaryDirectory() as temp:
+                    root = Path(temp)
+                    request_path, result_path = self._paths(root, payload)
+                    layout = object()
+                    with mock.patch.object(
+                        operator_campaign, "build_dev_lab_layout", return_value=layout
+                    ), mock.patch.object(
+                        operator_campaign, "run_mvp_campaign", return_value=completed_campaign()
+                    ) as run_campaign:
+                        operator_campaign.run_operator_campaign(
+                            request_path=request_path,
+                            result_path=result_path,
+                            home=root / "home",
+                            root=root / "lab",
+                            checkout=root / "checkout",
+                            production_checkout=root / "production",
+                        )
+
+                    args, kwargs = run_campaign.call_args
+                    self.assertNotIn("identity_provider", kwargs)
+                    self.assertIn(
+                        f"Reasoning repository context (not execution authority): {expected}. ",
+                        args[1]["children"][0]["summary"],
+                    )
 
     def test_persist_result_is_idempotent_for_exact_same_outcome(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
