@@ -50,19 +50,13 @@ planner wake
 
 For a GitHub-managed chat the DOM is **not** the source of truth for pacing/status.
 
-## Binding model
+## Transport and repository model
 
-Every configured conversation stores one current binding:
+Every configured conversation stores one concrete conversation id/URL plus local transport/safety state. Legacy repository/binding fields may remain in migrated state for compatibility, but they do not authorize repository work.
 
-- conversation id/URL;
-- repository id/name;
-- canonical `agent_binding`;
-- binding revision;
-- local execution/cache state.
+Normal onboarding is repository-agnostic: open the exact ChatGPT conversation and use **Add current chat**. Repository reasoning scope comes from the active goal or durable request and may span donor/target repositories without Rebind.
 
-`planner_scope=repository` restricts planning to that repository. Explicit `planner_scope=multirepo` allows targets from the validated runtime catalog without changing the conversation binding. `host-ops` is the canonical multirepo operator workspace.
-
-Every Local Agent task still carries the exact binding of its **target** repository. `local-agent` is intentionally execution-disabled and is edited through direct GitHub operations.
+Every Local Agent task still carries the exact binding of its **actual target** repository. `local-agent` is intentionally execution-disabled and is edited through direct GitHub operations.
 
 ## GitHub-backed pacing/status
 
@@ -78,7 +72,7 @@ NEXT
 INTERVAL
 ```
 
-Every schedule mutation increments `control_generation`. Status is a read. Binding/repository/revision mismatches fail closed.
+Every schedule mutation increments `control_generation`. Status is a read. Schedule ownership is keyed by exact chat identity; legacy binding/repository/revision fields are not schedule authority.
 
 The extension polls remote state with a dedicated one-minute MV3 alarm. Worker activation ensures that alarm exists, including manual extension Reload.
 
@@ -96,19 +90,9 @@ LAB remains a migration/maintenance compatibility protocol. It is no longer the 
 
 Legacy assistant schedule markers (`STOP`, `PAUSE`, `RESUME`, `NEXT`, `INTERVAL`) and user `OP:ENABLE` / `OP:DISABLE` / `OP:INTERVAL` return `github_control_managed` for a GitHub-owned conversation and do not mutate pacing.
 
-### Binding migration
+### Legacy binding migration compatibility
 
-These remain explicit until a future GitHub binding-control design replaces them:
-
-```text
-[LAB:ADD=<repository-id>]
-[LAB:REBIND=<repository-id>]
-[LAB:REMOVE]
-[LAB:OP:ADD=<repository-id>]
-[LAB:OP:REMOVE]
-```
-
-Binding mutations validate exact runtime-catalog identity and create a fresh binding/bootstrap boundary where applicable.
+The parser still recognizes `ADD`/`REBIND`/operator binding commands for old profiles and explicit migration diagnostics. They are not part of normal Superchat repository routing and must not be required to move between donor/target repositories. `REMOVE` remains an explicit conversation-removal control.
 
 ### Maintenance/diagnostics
 
@@ -124,16 +108,13 @@ Legacy inspection commands may remain useful during migration, but `STATUS` for 
 
 ## Wake envelope
 
-Every Bridge wake carries the immutable conversation workspace identity:
+Every normal Bridge wake carries the stable conversation identity plus the runtime prompt:
 
 ```text
-[LA_AGENT=<conversation binding UUID>]
-[LA_REPO=<conversation repository id>]
-[LA_REPOSITORY=<owner/name>]
 [LA_CHAT=<conversation id>]
 ```
 
-A GitHub-managed wake also tells the planner that schedule/status controls must be performed through the exact `conversation_controls` record and that assistant LAB schedule markers are legacy no-ops.
+Repository catalog/binding metadata is not injected as execution authority. GitHub-managed pacing remains owned by the exact `conversation_controls` record.
 
 ## Wake submission
 

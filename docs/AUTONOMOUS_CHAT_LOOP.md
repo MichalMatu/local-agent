@@ -1,6 +1,6 @@
 # Autonomous Chat Planner Loop
 
-This document defines the current autonomous loop connecting one ChatGPT conversation, Chat Bridge 0.7.0 candidate code, GitHub desired state and deterministic Local Agent execution. The existing GitHub pacing/control contract remains compatible with 0.6.2; production remains 0.6.2 until an explicit release decision.
+This document defines the current autonomous loop connecting a parent Superchat, Chat Bridge 0.8.1 transport, GitHub desired state and deterministic Local Agent execution.
 
 ## Ownership
 
@@ -14,22 +14,13 @@ Target repository    source/work result
 
 The ChatGPT DOM is not a scheduling source of truth.
 
-## Conversation binding and planner scope
+## Conversation transport and repository scope
 
-Every configured conversation has one canonical Bridge binding:
+Every configured conversation has one concrete Bridge chat identity used for wake delivery and scheduling. It is not a repository execution binding.
 
-```text
-conversation id
-repository id + owner/name
-canonical agent_binding
-binding revision
-```
+The active user goal or durable Conversation Fabric request supplies repository reasoning context and may include multiple donor/target repositories without chat Rebind. Legacy `planner_scope` and binding metadata may remain in runtime state for compatibility/transport-workspace selection, but they are not authorization evidence.
 
-`planner_scope=repository` limits planning to that repository. `planner_scope=multirepo` may target only repositories in the current validated runtime catalog while keeping the conversation binding unchanged.
-
-The canonical `host-ops` conversation is the multirepo operator workspace. Every delegated Local Agent task still uses the exact canonical `agent_binding` of its **target** repository. An execution-disabled target such as `local-agent` may be inspected/edited through direct GitHub operations but must not receive a Local Agent task.
-
-Do not use normal work to Rebind between catalog repositories in a multirepo conversation.
+Every Local Agent task still uses the exact canonical `agent_binding` of its actual **target** repository. An execution-disabled target such as `local-agent` may be inspected/edited through direct GitHub operations but must not receive a Local Agent task.
 
 ## Schedule/status control: GitHub only
 
@@ -50,10 +41,6 @@ Example desired state:
 ```json
 {
   "conversation_id": "chat-e8ad8275",
-  "repository_id": "host-ops",
-  "repository": "MichalMatu/host-ops",
-  "agent_binding": "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
-  "binding_revision": 1,
   "control_generation": 4,
   "enabled": false,
   "interval_minutes": 5,
@@ -62,13 +49,15 @@ Example desired state:
 }
 ```
 
+Legacy repository/binding fields may be accepted in migrated records but are not schedule ownership or repository authorization.
+
 The global Bridge Master switch is independent manual operator state and must never be changed by conversation desired state.
 
 ## Planner turn
 
 At every user or Bridge wake:
 
-1. identify the conversation binding and authorized planner scope;
+1. identify the exact parent conversation and active goal;
 2. identify the active goal; do not create unrelated work;
 3. inspect only the repository/task/run/result evidence needed for the next decision;
 4. check for an already-active task before writing the same branch or queueing equivalent work;

@@ -1,92 +1,61 @@
-# Host Ops multirepo planner scope
+# Superchat multirepo reasoning and Host Ops transport workspace
 
-`host-ops` is the canonical Chat Bridge operator workspace for cross-repository work.
+A parent Superchat may coordinate work across multiple repositories without rebinding the Chat Bridge conversation. `host-ops` remains the canonical execution-enabled operator/transport workspace for Mac-local operations, but its Bridge metadata does not grant repository execution authority.
 
-## Binding model
+## Repository scope
 
-A ChatGPT conversation still stores one immutable Bridge binding. The binding catalog additionally assigns a planner scope:
-
-- `repository` — the normal default; the planner may work only on the bound repository and must explicitly rebind before acting elsewhere;
-- `multirepo` — the planner may work across repositories present in the current validated runtime catalog without changing the conversation binding.
-
-The canonical `host-ops` binding is the first `multirepo` binding. This is an explicit catalog property, not a repository-name heuristic.
+Repository scope comes from the active user goal or a durable Conversation Fabric request. It may include donor and target repositories, for example:
 
 ```text
-host-ops conversation binding
-        |
-        +--> MichalMatu/host-ops
-        +--> MichalMatu/growclip
-        +--> MichalMatu/MatrixHub
-        +--> MichalMatu/tracker
-        +--> MichalMatu/shelly-link
-        +--> other current catalog repositories
+parent Superchat
+  reasoning context: local-agent + growclip
+  donor: local-agent
+  execution target: growclip
 ```
 
-Normal repository bindings remain fail-closed and single-repository.
+`repository_id` / `repository_ids` are reasoning context only. Legacy `planner_scope`, `repositoryId`, `agentBinding` and binding-revision values may remain in Bridge/runtime state for compatibility or transport-workspace selection; they are not security boundaries and normal work must not use `LAB:REBIND` to switch targets.
 
-## Target repository identity
+## Executable target identity
 
-The conversation binding authorizes the planner scope. It does not replace target-repository identity.
-
-For every target repository the planner must resolve the exact current runtime-catalog record and use that repository's own canonical identity. It must never derive a repository id or binding UUID from prose, filesystem names, previous conversations or model memory.
-
-For a Local Agent task targeting repository `X`:
+For every Local Agent task, resolve the actual target repository and use that repository's exact canonical binding:
 
 ```text
-task.agent_binding == canonical agent_binding for repository X
+registry binding == .agent/binding.json binding == task.agent_binding
 ```
 
-The task does **not** inherit the `host-ops` binding merely because the conversation is bound to `host-ops`.
+The task never inherits the `host-ops` binding merely because the parent Superchat uses Host Ops for orchestration. Executor validation, repository leases, resource admission, watchdogs, cancellation ownership and durable evidence remain repository-scoped.
 
-Executor validation remains unchanged: registry binding, repository control binding and task binding must match before commands execute. Repository leases, resource admission, watchdogs, cancellation ownership and durable evidence remain repository-scoped.
+## Donor repositories
 
-## Execution-disabled targets
+A donor repository can be inspected, compared or edited through permitted GitHub operations while another repository is the executable target. Donor context never grants machine authority over the target.
 
-A multirepo planner may inspect or edit a catalog repository through direct GitHub operations even when that catalog entry is `execution_enabled: false`.
-
-It may not create a Local Agent project task for an execution-disabled target. In particular, the canonical `local-agent` entry remains intentionally non-executable by Local Agent itself. Source changes and CI work on `MichalMatu/local-agent` are therefore valid from a `host-ops` multirepo conversation without rebinding, while Local Agent self-execution remains separately protected.
-
-Changing that self-execution policy would be a distinct executor/security decision and is not implied by multirepo planner scope.
+The canonical `local-agent` catalog entry is intentionally `execution_enabled: false`; Local Agent source can be inspected or edited through GitHub, but Local Agent must not queue an executable `.agent/tasks` item against its own disabled catalog entry.
 
 ## Chat Bridge behavior
 
-Every wake still carries the immutable conversation envelope:
+A normal wake uses only the stable chat envelope plus the runtime prompt:
 
 ```text
-[LA_AGENT=<conversation binding>]
-[LA_REPO=<conversation repository id>]
-[LA_REPOSITORY=<conversation repository>]
 [LA_CHAT=<conversation id>]
 ```
 
-For `planner_scope=multirepo`, the wake additionally includes the validated runtime catalog with repository ids, repository names, canonical bindings and execution state. The planner may move between those catalog targets as the active goal requires without `LAB:REBIND`.
+GitHub `conversation_controls` owns pacing for managed chats. Repository/binding fields are not schedule authority. Legacy ADD/REBIND controls remain migration compatibility only.
 
-`LAB:REBIND` remains the explicit mechanism for changing the conversation's own binding. It is not part of normal cross-repository work inside a multirepo operator conversation.
+## Host Ops
 
-## External Bridge recovery
+Use the execution-enabled `host-ops` repository only for bounded Mac-local operations that genuinely belong to Host Ops: inspecting worktrees/process state, running local release gates, managing isolated development profiles or other host-level operations. Project work belongs to the actual project repository and uses that project's exact task binding.
 
-Bridge-native diagnostics and maintenance remain the primary recovery path while the extension can answer its own protocol. If the Bridge/content path itself is unavailable, the `host-ops` multirepo workspace may use the explicit external fallback documented in [External Chat Bridge recovery through Host Ops](BRIDGE_HOSTOPS_RECOVERY.md).
+## Child reasoning
 
-That fallback keeps the repository boundary intact: `local-agent` remains execution-disabled, while a machine action is queued only against the execution-enabled `host-ops` repository using the exact `host-ops` binding. The helper requires an explicit loopback CDP endpoint and exact conversation URL, defaults to read-only readiness, and allows at most one Host Ops guarded page reload when `--recover` is explicitly requested and readiness classifies the content script as missing or stale.
+Child chats, when used, are reasoning-only. They may audit, debug, compare donor/target code and propose fixes. They never receive independent machine execution authority; the parent Superchat decides what becomes executable work and queues only exact-bound target tasks.
 
-It is not a worker restart mechanism and must not become an automatic daemon watchdog or reload loop.
+The current browser child-spawn path has a known `chatgpt_login_timeout` detector failure in the isolated profile. Do not repeat login/Cloudflare/DOM loops as a parent-Superchat acceptance gate. Treat child-browser transport as a separately repairable component while the parent continues operating.
 
 ## Security properties
 
-Multirepo scope deliberately changes planner authorization, not executor trust boundaries:
-
-- only catalog-declared `multirepo` bindings receive cross-repository planner authority;
-- unknown planner scopes fail closed during runtime parsing;
-- `multirepo` is rejected for an execution-disabled binding;
-- target identities come only from the current runtime catalog;
-- target Local Agent tasks retain the target repository's canonical binding;
-- normal repository-scoped conversations preserve the existing single-repository policy;
-- global emergency controls, repository leases and task/resource limits are unchanged.
-
-This separation allows a `host-ops` chat to behave as one practical operator workspace without turning `host-ops` into a scheduler or weakening Local Agent's repository isolation.
-
-## Downstream documentation audit
-
-The registered project repositories keep `planner_scope=repository`, so their existing project-chat contract remains unchanged: a directly project-bound conversation is still single-repository and every Local Agent task still carries that project's exact binding.
-
-The release audit therefore does not require project-document rewrites merely to introduce the `host-ops` operator scope or its external Bridge recovery fallback. The reviewed downstream instructions continue to describe target-repository task binding and repository-scoped execution correctly. If a downstream repository later gains its own `multirepo` scope or begins documenting the `host-ops` operator workspace, that repository's planner documentation must be updated explicitly.
+- chat identity is transport/scheduling identity only;
+- repository reasoning context does not grant execution authority;
+- every executable task uses the target repository's exact canonical binding;
+- execution-disabled targets never receive executable tasks;
+- global emergency controls, repository leases and task/resource limits remain unchanged;
+- GitHub remains the durable control/evidence plane.

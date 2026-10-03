@@ -44,10 +44,10 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - Before claim/execution, both parallel and serial repository workers require local registry `agent_binding == .agent/binding.json agent_binding == task.agent_binding`.
 - Missing repository binding is fail-closed `unbound`; invalid/mismatched control binding is fail-closed `binding_error`; missing/wrong task binding is a terminal pre-claim rejection and must execute no task command.
 - Global operator `disabled` state takes precedence over repository binding admission so emergency stop remains authoritative during partial migrations or broken binding state.
-- Chat Bridge conversations must never infer repository identities or binding UUIDs from model context. A normal `planner_scope=repository` binding remains single-repository and changes repository only through an explicit operator Rebind.
-- A catalog entry with explicit `planner_scope=multirepo` authorizes that conversation to work across repositories present in the current validated runtime catalog without rebinding. The conversation binding is planner authorization only: every Local Agent task still uses the exact canonical binding of its target repository, and executor binding/lease/resource checks are unchanged. See `docs/HOST_OPS_MULTIREPO.md`.
-- `planner_scope` defaults to `repository`; unknown values fail closed and `multirepo` requires an execution-enabled operator binding. The canonical `host-ops` entry is the multirepo operator workspace.
-- The `local-agent` catalog binding is bridge/operator-only (`execution_enabled: false`) and must never be used to queue project work. A multirepo planner may still inspect or edit `MichalMatu/local-agent` through direct GitHub operations without changing the conversation binding.
+- Chat Bridge conversation identity is transport/scheduling identity only. It never grants repository execution authority and normal repository routing must not depend on chat Rebind.
+- Repository ids named in the active user goal or durable Conversation Fabric request are reasoning context. A parent Superchat may reason across donor and target repositories without rebinding; every executable Local Agent task still uses the exact canonical binding of its actual target repository.
+- Runtime `planner_scope` and legacy conversation binding metadata remain compatibility/transport-workspace metadata only. They are not authorization evidence for repository work.
+- The `local-agent` catalog entry remains `execution_enabled: false` and must never receive executable project work. It may still be inspected or edited through allowed GitHub operations while another execution-enabled target owns any required `.agent/tasks`.
 - MCP server identity and authorization are machine-local explicit configuration. Discovery never grants execution permission; unknown servers/tools, disabled policies and non-loopback endpoints fail closed.
 - MCP `write` and `arbitrary_code` tools require both a matching local risk policy and matching explicit invocation intent. Server-provided tool names, descriptions and annotations are not authorization evidence.
 - MCP stdio is unsupported until it can use the existing registered spawn/process-group lifecycle contract; an SDK must never spawn an unregistered daemon child.
@@ -116,7 +116,7 @@ Repository isolation, hard agent binding and external-resource isolation are sep
 - Require exact-candidate focused positive/negative tests, full CI matrix and macOS smoke before advancing `main`.
 - MCP boundary changes additionally require a real hermetic loopback HTTP MCP integration test; a release enabling a new live MCP target also requires read-only live discovery/invocation evidence before merge.
 - Scheduler/control changes additionally require real temporary-Git overlap/control tests; mocks alone are insufficient.
-- Hard-binding or planner-scope releases additionally require positive/negative coverage proving normal repository scope remains isolated, multirepo scope resolves only catalog targets, target task bindings remain exact, and parallel/serial executor binding admission is unchanged.
+- Transport/repository-routing releases additionally require positive/negative coverage proving chat metadata cannot grant execution authority, selected target task bindings remain exact, execution-disabled targets remain non-executable, and parallel/serial executor binding admission is unchanged.
 - Advance `main` only after an explicit release decision and successful exact-candidate validation.
 - Tag the released main commit with `vX.Y.Z` and keep `local_agent.version.RELEASE_VERSION` synchronized with that tag.
 - After live verification from `main`, remove obsolete candidate worktrees/branches instead of accumulating them.
