@@ -158,7 +158,7 @@ const { createHarness } = require("./worker_test_harness.js");
   conversation = h.storage.bridgeState.conversations[chatId];
   assert.equal(h.storage.bridgeGithubControlApplied[chatId].localGeneration, conversation.generation);
 
-  // A desired state for a future binding revision cannot mutate the current binding.
+  // Schedule ownership is keyed by chat identity, so binding revision does not block desired state.
   control = {
     ...control,
     control_generation: 3,
@@ -169,11 +169,11 @@ const { createHarness } = require("./worker_test_harness.js");
   };
   h.evaluate("runtimeCache = null");
   reconcile = await h.evaluate("reconcileGithubConversationControls()");
-  assert.equal(reconcile.applied.length, 0);
-  assert.equal(h.storage.bridgeState.conversations[chatId].enabled, true);
-  assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 2);
+  assert.equal(reconcile.applied.length, 1);
+  assert.equal(h.storage.bridgeState.conversations[chatId].enabled, false);
+  assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 3);
 
-  // After an explicit rebind, the new binding revision gets an independent generation space.
+  // Legacy metadata refresh does not reset the chat-scoped GitHub control generation.
   response = await h.sendRuntimeMessage({
     type: "bridge:rebind-conversation",
     conversationId: chatId,
@@ -196,15 +196,12 @@ const { createHarness } = require("./worker_test_harness.js");
   };
   h.evaluate("runtimeCache = null");
   reconcile = await h.evaluate("reconcileGithubConversationControls()");
-  assert.equal(reconcile.applied.length, 1);
-  assert.equal(reconcile.applied[0].repaired, false);
+  assert.equal(reconcile.applied.length, 0);
   conversation = h.storage.bridgeState.conversations[chatId];
-  assert.equal(conversation.enabled, false);
-  assert.equal(conversation.intervalOverrideMinutes, 11);
-  assert.equal(conversation.lastControlAction, "github:1");
-  assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 1);
-  assert.equal(h.storage.bridgeGithubControlApplied[chatId].bindingRevision, 2);
-  assert.equal(h.storage.bridgeGithubControlApplied[chatId].localGeneration, conversation.generation);
+  assert.equal(conversation.enabled, true);
+  assert.equal(conversation.intervalOverrideMinutes, 7);
+  assert.equal(conversation.lastControlAction, "");
+  assert.equal(h.storage.bridgeGithubControlApplied[chatId].generation, 3);
 
   console.log("GitHub Bridge control worker tests passed.");
 })().catch((error) => {
