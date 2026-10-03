@@ -84,7 +84,7 @@ function reportExhaustion(harness) {
     assert.equal(h.alarms.has(alarmName), false);
   }
 
-  // A report from the previous hard binding cannot disable or clear a rebound conversation.
+  // A report from the previous transport epoch cannot disable or clear a refreshed conversation.
   {
     const h = createHarness();
     const id = await addConversation(h);
@@ -111,7 +111,7 @@ function reportExhaustion(harness) {
     const conversation = h.storage.bridgeState.conversations[id];
     assert.equal(conversation.enabled, true);
     assert.equal(conversation.agentBinding, h.TRACKER_BINDING);
-    assert.equal(conversation.lastStatus, "rebound_by_operator");
+    assert.equal(conversation.lastStatus, "transport_metadata_refreshed");
     assert.equal(h.alarms.has(alarmName), true);
   }
 
