@@ -30,14 +30,10 @@ async function addConversation(harness, repositoryId, url) {
     assert.equal(h.sentMessages.length, 1);
     const prompt = h.sentMessages[0].message.prompt;
 
-    assert.match(prompt, /transport\/scheduling channel, not a repository execution binding/);
-    assert.match(prompt, /may include multiple repositories, including donor and target repositories, without rebinding the chat/);
-    assert.match(prompt, /use that target.s exact canonical agent_binding/);
-    assert.match(prompt, /Bridge metadata as execution authority/);
-    assert.match(prompt, /local-agent=MichalMatu\/local-agent@2180d453-1357-4fbc-be1a-e1e5b8fbb10a;execution=disabled/);
-    assert.match(prompt, /growclip=MichalMatu\/growclip@2db52048-57ea-4643-bf4b-1ea5c5c3fa86;execution=enabled/);
-    assert.doesNotMatch(prompt, /Work only on repository MichalMatu\/host-ops/);
-    assert.doesNotMatch(prompt, /Every Local Agent task JSON created by this conversation MUST contain exactly/);
+    assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nBOOTSTRAP$/);
+    assert.doesNotMatch(prompt, /Current runtime catalog:/);
+    assert.doesNotMatch(prompt, /Work only on repository/);
+    assert.doesNotMatch(prompt, /agent_binding/);
   }
 
   {
@@ -49,10 +45,10 @@ async function addConversation(harness, repositoryId, url) {
     assert.equal(result.ok, true, result.reason);
     const prompt = h.sentMessages[0].message.prompt;
 
-    assert.match(prompt, /transport\/scheduling channel, not a repository execution binding/);
-    assert.match(prompt, /may include multiple repositories, including donor and target repositories, without rebinding the chat/);
-    assert.match(prompt, /use that target.s exact canonical agent_binding/);
-    assert.doesNotMatch(prompt, /Work only on repository MichalMatu\/MatrixHub/);
+    assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nBOOTSTRAP$/);
+    assert.doesNotMatch(prompt, /Current runtime catalog:/);
+    assert.doesNotMatch(prompt, /Work only on repository/);
+    assert.doesNotMatch(prompt, /agent_binding/);
   }
 
   {
@@ -86,7 +82,7 @@ async function addConversation(harness, repositoryId, url) {
     );
   }
 
-  console.log("Chat Bridge transport-only multirepo tests passed.");
+  console.log("Chat Bridge minimal-envelope multirepo tests passed.");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;
