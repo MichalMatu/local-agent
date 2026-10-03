@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the current release/runtime invariants for `MichalMatu/local-agent`. The prepared source release is `v4.20.5` with Chat Bridge `0.8.1`; deployed production remains `v4.20.4` until the explicit release merge/tag and live self-update proof. A managed conversation is a transport/scheduling channel rather than a repository execution binding. Repository reasoning may span donor/target repositories without chat rebinding; executable `.agent/tasks` still require the exact canonical binding of the actual target repository. Conversation Fabric operator intake remains explicit runtime configuration, child chats remain reasoning-only, and `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
+This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.20.5` with Chat Bridge `0.8.1`; the current production release is `v4.20.4`. The v4.20.5 candidate is not production yet: the deployed production release remains `v4.20.4` until the explicit release decision advances `main`. Candidate source must not be described as current production before the explicit release decision advances `main`. A managed conversation is a transport/scheduling channel rather than a repository execution binding. Repository reasoning may span donor/target repositories without chat rebinding; executable `.agent/tasks` still require the exact canonical binding of the actual target repository. Conversation Fabric operator intake remains explicit runtime configuration, child chats remain reasoning-only, and `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
 
 ## Release/runtime invariants
 
@@ -102,6 +102,7 @@ This file records the current release/runtime invariants for `MichalMatu/local-a
 - Legacy `planner_scope`, `repositoryId`, `agentBinding` and `bindingRevision` fields may remain in migrated Bridge state or the runtime catalog for compatibility/transport-workspace selection. They must not be interpreted as repository authorization.
 - Before any executable work, resolve the actual target repository and create `.agent/tasks` only with that target's exact canonical `agent_binding`.
 - Execution-disabled catalog targets may be inspected/reasoned about through allowed GitHub operations but may not receive Local Agent tasks; `local-agent` remains intentionally self-execution-disabled.
+- The canonical `host-ops` entry remains the execution-enabled multirepo transport/host-operations workspace; it does not confer target-repository task authority.
 - A planner must never invoke/delegate local Codex or another local coding-agent/LLM CLI through Local Agent.
 
 ### GitHub-backed schedule/status authority
