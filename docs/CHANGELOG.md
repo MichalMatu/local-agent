@@ -2,6 +2,14 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
+## v4.20.3
+
+- Add an explicit fail-closed `rebind-checkout` DEV-lab operation for moving an already adopted, unused Conversation Fabric lab marker from its original isolated checkout identity to one intended isolated operator checkout.
+- Require the existing marker to be canonical and healthy, the new checkout to exist as a regular production-disjoint directory, and all mutable lab state directories to remain empty before the marker can change.
+- Mutate only the atomic `lab.json` marker; preserve the browser profile and all browser-profile bytes unchanged.
+- Keep profile adoption, checkout rebind, Superchat onboarding and operator-intake activation as separate explicit actions.
+- Keep Chat Bridge at 0.7.0 and operator intake default-disabled.
+
 ## v4.20.2
 
 - Add an explicit fail-closed `adopt-profile` DEV-lab operation for one pre-existing isolated Chromium `browser-profile` so a previously authenticated Conversation Fabric profile can be reused without copying production/daily Chrome state or repeating the login loop.

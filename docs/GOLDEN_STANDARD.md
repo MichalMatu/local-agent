@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.20.2`; current production release is `v4.20.1` / Chat Bridge `0.7.0`. The 4.20.2 candidate keeps Chat Bridge 0.7.0 and adds one explicit fail-closed migration for a pre-existing isolated Chromium `browser-profile`, allowing the authenticated Conversation Fabric lab profile to be adopted without copying or mutating production/daily Chrome state. The deployed production release remains `v4.20.1` until the explicit release decision advances `main`; Candidate source must not be described as current production before the explicit release decision advances `main`. Conversation Fabric operator intake remains default-disabled until explicit runtime configuration, and child chats remain reasoning-only while `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
+This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.20.3`; current production release is `v4.20.2` / Chat Bridge `0.7.0`. The 4.20.3 candidate keeps Chat Bridge 0.7.0 and adds one explicit fail-closed migration for rebinding an already adopted, unused Conversation Fabric lab marker to a dedicated isolated operator checkout without mutating browser-profile bytes. The deployed production release remains `v4.20.2` until the explicit release decision advances `main`. Candidate source must not be described as current production before the explicit release decision advances `main`. Conversation Fabric operator intake remains default-disabled until explicit runtime configuration, and child chats remain reasoning-only while `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
 
 ## Release/runtime invariants
 
@@ -33,6 +33,7 @@ This file records the current release/runtime invariants for `MichalMatu/local-a
 - Self-update validation compiles production entrypoints and runs the bounded verification suite before restart.
 - Control checkout recovery removes only daemon-owned control artifacts plus explicitly allowlisted host metadata.
 - Arbitrary non-empty unmarked Conversation Fabric lab roots are never silently adopted. The explicit profile-adoption path accepts only an isolated root containing exactly `browser-profile`, recognizable regular Chromium identity files and no symbolic links; it writes only inert lab directories and the exact layout marker and does not rewrite browser-profile bytes.
+- An adopted lab checkout identity may change only through the explicit fail-closed rebind path: the current marker must be canonical and healthy, mutable lab state directories must be empty, the new checkout must already exist and remain production-disjoint, and only the atomic layout marker may change.
 
 ## Repository/binding invariants
 
