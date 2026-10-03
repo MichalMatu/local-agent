@@ -12,6 +12,7 @@ from local_agent.development.lab import (
     dev_lab_status,
     initialize_dev_lab,
     protected_production_paths,
+    rebind_dev_lab_checkout,
 )
 
 
@@ -169,6 +170,102 @@ class DevelopmentLabTests(unittest.TestCase):
 
             self.assertFalse(layout.marker_path.exists())
             self.assertEqual(external.read_text(encoding="utf-8"), "external")
+
+    def test_rebind_checkout_updates_only_marker_for_unused_healthy_lab(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            old_checkout = home / "local-agent-dev"
+            new_checkout = home / "local-agent-conversation-operator"
+            old_checkout.mkdir()
+            new_checkout.mkdir()
+            old_layout = build_dev_lab_layout(home=home, checkout=old_checkout)
+            payloads = self._seed_adoptable_profile(old_layout)
+            adopt_existing_browser_profile(old_layout)
+            new_layout = build_dev_lab_layout(
+                home=home,
+                root=old_layout.root,
+                checkout=new_checkout,
+            )
+
+            rebound = rebind_dev_lab_checkout(new_layout)
+
+            self.assertEqual(rebound, new_layout.manifest())
+            self.assertEqual(
+                json.loads(new_layout.marker_path.read_text(encoding="utf-8")),
+                new_layout.manifest(),
+            )
+            self.assertTrue(dev_lab_status(new_layout)["healthy"])
+            self.assertFalse(dev_lab_status(old_layout)["healthy"])
+            for relative, payload in payloads.items():
+                self.assertEqual((new_layout.browser_profile_dir / relative).read_bytes(), payload)
+
+    def test_rebind_checkout_rejects_nonempty_lab_state_without_marker_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            old_checkout = home / "local-agent-dev"
+            new_checkout = home / "local-agent-conversation-operator"
+            old_checkout.mkdir()
+            new_checkout.mkdir()
+            old_layout = build_dev_lab_layout(home=home, checkout=old_checkout)
+            self._seed_adoptable_profile(old_layout)
+            adopt_existing_browser_profile(old_layout)
+            original = old_layout.marker_path.read_text(encoding="utf-8")
+            (old_layout.state_dir / "used.json").write_text("{}", encoding="utf-8")
+            new_layout = build_dev_lab_layout(
+                home=home,
+                root=old_layout.root,
+                checkout=new_checkout,
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "inert lab state"):
+                rebind_dev_lab_checkout(new_layout)
+
+            self.assertEqual(old_layout.marker_path.read_text(encoding="utf-8"), original)
+
+    def test_rebind_checkout_rejects_tampered_marker_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            old_checkout = home / "local-agent-dev"
+            new_checkout = home / "local-agent-conversation-operator"
+            old_checkout.mkdir()
+            new_checkout.mkdir()
+            old_layout = build_dev_lab_layout(home=home, checkout=old_checkout)
+            self._seed_adoptable_profile(old_layout)
+            adopt_existing_browser_profile(old_layout)
+            payload = old_layout.manifest()
+            payload["capabilities"]["executor_enabled"] = True
+            old_layout.marker_path.write_text(json.dumps(payload), encoding="utf-8")
+            original = old_layout.marker_path.read_text(encoding="utf-8")
+            new_layout = build_dev_lab_layout(
+                home=home,
+                root=old_layout.root,
+                checkout=new_checkout,
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "canonical existing DEV lab marker"):
+                rebind_dev_lab_checkout(new_layout)
+
+            self.assertEqual(old_layout.marker_path.read_text(encoding="utf-8"), original)
+
+    def test_rebind_checkout_rejects_missing_new_checkout_without_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            home = Path(temp)
+            old_checkout = home / "local-agent-dev"
+            old_checkout.mkdir()
+            old_layout = build_dev_lab_layout(home=home, checkout=old_checkout)
+            self._seed_adoptable_profile(old_layout)
+            adopt_existing_browser_profile(old_layout)
+            original = old_layout.marker_path.read_text(encoding="utf-8")
+            new_layout = build_dev_lab_layout(
+                home=home,
+                root=old_layout.root,
+                checkout=home / "missing-operator-checkout",
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "existing regular checkout directory"):
+                rebind_dev_lab_checkout(new_layout)
+
+            self.assertEqual(old_layout.marker_path.read_text(encoding="utf-8"), original)
 
     def test_rejects_root_or_checkout_overlapping_production_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
