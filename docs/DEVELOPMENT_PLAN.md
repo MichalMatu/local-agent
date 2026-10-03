@@ -1,16 +1,17 @@
 # Local Agent development plan
 
-Status: the parent Superchat transport/routing model is accepted. The next product milestone is a clean Local Agent self-diagnostic run coordinated by the parent Superchat, with bounded child reasoning where the child browser path is healthy.
+Status: Local Agent 4.20.5 / Chat Bridge 0.8.1 is released and live. Parent Superchat coordination is accepted. The next product milestone is to make the optional child reasoning path trustworthy with one narrowly scoped repair and one bounded live pilot.
 
 ## Current release line
 
-- released baseline before this cleanup: Local Agent v4.20.4 / Chat Bridge 0.8.0;
-- prepared cleanup release: Local Agent v4.20.5 / Chat Bridge 0.8.1;
-- `main` remains the production source of truth after release;
+- `main` / `v4.20.5` = `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`;
+- production runtime has naturally advanced to Local Agent 4.20.5 at the exact release SHA;
+- Chat Bridge source = 0.8.1;
 - `chat-bridge-state` is operational schedule/runtime desired state, not a development branch;
-- `operator-control` is global safety/control state, not a development branch.
+- `operator-control` is global safety/control state, not a development branch;
+- `local-agent` remains execution-disabled as a Local Agent task target.
 
-Temporary release/development branches and worktrees must be removed after final production proof. The old long-lived `develop/conversation-fabric` line is no longer the canonical runtime development line once its durable documentation has been reconciled into `main`.
+Temporary development/release branches should exist only while backing an active PR or unique unmerged evidence. Long-lived pre-consolidation Conversation Fabric branches are historical, not canonical development lines.
 
 ## Product direction
 
@@ -19,7 +20,7 @@ User
   -> Parent Superchat (reasoning coordinator)
     -> GitHub durable control/evidence
     -> optional bounded child reasoning chats
-    -> exact target-repository .agent/tasks for machine work
+    -> direct GitHub work or exact target-repository .agent/tasks
     -> verified results
   -> Parent synthesis / next decision
 ```
@@ -38,26 +39,39 @@ Permanent boundaries:
 
 ## Accepted evidence
 
-- GitHub-managed parent Superchat wake was delivered and answered in the intended conversation.
-- Parent chat `chat-7781d9b9` operated without repository binding fields in its GitHub `conversation_controls` record.
-- A read-only MatrixHub task proved transport-only multirepo reasoning still routes execution through MatrixHub's exact canonical binding and repository checkout, with no edits.
-- Conversation Fabric request schema v3 supports ordered `repository_ids` as reasoning context rather than execution identity.
-- The browser child-spawn pilot currently has one known concrete blocker: `chatgpt_login_timeout` from the isolated-profile login detector. Parent operation does not depend on this path.
+The 2026-10-04 parent-led self-diagnostic established:
 
-## Current milestone: Superchat self-diagnostic
+- Local Agent 4.20.5 is live on the exact release SHA;
+- scheduler/control, exact target binding/routing and process lifecycle/resource boundaries have no identified P0/P1 regression;
+- the previous parent schedule was disabled to prevent duplicate periodic wakes;
+- child delegation remains the one functional blocker;
+- current production Conversation Operator intake is not enabled/configured.
 
-The first clean product test should use Local Agent as its own audit subject. The parent Superchat should establish exact runtime state, divide the audit into at most four bounded tracks, delegate reasoning where practical, coordinate findings and approve any fixes.
+The child-browser failure mechanism was narrowed to authentication probing being gated by composer DOM visibility. Draft PR #135 fixes that coupling only. Exact SHA `25e817c79086f3962a4cee1b23515a11ebedffd3` has 5/5 green CI.
 
-Suggested tracks:
+## Current milestone: child delegation acceptance
 
-1. daemon/supervisor/executor/task contract, bindings, leases/resources and recovery;
-2. Git control/publication/self-update/emergency controls and stale-state handling;
-3. Chat Bridge transport, GitHub scheduling, popup/onboarding and retry/error ownership;
-4. Conversation Fabric parent/child lifecycle and the known child login-detector failure.
+Sequence:
 
-Children audit/debug/verify and propose fixes. They never queue machine work independently. The parent is responsible for deduplication, target selection, exact-bound task creation, verification and synthesis.
+1. keep PR #135 isolated from unrelated cleanup;
+2. review the two-file repair and regression test;
+3. merge only after an explicit decision;
+4. let deployment/self-update follow normal safety rules;
+5. verify exact deployed revision;
+6. run one bounded child reasoning pilot;
+7. only after the pilot passes decide whether to enable/configure Conversation Operator intake;
+8. add operator configuration state to routine diagnostics before depending on fan-out operationally.
 
-If child spawn is still blocked, fix that boundary only from bounded evidence; do not repeat the historical Chrome login/Cloudflare/DOM-proof loop. The parent should continue the rest of the audit while that subsystem is repaired.
+Do not repeat long manual Chrome login / Cloudflare / DOM experiments. Any remaining failure must be reduced from fresh bounded evidence.
+
+## Deferred maintenance
+
+Keep separate from the milestone above:
+
+- workspace/storage optimization for large Growclip/BloomML worktrees;
+- `hardware-lab` sparse/partial clone policy repair;
+- broader operator observability;
+- fleet-wide fan-out, automatic conversation rollover and broad autonomous scheduling.
 
 ## Verification discipline
 
@@ -70,5 +84,3 @@ For every concrete repair:
 5. avoid duplicate tasks/branches;
 6. run one final broad repository gate;
 7. leave a durable checkpoint with exact commit/result evidence.
-
-Broad fleet scheduling, automatic conversation rollover and large fan-out remain later milestones and must not be introduced during the self-diagnostic pilot.

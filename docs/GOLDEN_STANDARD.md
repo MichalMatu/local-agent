@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.20.5` with Chat Bridge `0.8.1`; the current production release is `v4.20.4`. The 4.20.5 candidate is not production yet: the deployed production release remains `v4.20.4` until the explicit release decision advances `main`. Candidate source must not be described as current production before the explicit release decision advances `main`. A managed conversation is a transport/scheduling channel rather than a repository execution binding. Repository reasoning may span donor/target repositories without chat rebinding; executable `.agent/tasks` still require the exact canonical binding of the actual target repository. Conversation Fabric operator intake remains explicit runtime configuration, child chats remain reasoning-only, and `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
+This file records the current release/runtime invariants for `MichalMatu/local-agent`. The current source and production release is `v4.20.5` with Chat Bridge `0.8.1`, released from `main@bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`. Production completed its natural self-update to that exact revision during the 2026-10-04 self-diagnostic. A managed conversation is a transport/scheduling channel rather than a repository execution binding. Repository reasoning may span donor/target repositories without chat rebinding; executable `.agent/tasks` still require the exact canonical binding of the actual target repository. Conversation Fabric operator intake remains explicit runtime configuration and is currently not enabled/configured in production; child chats remain reasoning-only, and `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
 
 ## Release/runtime invariants
 
@@ -160,6 +160,7 @@ Legacy binding controls (`ADD`, `REBIND`) remain compatibility/migration paths o
 - launchd stdout/stderr remains bounded.
 - Multiline commands are logged by concise stage/size descriptors; full evidence stays in run/result JSON.
 - `LOCAL_AGENT_VERBOSE_LOGS=1` is temporary diagnostics only.
+- Routine diagnostics should expose whether Conversation Operator intake is enabled and whether its required runtime paths are configured, without requiring separate LaunchAgent inspection.
 
 ## Architecture invariants
 
