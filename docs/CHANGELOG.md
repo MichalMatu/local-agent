@@ -2,6 +2,15 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
+## v4.20.6
+
+- Add deterministic production queue deduplication for the parallel repository worker so equivalent tasks from overlapping conversations are terminally suppressed before expensive execution.
+- Add stable branch-scoped `dedupe_key` intent identities plus exact-effect fingerprints for legacy tasks without explicit keys.
+- Keep short claim-aware admission/completion receipts so late duplicates cannot run immediately after the original task, while interrupted/cancelled claims stop blocking legitimate corrective work after recovery.
+- Publish terminal `duplicate_task_suppressed` evidence that points at the original task instead of leaving duplicate queue entries to execute later.
+- Reject malformed explicit dedupe keys before task execution and add focused regression coverage for queue, claim, completion and branch-scope behavior.
+- Keep Chat Bridge at 0.8.1. Repository binding, resource admission, execution authority and deterministic command semantics are unchanged.
+
 ## v4.20.5
 
 - Finalize the transport-only Superchat rollout: fix popup `Add current chat` after repository selection was removed from normal onboarding.
