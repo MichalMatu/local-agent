@@ -10,6 +10,7 @@ from pathlib import Path
 from local_agent.conversation.operator_contract import (
     build_operator_result,
     load_operator_request,
+    operator_request_repository_id,
     request_to_mvp_spec,
 )
 from local_agent.conversation.operator_queue import persist_spooled_result
@@ -19,6 +20,14 @@ from local_agent.development.mvp_flow import (
     DEFAULT_RESULT_TIMEOUT_SECONDS,
     run_mvp_campaign,
 )
+from local_agent.development.operator_target import inspect_operator_target
+
+
+def _target_identity_provider(*, home: Path, repository_id: str):
+    def resolve(_layout):
+        return inspect_operator_target(home=home, repository_id=repository_id)
+
+    return resolve
 
 
 def run_operator_campaign(
@@ -39,11 +48,20 @@ def run_operator_campaign(
         checkout=checkout,
         production_checkout=production_checkout,
     )
+    repository_id = operator_request_repository_id(request)
+    kwargs = {
+        "login_timeout_seconds": login_timeout_seconds,
+        "result_timeout_seconds": result_timeout_seconds,
+    }
+    if repository_id is not None:
+        kwargs["identity_provider"] = _target_identity_provider(
+            home=home,
+            repository_id=repository_id,
+        )
     campaign = run_mvp_campaign(
         layout,
         request_to_mvp_spec(request),
-        login_timeout_seconds=login_timeout_seconds,
-        result_timeout_seconds=result_timeout_seconds,
+        **kwargs,
     )
     result = build_operator_result(request, campaign)
     return persist_spooled_result(result_path, request, result)

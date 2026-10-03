@@ -11,6 +11,7 @@ from local_agent.conversation.operator_contract import (
     build_operator_result,
     load_operator_request,
     operator_request_digest,
+    operator_request_repository_id,
     request_to_mvp_spec,
     validate_operator_request,
     validate_operator_result,
@@ -47,6 +48,13 @@ def sample_request() -> dict:
     }
 
 
+def targeted_request() -> dict:
+    request = sample_request()
+    request["schema_version"] = 2
+    request["repository_id"] = "growclip"
+    return request
+
+
 class OperatorContractTests(unittest.TestCase):
     def test_request_digest_is_stable_and_mvp_mapping_is_semantic_only(self) -> None:
         request = sample_request()
@@ -64,6 +72,29 @@ class OperatorContractTests(unittest.TestCase):
                 "children": request["children"],
             },
         )
+        self.assertIsNone(operator_request_repository_id(request))
+
+    def test_v2_request_binds_target_repository_into_digest_but_not_mvp_spec(self) -> None:
+        request = targeted_request()
+        validate_operator_request(request)
+        digest = operator_request_digest(request)
+        self.assertEqual(operator_request_repository_id(request), "growclip")
+        self.assertNotIn("repository_id", request_to_mvp_spec(request))
+
+        changed = copy.deepcopy(request)
+        changed["repository_id"] = "shelly-link"
+        self.assertNotEqual(operator_request_digest(changed), digest)
+
+    def test_v2_request_requires_canonical_repository_id(self) -> None:
+        missing = targeted_request()
+        missing.pop("repository_id")
+        with self.assertRaisesRegex(ValueError, "fields do not match schema"):
+            validate_operator_request(missing)
+
+        invalid = targeted_request()
+        invalid["repository_id"] = "Grow Clip"
+        with self.assertRaisesRegex(ValueError, "repository_id"):
+            validate_operator_request(invalid)
 
     def test_request_rejects_duplicate_child_identity_and_unknown_role(self) -> None:
         duplicate = sample_request()
