@@ -29,9 +29,16 @@ class SuppressedTask:
 
 
 @dataclass(frozen=True)
+class InvalidTask:
+    item: PendingTask
+    error: str
+
+
+@dataclass(frozen=True)
 class QueuePlan:
     candidates: tuple[PendingTask, ...]
     suppressed: tuple[SuppressedTask, ...]
+    invalid: tuple[InvalidTask, ...]
 
 
 def _serialized(value: Any) -> bytes:
@@ -54,7 +61,7 @@ def _structured_commands(task: dict[str, Any], field: str) -> list[str]:
 
 
 def execution_contract(task: dict[str, Any]) -> dict[str, Any]:
-    """Return the deterministic task effects while ignoring cosmetic execution metadata."""
+    """Return deterministic task effects while ignoring cosmetic execution metadata."""
     return {
         "agent_binding": task.get("agent_binding"),
         "mode": task.get("mode", "commands"),
@@ -92,10 +99,11 @@ def explicit_dedupe_key(task: dict[str, Any]) -> str | None:
 
 
 def queue_key(task: dict[str, Any]) -> str:
-    """Return an explicit intent key when present, otherwise the exact effect fingerprint."""
+    """Return branch-scoped intent identity or fall back to the exact effect fingerprint."""
     explicit = explicit_dedupe_key(task)
     if explicit is not None:
-        return f"intent:{explicit}"
+        branch = str(task.get("work_branch", "main"))
+        return f"intent:{branch}:{explicit}"
     return f"effect:{execution_fingerprint(task)}"
 
 
@@ -147,11 +155,16 @@ def plan_pending(
     seen: dict[str, str] = {}
     candidates: list[PendingTask] = []
     suppressed: list[SuppressedTask] = []
+    invalid: list[InvalidTask] = []
 
     for item in pending:
         _, task = item
         task_id = str(task.get("id", ""))
-        key = queue_key(task)
+        try:
+            key = queue_key(task)
+        except ValueError as exc:
+            invalid.append(InvalidTask(item=item, error=str(exc)))
+            continue
         fingerprint = execution_fingerprint(task)
 
         receipt = _read_receipt(state_dir, key, now_epoch=now_value)
@@ -183,7 +196,7 @@ def plan_pending(
         seen[key] = task_id
         candidates.append(item)
 
-    return QueuePlan(tuple(candidates), tuple(suppressed))
+    return QueuePlan(tuple(candidates), tuple(suppressed), tuple(invalid))
 
 
 def _write_receipt(
