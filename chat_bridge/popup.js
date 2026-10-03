@@ -144,11 +144,7 @@ function makeMeta(text, className = "") {
 
 function managedControlForConversation(runtime, conversation) {
   return (runtime?.conversationControls || []).find((control) =>
-    control.conversationId === conversation.id &&
-    control.repositoryId === conversation.repositoryId &&
-    control.repository === conversation.repository &&
-    control.agentBinding === conversation.agentBinding &&
-    control.bindingRevision === conversation.bindingRevision
+    control.conversationId === conversation.id
   ) || null;
 }
 
@@ -176,7 +172,7 @@ function renderConversation(conversation, settings, schedule, runtime, ownership
   titleLine.className = "card-title-line";
   const title = makeMeta(conversation.label || conversation.id, "card-title");
   title.title = conversation.label || conversation.id;
-  const repo = makeMeta(conversation.repositoryId || "UNBOUND", "repo-badge");
+  const repo = makeMeta("transport", "repo-badge");
   titleLine.append(title, repo);
   if (githubManaged) {
     const authority = makeMeta("GitHub managed", "repo-badge");
@@ -282,10 +278,10 @@ function renderConversation(conversation, settings, schedule, runtime, ownership
   run.addEventListener("click", async () => {
     try {
       run.disabled = true;
-      showMessage(`Sending wake to ${conversation.repositoryId}...`);
+      showMessage("Sending wake...");
       const response = await request({ type: "bridge:run-now", conversationId: conversation.id });
       if (!response?.ok) throw new Error(response?.reason || response?.error || "run failed");
-      showMessage(`Wake sent to ${response.repositoryId}.`);
+      showMessage("Wake sent.");
       await refresh();
     } catch (error) {
       showMessage(`Error: ${error.message}`);
@@ -348,10 +344,11 @@ async function refreshCurrentTabForm(state, runtime) {
   const existing = state.conversations?.[id];
   elements.currentTitle.textContent = existing?.label || chatLabelFromTitle(currentTab.title);
   elements.currentUrl.textContent = currentTab.normalizedUrl;
-  replaceSelectOptions(elements.currentAgent, runtime?.agents || [], existing?.agentBinding || null, true);
-  elements.currentAgent.disabled = Boolean(existing);
+  const transportBinding = existing?.agentBinding || preferredTransportBinding(runtime);
+  replaceSelectOptions(elements.currentAgent, runtime?.agents || [], transportBinding, false);
+  elements.currentAgent.disabled = true;
   elements.addCurrent.textContent = existing ? "Added" : "Add current chat";
-  elements.addCurrent.disabled = Boolean(existing) || !elements.currentAgent.value;
+  elements.addCurrent.disabled = Boolean(existing);
 }
 
 function renderSettings(state, runtime) {
@@ -382,8 +379,6 @@ async function addOrUpdateCurrent() {
   const id = protocol.conversationId(currentTab.normalizedUrl);
   const existing = latestState?.conversations?.[id];
   if (existing) return;
-  const agentBinding = elements.currentAgent.value;
-  if (!agentBinding) throw new Error("Select the exact agent/repository binding first.");
   const capabilities = await injectContentScript(currentTab.id, currentTab.normalizedUrl);
   const response = await request({
     type: "bridge:upsert-conversation",
@@ -434,7 +429,7 @@ elements.masterEnabled.addEventListener("change", async () => {
 });
 
 elements.currentAgent.addEventListener("change", () => {
-  elements.addCurrent.disabled = !currentTab || !elements.currentAgent.value;
+  elements.addCurrent.disabled = !currentTab;
 });
 
 elements.addCurrent.addEventListener("click", () => {
