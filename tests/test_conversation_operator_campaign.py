@@ -129,10 +129,9 @@ class OperatorCampaignTests(unittest.TestCase):
                     checkout=root / "checkout",
                     production_checkout=root / "production",
                 )
-
-            provider = run_campaign.call_args.kwargs["identity_provider"]
-            self.assertEqual(provider(layout), identity)
-            inspect_target.assert_called_once_with(home=home, repository_id="growclip")
+                provider = run_campaign.call_args.kwargs["identity_provider"]
+                self.assertEqual(provider(layout), identity)
+                inspect_target.assert_called_once_with(home=home, repository_id="growclip")
 
     def test_persist_result_is_idempotent_for_exact_same_outcome(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
