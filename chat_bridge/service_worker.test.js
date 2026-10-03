@@ -46,19 +46,16 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(response.bridgeMode, "bootstrap");
   assert.equal(response.repositoryId, "host-ops");
   let prompt = sentMessages.at(-1).message.prompt;
-  assert.match(prompt, /\[LA_CHAT=chat-[0-9a-f]{8}\]/);
-  assert.match(prompt, /transport\/scheduling channel, not a repository execution binding/);
-  assert.match(prompt, /multiple repositories, including donor and target repositories/);
-  assert.match(prompt, /exact canonical agent_binding/);
+  assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nBOOTSTRAP$/);
   assert.doesNotMatch(prompt, /\[LA_AGENT=/);
+  assert.doesNotMatch(prompt, /Current runtime catalog:/);
   assert.doesNotMatch(prompt, /Work only on repository/);
 
   response = await sendRuntimeMessage({ type: "bridge:run-now", conversationId: aId });
   assert.equal(response.ok, true, response.reason);
   assert.equal(response.bridgeMode, "wake");
   prompt = sentMessages.at(-1).message.prompt;
-  assert.match(prompt, /WAKE/);
-  assert.match(prompt, /without rebinding the chat/);
+  assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nWAKE$/);
   assert.doesNotMatch(prompt, /\[LA_AGENT=/);
 
   // Explicit legacy metadata may still be stored, but it does not narrow the chat's reasoning scope.
@@ -80,8 +77,8 @@ const { createHarness } = require("./worker_test_harness.js");
   response = await sendRuntimeMessage({ type: "bridge:run-now", conversationId: bId });
   assert.equal(response.ok, true, response.reason);
   prompt = sentMessages.at(-1).message.prompt;
-  assert.match(prompt, /tracker=MichalMatu\/tracker@be481b25-9d97-4205-b93f-95f5c5827441;execution=enabled/);
-  assert.match(prompt, /donor and target repositories/);
+  assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nBOOTSTRAP$/);
+  assert.doesNotMatch(prompt, /tracker=MichalMatu\/tracker/);
   assert.doesNotMatch(prompt, /Work only on repository MichalMatu\/tracker/);
 
   // Ordinary upsert cannot silently rewrite legacy metadata.
@@ -98,7 +95,7 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(response.conversation.agentBinding, TRACKER_BINDING);
   assert.equal(response.conversation.repositoryId, "tracker");
 
-  // Legacy rebind is only a metadata/epoch refresh; prompt scope remains transport-only/multirepo.
+  // Legacy rebind is only a metadata/epoch refresh; prompt remains minimal transport envelope.
   response = await sendRuntimeMessage({
     type: "bridge:rebind-conversation",
     conversationId: bId,
@@ -114,8 +111,8 @@ const { createHarness } = require("./worker_test_harness.js");
   response = await sendRuntimeMessage({ type: "bridge:run-now", conversationId: bId });
   assert.equal(response.ok, true, response.reason);
   prompt = sentMessages.at(-1).message.prompt;
-  assert.match(prompt, /transport\/scheduling channel/);
-  assert.match(prompt, /Current runtime catalog:/);
+  assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nBOOTSTRAP$/);
+  assert.doesNotMatch(prompt, /Current runtime catalog:/);
   assert.doesNotMatch(prompt, /Work only on repository MichalMatu\/MatrixHub/);
   assert.doesNotMatch(prompt, /\[LA_AGENT=/);
 
@@ -137,7 +134,7 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(alarms.has(`local-agent-chat:${aId}`), true);
   assert.equal(alarms.has(`local-agent-chat:${bId}`), true);
 
-  console.log("Chat Bridge transport-only Superchat service worker tests passed.");
+  console.log("Chat Bridge minimal-envelope Superchat service worker tests passed.");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;
