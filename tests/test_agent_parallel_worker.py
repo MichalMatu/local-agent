@@ -236,6 +236,9 @@ class ParallelWorkerDedupeTests(unittest.TestCase):
         first = self.task("task-a")
         second = self.task("task-b")
         worker.task_dedupe.record_admission(self.state_dir, first, now_epoch=100.0)
+        claim_path = worker.task_dedupe._claim_path(self.state_dir, "task-a")
+        claim_path.parent.mkdir(parents=True, exist_ok=True)
+        claim_path.write_text("{}\n", encoding="utf-8")
 
         with mock.patch.object(
             worker.serial_worker,
