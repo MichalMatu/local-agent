@@ -1,14 +1,12 @@
 # Conversation Fabric continuation prompt
 
-Use the text below to start the next ChatGPT conversation after the final cleanup release. Repository state, durable docs and fresh host evidence are authoritative; do not rely on previous chat memory.
+Use the text below for the next conversation after the 2026-10-04 self-diagnostic/documentation cleanup. Repository state, durable docs and fresh runtime evidence are authoritative; do not rely on previous chat memory.
 
 ---
 
-Continue `MichalMatu/local-agent` in **Superchat self-diagnostic mode**.
+Continue `MichalMatu/local-agent` from the post-self-diagnostic Superchat baseline.
 
-Do not rely on memory from the previous chat. Repository state, durable documentation, GitHub control/evidence and fresh daemon state are the source of truth.
-
-Read first:
+Do not rely on memory from the previous chat. Read first:
 
 1. `AGENTS.md`
 2. `docs/CURRENT_HANDOFF.md`
@@ -16,31 +14,34 @@ Read first:
 4. `docs/OPERATIONS.md`
 5. `docs/conversation_fabric/CURRENT_PLAN.md`
 6. `docs/DEVELOPMENT_PLAN.md`
-7. `docs/conversation_fabric/NEXT_CHAT_PROMPT.md`
+7. `docs/conversation_fabric/SELF_DIAGNOSTIC_2026-10-04.md`
 
-Then establish the exact current `main`, release tag, installed daemon revision/version, repository registry, `chat-bridge-state`, `operator-control`, Bridge version and active task state. Do not infer them from this prompt.
+Then establish exact current `main`, open PRs, installed daemon version/revision, `chat-bridge-state`, `operator-control` and active task state from fresh evidence.
 
-The architecture to test is already decided:
+Current expected baseline to verify, not assume:
 
-- this parent chat is the Superchat coordinator;
-- Chat Bridge is transport/scheduling only and is **not** a repository authorization boundary;
-- repository names in the active goal are reasoning context and may include donor + target repositories without `LAB:REBIND`;
-- child chats, when used, are bounded reasoning workers only;
-- the parent decomposes work, assigns audit/debug/verification scopes, reviews child conclusions and decides which fixes proceed;
-- all machine execution remains through direct GitHub operations when sufficient or exact target-repository `.agent/tasks` with that repository's canonical `agent_binding`;
-- `.agent/tasks` is the only executable repository-work contract;
+- released source/tag: Local Agent 4.20.5 / Chat Bridge 0.8.1;
+- release SHA: `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`;
+- parent-level Superchat architecture is healthy;
 - `local-agent` remains execution-disabled as a Local Agent task target;
-- do not create a second scheduler/control plane and do not launch local Codex or another local coding-agent CLI.
+- child delegation remains optional and not yet production-trustworthy;
+- current production Conversation Operator intake is not enabled/configured;
+- previous parent `chat-7781d9b9` should remain disabled.
 
-Start with a **read-only self-audit of Local Agent**. Build a concise evidence-backed map of current health and divide it into at most four bounded workstreams, for example:
+Architecture is fixed:
 
-1. daemon/supervisor/executor/task-binding/resource/recovery correctness;
-2. Git control, publication, self-update, emergency controls and stale-state cleanup;
-3. Chat Bridge 0.8.x transport, GitHub-managed schedule, retry/error ownership and popup/onboarding;
-4. Conversation Fabric parent/child lifecycle, with special attention to the known browser child-spawn login detector.
+- this parent chat is the reasoning/coordinating Superchat;
+- Chat Bridge is transport/scheduling only, never repository authorization;
+- repository names / `repository_id(s)` are reasoning context and donor/target repositories may differ without `LAB:REBIND`;
+- child chats are bounded reasoning workers only;
+- machine execution remains direct GitHub work when sufficient or exact target-repository `.agent/tasks` with the actual target's canonical `agent_binding`;
+- `.agent/tasks` is the only executable repository-work contract;
+- do not create a second scheduler/control plane and do not launch local Codex/another coding-agent CLI.
 
-Delegate those workstreams to child chats if the child path is actually healthy. Children may audit, debug and propose patches, but they have no independent machine authority. The parent must coordinate, compare findings, avoid duplicate work and approve executable effects.
+The immediate code candidate is draft PR #135, `Decouple child browser auth readiness from composer DOM`, exact head SHA `25e817c79086f3962a4cee1b23515a11ebedffd3`. The 2026-10-04 audit found that `waitForLoginReady()` gated authentication probing on composer DOM visibility. The PR decouples session authentication from composer readiness and adds a delayed-composer regression; an exact-SHA CI run completed 5/5 green.
 
-Known evidence from the previous stage: parent Superchat wake delivery worked; exact-bound MatrixHub routing passed; a later child-browser pilot stopped at `chatgpt_login_timeout` in the isolated profile. **Do not repeat the old Chrome login / Cloudflare / DOM-proof loop.** If that issue still exists, diagnose it from code and bounded fresh evidence, make it the first narrowly scoped repair, and continue the rest of the parent audit independently.
+First inspect PR #135 and current CI/diff. Do not mix unrelated cleanup into it. If it is still the correct minimal repair, make the explicit merge/deploy decision. After deployment, verify the exact installed revision and run **one bounded child pilot**. Do not return to the historical long Chrome login / Cloudflare / DOM debugging loop.
 
-Prefer real defects over architectural expansion. For every fix: identify the failure mechanism, make the smallest change, run focused verification, and preserve executor safety boundaries. Finish with one broad gate and a durable checkpoint summarizing findings, fixes, unresolved risks and whether child delegation is now trustworthy enough for wider use.
+If the bounded pilot passes, then decide whether to configure Conversation Operator intake and add normal observability for its enabled/configured state. If it fails, capture the exact new failure and continue from that evidence instead of broadening architecture.
+
+Keep storage/worktree optimization, `hardware-lab` clone-policy maintenance, broad fan-out and automatic rollover as separate later work.
