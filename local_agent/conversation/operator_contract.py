@@ -10,7 +10,8 @@ from typing import Any
 
 from local_agent.conversation import contract
 
-OPERATOR_REQUEST_SCHEMA_VERSION = 1
+LEGACY_OPERATOR_REQUEST_SCHEMA_VERSION = 1
+OPERATOR_REQUEST_SCHEMA_VERSION = 2
 OPERATOR_RESULT_SCHEMA_VERSION = 1
 MAX_OPERATOR_REQUEST_BYTES = 128 * 1024
 MAX_OPERATOR_RESULT_BYTES = 64 * 1024
@@ -20,8 +21,10 @@ MAX_OPERATOR_ERROR_CHARS = 1024
 MAX_OPERATOR_PATHS = 64
 MAX_OPERATOR_PATH_CHARS = 1024
 MAX_OPERATOR_ID_CHARS = 120
+MAX_OPERATOR_REPOSITORY_ID_CHARS = 120
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
+_REPOSITORY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$")
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
@@ -45,26 +48,50 @@ def _bounded_id(value: Any, *, field: str) -> str:
     return value
 
 
+def _repository_id(value: Any) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) > MAX_OPERATOR_REPOSITORY_ID_CHARS
+        or not _REPOSITORY_ID_RE.fullmatch(value)
+    ):
+        raise ValueError("operator repository_id must be a bounded canonical repository id")
+    return value
+
+
 def validate_operator_request(request: dict[str, Any]) -> None:
     if not isinstance(request, dict):
         raise ValueError("operator request must be an object")
     if len(_canonical_bytes(request)) > MAX_OPERATOR_REQUEST_BYTES:
         raise ValueError(f"operator request exceeds {MAX_OPERATOR_REQUEST_BYTES} bytes")
-    required = {
-        "schema_version",
-        "id",
-        "workflow_id",
-        "parent_conversation_url",
-        "children",
-    }
+    schema_version = request.get("schema_version")
+    if schema_version == LEGACY_OPERATOR_REQUEST_SCHEMA_VERSION:
+        required = {
+            "schema_version",
+            "id",
+            "workflow_id",
+            "parent_conversation_url",
+            "children",
+        }
+    elif schema_version == OPERATOR_REQUEST_SCHEMA_VERSION:
+        required = {
+            "schema_version",
+            "id",
+            "workflow_id",
+            "parent_conversation_url",
+            "repository_id",
+            "children",
+        }
+    else:
+        raise ValueError(
+            "operator request schema_version must be "
+            f"{LEGACY_OPERATOR_REQUEST_SCHEMA_VERSION} or {OPERATOR_REQUEST_SCHEMA_VERSION}"
+        )
     if set(request) != required:
         raise ValueError("operator request fields do not match schema")
-    if request.get("schema_version") != OPERATOR_REQUEST_SCHEMA_VERSION:
-        raise ValueError(
-            f"operator request schema_version must be {OPERATOR_REQUEST_SCHEMA_VERSION}"
-        )
     _bounded_id(request.get("id"), field="operator request id")
     _bounded_id(request.get("workflow_id"), field="operator workflow id")
+    if schema_version == OPERATOR_REQUEST_SCHEMA_VERSION:
+        _repository_id(request.get("repository_id"))
     parent = contract.canonical_conversation_url(request.get("parent_conversation_url"))
     if parent != request.get("parent_conversation_url"):
         raise ValueError("operator parent_conversation_url must be canonical")
@@ -105,6 +132,14 @@ def validate_operator_request(request: dict[str, Any]) -> None:
                 or len(item) > MAX_OPERATOR_PATH_CHARS
             ):
                 raise ValueError("operator child path must be a bounded non-empty string")
+
+
+def operator_request_repository_id(request: dict[str, Any]) -> str | None:
+    """Return the explicit v2 target, preserving accepted v1 local-agent semantics."""
+    validate_operator_request(request)
+    if request["schema_version"] == LEGACY_OPERATOR_REQUEST_SCHEMA_VERSION:
+        return None
+    return str(request["repository_id"])
 
 
 def operator_request_digest(request: dict[str, Any]) -> str:
