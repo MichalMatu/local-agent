@@ -111,8 +111,8 @@ def _publish_duplicate_suppression(
     task_id = str(task.get("id", ""))
     result = {
         "id": task_id,
-        "status": "failed",
-        "failure_reason": "duplicate_task_suppressed",
+        "status": "done",
+        "outcome": "duplicate_task_suppressed",
         "task_digest": agentd.task_digest(task),
         "execution_fingerprint": suppressed.execution_fingerprint,
         "dedupe_queue_key": suppressed.queue_key,
@@ -123,9 +123,9 @@ def _publish_duplicate_suppression(
         "daemon_version": PARALLEL_DAEMON_VERSION,
         "repository_id": repository.repository_id,
         "repository": repository.repository,
-        "error": (
+        "message": (
             "Equivalent work is already queued, admitted, or was completed recently; "
-            "duplicate execution was suppressed."
+            "duplicate execution was intentionally suppressed."
         ),
     }
     core.publish_result(task_id, result)
@@ -133,8 +133,8 @@ def _publish_duplicate_suppression(
         task_id,
         {
             "event": "duplicate_task_suppressed",
-            "status": "failed",
-            "failure_reason": "duplicate_task_suppressed",
+            "status": "done",
+            "outcome": "duplicate_task_suppressed",
             "execution_fingerprint": suppressed.execution_fingerprint,
             "dedupe_queue_key": suppressed.queue_key,
             "duplicate_of": suppressed.duplicate_of,
@@ -150,15 +150,53 @@ def _publish_duplicate_suppression(
     )
 
 
+def _publish_invalid_dedupe_task(
+    repository: RepositoryContext,
+    invalid: task_dedupe.InvalidTask,
+) -> None:
+    _, task = invalid.item
+    task_id = str(task.get("id", ""))
+    result = {
+        "id": task_id,
+        "status": "failed",
+        "failure_reason": "invalid_dedupe_key",
+        "task_digest": agentd.task_digest(task),
+        "started_at": None,
+        "finished_at": agentd.now_iso(),
+        "daemon_version": PARALLEL_DAEMON_VERSION,
+        "repository_id": repository.repository_id,
+        "repository": repository.repository,
+        "error": invalid.error,
+    }
+    core.publish_result(task_id, result)
+    agentd.publish_run_state(
+        task_id,
+        {
+            "event": "task_rejected",
+            "status": "failed",
+            "failure_reason": "invalid_dedupe_key",
+            "error": invalid.error,
+            "updated_at": agentd.now_iso(),
+        },
+        force_remote=True,
+    )
+    core.log(
+        f"invalid dedupe key rejected repository={repository.repository_id} "
+        f"task={task_id}: {invalid.error}"
+    )
+
+
 def _coalesce_pending_tasks(
     repository: RepositoryContext,
     pending: list[task_dedupe.PendingTask],
 ) -> list[task_dedupe.PendingTask]:
-    """Drain duplicate queue entries before selecting a task for execution."""
+    """Drain invalid and duplicate queue entries before selecting execution work."""
     plan = task_dedupe.plan_pending(
         serial_worker.repository_state_dir(repository),
         pending,
     )
+    for invalid in plan.invalid:
+        _publish_invalid_dedupe_task(repository, invalid)
     for suppressed in plan.suppressed:
         _publish_duplicate_suppression(repository, suppressed)
     return list(plan.candidates)
