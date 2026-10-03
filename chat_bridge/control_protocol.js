@@ -13,6 +13,7 @@
   const MIN_NEXT_SECONDS = 30;
   const MAX_NEXT_SECONDS = 86400;
   const CHAT_ID_RE = /^chat-[0-9a-f]{8}$/;
+  const CONVERSATION_ID_RE = /^[A-Za-z0-9_-]{1,200}$/;
   const REPOSITORY_ID_RE = /^[A-Za-z0-9._-]{1,120}$/;
   const TASK_ID_RE = /^[A-Za-z0-9._:-]{1,160}$/;
 
@@ -53,7 +54,7 @@
 
       const pathname = url.pathname.replace(/\/$/, "");
       const match = pathname.match(/(?:^|\/)c\/([^/]+)$/);
-      if (!match) return "";
+      if (!match || !CONVERSATION_ID_RE.test(match[1])) return "";
 
       return `https://chatgpt.com/c/${match[1]}`;
     } catch (_error) {

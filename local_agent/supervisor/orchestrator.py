@@ -19,6 +19,7 @@ from typing import Any
 from local_agent.paths import repository_root
 
 from local_agent.supervisor import control as supervisor_control
+from local_agent.supervisor import conversation as conversation_supervisor
 from local_agent.supervisor import policy as supervisor_policy
 from local_agent.supervisor import scheduling
 import local_agent.operator.local as agent_operator
@@ -482,6 +483,7 @@ def probe_control_request(
             supervisor_control.sync_control_quietly()
             if handle_bound_disable_control(repository):
                 return ControlProbeResult.CLEAR
+            conversation_supervisor.service_control_plane()
             return pending_control_request_from_bound_checkout()
     except ExecutionLeaseBusy:
         return ControlProbeResult.LEASE_BUSY
@@ -527,6 +529,7 @@ def service_control(
                     **status_fields,
                 )
                 return True
+            conversation_supervisor.service_control_plane()
             agentd.publish_daemon_status(
                 "idle",
                 force_remote=False,
@@ -558,6 +561,47 @@ def service_control(
     finally:
         # Restore quiescence only after lease release, including failed syncs and
         # contention. Otherwise a stale control marker can hide a real orphan.
+        publish_local_supervisor_status(
+            {},
+            max_workers=max_workers,
+            state="disabled" if agent_operator.is_disabled() else "idle",
+        )
+
+
+def service_operator_result_publication(
+    repositories: list[RepositoryContext],
+    *,
+    max_workers: int,
+) -> bool:
+    if not repositories:
+        return False
+    control_repository = repositories[0]
+    try:
+        publish_local_supervisor_status(
+            {},
+            max_workers=max_workers,
+            state="running",
+            control_repository=control_repository,
+        )
+        with supervisor_control_leases(repositories):
+            supervisor_control.bind_supervisor_control(
+                control_repository,
+                daemon_version=PARALLEL_DAEMON_VERSION,
+            )
+            agentd.DAEMON_VERSION = PARALLEL_DAEMON_VERSION
+            supervisor_control.sync_control_quietly()
+            conversation_supervisor.publish_pending_result_only()
+        return True
+    except ExecutionLeaseBusy:
+        return False
+    except Exception as exc:
+        log(
+            "conversation operator result publication degraded "
+            f"repository={control_repository.repository_id}: "
+            f"{type(exc).__name__}: {exc}"
+        )
+        return False
+    finally:
         publish_local_supervisor_status(
             {},
             max_workers=max_workers,
@@ -625,6 +669,7 @@ def main() -> int:
     install_signal_handlers()
 
     running: dict[str, RunningWorker] = {}
+    operator_campaign: conversation_supervisor.RunningOperatorCampaign | None = None
     schedules: dict[str, scheduling.RepositorySchedule] = {}
     control_deferrals = scheduling.ControlDeferralState()
     last_repository: str | None = None
@@ -715,7 +760,17 @@ def main() -> int:
     while True:
         try:
             completed = reap_workers(running, schedules)
+            previous_operator_campaign = operator_campaign
+            operator_campaign = conversation_supervisor.reap(
+                operator_campaign,
+                interrupted=agent_operator.is_disabled(),
+            )
             record_once_outcomes(completed)
+            if previous_operator_campaign is not None and operator_campaign is None:
+                publish_local_supervisor_status(
+                    running,
+                    max_workers=max_workers,
+                )
             if any(
                 return_code == serial_worker.WORKER_PROCESSED
                 for return_code in completed.values()
@@ -728,14 +783,26 @@ def main() -> int:
                 if not disabled_logged:
                     log("operator disable state active; stopping workers and pausing admission")
                     disabled_logged = True
-                if running:
+                if running or operator_campaign is not None:
                     terminate_active_processes(log)
                 publish_local_supervisor_status(
                     running,
                     max_workers=max_workers,
                     state="disabled",
                 )
-                if args.once and not running:
+                if args.once and not running and operator_campaign is None:
+                    if conversation_supervisor.result_publish_pending():
+                        if service_operator_result_publication(
+                            repositories,
+                            max_workers=max_workers,
+                        ):
+                            continue
+                        time.sleep(
+                            note_control_deferred(
+                                "conversation operator result publication deferred while disabled"
+                            )
+                        )
+                        continue
                     return 0
                 time.sleep(REAP_INTERVAL_SECONDS if running else DISABLED_POLL_SECONDS)
                 continue
@@ -799,6 +866,13 @@ def main() -> int:
                 priority_repository = None
 
             if control_pending:
+                if operator_campaign is not None:
+                    probe_control_request(repositories[0])
+                    if agent_operator.is_disabled():
+                        time.sleep(REAP_INTERVAL_SECONDS)
+                        continue
+                    time.sleep(REAP_INTERVAL_SECONDS)
+                    continue
                 if running:
                     time.sleep(REAP_INTERVAL_SECONDS)
                     continue
@@ -831,7 +905,7 @@ def main() -> int:
                     now,
                 )
             ):
-                if running:
+                if running or operator_campaign is not None:
                     probe_result = probe_control_request(repositories[0])
                     if agent_operator.is_disabled():
                         time.sleep(REAP_INTERVAL_SECONDS)
@@ -909,6 +983,21 @@ def main() -> int:
             if agent_operator.is_disabled():
                 time.sleep(REAP_INTERVAL_SECONDS)
                 continue
+
+            if operator_campaign is None:
+                try:
+                    operator_campaign = conversation_supervisor.start_if_pending()
+                    if operator_campaign is not None:
+                        publish_local_supervisor_status(
+                            running,
+                            max_workers=max_workers,
+                            state="running",
+                        )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    log(
+                        "conversation operator start degraded: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
 
             now = time.monotonic()
             if (
@@ -994,12 +1083,32 @@ def main() -> int:
 
             if args.once:
                 terminal = once_completed | once_failed
-                if enabled.issubset(terminal) and not running:
+                if enabled.issubset(terminal) and not running and operator_campaign is None:
+                    if conversation_supervisor.result_publish_pending():
+                        if service_control(
+                            repositories,
+                            registry_path=args.registry,
+                            max_workers=max_workers,
+                            once=args.once,
+                        ):
+                            last_control_at = time.monotonic()
+                            scheduling.reset_control_deferral_state(
+                                control_deferrals,
+                                clear_pause=True,
+                            )
+                            continue
+                        time.sleep(
+                            note_control_deferred(
+                                "conversation operator result publication deferred"
+                            )
+                        )
+                        continue
                     return 2 if once_failed else 0
 
             now = time.monotonic()
             if (
                 not running
+                and operator_campaign is None
                 and not control_pending
                 and paused_control_repository is None
                 and priority_repository is None
@@ -1008,7 +1117,7 @@ def main() -> int:
                 log(scheduling.format_operator_idle_summary(len(repositories), max_workers))
                 last_idle_log_at = now
 
-            if running or control_pending:
+            if running or operator_campaign is not None or control_pending:
                 delay = REAP_INTERVAL_SECONDS
             elif priority_repository is not None:
                 retry_at = schedules[priority_repository].retry_not_before

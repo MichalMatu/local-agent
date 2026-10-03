@@ -19,6 +19,7 @@ CONTROL_RECOVERABLE_DIRS = (
     ".agent/status",
     ".agent/runs",
     ".agent/results",
+    ".agent/conversation/results",
     ".agent/daemon/acks",
 )
 CONTROL_RUNTIME_TASK_PREFIX = ".agent/tasks/"

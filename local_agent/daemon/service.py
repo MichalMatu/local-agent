@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import fcntl
 import hashlib
 import json
@@ -227,6 +229,8 @@ def publish_control_json(
     timeout: int = 180,
     attempts: int = 2,
     log_commands: bool = False,
+    ensure_remote: bool = False,
+    post_pull_validate: Callable[[], None] | None = None,
 ) -> bool:
     """Publish control metadata while keeping successful Git plumbing quiet."""
     with core.CONTROL_GIT_LOCK:
@@ -251,17 +255,18 @@ def publish_control_json(
                 log_commands=log_commands,
             )
             if staged["exit_code"] == 0:
-                return False
-            if staged["exit_code"] != 1:
+                if not ensure_remote:
+                    return False
+            elif staged["exit_code"] == 1:
+                commit = core.process(
+                    ["git", "commit", "-m", commit_message, "--", relative],
+                    core.CONTROL,
+                    log_commands=log_commands,
+                )
+                if commit["exit_code"] != 0:
+                    raise RuntimeError(storage.git_failure_diagnostic(commit))
+            else:
                 raise RuntimeError(storage.git_failure_diagnostic(staged))
-
-            commit = core.process(
-                ["git", "commit", "-m", commit_message, "--", relative],
-                core.CONTROL,
-                log_commands=log_commands,
-            )
-            if commit["exit_code"] != 0:
-                raise RuntimeError(storage.git_failure_diagnostic(commit))
 
         for attempt in range(attempts):
             pull = storage.run_git_with_network_retry(
@@ -273,6 +278,8 @@ def publish_control_json(
             )
             if pull["exit_code"] != 0:
                 raise RuntimeError(pull["output"])
+            if post_pull_validate is not None:
+                post_pull_validate()
             push = storage.run_git_with_network_retry(
                 core,
                 ["git", "push", "origin", core.CONTROL_BRANCH],

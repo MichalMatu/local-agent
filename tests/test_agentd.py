@@ -83,6 +83,36 @@ class AgentDaemonSafetyTests(unittest.TestCase):
             all(call.kwargs.get("log_commands") is False for call in retry.call_args_list)
         )
 
+    def test_publish_control_json_ensure_remote_pushes_even_when_nothing_is_staged(self) -> None:
+        process = mock.Mock(
+            side_effect=[
+                {"exit_code": 0, "output": ""},
+                {"exit_code": 0, "output": ""},
+            ]
+        )
+        retry = mock.Mock(
+            side_effect=[
+                {"exit_code": 0, "output": ""},
+                {"exit_code": 0, "output": ""},
+            ]
+        )
+        validator = mock.Mock()
+        with mock.patch.object(agentd.core, "process", process), mock.patch.object(
+            agentd.storage, "run_git_with_network_retry", retry
+        ), mock.patch.object(
+            agentd, "termination_critical_section", return_value=nullcontext()
+        ):
+            published = agentd.publish_control_json(
+                ".agent/status/daemon.json",
+                {"state": "idle"},
+                commit_message="Agent daemon status: idle",
+                ensure_remote=True,
+                post_pull_validate=validator,
+            )
+        self.assertTrue(published)
+        self.assertEqual(retry.call_count, 2)
+        validator.assert_called_once_with()
+
     def test_quiet_control_git_failure_keeps_diagnostic(self) -> None:
         failure = {
             "exit_code": 124,

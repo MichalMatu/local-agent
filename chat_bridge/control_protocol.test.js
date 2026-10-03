@@ -106,6 +106,7 @@ assert.equal(
   protocol.normalizeConversationUrl("https://chatgpt.com/c/example?x=1#fragment"),
   "https://chatgpt.com/c/example"
 );
+assert.equal(protocol.normalizeConversationUrl('https://chatgpt.com/c/local-chatgpt%3A65b0b0eb-b67b-415a-a1e5-92715bc5855f'), '');
 assert.equal(
   protocol.normalizeConversationUrl("https://chat.openai.com/c/example"),
   "https://chatgpt.com/c/example"

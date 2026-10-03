@@ -1,96 +1,99 @@
 # Local Agent development plan
 
-Status: current post-checkpoint development direction, prepared for the v4.19.11 release checkpoint.
+Status: Conversation Fabric end-to-end MVP and operator-visible GitHub intake are accepted in development. The next product milestone is a controlled production rollout/release decision.
 
-## Production checkpoint
+## Stable production baseline
 
-The current candidate is Local Agent 4.19.11 / Chat Bridge 0.6.2. Runtime schema 3, content protocol v13 and assistant guard v8 are unchanged.
+Production remains Local Agent v4.19.12 / Chat Bridge 0.6.2 on:
 
-The candidate has completed the terminal-safety repair, historical BUG-001 closure revalidation, release-engineering hardening, full CI/macOS/browser verification and the bounded live GitHub-control browser proof. The live control was returned to PAUSED after the successful short-interval wake test.
+- `main@979ef080ddb69d6e18aaf81510e3175bac2f33d2`
 
-Remaining release actions are administrative: final documentation CI, explicit merge of PR #122, tag v4.19.11, clean installed-checkout verification and deletion of the obsolete checkpoint branch after production proof.
+Conversation Fabric development must not mutate production `main` or the production Chrome profile without a separate explicit release decision.
 
 ## Product direction
-
-The canonical target is one user-visible Local Agent product with one long-lived Operator Chat / Superchat.
 
 ```text
 User
   -> Operator Chat / Superchat
-    -> GitHub control + evidence plane
-      -> Local Agent deterministic orchestration/execution
-        -> host-ops deterministic capabilities
-        -> narrow ChatGPT Browser Driver for child-chat UI lifecycle
-      -> GitHub result/evidence
+    -> GitHub durable control/evidence
+      -> Local Agent deterministic orchestration
+        -> host-ops deterministic host effects
+        -> narrow ChatGPT browser actuator for child lifecycle
+      -> durable result/evidence
     -> Operator Chat synthesis
 ```
 
-Permanent architecture rules:
+Permanent boundaries:
 
 - GitHub is the durable control/evidence plane.
 - Local Agent remains deterministic and model-free.
-- Ordinary ChatGPT conversations remain the reasoning layer.
-- Chat Bridge is reduced to a narrow browser lifecycle/transport role.
-- Browser DOM is transport evidence, never workflow/task authority.
-- Child chats never gain independent machine authority.
-- MCP and direct OpenAI API model loops are excluded from the current target architecture, fallback path and future roadmap unless the architecture is explicitly changed.
+- ChatGPT conversations remain the reasoning layer.
+- Chat Bridge is a narrow browser transport/actuator, not workflow authority.
+- Child chats have no independent machine authority.
+- No direct OpenAI API model loop.
+- No MCP or Native Messaging control plane for Conversation Fabric.
 
-## Development lane
+## Branch roles
 
-| Lane | Branch | Role |
-| --- | --- | --- |
-| Production | main | released runtime and installed source of truth |
-| Development | develop/conversation-fabric | canonical Conversation Fabric / Superchat development line |
-| Operational state | chat-bridge-state | GitHub-backed Chat Bridge desired state |
-| Operational control | operator-control | global operator safety/control state |
-| Release candidate | work/checkpoint-v4.19.11 | disposable validation branch; delete after production proof |
+| Branch | Role |
+| --- | --- |
+| `main` | production runtime/source of truth |
+| `develop/conversation-fabric` | canonical Conversation Fabric development line |
+| `work/conversation-*` / `work/stage8-*` | temporary bounded candidate branches only |
+| `chat-bridge-state` | operational desired state, not development |
+| `operator-control` | global operator safety/control, not development |
 
-No other long-lived work branch should be created without an explicit reason.
+## Accepted development checkpoint
 
-## Next development milestone
+- operator-visible CODE: `37e480d3b36a5c15db89c944ef46f01225a4b379`
+- commit: `Add operator-visible Conversation Fabric intake`
+- tree: `02910eadc544a87cd9fcb5287abd26e1a05d7688`
+- exact-SHA clean CI: `37085317848`, all five jobs passed
+- final clean operator proof result: `OPERATOR_CLEAN_FINAL_OK 37e480d3b36a5c15db89c944ef46f01225a4b379`
+- final clean child: `https://chatgpt.com/c/6ac057fc-b140-83ed-b74f-61f1b8de94d7`
+- underlying accepted end-to-end MVP: `93494b2a99162eef5bcf44caae087b71459233b4`, CI `37076387941`
+- production remained unchanged
 
-The next implementation line is Conversation Fabric Stage 8 — bounded live child-chat slice on develop/conversation-fabric.
+Documentation-only commits may advance the canonical branch; always distinguish accepted CODE from a later docs-only head.
 
-The first live gate is intentionally small:
+## Completed Conversation Fabric milestones
 
-1. use the isolated DEV checkout/profile, never production;
-2. seed exactly one non-executing reasoning request for MichalMatu/local-agent;
-3. prepare one exact durable attempt;
-4. prove login/composer readiness;
-5. arm the exact plan digest;
-6. create exactly one ChatGPT child;
-7. discover its canonical /c/<id> URL;
-8. persist the exact ChildRegistration and SpawnTransaction=done;
-9. inspect the bootstrap and durable evidence;
-10. only then extend the live slice to adoption/terminal/retirement.
+1. Stage 8 automatic child creation/identity proof — `93fb65204db03c54d0080803d26266f3c06d777e`, CI `37022787748`.
+2. Durable terminal records — `a16918d32bc366dbc9d8a8793669baa214d13620`, CI `37036591713`.
+3. Durable adoption/retirement — `e76dc4a114f750cc0beabdbb2ad626d41ff2e986`, CI `37054505079`.
+4. Restart/recovery boundary proofs — `2557f9477ff34ebb5b8502a15747e5d78f29bd5a`, CI `37056289262`.
+5. First-class manual child lifecycle — `78f72819c2e7d60e0cae4599f8c24976cb0ce2a4`, CI `37062617205`.
+6. End-to-end MVP — `93494b2a99162eef5bcf44caae087b71459233b4`, CI `37076387941`.
+7. Operator-visible GitHub request/result intake — `37e480d3b36a5c15db89c944ef46f01225a4b379`, CI `37085317848`.
 
-Current Stage 8 safety limits:
+## Accepted operator contract
 
-- maximum active children: 1;
-- maximum browser spawn attempts: 1;
-- local-agent remains execution_enabled=false;
-- no production Chrome profile;
-- no production Native Messaging registration;
-- no automatic production Superchat scheduler;
-- no second Local Agent executor;
-- ambiguous create/submit state fails closed and never blindly replays.
+- request path: `.agent/conversation/requests/<request-id>.json`;
+- result path: `.agent/conversation/results/<request-id>.json`;
+- bounded one-to-four child operator intent;
+- immutable request identity and fail-closed same-ID conflicts;
+- existing MVP lifecycle remains semantic owner;
+- local durable result spool with fresh-origin publication proof before deletion;
+- default-disabled supervisor intake and explicit runtime configuration;
+- no changes to `.agent/tasks` semantics.
 
-Do not start the 44-node acceptance campaign from this gate.
+## Current milestone: controlled production rollout/release
 
-## After Stage 8
+Do not create another hidden lifecycle or intake milestone. Inspect current release mechanics, choose the exact release candidate/configuration, preserve default-disabled rollout until the code is installed and verified, and require explicit user approval before production mutation.
 
-1. Stage 8 live proof — one real child create/register.
-2. Stage 8 lifecycle extension — adoption, terminal recording and retirement.
-3. Recovery proof — restart/reconcile every external-effect boundary without duplicates.
-4. Manual lifecycle parity — keep prepare/open/paste/attach as a first-class fallback.
-5. Narrow Browser Driver promotion — automate only physical ChatGPT child lifecycle effects.
-6. Superchat control/fleet layer — only after the single-child lifecycle is proven.
-7. Automatic scheduling — only if required after the complete lifecycle is stable.
-
-The conceptual Superchat lifecycle roadmap remains in docs/superchat/ROADMAP.md. The canonical execution-stage ledger remains on develop/conversation-fabric in docs/conversation_fabric/CURRENT_PLAN.md.
+After any controlled release, improve operator progress/diagnostics only from real use. Broad automatic scheduling/rollover and fleet management remain later product milestones.
 
 ## Verification discipline
 
-Every non-trivial change must start from the correct canonical branch, preserve hard repository binding and GitHub authority, use focused tests first, use real lifecycle evidence for browser/process/resource boundaries, run exact-SHA CI before release, keep production and DEV state separate, update the current handoff when a milestone changes and remove obsolete candidate branches after production proof.
+For every non-trivial runtime change:
 
-Exact GitHub task/run/result/control evidence outranks chat prose or browser appearance.
+1. fetch fresh canonical and production state;
+2. verify DEV and production cleanliness;
+3. identify a concrete product/reliability gap before coding;
+4. make the smallest bounded change;
+5. add focused tests for the affected contract;
+6. use live browser evidence only for changed external-effect boundaries;
+7. use `host-ops` for Mac-local operations and direct GitHub operations for repository-side work;
+8. establish exact-SHA CI before accepting another CODE checkpoint;
+9. advance only `develop/conversation-fabric` after validation;
+10. update durable docs after acceptance.
