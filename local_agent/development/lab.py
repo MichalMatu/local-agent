@@ -253,6 +253,55 @@ def adopt_existing_browser_profile(layout: DevLabLayout) -> dict[str, Any]:
     return expected
 
 
+def rebind_dev_lab_checkout(layout: DevLabLayout) -> dict[str, Any]:
+    """Atomically rebind an unused healthy lab marker to one new isolated checkout."""
+    validate_dev_lab_layout(layout)
+    _validate_existing_lab_entries(layout)
+    if layout.checkout.is_symlink() or not layout.checkout.is_dir():
+        raise RuntimeError("checkout rebind requires an existing regular checkout directory")
+    if not layout.marker_path.is_file() or layout.marker_path.is_symlink():
+        raise RuntimeError("checkout rebind requires a regular existing DEV lab marker")
+
+    try:
+        actual = json.loads(layout.marker_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError("checkout rebind requires a valid existing DEV lab marker") from exc
+    if not isinstance(actual, dict):
+        raise RuntimeError("checkout rebind requires a valid existing DEV lab marker")
+
+    expected = layout.manifest()
+    if actual == expected:
+        return expected
+
+    paths = actual.get("paths")
+    old_checkout_value = paths.get("checkout") if isinstance(paths, dict) else None
+    if not isinstance(old_checkout_value, str) or not old_checkout_value.strip():
+        raise RuntimeError("checkout rebind requires a canonical existing DEV lab marker")
+    old_layout = build_dev_lab_layout(
+        home=layout.home,
+        root=layout.root,
+        checkout=Path(old_checkout_value),
+        production_checkout=layout.production_checkout,
+    )
+    if actual != old_layout.manifest():
+        raise RuntimeError("checkout rebind requires a canonical existing DEV lab marker")
+    old_status = dev_lab_status(old_layout)
+    if not old_status["healthy"]:
+        raise RuntimeError("checkout rebind requires a healthy existing DEV lab")
+
+    for path in (
+        layout.state_dir,
+        layout.repositories_dir,
+        layout.logs_dir,
+        layout.fixtures_dir,
+    ):
+        if any(path.iterdir()):
+            raise RuntimeError("checkout rebind requires inert lab state")
+
+    atomic_write_text(layout.marker_path, _json_text(expected))
+    return expected
+
+
 def initialize_dev_lab(layout: DevLabLayout) -> dict[str, Any]:
     """Create only the inert DEV namespace; never clone, launch or register Chrome."""
     validate_dev_lab_layout(layout)
@@ -332,9 +381,15 @@ def _build_from_args(args: argparse.Namespace) -> DevLabLayout:
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Plan, initialize, adopt or inspect the synthetic-only Conversation Fabric DEV lab"
+        description=(
+            "Plan, initialize, adopt, rebind or inspect the synthetic-only "
+            "Conversation Fabric DEV lab"
+        )
     )
-    parser.add_argument("command", choices=("plan", "init", "adopt-profile", "status"))
+    parser.add_argument(
+        "command",
+        choices=("plan", "init", "adopt-profile", "rebind-checkout", "status"),
+    )
     parser.add_argument("--home")
     parser.add_argument("--root")
     parser.add_argument("--checkout")
@@ -354,6 +409,9 @@ def main(argv: Iterable[str] | None = None) -> int:
             return_code = 0
         elif args.command == "adopt-profile":
             payload = adopt_existing_browser_profile(layout)
+            return_code = 0
+        elif args.command == "rebind-checkout":
+            payload = rebind_dev_lab_checkout(layout)
             return_code = 0
         else:
             payload = dev_lab_status(layout)
