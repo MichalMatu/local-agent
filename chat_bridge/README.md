@@ -7,14 +7,14 @@ Chrome Manifest V3 extension that binds one ChatGPT conversation to Local Agent,
 Release checkpoint:
 
 ```text
-Local Agent:      v4.19.11
-Chat Bridge:      0.6.2
+Local Agent:      v4.20.0 candidate
+Chat Bridge:      0.7.0 candidate
 content protocol: v13
 assistant guard:  v8
 runtime schema:    3 + optional conversation_controls
 ```
 
-The 4.19.11 / 0.6.2 checkpoint adds terminal-safety reconciliation and release-engineering hardening without changing the content protocol, assistant guard or runtime schema. The bounded live GitHub-control gate is complete and the final desired state is PAUSED. Production remains v4.19.10 / 0.6.1 until the explicit merge/tag decision.
+The 4.20.0 / 0.7.0 candidate adds the bounded Conversation Fabric child-spawn actuator and GitHub-backed operator intake without changing the existing content protocol, assistant guard or runtime schema. Production remains Local Agent v4.19.12 / Chat Bridge 0.6.2 until an explicit release decision advances `main`.
 
 Canonical behavior is defined by current source plus:
 

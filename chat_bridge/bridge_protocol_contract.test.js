@@ -37,7 +37,7 @@ assert.match(
 );
 
 const manifest = JSON.parse(read("manifest.json"));
-assert.equal(manifest.version, "0.6.2", "terminal safety checkpoint must have an unambiguous Bridge version");
+assert.equal(manifest.version, "0.7.0", "Conversation Fabric release must have an unambiguous Bridge version");
 const scripts = manifest.content_scripts?.[0]?.js || [];
 const retryIndex = scripts.indexOf("content_retry.js");
 const contentIndex = scripts.indexOf("content.js");

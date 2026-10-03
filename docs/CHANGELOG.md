@@ -2,6 +2,17 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
+## v4.20.0
+
+- Add the accepted end-to-end Conversation Fabric child lifecycle with bounded multi-child delegation, durable result evidence, terminal/adoption/retirement recovery and exact owned-tab cleanup.
+- Add a GitHub-backed operator control namespace under `.agent/conversation/requests/` and `.agent/conversation/results/` without changing executable `.agent/tasks` semantics or introducing a second scheduler/control transport.
+- Add default-disabled supervisor intake that stages bounded operator requests under short control leases while long browser campaigns run outside repository/resource leases.
+- Harden operator result publication with immutable request digests, restart-safe local spooling, post-sync identity validation and fresh-origin request/result proof before local spool deletion.
+- Preserve the Local Agent 4.19.12 bounded Git transport retry, 20-second attempt cap and process-local circuit-breaker behavior in the merged release line.
+- Advance Chat Bridge to 0.7.0 for the bounded Conversation Fabric child-spawn actuator while retaining runtime schema 3, content protocol v13 and assistant guard v8.
+- Keep child chats reasoning-only: no independent machine authority, no direct OpenAI API reasoning loop and no MCP/second-scheduler Conversation Fabric control plane.
+- Keep operator intake disabled unless its explicit Conversation Fabric runtime paths and enable flag are configured.
+
 ## v4.19.12
 
 - Bound GitHub-backed control Git attempts to 20 seconds even when legacy callers request larger timeouts.
