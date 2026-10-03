@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the current release/runtime invariants for `MichalMatu/local-agent`. The current source and production release is `v4.20.5` with Chat Bridge `0.8.1`, released from `main@bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`. Production completed its natural self-update to that exact revision during the 2026-10-04 self-diagnostic. A managed conversation is a transport/scheduling channel rather than a repository execution binding. Repository reasoning may span donor/target repositories without chat rebinding; executable `.agent/tasks` still require the exact canonical binding of the actual target repository. Conversation Fabric operator intake remains explicit runtime configuration and is currently not enabled/configured in production; child chats remain reasoning-only, and `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
+This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release marker is `v4.20.6`; the current production release is `v4.20.5` with Chat Bridge `0.8.1`, released from `main@bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`. The 4.20.6 candidate adds deterministic production queue deduplication but has not yet advanced production. The deployed production release remains `v4.20.5` until the explicit release decision advances `main`. Candidate source must not be described as current production before the explicit release decision advances `main`. Production completed its natural self-update to the current 4.20.5 release revision during the 2026-10-04 self-diagnostic. A managed conversation is a transport/scheduling channel rather than a repository execution binding. Repository reasoning may span donor/target repositories without chat rebinding; executable `.agent/tasks` still require the exact canonical binding of the actual target repository. Conversation Fabric operator intake remains explicit runtime configuration and is currently not enabled/configured in production; child chats remain reasoning-only, and `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
 
 ## Release/runtime invariants
 
@@ -32,7 +32,7 @@ This file records the current release/runtime invariants for `MichalMatu/local-a
 - Self-update accepts only a validated fast-forward from a clean `main` checkout and rolls back validation failure.
 - Self-update validation compiles production entrypoints and runs the bounded verification suite before restart.
 - Control checkout recovery removes only daemon-owned control artifacts plus explicitly allowlisted host metadata.
-- Arbitrary non-empty unmarked Conversation Fabric lab roots are never silently adopted. The explicit profile-adoption path accepts only an isolated root containing exactly `browser-profile`, recognizable regular Chromium identity files and no symbolic links; it writes only inert lab directories and the exact layout marker and does not rewrite browser-profile bytes.
+- Arbitrary non-empty unmarked Conversation Fabric lab roots are never silently adopted. The explicit profile-adoption path accepts only an isolated root containing exactly `browser-profile`, recognizable regular Chromium identity files and no symbolic links; it writes only inert lab directories plus the exact layout marker and does not rewrite browser-profile bytes.
 - An adopted lab checkout identity may change only through the explicit fail-closed rebind path: the current marker must be canonical and healthy, mutable lab state directories must be empty, the new checkout must already exist and remain production-disjoint, and only the atomic layout marker may change.
 
 ## Repository/binding invariants
@@ -118,88 +118,3 @@ For an exact managed `conversation_controls` record, GitHub is authoritative for
 Every schedule mutation increments `control_generation`; status reads do not. Schedule ownership is keyed by exact chat identity plus remote control generation and local conversation generation. Legacy repository/binding/revision fields are not schedule authority.
 
 A confirmed `conversation_exhausted` state is terminal for that conversation safety epoch and must not be repaired away as GitHub schedule drift. `assistant_retry_exhausted` is likewise preserved against reconciliation of the already-applied remote generation; a strictly newer GitHub generation may serve as an explicit recovery decision. Manual `Run now` must not bypass confirmed conversation exhaustion.
-
-The global Bridge Master switch is independent local operator state and is never changed by conversation desired state.
-
-Legacy assistant schedule markers and user `OP:ENABLE` / `OP:DISABLE` / `OP:INTERVAL` are compatibility no-ops for a GitHub-managed chat. They must not be the normal scheduling path.
-
-Legacy binding controls (`ADD`, `REBIND`) remain compatibility/migration paths only and must not be used for normal repository routing. `REMOVE` and Bridge maintenance remain explicit local controls.
-
-### GitHub-control discovery
-
-- Every MV3 service-worker activation ensures the dedicated one-minute GitHub-control alarm exists; install/startup performs the same idempotent initialization.
-- The extension reads the existing public runtime endpoint and stores no GitHub credential.
-- Remote runtime failure keeps last applied desired state and does not hand authority back to DOM controls.
-- A paused conversation can discover a later GitHub `RESUME` even with no conversation wake alarm.
-
-### Planner continuation discipline
-
-- One conversation follows at most one active Local Agent task for its current goal; unrelated repositories may overlap under scheduler/resource rules.
-- Every wake re-reads exact target status/run/result evidence before choosing the next action.
-- Healthy active-task rechecks should be no sooner than about two minutes and normally 5-10 minutes for multi-minute builds/tests unless evidence supports a nearer check.
-- If exact evidence proves the active task cannot succeed, cancel that exact task id and await cancellation/result evidence before replacing it.
-- Resource/capacity waiting is continuation, not completion.
-- An unfinished managed turn schedules continuation by incrementing GitHub `control_generation` and setting exact `next_wake_at` or interval state.
-- Completed/release-validation work should leave the conversation PAUSED unless continued automation is explicitly required.
-
-### Browser delivery and recovery
-
-- Service-worker activation may refresh stale content/guard scripts but is not itself a conversation wake.
-- Wake delivery must use the exact preferred conversation/tab, preserve operator composer edits and fail closed while ChatGPT generation is active.
-- Immediately before submission Bridge re-resolves the current enabled Send button and clicks that live node; `form.requestSubmit()` is fallback only.
-- Delivery is confirmed from the exact new user turn, not from click success alone.
-- A retained Bridge prompt is reusable only if composer content is still exact.
-- DOM inspection remains valid for composer/Send, generation Stop, submitted-user confirmation, structured Retry cards and conversation-length exhaustion.
-- Recognized assistant terminal errors remain `Message delivery timed out. Please try again.` and `Resume stream unavailable`; unknown Retry-looking errors fail closed.
-- Native Retry authorization remains exact-tab/conversation/binding/generation/enabled/Bridge-ownership scoped with bounded three-attempt budget.
-
-## Operator observability invariants
-
-- Routine successful Git synchronization/publication remains quiet; failures/retries remain visible.
-- Parallel supervisor emits readable `IDLE` plus task boundary logs and bounded idle heartbeat.
-- launchd stdout/stderr remains bounded.
-- Multiline commands are logged by concise stage/size descriptors; full evidence stays in run/result JSON.
-- `LOCAL_AGENT_VERBOSE_LOGS=1` is temporary diagnostics only.
-- Routine diagnostics should expose whether Conversation Operator intake is enabled and whether its required runtime paths are configured, without requiring separate LaunchAgent inspection.
-
-## Architecture invariants
-
-- `local_agent.supervisor.scheduling` owns deterministic scheduling policy/state decisions.
-- `local_agent.supervisor.orchestrator` coordinates side effects and must not absorb another embedded scheduler state machine.
-- Scheduling policy does not import Git/storage/subprocess/repository-worker implementations.
-- `local_agent.repository.binding` owns canonical binding catalog/planner-scope validation.
-- `local_agent.mcp` remains an independent generic boundary.
-- Refactors preserve hard binding, claims/results, resource exclusion, emergency controls, self-update and process lifecycle semantics.
-
-## Verification/release gate
-
-A non-trivial runtime release requires:
-
-1. isolated candidate from current `main`;
-2. source release version, release notes and changelog entry before final verification, while candidate docs still identify actually deployed production separately;
-3. focused positive/negative tests for changed state/policy;
-4. lifecycle/lease/resource/MCP-specific real coverage where those boundaries change;
-5. exact `main...candidate` architecture/dependency diff review;
-6. full GitHub CI on exact candidate SHA: compile/Ruff/full unittest, coverage, Python 3.14 and real Bridge browser;
-7. macOS ARM64 smoke on exact candidate SHA;
-8. current-documentation/release-metadata contract checks;
-9. downstream planner-documentation audit when a shared contract changes;
-10. three independent pre-merge verification views: focused changed-policy evidence, full cross-platform CI and macOS exact-SHA smoke/recheck;
-11. for Chat Bridge control changes, bounded live daily/diagnostic browser E2E using the exact production-shaped control path and ending PAUSED;
-12. only then explicit merge/advance of `main`;
-13. matching `vX.Y.Z` tag on released `main`;
-14. restore a clean installed `~/local-agent` checkout, validated self-update/restart and live version/revision/task verification;
-15. candidate branch/worktree/staging cleanup after production proof.
-
-## Downstream contract
-
-`AGENTS.md` defines registered downstream documentation targets. A release is not operationally complete when downstream planners materially describe an obsolete task schema, concurrency/resource model, status/control surface or deployment flow.
-
-`docs/HOST_OPS_MULTIREPO.md` is the canonical transport-only multirepo planner guide. `docs/GITHUB_BRIDGE_CONTROL.md` is the canonical conversation pacing/status extension. Historical dated handoffs/release notes are evidence only.
-
-## Retry/logging invariants
-
-- Unexpected worker exits use bounded exponential retry and reset after normal outcomes.
-- Deferred global-control work uses bounded retry.
-- Degraded probes break consecutive lease-busy streaks.
-- Known active-worker contention remains repository-local; unexplained contention may trigger bounded global drain.
