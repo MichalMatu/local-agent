@@ -186,7 +186,7 @@ class ParallelWorkerDedupeTests(unittest.TestCase):
             "commands": ["true"],
         }
 
-    def test_coalesce_publishes_terminal_result_for_duplicate(self) -> None:
+    def test_coalesce_publishes_terminal_done_result_for_duplicate(self) -> None:
         first = self.task("task-a")
         second = self.task("task-b")
         pending = [(Path("a.json"), first), (Path("b.json"), second)]
@@ -205,9 +205,32 @@ class ParallelWorkerDedupeTests(unittest.TestCase):
         publish_result.assert_called_once()
         result = publish_result.call_args.args[1]
         self.assertEqual(result["id"], "task-b")
-        self.assertEqual(result["failure_reason"], "duplicate_task_suppressed")
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(result["outcome"], "duplicate_task_suppressed")
         self.assertEqual(result["duplicate_of"], "task-a")
         publish_run.assert_called_once()
+
+    def test_invalid_dedupe_key_is_terminally_rejected(self) -> None:
+        task = self.task("task-a")
+        task["dedupe_key"] = "bad key"
+
+        with mock.patch.object(
+            worker.serial_worker,
+            "repository_state_dir",
+            return_value=self.state_dir,
+        ), mock.patch.object(worker.core, "publish_result") as publish_result, mock.patch.object(
+            worker.agentd,
+            "publish_run_state",
+        ):
+            candidates = worker._coalesce_pending_tasks(
+                self.repository,
+                [(Path("a.json"), task)],
+            )
+
+        self.assertEqual(candidates, [])
+        result = publish_result.call_args.args[1]
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["failure_reason"], "invalid_dedupe_key")
 
     def test_recent_receipt_is_applied_by_worker_queue_coalescing(self) -> None:
         first = self.task("task-a")
@@ -229,6 +252,7 @@ class ParallelWorkerDedupeTests(unittest.TestCase):
 
         self.assertEqual(candidates, [])
         result = publish_result.call_args.args[1]
+        self.assertEqual(result["status"], "done")
         self.assertEqual(result["duplicate_reason"], "recent_duplicate")
         self.assertEqual(result["duplicate_of"], "task-a")
 
