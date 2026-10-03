@@ -1,87 +1,53 @@
 # Conversation Fabric — current execution plan
 
-Status: the end-to-end MVP and GitHub-backed operator-visible intake are accepted. The current milestone is a controlled production rollout/release decision.
+Status: parent Superchat transport is working end-to-end. The next milestone is a clean self-diagnostic pilot of Local Agent using the parent Superchat as coordinator.
 
-## Current baseline
+## Baseline
 
-Production remains unchanged:
+- released production before this candidate: Local Agent v4.20.4 / Chat Bridge 0.8.0 on `main@cfa0a2380784d6cb2e5ae79cb8d92a3b52158fe5`;
+- prepared cleanup candidate: Local Agent v4.20.5 / Chat Bridge 0.8.1 on `work/superchat-final-cleanup-v4.20.5-20261003`;
+- parent Superchat proof conversation: `chat-7781d9b9` (`https://chatgpt.com/c/6ac07e18-0398-83ed-9aaa-609e731f2f9e`);
+- GitHub-managed wake delivery to that parent was proven live;
+- read-only MatrixHub routing proof passed with the exact MatrixHub task binding and repository checkout;
+- Conversation Fabric supervisor operator intake remains default-disabled unless explicitly configured.
 
-- `main@979ef080ddb69d6e18aaf81510e3175bac2f33d2`
-- Local Agent v4.19.12
-- Chat Bridge 0.6.2
-- production checkout: `/Users/michal/local-agent`
+## Permanent architecture
 
-Canonical Conversation Fabric development:
+```text
+Parent Superchat
+  -> decomposes/coordinates reasoning work
+  -> GitHub durable control/evidence
+  -> optional bounded child reasoning chats
+  -> exact target .agent/tasks for machine execution
+  -> verifies results and synthesizes decisions
+```
 
-- branch: `develop/conversation-fabric`
-- accepted operator-visible CODE: `37e480d3b36a5c15db89c944ef46f01225a4b379`
-- tree: `02910eadc544a87cd9fcb5287abd26e1a05d7688`
-- clean exact-SHA CI: `37085317848`, 5/5 green
-- underlying accepted MVP CODE: `93494b2a99162eef5bcf44caae087b71459233b4`
-- DEV checkout: `/Users/michal/local-agent-dev`
+Rules:
 
-Documentation-only commits may advance the canonical branch. Runtime/effect work must always identify accepted CODE `37e480d...` separately from the current docs head.
+- Chat Bridge conversation identity is transport/scheduling only.
+- Repository names in the active goal or durable request are reasoning context and may include donor + target repositories without Rebind.
+- Child chats are reasoning-only and have no independent machine execution authority.
+- `.agent/tasks` remains the only executable repository-work contract.
+- Every executable task uses the actual target repository's exact canonical `agent_binding` and normal registry/control/task admission.
+- GitHub is the durable control/evidence plane; DOM state is only browser transport evidence.
+- `local-agent` remains execution-disabled in the runtime catalog.
 
-## What is complete
+## Known child-browser issue
 
-Conversation Fabric now has both layers required for the bounded product slice:
+A post-4.20.4 child pilot reached the existing browser spawn path but stopped at `chatgpt_login_timeout` even though the isolated profile had previously been authenticated. Do not repeat login/Cloudflare/DOM loops as a parent-Superchat acceptance gate.
 
-1. accepted child lifecycle from durable request through spawn, exact bootstrap identity, registration, observation, terminal evidence, adoption, retirement and exact owned-tab close;
-2. accepted GitHub-backed operator boundary using `.agent/conversation/requests/<id>.json` and `.agent/conversation/results/<id>.json`.
+Treat that path as a separately repairable subsystem. In the self-diagnostic pilot the parent should first audit the child transport/login detector from durable code/evidence and decide the smallest repair. Until it is reliable, the parent can continue coordinating GitHub work and exact-bound Local Agent tasks without child browser delegation.
 
-The operator adapter calls the accepted `run_mvp_campaign()` rather than duplicating lifecycle semantics. `.agent/tasks` remains a separate executable repository-work contract. No MCP control path, second scheduler or alternate durable authority was added.
+## Next acceptance scenario: Local Agent self-diagnostic
 
-## Operator intake safety
+Start a fresh Superchat and ask it to diagnose Local Agent itself. The parent should:
 
-- one to four bounded children per request;
-- immutable canonical request digest and same-ID conflict rejection;
-- local durable spool before result publication;
-- default-disabled supervisor integration requiring explicit runtime configuration;
-- long browser work outside repository/resource leases;
-- inherited lease descriptors stripped before campaign spawn;
-- active campaign blocks full control/self-update service;
-- disable preserves staged recovery authority;
-- error-bearing terminal children map to failed rather than permanent waiting;
-- request identity is rechecked after pull/rebase before publication push;
-- every spool deletion requires fresh origin fetch and exact request/result proof;
-- disabled `--once` performs publication-only flush without staging new work or running normal control/self-update.
+1. establish exact release/daemon/registry/Bridge/control-plane state from fresh evidence;
+2. divide the audit into a small number of bounded tracks (for example runtime/executor, Git/control/recovery, Bridge transport, Conversation Fabric child path);
+3. delegate reasoning tracks to child chats when the child path is healthy; otherwise record the exact blocker and continue parent-led auditing without inventing a second execution path;
+4. let children audit/debug/propose fixes only; machine effects remain parent-approved exact-bound `.agent/tasks` or direct GitHub edits;
+5. prioritize concrete defects and regressions over architectural expansion;
+6. run focused verification for each repair and one final broad gate;
+7. produce a durable result/checkpoint describing findings, fixes, remaining risks and whether child delegation is trustworthy.
 
-## Acceptance evidence
-
-- final focused gate: compile + Ruff + 121 tests + 6 package-layout tests passed;
-- final review: `OPERATOR_FINAL_FRESH_ORIGIN_OK`;
-- clean CI: `37085317848`, all five jobs passed;
-- clean live request: `operator-clean-final-request-20261003-v1`;
-- clean live child: `https://chatgpt.com/c/6ac057fc-b140-83ed-b74f-61f1b8de94d7`;
-- clean live result: `OPERATOR_CLEAN_FINAL_OK 37e480d3b36a5c15db89c944ef46f01225a4b379`;
-- production stayed unchanged.
-
-## Permanent architecture boundaries
-
-- GitHub is the durable control/evidence plane.
-- Local Agent is deterministic/model-free orchestration.
-- ChatGPT conversations are the reasoning layer.
-- Chat Bridge is a bounded browser transport/actuator, not durable workflow authority.
-- Browser DOM state is transport evidence, not scheduler state.
-- Child chats have no independent machine execution authority.
-- No direct OpenAI API model loop for Conversation Fabric.
-- No MCP or Native Messaging control plane for this architecture.
-- No production Chrome-profile mutation.
-
-## Current product milestone: controlled release decision
-
-Do not add another operator-intake layer. The next work should decide whether and how to ship accepted CODE `37e480d...` to production.
-
-Preferred sequence:
-
-1. refresh production/main and release/version/changelog state;
-2. define the exact production configuration for the default-disabled operator runtime and its rollback path;
-3. decide whether the release contains only Local Agent code or also requires Chat Bridge/runtime desired-state changes;
-4. prepare a bounded release candidate and exact-SHA CI;
-5. require an explicit user release decision before mutating production;
-6. install code while intake remains disabled, verify health, then enable only the intended operator configuration;
-7. record post-release evidence and rollback checkpoint.
-
-Broad fleet scheduling, rollover and large fan-out remain later product work.
-
-For operational continuation, use `docs/CURRENT_HANDOFF.md`. A ready-to-paste continuation prompt is maintained in `docs/conversation_fabric/NEXT_CHAT_PROMPT.md`.
+This scenario is the first real product acceptance test. Broad fleet scheduling, automatic rollover and large fan-out remain out of scope.
