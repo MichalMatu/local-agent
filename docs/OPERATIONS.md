@@ -11,10 +11,10 @@ Current verified release:
 ```text
 Local Agent 4.20.5
 Chat Bridge 0.8.1
-main = v4.20.5 = bd793d60c3bce4b247deb80a7e2bfc88e8bf4373
+v4.20.5 = bd793d60c3bce4b247deb80a7e2bfc88e8bf4373
 ```
 
-Production completed its natural self-update to that exact revision during the 2026-10-04 self-diagnostic. Always verify the installed `daemon_version` and `self_revision` from fresh daemon status; do not infer deployment from a source branch.
+Production completed its natural self-update to that exact release commit during the 2026-10-04 self-diagnostic. `main` may later contain verified documentation-only maintenance without changing the released/runtime version; therefore always verify installed `daemon_version` and `self_revision` from fresh daemon status and never infer deployment from current `main` alone.
 
 The bounded-parallel production supervisor is:
 
@@ -115,7 +115,7 @@ Child chats are reasoning-only and receive no independent machine authority.
 
 The implemented MVP child-spawn backend still uses the isolated browser actuator. A live pilot previously stopped with `chatgpt_login_timeout` before child registration.
 
-The self-diagnostic isolated one concrete defect: login/session probing was gated by composer DOM visibility. Draft PR #135 decouples authentication readiness from composer readiness and has exact-SHA 5/5 green CI.
+The self-diagnostic isolated one concrete defect: login/session probing was gated by composer DOM visibility. Draft PR #135 decouples authentication readiness from composer readiness. Its cleaned one-commit head `ba884c206925e6e25041657a0250a9459e3aa8f2` has fresh exact-head CI 5/5 green.
 
 Do not return to long manual Chrome login / Cloudflare / DOM debugging. After an explicit merge/deploy decision, use one bounded pilot and continue only from fresh evidence.
 
@@ -157,7 +157,8 @@ Shared named external resource:
 Whole-host exclusivity:
 
 ```json
-{"resources": ["machine"]}
+{"resources": ["machine"]
+}
 ```
 
 `memory_limit_mb` is an independent RSS watchdog and does not imply machine exclusivity.
