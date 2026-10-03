@@ -43,11 +43,11 @@
     },
     {
       "conversation_id": "chat-7781d9b9",
-      "control_generation": 1,
-      "enabled": true,
+      "control_generation": 2,
+      "enabled": false,
       "interval_minutes": 10,
-      "next_wake_at": "2026-10-03T21:34:00+02:00",
-      "updated_at": "2026-10-03T21:30:00+02:00"
+      "next_wake_at": null,
+      "updated_at": "2026-10-04T00:38:35+02:00"
     }
   ],
   "agents": [
