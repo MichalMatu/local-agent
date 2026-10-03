@@ -21,7 +21,8 @@ Then establish exact current `main`, open PRs, installed daemon version/revision
 Current expected baseline to verify, not assume:
 
 - released source/tag: Local Agent 4.20.5 / Chat Bridge 0.8.1;
-- release SHA: `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`;
+- release commit/tag SHA: `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`;
+- current `main` may include later verified documentation-only commits and must be read fresh;
 - parent-level Superchat architecture is healthy;
 - `local-agent` remains execution-disabled as a Local Agent task target;
 - child delegation remains optional and not yet production-trustworthy;
@@ -38,7 +39,9 @@ Architecture is fixed:
 - `.agent/tasks` is the only executable repository-work contract;
 - do not create a second scheduler/control plane and do not launch local Codex/another coding-agent CLI.
 
-The immediate code candidate is draft PR #135, `Decouple child browser auth readiness from composer DOM`, exact head SHA `25e817c79086f3962a4cee1b23515a11ebedffd3`. The 2026-10-04 audit found that `waitForLoginReady()` gated authentication probing on composer DOM visibility. The PR decouples session authentication from composer readiness and adds a delayed-composer regression; an exact-SHA CI run completed 5/5 green.
+The immediate code candidate is draft PR #135, `Decouple child browser auth readiness from composer DOM`, exact head SHA `ba884c206925e6e25041657a0250a9459e3aa8f2`. It is one clean commit directly on the post-documentation-cleanup `main`, changes only two files, and has fresh exact-head CI 5/5 green including `bridge-browser` and `macos-smoke`.
+
+The 2026-10-04 audit found that `waitForLoginReady()` gated authentication probing on composer DOM visibility. PR #135 decouples session authentication from composer readiness and adds a delayed-composer regression.
 
 First inspect PR #135 and current CI/diff. Do not mix unrelated cleanup into it. If it is still the correct minimal repair, make the explicit merge/deploy decision. After deployment, verify the exact installed revision and run **one bounded child pilot**. Do not return to the historical long Chrome login / Cloudflare / DOM debugging loop.
 
