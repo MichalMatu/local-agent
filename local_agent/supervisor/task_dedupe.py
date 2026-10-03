@@ -112,6 +112,11 @@ def _receipt_path(state_dir: Path, key: str) -> Path:
     return state_dir / "task-dedupe" / f"{digest}.json"
 
 
+def _claim_path(state_dir: Path, task_id: str) -> Path:
+    digest = hashlib.sha256(task_id.encode("utf-8")).hexdigest()
+    return state_dir / "claims" / f"{digest}.json"
+
+
 def _read_receipt(
     state_dir: Path,
     key: str,
@@ -139,6 +144,15 @@ def _read_receipt(
         return None
     task_id = payload.get("task_id")
     if not isinstance(task_id, str) or not task_id:
+        path.unlink(missing_ok=True)
+        return None
+
+    state = payload.get("state")
+    if state == "admitted":
+        if not _claim_path(state_dir, task_id).exists():
+            path.unlink(missing_ok=True)
+            return None
+    elif state != "completed":
         path.unlink(missing_ok=True)
         return None
     return payload
@@ -233,7 +247,7 @@ def record_admission(
     *,
     now_epoch: float | None = None,
 ) -> None:
-    """Hold a queue identity for the task timeout plus cleanup grace."""
+    """Hold a queue identity while the task has a durable claim."""
     now_value = time.time() if now_epoch is None else now_epoch
     _write_receipt(
         state_dir,
