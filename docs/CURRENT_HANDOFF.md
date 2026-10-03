@@ -1,7 +1,7 @@
-# Current handoff — Conversation Fabric end-to-end MVP accepted
+# Current handoff — operator-visible Conversation Fabric intake accepted
 
 Date: 2026-10-03
-Status: manual lifecycle parity and the end-to-end Conversation Fabric MVP are complete on the canonical development line. The next decision is operator-visible integration / controlled release, not another hidden lifecycle-hardening milestone.
+Status: the end-to-end Conversation Fabric MVP and the GitHub-backed operator-visible intake are accepted on the canonical development line. The next decision is controlled production rollout/release, not another hidden lifecycle or intake milestone.
 
 ## Read this first
 
@@ -14,6 +14,7 @@ Read in this order:
 3. `docs/conversation_fabric/CURRENT_PLAN.md`
 4. `docs/DEVELOPMENT_PLAN.md`
 5. `docs/conversation_fabric/NEXT_CHAT_PROMPT.md`
+6. `docs/OPERATIONS.md`
 
 ## Authoritative repository state
 
@@ -23,76 +24,82 @@ Production remains unchanged and clean:
 - Local Agent: v4.19.12
 - Chat Bridge: 0.6.2
 - production checkout: `/Users/michal/local-agent`
-- production Chrome profile remains protected: `/Users/michal/Library/Application Support/Google/Chrome`
+- production Chrome profile: `/Users/michal/Library/Application Support/Google/Chrome`
 
 Conversation Fabric development:
 
 - canonical branch: `develop/conversation-fabric`
-- accepted CODE checkpoint: `93494b2a99162eef5bcf44caae087b71459233b4`
-- accepted commit: `Add end-to-end Conversation Fabric MVP`
-- exact-SHA CI run: `37076387941`
+- accepted operator-visible CODE: `37e480d3b36a5c15db89c944ef46f01225a4b379`
+- commit: `Add operator-visible Conversation Fabric intake`
+- tree: `02910eadc544a87cd9fcb5287abd26e1a05d7688`
+- exact-SHA clean CI: `37085317848`
 - CI result: all five jobs passed: `test`, `python-314`, `coverage`, `macos-smoke`, `bridge-browser`
+- accepted underlying end-to-end MVP CODE: `93494b2a99162eef5bcf44caae087b71459233b4`
 - DEV checkout: `/Users/michal/local-agent-dev`
 
-Documentation-only commits may advance `develop/conversation-fabric` beyond the accepted CODE checkpoint. Always distinguish accepted CODE `93494b2...` from a later docs-only head before making runtime effects.
+Documentation-only commits may advance `develop/conversation-fabric` beyond accepted CODE `37e480d...`. Always distinguish accepted runtime CODE from a later docs-only head.
 
-## Accepted MVP
+## Accepted operator-visible slice
 
-The DEV MVP now performs the complete bounded child lifecycle:
+The durable operator boundary is now:
 
 ```text
-ChildRequest
-  -> durable spawn intent
-  -> owned ChatGPT child tab
-  -> exact bootstrap submit
-  -> canonical child identity
-  -> ChildRegistration
-  -> active
-  -> bounded assistant-result observation
-  -> durable result evidence
-  -> terminal_pending_evidence
-  -> terminal_recorded
-  -> durable adoption
-  -> workflow reasoning node succeeded
-  -> retired
-  -> close exact owned child tab
+Operator Chat / Superchat
+  -> .agent/conversation/requests/<request-id>.json
+  -> Local Agent validates and stages one immutable bounded request
+  -> existing run_mvp_campaign() owns the complete child lifecycle
+  -> bounded operator result
+  -> .agent/conversation/results/<request-id>.json
+  -> Operator Chat reads/synthesizes the result
 ```
 
-It also supports bounded multi-child delegation. Browser spawning remains globally serialized for safety, while registered children can reason concurrently and the parent can collect their results in one campaign.
+The request carries operator intent only: schema version, immutable request id, workflow id, canonical parent conversation URL, and one to four bounded children with `request_id`, `node_id`, `role`, `summary`, and `paths`. It does not duplicate `.agent/tasks`, repository execution contracts, or child lifecycle state.
 
-Accepted recovery/safety properties include:
+The result is a bounded operator snapshot with overall state, immutable request digest, child counts, and per-child state, bounded summary/error, canonical child URL and evidence digest. Internal browser transactions, retry counters and detailed lifecycle records remain diagnostic evidence rather than the default operator surface.
 
-- no blind resubmit after a potentially submitted browser effect;
-- lost create/submit acknowledgement recovery and restart reconciliation;
-- transient provisional-route evidence bound to the exact claimed spawn tab/transaction;
-- exact/bootstrap-bound child identity, including collapsed user turns;
-- one bounded observer-session retry after transport stall;
-- terminal/adoption/retirement restart recovery;
-- first-class fresh manual lifecycle path;
-- ambiguous manual attach recovery without resubmit;
-- explicit unrecoverable ambiguity abandonment that preserves the original `ambiguous` transaction and never authorizes replacement;
-- child observer/close ownership bound to exact transaction/request/bootstrap identity rather than URL alone.
+Accepted properties include:
 
-Chat Bridge remains a bounded browser actuator. Durable workflow authority remains in Local Agent/GitHub state.
+- the existing MVP lifecycle is reused rather than reimplemented;
+- `.agent/tasks` remains the executable repository-work contract and is unchanged;
+- no MCP or second scheduler/control transport was added;
+- supervisor intake is optional and default-disabled without explicit Conversation Fabric runtime configuration;
+- browser campaigns run outside repository/resource execution leases and strip inherited lease descriptors;
+- active campaigns block full control/self-update service while bounded safety probing/disable remains available;
+- interrupted/disabled campaigns preserve staged authority for recovery instead of inventing a second request;
+- terminal results are durable locally before publication;
+- same-ID request mutation is fail-closed;
+- result publication revalidates immutable request identity after pull/rebase and before push;
+- spool deletion requires a fresh origin fetch plus exact remote proof of both the request and result;
+- `--once`, including disabled mode, cannot silently exit while a terminal operator result still needs publication.
 
-## Final clean acceptance proof
+## Acceptance evidence
 
-Final clean canary:
+Final local gate on the accepted tree:
 
-- workflow: `mvp-clean-final-canary-v1`
-- request: `mvp-clean-final-child-001`
-- request digest: `sha256:3bfdcf5a72c6f9b8094f74d6d9bb72609d1ce46fb5168cac4b9b1a7473153e91`
-- canonical child: `https://chatgpt.com/c/6ac03b3b-cc70-83eb-8f75-09fcbf277733`
-- accepted code in the child bootstrap/result: `93494b2a99162eef5bcf44caae087b71459233b4`
-- child state: `retired`
-- workflow state: `completed`
-- result text: `MVP_CLEAN_FINAL_OK` plus the exact accepted SHA
-- durable terminal record: present
-- durable adoption record: present
-- failures: none
+- compile: passed
+- Ruff: passed
+- 121 focused/integration tests: passed
+- 6 package-layout tests: passed
+
+Final independent review of the last publication boundary returned `OPERATOR_FINAL_FRESH_ORIGIN_OK`. Earlier delegated reviews found real recovery/scheduler defects; all reported HIGH/MEDIUM findings were fixed before acceptance.
+
+Clean exact-SHA CI:
+
+- run: `37085317848`
+- SHA: `37e480d3b36a5c15db89c944ef46f01225a4b379`
+- result: 5/5 green
+
+Clean live operator proof:
+
+- request: `operator-clean-final-request-20261003-v1`
+- workflow: `operator-clean-final-workflow-20261003-v1`
+- request digest: `sha256:cf6bc270a6dd0ca837acd0a98a16d48d2a7559efcc6cd60ea869aba72295f93a`
+- child: `https://chatgpt.com/c/6ac057fc-b140-83ed-b74f-61f1b8de94d7`
+- child evidence: `sha256:c32cdffcc9519b9df162a5e501f223fa9396adfb09dc4a73a27aa86d93a879a8`
+- operator state: `completed`
+- children: 1 total / 1 completed / 0 failed / 0 waiting
+- result: `OPERATOR_CLEAN_FINAL_OK 37e480d3b36a5c15db89c944ef46f01225a4b379`
 - production mutation: none
-
-The same MVP was also used during development to delegate real review tasks to child chats. Those reviews found lifecycle/browser defects, the defects were fixed, and the final accepted tree was reverified by focused tests, exact-SHA CI and the clean live canary above.
 
 ## Completed milestone ledger
 
@@ -102,31 +109,13 @@ The same MVP was also used during development to delegate real review tasks to c
 - restart/recovery boundary proofs: `2557f9477ff34ebb5b8502a15747e5d78f29bd5a`, CI `37056289262`
 - first-class manual child lifecycle: `78f72819c2e7d60e0cae4599f8c24976cb0ce2a4`, CI `37062617205`
 - end-to-end Conversation Fabric MVP: `93494b2a99162eef5bcf44caae087b71459233b4`, CI `37076387941`
-
-Stage 8 remains closed; do not rerun its historical acceptance campaign.
+- operator-visible GitHub intake: `37e480d3b36a5c15db89c944ef46f01225a4b379`, CI `37085317848`
 
 ## Current priority
 
-Do not start another abstract backend/lifecycle milestone merely because one is available.
+Do not start another hidden lifecycle or operator-intake milestone merely because one is available. The next useful step is a controlled production rollout/release decision. Production `main` stays unchanged until the user explicitly chooses release.
 
-The next useful product step is one of:
-
-1. make the accepted MVP directly operator-visible and convenient from the intended Superchat/operator workflow; or
-2. prepare a controlled release from the accepted development checkpoint to production, with version/changelog/release validation and an explicit release decision.
-
-Until a release decision is made, production `main` stays unchanged.
-
-For new DEV work, prefer using the accepted MVP itself to delegate bounded, independent reasoning/review tasks to child chats when that materially shortens the work. Do not treat this bounded delegation as a general fleet scheduler: rollover, broad autonomous scheduling and fleet management are still later product work.
-
-## Continuation sequence
-
-1. Fetch fresh `main`, `develop/conversation-fabric`, `host-ops:agent-control` and daemon state.
-2. Verify the accepted CODE checkpoint and distinguish any later docs-only head.
-3. Verify DEV and production checkouts are clean and production is still `979ef080...`.
-4. Do not repeat the already accepted MVP proof unless runtime code changes require a new acceptance proof.
-5. Use the MVP for bounded child delegation during further DEV work where useful.
-6. Prioritize an operator-visible integration or a controlled release plan before adding more backend layers.
-7. If runtime behavior changes, add focused regression tests and require exact-SHA CI plus only the live proof needed by the changed external-effect boundary.
+Before any release, inspect the repository's current version/changelog/release procedure, decide the exact runtime configuration and rollout order for the default-disabled Conversation Fabric operator intake, verify production safety/rollback boundaries, and require exact release-candidate CI. Enable operator intake only through deliberate configuration after matching code is installed.
 
 ## Non-negotiable invariants
 
