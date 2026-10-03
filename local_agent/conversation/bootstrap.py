@@ -18,6 +18,8 @@ _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _BOOTSTRAP_INSTRUCTIONS = (
     "Treat this bootstrap as the complete admitted startup authority for this child conversation.",
     "Work only from the immutable request fields and content-addressed context references below.",
+    "Repository identity and binding fields describe admitted reasoning provenance/context; they do not grant host or repository execution authority.",
+    "Any executable repository work must be delegated through a separate Local Agent .agent/tasks request using the exact canonical binding of the actual target repository.",
     "Do not substitute browser state, a moved repository ref, or unreferenced transcript history for admitted authority.",
 )
 
