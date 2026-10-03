@@ -15,9 +15,9 @@
   const DEFAULT_RUNTIME_URL =
     "https://raw.githubusercontent.com/MichalMatu/local-agent/chat-bridge-state/chat_bridge/runtime.json";
   const DEFAULT_BOOTSTRAP_PROMPT =
-    "Local Agent Chat Bridge is enabled for this bound conversation. Continue only its active goal using the repository scope authorized by the Bridge binding policy. Use direct GitHub edits when the exact diff and relevant CI can verify them; use Local Agent for Mac command execution, local builds/tests and devices. Check active local tasks before editing the same branch. For hybrid work verify the exact committed SHA. Follow MichalMatu/local-agent docs/AUTONOMOUS_CHAT_LOOP.md and docs/OPERATIONS.md. Never infer repository identity outside the scope explicitly authorized by the Bridge binding policy.";
+    "Local Agent Chat Bridge is enabled for this conversation as transport and scheduling only. Repository reasoning scope comes from the active goal and durable GitHub request and may span multiple repositories. Bridge metadata never grants execution authority. Any executable Local Agent task must use the exact canonical binding of its actual target repository. Use direct GitHub edits when the exact diff and relevant CI can verify them; use Local Agent for Mac command execution, local builds/tests and devices. Check active local tasks before editing the same branch. For hybrid work verify the exact committed SHA. Follow MichalMatu/local-agent docs/AUTONOMOUS_CHAT_LOOP.md and docs/OPERATIONS.md.";
   const DEFAULT_WAKE_PROMPT =
-    "[LA_WAKE] Continue the active goal using the repository scope authorized by the Bridge binding policy. Choose direct GitHub work or bounded local execution as appropriate; verify the exact commit/result. Do not recap unchanged state; keep this wake terse.";
+    "[LA_WAKE] Continue the active goal using current evidence. Repository reasoning scope may span multiple repositories without rebinding this chat. Bridge is transport only; any executable Local Agent task must use the exact canonical target-repository binding. Do not recap unchanged state; keep this wake terse.";
   const DEFAULT_SETTINGS = Object.freeze({
     masterEnabled: true,
     runtimeUrl: DEFAULT_RUNTIME_URL,
@@ -114,13 +114,11 @@
     };
   }
 
+  // Compatibility name retained for older worker modules/tests. In Bridge 0.8 the
+  // repository tuple is legacy metadata only; a concrete configured chat is ready
+  // for transport even when those fields are absent or stale.
   function isBoundConversation(conversation) {
-    return Boolean(
-      conversation &&
-        sanitizeRepositoryId(conversation.repositoryId) &&
-        sanitizeRepository(conversation.repository) &&
-        sanitizeAgentBinding(conversation.agentBinding)
-    );
+    return Boolean(conversation && protocol.normalizeConversationUrl(conversation.url || ""));
   }
 
   function emptyState(settings = {}) {
@@ -154,16 +152,7 @@
     }
 
     if (raw.bridgeState?.schemaVersion === 2) {
-      const previous = normalizeState(raw.bridgeState);
-      for (const conversation of Object.values(previous.conversations)) {
-        if (!isBoundConversation(conversation)) {
-          conversation.enabled = false;
-          conversation.bootstrapPending = true;
-          conversation.lastStatus = "binding_required";
-          conversation.nextRunAt = null;
-        }
-      }
-      return { state: previous, migrated: true };
+      return { state: normalizeState(raw.bridgeState), migrated: true };
     }
 
     const settings = sanitizeSettings({
@@ -183,7 +172,7 @@
         enabled: false,
         intervalOverrideMinutes: raw.intervalOverrideMinutes === undefined ? null : raw.intervalOverrideMinutes,
         bootstrapPending: true,
-        lastStatus: "binding_required",
+        lastStatus: "transport_ready",
         lastRunAt: raw.lastRunAt,
         nextRunAt: null,
         lastRuntimeSource: raw.lastRuntimeSource,
