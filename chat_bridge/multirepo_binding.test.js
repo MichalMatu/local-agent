@@ -30,10 +30,10 @@ async function addConversation(harness, repositoryId, url) {
     assert.equal(h.sentMessages.length, 1);
     const prompt = h.sentMessages[0].message.prompt;
 
-    assert.match(prompt, /Operator multirepo binding is immutable for this wake/);
-    assert.match(prompt, /may inspect, edit, queue, cancel, and execute work across any repository listed in the current runtime catalog without rebinding/);
-    assert.match(prompt, /use the exact agent_binding of the target repository/);
-    assert.match(prompt, /Normal work across catalog repositories must not use LAB:REBIND/);
+    assert.match(prompt, /transport\/scheduling channel, not a repository execution binding/);
+    assert.match(prompt, /may include multiple repositories, including donor and target repositories, without rebinding the chat/);
+    assert.match(prompt, /use that target.s exact canonical agent_binding/);
+    assert.match(prompt, /Bridge metadata as execution authority/);
     assert.match(prompt, /local-agent=MichalMatu\/local-agent@2180d453-1357-4fbc-be1a-e1e5b8fbb10a;execution=disabled/);
     assert.match(prompt, /growclip=MichalMatu\/growclip@2db52048-57ea-4643-bf4b-1ea5c5c3fa86;execution=enabled/);
     assert.doesNotMatch(prompt, /Work only on repository MichalMatu\/host-ops/);
@@ -49,10 +49,10 @@ async function addConversation(harness, repositoryId, url) {
     assert.equal(result.ok, true, result.reason);
     const prompt = h.sentMessages[0].message.prompt;
 
-    assert.match(prompt, /Work only on repository MichalMatu\/MatrixHub \(matrixhub\)/);
-    assert.match(prompt, new RegExp(`Every Local Agent task JSON created by this conversation MUST contain exactly \\\"agent_binding\\\": \\\"${agent.agent_binding}\\\"`));
-    assert.match(prompt, /use \[LAB:REBIND=<repository-id>\]/);
-    assert.doesNotMatch(prompt, /Operator multirepo binding/);
+    assert.match(prompt, /transport\/scheduling channel, not a repository execution binding/);
+    assert.match(prompt, /may include multiple repositories, including donor and target repositories, without rebinding the chat/);
+    assert.match(prompt, /use that target.s exact canonical agent_binding/);
+    assert.doesNotMatch(prompt, /Work only on repository MichalMatu\/MatrixHub/);
   }
 
   {
@@ -86,7 +86,7 @@ async function addConversation(harness, repositoryId, url) {
     );
   }
 
-  console.log("Chat Bridge multirepo binding tests passed.");
+  console.log("Chat Bridge transport-only multirepo tests passed.");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;
