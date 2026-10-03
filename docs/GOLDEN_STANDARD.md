@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.20.0`; current production release is `v4.19.12` / Chat Bridge `0.6.2` before the explicit merge/tag decision. The 4.20.0 candidate uses Chat Bridge 0.7.0 and adds the bounded Conversation Fabric operator intake and child-spawn actuator while retaining runtime schema 3, content protocol v13 and assistant guard v8. The deployed production release remains `v4.19.12` until the explicit release decision advances `main`; Candidate source must not be described as current production before the explicit release decision advances `main`. The candidate preserves the 4.19.12 bounded Git network/circuit-breaker policy and keeps Conversation Fabric operator intake default-disabled until explicit runtime configuration. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
+This file records the current release/runtime invariants for `MichalMatu/local-agent`. The source release is `v4.20.1`; current production release is `v4.20.0` / Chat Bridge `0.7.0`. The 4.20.1 candidate keeps Chat Bridge 0.7.0 and extends Conversation Fabric operator requests with a fail-closed canonical target-repository identity while retaining runtime schema 3, content protocol v13 and assistant guard v8. The deployed production release remains `v4.20.0` until the explicit release decision advances `main`; Candidate source must not be described as current production before the explicit release decision advances `main`. Conversation Fabric operator intake remains default-disabled until explicit runtime configuration, and child chats remain reasoning-only while `.agent/tasks` retains all machine execution authority. Read the installed `self_revision` from live daemon status; never infer the deployed revision from a source checkout alone.
 
 ## Release/runtime invariants
 
@@ -22,7 +22,7 @@ This file records the current release/runtime invariants for `MichalMatu/local-a
 - Malformed/oversized task JSON is terminal input evidence.
 - Escape-safe `payload_file` references remain task-id scoped, bounded and resolved before normal validation/digesting.
 - Command, no-output, whole-task and RSS limits remain bounded.
-- Already-running stages are not killed only because later admission budget expires.
+- Already-running stages are not killed only because later admission budget expired.
 - Command output retention/transport is bounded.
 - Task subprocesses use registered process groups; successful tasks may not leave background descendants.
 - Graceful shutdown quiesces publication and terminates process groups with bounded escalation.
