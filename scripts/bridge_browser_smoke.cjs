@@ -271,7 +271,7 @@ document.querySelector('form').onsubmit = (event) => {
     assert.deepEqual(switchGeometry.master, switchGeometry.chat);
     assert.match(
       await popup.locator(".current-chat-panel .info-icon").getAttribute("title"),
-      /remove the chat and add it again/i
+      /only schedules and transports wakes/i
     );
 
     const successCard = popup.locator(".conversation-card").filter({ hasText: "success" });
