@@ -43,9 +43,7 @@ function assistantErrorConversationForSender(state, message, sender) {
 
 function bridgeOwnsAssistantError(conversation, payload) {
   if (!stateModel.isBoundConversation(conversation) || conversation.bootstrapPending) return false;
-  const expected = normalizedAssistantErrorText(
-    `${bindingEnvelope(conversation)} This Chat Bridge conversation is a transport/scheduling channel`
-  );
+  const expected = normalizedAssistantErrorText(bindingEnvelope(conversation));
   return normalizedAssistantErrorText(payload.userText).startsWith(expected);
 }
 
