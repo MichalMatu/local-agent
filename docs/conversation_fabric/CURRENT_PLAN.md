@@ -4,11 +4,12 @@ Status: parent Superchat self-diagnostic completed. Core Local Agent 4.20.5 exec
 
 ## Baseline
 
-- `main` / `v4.20.5` = `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`;
-- Local Agent source/runtime = 4.20.5;
-- Chat Bridge source = 0.8.1;
-- production completed natural self-update to the exact release SHA;
+- released/tagged runtime commit: `v4.20.5` = `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`;
+- Local Agent release/runtime version = 4.20.5;
+- Chat Bridge release source = 0.8.1;
+- production completed natural self-update to the exact release commit;
 - release CI was 5/5 green;
+- current `main` may include later verified documentation-only maintenance and must not be equated automatically with the installed runtime revision;
 - old parent `chat-7781d9b9` has been disabled;
 - Conversation Operator intake remains default-disabled and is not enabled by the current production LaunchAgent configuration.
 
@@ -45,23 +46,22 @@ The current MVP child backend still depends on the isolated browser actuator. Th
 
 Root cause isolated by the self-diagnostic: `waitForLoginReady()` only probed authenticated session state after composer DOM visibility. A valid authenticated session with delayed/changed composer DOM could therefore be mislabeled as a login timeout.
 
-Draft PR #135 fixes only that coupling and adds a delayed-composer regression test. Exact repair SHA:
+Draft PR #135 fixes only that coupling and adds a delayed-composer regression test. It has been rebased/cleaned to one commit directly on the current post-doc-cleanup `main`:
 
-`25e817c79086f3962a4cee1b23515a11ebedffd3`
+`ba884c206925e6e25041657a0250a9459e3aa8f2`
 
-The exact SHA has a complete 5/5 green CI run, including `bridge-browser` and `macos-smoke`.
+Fresh CI on that exact head is 5/5 green, including `bridge-browser` and `macos-smoke`.
 
 ## Next acceptance sequence
 
 Do not broaden scope before this sequence is complete:
 
-1. finish documentation/branch housekeeping without Local Agent execution;
-2. review PR #135 as the only code repair candidate;
-3. make an explicit merge/deploy decision;
-4. after deployment, verify exact installed revision from fresh status;
-5. run one bounded child pilot;
-6. if and only if that pilot succeeds, decide whether to configure Conversation Operator intake for real parent fan-out;
-7. add normal diagnostics for Conversation Operator enabled/configured state before relying on it operationally.
+1. review PR #135 as the only code repair candidate;
+2. make an explicit merge/deploy decision;
+3. after deployment, verify exact installed revision from fresh status;
+4. run one bounded child pilot;
+5. if and only if that pilot succeeds, decide whether to configure Conversation Operator intake for real parent fan-out;
+6. add normal diagnostics for Conversation Operator enabled/configured state before relying on it operationally.
 
 Do not repeat the historical manual Chrome login / Cloudflare / DOM-proof loop. If the bounded pilot still fails, capture the exact new failure and continue from that evidence.
 
