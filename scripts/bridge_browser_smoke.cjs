@@ -145,15 +145,15 @@ document.querySelector('form').onsubmit = (event) => {
     const successId = id;
     assert.equal((await run(id)).reason, "sent");
     assert.equal(await page.evaluate(() => window.submits), 1);
-    assert.match(await page.locator('[data-message-author-role="user"]').innerText(), /LA_REPO=tracker/);
+    assert.match(await page.locator('[data-message-author-role="user"]').innerText(), /LA_CHAT=chat-[0-9a-f]{8}/);
     assert.equal((await readChat(id)).bootstrapPending, false);
-    console.log("PASS: confirmed contenteditable form delivery, capability preflight and exact repository binding");
+    console.log("PASS: confirmed contenteditable form delivery and transport-only chat envelope");
 
     id = await add("current-user-dom");
     await page.evaluate(() => { window.currentUserDom = true; });
     assert.equal((await run(id)).reason, "sent");
     assert.equal(await page.evaluate(() => window.submits), 1);
-    assert.match(await page.locator('[data-user-message-bubble]').innerText(), /LA_REPO=tracker/);
+    assert.match(await page.locator('[data-user-message-bubble]').innerText(), /LA_CHAT=chat-[0-9a-f]{8}/);
     assert.equal((await readChat(id)).bootstrapPending, false);
     console.log("PASS: current ChatGPT data-user-message-bubble confirms exact user delivery");
 
@@ -170,7 +170,7 @@ document.querySelector('form').onsubmit = (event) => {
     await page.evaluate(() => { window.replaceComposerOnSubmit = true; });
     assert.equal((await run(id)).reason, "sent");
     assert.equal(await page.evaluate(() => window.submits), 1);
-    assert.match(await page.locator('[data-message-author-role="user"]').innerText(), /LA_REPO=tracker/);
+    assert.match(await page.locator('[data-message-author-role="user"]').innerText(), /LA_CHAT=chat-[0-9a-f]{8}/);
     console.log("PASS: composer DOM replacement after submit still confirms exact user delivery");
 
     id = await add("draft");
