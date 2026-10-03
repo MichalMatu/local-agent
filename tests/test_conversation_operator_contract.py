@@ -122,7 +122,7 @@ class OperatorContractTests(unittest.TestCase):
     def test_v2_and_v3_require_canonical_repository_context(self) -> None:
         missing = targeted_request()
         missing.pop("repository_id")
-        with self.assertRaisesRegex(ValueError, "fields do not match schema"):
+        with self.assertRaisesRegex(ValueError, "repository_id"):
             validate_operator_request(missing)
 
         invalid = targeted_request()
