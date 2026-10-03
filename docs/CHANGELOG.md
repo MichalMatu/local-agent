@@ -2,6 +2,14 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
+## v4.20.1
+
+- Extend Conversation Fabric operator requests with schema v2 and one explicit canonical `repository_id`, while preserving legacy schema v1 compatibility.
+- Resolve the requested target only through the runtime repository registry plus canonical binding catalog; reject disabled, mismatched or non-GitHub target identity and pin child reasoning to the target default-branch remote SHA.
+- Keep child chats reasoning-only and preserve `.agent/tasks` as the only executable repository-work contract with the exact target repository binding.
+- Keep Chat Bridge at 0.7.0 with runtime schema 3, content protocol v13 and assistant guard v8; no Bridge code or production Chrome behavior changes.
+- Keep Conversation Fabric operator intake default-disabled; production activation and Superchat onboarding remain explicit post-install decisions.
+
 ## v4.20.0
 
 - Add the accepted end-to-end Conversation Fabric child lifecycle with bounded multi-child delegation, durable result evidence, terminal/adoption/retirement recovery and exact owned-tab cleanup.
