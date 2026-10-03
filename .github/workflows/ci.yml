@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - 'develop/conversation-fabric'
       - 'v*-staging'
       - 'work/**'
   pull_request:
@@ -14,7 +15,7 @@ permissions:
 jobs:
   bridge-browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6

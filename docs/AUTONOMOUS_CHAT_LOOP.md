@@ -1,6 +1,6 @@
 # Autonomous Chat Planner Loop
 
-This document defines the current autonomous loop connecting one ChatGPT conversation, Chat Bridge 0.6.2, GitHub desired state and deterministic Local Agent execution. The 0.6.2 candidate is the checkpoint runtime; production remains 0.6.1 until the explicit release decision.
+This document defines the current autonomous loop connecting one ChatGPT conversation, Chat Bridge 0.7.0 candidate code, GitHub desired state and deterministic Local Agent execution. The existing GitHub pacing/control contract remains compatible with 0.6.2; production remains 0.6.2 until an explicit release decision.
 
 ## Ownership
 

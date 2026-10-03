@@ -135,6 +135,17 @@ Each registered repository uses its own `agent-control` branch:
 .agent/daemon/acks/*.json
 ```
 
+The accepted Conversation Fabric operator intake uses a separate bounded control namespace on the supervisor control branch:
+
+```text
+.agent/conversation/requests/<request-id>.json
+.agent/conversation/results/<request-id>.json
+```
+
+These files are not executable repository tasks. Operator requests carry bounded reasoning/delegation intent and are adapted into the existing Conversation Fabric MVP lifecycle; `.agent/tasks` remains the executable repository-work contract. Operator results are bounded immutable snapshots for the Operator Chat/Superchat. Do not route Conversation Fabric through MCP or create a second scheduler/control transport.
+
+Supervisor intake is default-disabled. It is enabled only when `LOCAL_AGENT_CONVERSATION_OPERATOR_ENABLED` is truthy and the isolated runtime paths are explicitly configured with `LOCAL_AGENT_CONVERSATION_OPERATOR_ROOT`, `LOCAL_AGENT_CONVERSATION_OPERATOR_CHECKOUT`, and `LOCAL_AGENT_CONVERSATION_OPERATOR_PRODUCTION_CHECKOUT`; `LOCAL_AGENT_CONVERSATION_OPERATOR_HOME` is optional. Enabling the feature is a deliberate rollout action, not a side effect of installing code. Long child campaigns run outside repository/resource leases. Terminal operator results remain locally durable until a fresh fetch proves the exact immutable request and exact result on origin.
+
 Task IDs/payloads are immutable within a repository. Interrupted claimed work is never silently replayed. Terminal results are durably spooled before publication; publication recovery may republish but may not re-execute commands.
 
 For source-like or multiline `patch`, write-content and command text, prefer the escape-safe `payload_file` representation instead of hand-constructing a large escaped JSON string. Every referenced file must remain under `<task-id>.payload/`; publish the payload files and the JSON manifest together in the same `agent-control` commit. Inline strings remain valid for small/simple values. See [`TASK_PAYLOAD_TRANSPORT.md`](TASK_PAYLOAD_TRANSPORT.md) for the exact supported fields, bounds and failure semantics.

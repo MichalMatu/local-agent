@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the canonical conversation scheduling/control contract for Chat Bridge 0.6.2 / Local Agent 4.19.11. It preserves the GitHub control-plane hardening from PR #118 and adds the terminal-safety repair verified by PR #122.
+This is the canonical conversation scheduling/control contract for the Chat Bridge 0.7.0 / Local Agent 4.20.0 candidate. The GitHub pacing/control semantics remain compatible with the 0.6.2 / 4.19.12 production baseline; 0.7.0 adds the bounded Conversation Fabric spawn actuator without moving scheduling authority out of GitHub.
 
 Normal `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL` operations for a managed conversation are no longer transported by assistant text in the ChatGPT DOM. GitHub desired state in `chat_bridge/runtime.json` on `chat-bridge-state` is authoritative.
 
