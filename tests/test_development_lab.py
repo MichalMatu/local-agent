@@ -19,13 +19,15 @@ class DevelopmentLabTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             home = Path(temp)
             layout = build_dev_lab_layout(home=home)
+            expected_home = home.resolve()
 
-            self.assertEqual(layout.checkout, home / "local-agent-dev")
+            self.assertEqual(layout.home, expected_home)
+            self.assertEqual(layout.checkout, expected_home / "local-agent-dev")
             self.assertEqual(
                 layout.root,
-                home / "Library" / "Application Support" / "local-agent-dev",
+                expected_home / "Library" / "Application Support" / "local-agent-dev",
             )
-            self.assertEqual(layout.production_checkout, home / "local-agent")
+            self.assertEqual(layout.production_checkout, expected_home / "local-agent")
             manifest = layout.manifest()
             self.assertEqual(manifest["mode"], "synthetic-only")
             self.assertEqual(
