@@ -27,6 +27,11 @@ class TaskDedupeTests(unittest.TestCase):
             ],
         }
 
+    def create_claim(self, state_dir: Path, task_id: str) -> None:
+        path = task_dedupe._claim_path(state_dir, task_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}\n", encoding="utf-8")
+
     def test_execution_fingerprint_ignores_identity_and_cosmetic_stage_metadata(self) -> None:
         first = self.task("task-a")
         second = self.task("task-b")
@@ -119,6 +124,7 @@ class TaskDedupeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             state_dir = Path(tmp)
             task_dedupe.record_admission(state_dir, first, now_epoch=100.0)
+            self.create_claim(state_dir, "task-a")
             plan = task_dedupe.plan_pending(
                 state_dir,
                 [(Path("b.json"), second)],
@@ -128,6 +134,22 @@ class TaskDedupeTests(unittest.TestCase):
         self.assertEqual(plan.candidates, ())
         self.assertEqual(plan.suppressed[0].duplicate_of, "task-a")
         self.assertEqual(plan.suppressed[0].reason, "recent_duplicate")
+        self.assertEqual(plan.invalid, ())
+
+    def test_admission_receipt_expires_immediately_after_claim_disappears(self) -> None:
+        first = self.task("task-a")
+        second = self.task("task-b")
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            task_dedupe.record_admission(state_dir, first, now_epoch=100.0)
+            plan = task_dedupe.plan_pending(
+                state_dir,
+                [(Path("b.json"), second)],
+                now_epoch=101.0,
+            )
+
+        self.assertEqual([item[1]["id"] for item in plan.candidates], ["task-b"])
+        self.assertEqual(plan.suppressed, ())
         self.assertEqual(plan.invalid, ())
 
     def test_receipt_for_same_task_does_not_suppress_resource_retry(self) -> None:
