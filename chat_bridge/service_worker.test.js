@@ -58,7 +58,7 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(response.bridgeMode, "wake");
   prompt = sentMessages.at(-1).message.prompt;
   assert.match(prompt, /WAKE/);
-  assert.match(prompt, /without rebinding this chat/);
+  assert.match(prompt, /without rebinding the chat/);
   assert.doesNotMatch(prompt, /\[LA_AGENT=/);
 
   // Explicit legacy metadata may still be stored, but it does not narrow the chat's reasoning scope.
