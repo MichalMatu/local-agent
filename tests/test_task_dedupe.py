@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from local_agent.runtime.task_contract import task_digest
 from local_agent.supervisor import task_dedupe
 
 
@@ -145,8 +147,6 @@ class TaskDedupeTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             state = Path(tmp)
-            # record_completion receives the transport publication outcome even when
-            # the authoritative task result being published is a timeout failure.
             task_dedupe.record_completion(state, first, "published", now_epoch=100)
             plan = task_dedupe.plan_pending(
                 state,
@@ -273,6 +273,42 @@ class TaskDedupeTests(unittest.TestCase):
         self.assertEqual([item[1]["id"] for item in plan.candidates], ["task-b"])
         self.assertEqual(plan.suppressed, ())
         self.assertEqual(plan.invalid, ())
+
+    def test_published_run_promotes_admission_after_claim_release_crash(self) -> None:
+        first = self.task("task-a")
+        second = self.task("task-b")
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp)
+            task_dedupe.record_admission(state_dir, first, now_epoch=100.0)
+            run_path = state_dir / "runs" / "task-a.json"
+            run_path.parent.mkdir(parents=True, exist_ok=True)
+            run_path.write_text(
+                json.dumps(
+                    {
+                        "event": "result_published",
+                        "task_digest": task_digest(first),
+                        "status": "done",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            plan = task_dedupe.plan_pending(
+                state_dir,
+                [(Path("b.json"), second)],
+                now_epoch=101.0,
+            )
+            receipt = task_dedupe._read_receipt(
+                state_dir,
+                task_dedupe.queue_key(first),
+                now_epoch=102.0,
+            )
+
+        self.assertEqual(plan.candidates, ())
+        self.assertEqual(plan.suppressed[0].duplicate_of, "task-a")
+        self.assertEqual(plan.suppressed[0].reason, "recent_duplicate")
+        self.assertEqual(receipt["state"], "completed")
+        self.assertEqual(receipt["outcome"], "published")
 
     def test_receipt_for_same_task_does_not_suppress_resource_retry(self) -> None:
         task = self.task("task-a")

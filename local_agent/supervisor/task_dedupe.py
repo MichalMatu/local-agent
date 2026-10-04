@@ -14,6 +14,7 @@ from local_agent.runtime.task_contract import (
     idle_timeout_for,
     memory_limit_for,
     task_dedupe_identity,
+    task_digest,
     task_timeout_for,
 )
 
@@ -130,6 +131,22 @@ def _claim_path(state_dir: Path, task_id: str) -> Path:
     return state_dir / "claims" / f"{digest}.json"
 
 
+def _published_run_matches_receipt(state_dir: Path, payload: dict[str, Any]) -> bool:
+    task_id = payload.get("task_id")
+    expected_digest = payload.get("task_digest")
+    if not isinstance(task_id, str) or not task_id or not isinstance(expected_digest, str):
+        return False
+    try:
+        run = json.loads((state_dir / "runs" / f"{task_id}.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return False
+    return (
+        isinstance(run, dict)
+        and run.get("event") == "result_published"
+        and run.get("task_digest") == expected_digest
+    )
+
+
 def _read_receipt(
     state_dir: Path,
     key: str,
@@ -163,8 +180,18 @@ def _read_receipt(
     state = payload.get("state")
     if state == "admitted":
         if not _claim_path(state_dir, task_id).exists():
-            path.unlink(missing_ok=True)
-            return None
+            if _published_run_matches_receipt(state_dir, payload):
+                payload["state"] = "completed"
+                payload["outcome"] = "published"
+                payload["updated_at_epoch"] = now_epoch
+                payload["expires_at_epoch"] = now_epoch + RECENT_COMPLETION_TTL_SECONDS
+                atomic_write_text(
+                    path,
+                    json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
+                )
+            else:
+                path.unlink(missing_ok=True)
+                return None
     elif state != "completed":
         path.unlink(missing_ok=True)
         return None
@@ -268,6 +295,7 @@ def _write_receipt(
         "version": 1,
         "queue_key": key,
         "task_id": str(task["id"]),
+        "task_digest": task_digest(task),
         "execution_fingerprint": execution_fingerprint(task),
         "dedupe_revision": task_dedupe_identity(task)[1],
         "state": state,
