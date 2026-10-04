@@ -51,7 +51,9 @@ document.querySelector("form").onsubmit = (event) => {
   const child = text.match(/^child_id=(.+)$/m);
   if (child) {
     history.pushState({}, "", "/c/fabric-child-" + child[1]);
-    turn("assistant", "RESULT_" + child[1].toUpperCase());
+    const completion = text.match(/<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>/);
+    if (!completion) throw new Error("child bootstrap missing completion marker");
+    turn("assistant", "RESULT_" + child[1].toUpperCase() + "\\n" + completion[0]);
   } else if (text.includes("completed.") && text.includes("RESULT_A") && text.includes("RESULT_B")) {
     turn("assistant", "PARENT_SYNTHESIS: RESULT_A + RESULT_B");
   }
@@ -106,6 +108,7 @@ async function waitFor(label, predicate, timeout = 30000) {
       return campaigns.find(value => value.state === "running") || null;
     }));
     assert.equal(campaign.children.length, 2);
+    assert.ok(campaign.children.every(child => /<<<LOCAL_AGENT_CF_CHILD_COMPLETE:/.test(child.intent.bootstrap_text)));
     const children = context.pages().filter(page => page.url().includes("/c/fabric-child-"));
     assert.equal(children.length, 2, "children must be tabs in the same browser context");
     for (const page of children) assert.equal(await page.evaluate(() => window.submitted.length), 1);
@@ -120,7 +123,7 @@ async function waitFor(label, predicate, timeout = 30000) {
     const refused = await worker.evaluate(intent => observeConversationSpawnResult(intent), invalid);
     assert.equal(refused.ok, false, "session recovery must reject a mismatched page claim");
     const recovered = await worker.evaluate(intent => observeConversationSpawnResult(intent), campaign.children[0].intent);
-    assert.equal(recovered.reason, "child_result_ready", "reinjection must replace a detached listener even with an unchanged wire protocol");
+    assert.equal(recovered.reason, "child_result_ready", "reinjection must replace a detached listener and retain marker-gated final capture");
     await worker.evaluate(() => pollConversationFabricCampaigns());
     await parent.waitForFunction(() => document.body.textContent.includes("PARENT_SYNTHESIS: RESULT_A + RESULT_B"));
     const completed = await worker.evaluate(id => loadConversationFabricCampaign(id), campaign.id);
@@ -128,13 +131,14 @@ async function waitFor(label, predicate, timeout = 30000) {
     assert.equal(completed.feedback_delivered, true);
     assert.equal(completed.results.length, 2);
     assert.deepEqual(completed.results.map(value => value.assistant_text), ["RESULT_A", "RESULT_B"]);
+    assert.ok(completed.results.every(value => !value.assistant_text.includes("LOCAL_AGENT_CF_CHILD_COMPLETE")));
     assert.ok(completed.results.every(value => !value.assistant_text.includes("LOCAL AGENT BROWSER CHILD")));
     assert.equal(context.pages().filter(page => page.url().includes("/c/fabric-child-")).length, 0);
     const submittedBefore = await parent.evaluate(() => window.submitted.length);
     await worker.evaluate(() => pollConversationFabricCampaigns());
     assert.equal(await parent.evaluate(() => window.submitted.length), submittedBefore, "result feedback must not be replayed");
     assert.equal(parent.isClosed(), false, "parent must survive child cleanup");
-    console.log("PASS: real Bridge delegates two same-browser children, captures results, closes owned tabs and delivers one parent synthesis.");
+    console.log("PASS: real Bridge delegates two same-browser children, captures only marked final results, closes owned tabs and delivers one parent synthesis.");
   } catch (error) {
     if (worker) console.error("CAMPAIGN STATE:", JSON.stringify(await worker.evaluate(() => listConversationFabricCampaigns())));
     if (parent) console.error("PARENT STATE:", await parent.evaluate(() => ({text: document.body.innerText, controller: Boolean(globalThis.__localAgentConversationFabricContent)})));
