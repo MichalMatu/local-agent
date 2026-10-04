@@ -204,6 +204,44 @@ applyConversationFabricControl = async function applyConversationFabricControlRe
   return result;
 };
 
+// A terminal prompt may still be in flight from an older direct-control path when the
+// extension reloads. Its ACK is authoritative when the managed parent, campaign id and
+// originating control all agree. Do not require action=collect: a repeated delegate can
+// legitimately be the control that surfaced an already-completed campaign. Persist the
+// receipt before returning success so later polls cannot replay the same terminal text.
+acknowledgeConversationFabricFeedback = async function acknowledgeConversationFabricFeedbackRecovered(message, sender) {
+  try {
+    const authority = validateConversationFabricMessage(message, sender);
+    if (!await conversationFabricManagedParent(authority)) {
+      return { ok: false, reason: "conversation_fabric_parent_not_managed" };
+    }
+    const campaignId = String(message?.campaignId || "");
+    const expectedCampaignId = authority.control.action === "delegate"
+      ? await conversationFabricCampaignId(authority)
+      : authority.control.action === "collect"
+        ? String(authority.control.campaign_id || "")
+        : "";
+    if (!campaignId || campaignId !== expectedCampaignId) {
+      return { ok: false, reason: "conversation_fabric_campaign_mismatch" };
+    }
+    const campaign = await loadConversationFabricCampaign(campaignId);
+    if (!campaign || campaign.parent_conversation_url !== authority.conversationUrl) {
+      return { ok: false, reason: "conversation_fabric_parent_mismatch" };
+    }
+    if (!["completed", "failed"].includes(campaign.state)) {
+      return { ok: false, reason: `conversation_fabric_${campaign.state || "invalid"}` };
+    }
+    if (!campaign.feedback_delivered) {
+      campaign.feedback_delivered = true;
+      campaign.feedback_delivered_at = new Date().toISOString();
+      await saveConversationFabricCampaign(campaign);
+    }
+    return { ok: true, reason: "conversation_fabric_feedback_acknowledged" };
+  } catch (error) {
+    return { ok: false, reason: "conversation_fabric_feedback_invalid", error: String(error) };
+  }
+};
+
 // Recover durable spawning checkpoints without replaying any child. For running
 // campaigns, collect first and only then apply the timeout. This final safe collect
 // closes the race where a result becomes final immediately before the deadline.
