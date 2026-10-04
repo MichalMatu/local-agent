@@ -439,8 +439,7 @@ async function waitForLoginReady(context, timeoutMs) {
     let nextNotice = 0;
     let nextAuthProbe = 0;
     while (Date.now() < deadline) {
-      const composerReady = await pageComposerReady(page);
-      if (composerReady && Date.now() >= nextAuthProbe) {
+      if (Date.now() >= nextAuthProbe) {
         if (await pageAuthenticated(page)) {
           return { ok: true, reason: "chatgpt_ready", url: page.url() };
         }
