@@ -1,0 +1,65 @@
+{
+  "schema_version": 3,
+  "id": "growclip-history-review-20261004-01",
+  "workflow_id": "growclip-history-review-20261004",
+  "parent_conversation_url": "https://chatgpt.com/c/chat-2337393d",
+  "repository_ids": [
+    "growclip"
+  ],
+  "children": [
+    {
+      "request_id": "growclip-history-runtime-01",
+      "node_id": "runtime-monitoring-review",
+      "role": "research",
+      "summary": "Review GrowClip git history and resulting code in pinned range 183a462cfc291bc6e5c8a5c94da152967c44ec5f..bf2ff791d149e0063974450d12516dce9469ce16, but only the embedded runtime/monitoring domain. Focus on recent low-memory recovery, CriticalOps/task priority, heartbeat slot ownership and concurrency changes. Identify concrete regressions, race/lifecycle hazards, resource-budget risks, or missing tests. Return a concise severity-ranked finding list with exact file/commit evidence and recommended next action. Reasoning only: do not create tasks, edit files, or execute machine commands.",
+      "paths": [
+        "lib/framework/system/monitoring",
+        "lib/framework/system/task_management",
+        "lib/framework/system/tasks",
+        "src/platform/memory",
+        "test/host/monitoring"
+      ]
+    },
+    {
+      "request_id": "growclip-history-nodeflow-01",
+      "node_id": "nodeflow-frontend-review",
+      "role": "research",
+      "summary": "Review GrowClip git history and resulting code in pinned range 183a462cfc291bc6e5c8a5c94da152967c44ec5f..bf2ff791d149e0063974450d12516dce9469ce16, but only Nodeflow frontend/archive/diagnostics. Focus on archive controller/request lifecycle extraction, numeric value normalization, diagnostics logger/console lifecycle and browser behavior. Identify concrete correctness, stale-state, lifecycle, rendering, persistence or test-coverage gaps. Return severity-ranked findings with exact file/commit evidence and recommended next action. Reasoning only: do not create tasks, edit files, or execute machine commands.",
+      "paths": [
+        "interface/src/lib/features/nodeflow",
+        "interface/src/routes/nodeflow/archive",
+        "interface/tests/nodeflow",
+        "interface/tests/playwright/nodeflow-diagnostics.spec.ts",
+        "interface/tests/playwright/history-loading.spec.ts",
+        "docs/nodeflow_engine"
+      ]
+    },
+    {
+      "request_id": "growclip-history-storage-security-01",
+      "node_id": "storage-security-review",
+      "role": "verification",
+      "summary": "Review GrowClip git history and resulting code in pinned range 183a462cfc291bc6e5c8a5c94da152967c44ec5f..bf2ff791d149e0063974450d12516dce9469ce16, but only security settings plus filesystem/file-manager persistence boundaries. Check write-only credential semantics, JWT/auth lifecycle, LittleFS serialization/guards, path and upload handling, and compatibility/durable-state failure modes. Return concrete severity-ranked findings, evidence, and the smallest recommended verification or fix. Reasoning only: do not create tasks, edit files, or execute machine commands.",
+      "paths": [
+        "lib/framework/security",
+        "interface/src/lib/features/security",
+        "interface/src/lib/features/system/components/settings/SecuritySettingsCard.svelte",
+        "src/features/file_management",
+        "include/features/file_management",
+        "lib/framework/utils/storage",
+        "test/host/security",
+        "test/host/file_manager"
+      ]
+    },
+    {
+      "request_id": "growclip-history-telegram-01",
+      "node_id": "telegram-review",
+      "role": "verification",
+      "summary": "Review GrowClip git history and resulting code in pinned range 183a462cfc291bc6e5c8a5c94da152967c44ec5f..bf2ff791d149e0063974450d12516dce9469ce16, but only the Telegram feature, especially the final commits rejecting truncated commands and bounding command length using decoded JSON bytes. Check parser/transport boundaries, truncation semantics, queue/worker behavior, malformed input handling and focused tests. Return severity-ranked concrete findings with exact evidence and smallest recommended next action. Reasoning only: do not create tasks, edit files, or execute machine commands.",
+      "paths": [
+        "src/features/telegram",
+        "include/features/telegram",
+        "test/host/network/telegram"
+      ]
+    }
+  ]
+}
