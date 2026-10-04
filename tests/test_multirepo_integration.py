@@ -35,11 +35,33 @@ def configure_identity(path: Path) -> None:
     git(["config", "user.email", "local-agent-tests@example.invalid"], cwd=path)
 
 
+def write_test_catalog(root: Path, repository_id: str, repository: str, agent_binding: str) -> Path:
+    catalog = root / "agent_bindings.json"
+    payload = {"version": 1, "agents": []}
+    if catalog.exists():
+        payload = json.loads(catalog.read_text(encoding="utf-8"))
+    payload["agents"] = [
+        item for item in payload["agents"]
+        if str(item.get("id", "")).casefold() != repository_id.casefold()
+    ]
+    payload["agents"].append(
+        {
+            "id": repository_id,
+            "repository": repository,
+            "agent_binding": agent_binding,
+            "execution_enabled": True,
+        }
+    )
+    catalog.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return catalog
+
+
 def create_repository_fixture(root: Path, repository_id: str) -> dict[str, Path | str]:
     repository = f"test/{repository_id}"
     agent_binding = str(
         uuid.uuid5(uuid.NAMESPACE_URL, f"local-agent-integration:{repository}")
     )
+    write_test_catalog(root, repository_id, repository, agent_binding)
     remote = root / f"{repository_id}.git"
     seed = root / f"{repository_id}-seed"
     control = root / f"{repository_id}-control"
@@ -154,9 +176,20 @@ def write_registry(root: Path, repositories: tuple[dict[str, Path | str], ...]) 
 def test_environment(root: Path) -> tuple[Path, dict[str, str]]:
     home = root / "home"
     home.mkdir()
+    hook = root / "sitecustomize.py"
+    hook.write_text(
+        "import os\n"
+        "from pathlib import Path\n"
+        "import local_agent.repository.binding as binding\n"
+        "catalog = os.environ.get('LOCAL_AGENT_TEST_CATALOG')\n"
+        "if catalog:\n"
+        "    binding.DEFAULT_CATALOG_PATH = Path(catalog)\n",
+        encoding="utf-8",
+    )
     env = os.environ.copy()
     env["HOME"] = str(home)
-    env["PYTHONPATH"] = str(REPO_ROOT)
+    env["LOCAL_AGENT_TEST_CATALOG"] = str(root / "agent_bindings.json")
+    env["PYTHONPATH"] = os.pathsep.join((str(root), str(REPO_ROOT)))
     return home, env
 
 

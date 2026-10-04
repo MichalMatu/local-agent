@@ -120,6 +120,7 @@ def task_preflight(task: dict[str, Any], args: argparse.Namespace) -> dict[str, 
             repository=repository.repository,
             expected_agent_binding=target.agent_binding,
             control_dir=repository.control,
+            catalog_path=args.catalog,
         )
         validate_repository(repository)
         core.validate_branch(task.get("work_branch", "main"), cwd=repository.control)
