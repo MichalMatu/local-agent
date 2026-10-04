@@ -59,8 +59,8 @@
     return { transactionId, childRequestDigest, bootstrapDigest, childConversationUrl };
   }
 
-  function cleanTurnText(turn) {
-    const clone = turn?.cloneNode?.(true);
+  function cleanAssistantText(element) {
+    const clone = element?.cloneNode?.(true);
     if (!clone || typeof clone.querySelectorAll !== "function") return "";
     clone.querySelectorAll(
       '[data-message-author-role="user"], [data-conversation-role="user"], [data-user-message-bubble], button, [role="button"], form, textarea, .sr-only'
@@ -75,9 +75,7 @@
     if (explicit.length) {
       const message = explicit[explicit.length - 1];
       const turn = message.closest?.('[data-turn-key]') || message;
-      const text = String(message.innerText || message.textContent || "")
-        .replace(/^\s*ChatGPT said:\s*/i, "")
-        .trim();
+      const text = cleanAssistantText(message);
       const identity = String(
         turn.getAttribute?.("data-turn-key") ||
         message.getAttribute?.("data-message-id") ||
@@ -88,7 +86,7 @@
 
     const turns = Array.from(document.querySelectorAll('[data-turn-key]')).reverse();
     for (const turn of turns) {
-      const text = cleanTurnText(turn);
+      const text = cleanAssistantText(turn);
       if (!text) continue;
       return {
         text,
