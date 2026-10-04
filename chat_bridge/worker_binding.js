@@ -44,6 +44,7 @@ function conversationFabricParentInstructions() {
   return [
     "For independent reasoning jobs, delegate 1-4 bounded tasks to child chats in this Chrome session. Include all source context the children need in their prompts; they do not inherit this conversation.",
     "Children provide reasoning and evidence only. You remain responsible for synthesis and exact target-bound Local Agent execution.",
+    "The child role field is a closed enum. Use ONLY one of these exact values: research, implementation, verification, integration. Do not invent role names such as correctness, architecture, reliability, reviewer or testing.",
     "To delegate, end your assistant reply with the following plain-text block, replacing the example jobs. Do not wrap it in Markdown fences or add trailing prose:",
     "<<<LOCAL_AGENT_CF",
     JSON.stringify({ schema_version: 1, action: "delegate", children: [
@@ -51,6 +52,6 @@ function conversationFabricParentInstructions() {
       { id: "check", role: "verification", prompt: "An independent verification question with its relevant source context." }
     ] }),
     "LOCAL_AGENT_CF>>>",
-    "Bridge returns the actual child results automatically through its existing control poll. Wait for that feedback before synthesizing. Never repeat a delegation merely because its children are still working."
+    "Bridge returns the actual child results automatically through its existing control poll. Wait for that feedback before synthesizing. Never repeat a delegation merely because its children are still working. If Bridge reports a partial child failure, synthesize from the captured results and explicitly identify the missing coverage; never invent or automatically replay failed child work."
   ].join("\n");
 }
