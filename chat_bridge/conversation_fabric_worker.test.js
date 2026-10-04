@@ -13,7 +13,7 @@ function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
 
-function createHarness({ failSecondSubmit = false } = {}) {
+function createHarness({ failSecondSubmit = false, managed = true } = {}) {
   const session = {};
   const created = [];
   const submitted = [];
@@ -77,10 +77,19 @@ function createHarness({ failSecondSubmit = false } = {}) {
     { filename: "conversation_fabric_protocol.js" }
   );
 
+  const parentId = context.LocalAgentBridgeProtocol.conversationId(parentUrl);
   Object.assign(context, {
     CONTENT_PROTOCOL_VERSION: context.LocalAgentBridgeProtocol.CONTENT_PROTOCOL_VERSION,
     CONVERSATION_SPAWN_BROWSER_SCHEMA_VERSION: 1,
     normalizeConversationUrl: context.LocalAgentBridgeProtocol.normalizeConversationUrl,
+    conversationId: context.LocalAgentBridgeProtocol.conversationId,
+    async getBridgeState() {
+      return {
+        conversations: managed
+          ? { [parentId]: { id: parentId, url: parentUrl, preferredTabId: 11 } }
+          : {}
+      };
+    },
     async conversationSpawnSha256(text) {
       return crypto.createHash("sha256").update(String(text), "utf8").digest("hex");
     },
@@ -177,7 +186,9 @@ function createHarness({ failSecondSubmit = false } = {}) {
     assert.equal(h.created.length, 2);
     assert.equal(h.submitted.length, 2);
     assert.ok(h.submitted.every((intent) => intent.bootstrap_text.includes("Do not create Local Agent tasks")));
-    assert.match(started.feedbackPrompt, /\[LAB:NEXT=30s\]/);
+    assert.match(started.feedbackPrompt, /GitHub-managed wake/);
+    assert.match(started.feedbackPrompt, /control_generation/);
+    assert.doesNotMatch(started.feedbackPrompt, /\[LAB:/);
     assert.match(started.feedbackPrompt, /<<<LOCAL_AGENT_CF/);
 
     const duplicate = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
@@ -211,6 +222,14 @@ function createHarness({ failSecondSubmit = false } = {}) {
     );
     assert.equal(wrongSender.ok, false);
     assert.equal(wrongSender.reason, "conversation_fabric_control_invalid");
+  }
+
+  {
+    const h = createHarness({ managed: false });
+    const result = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.equal(result.reason, "conversation_fabric_parent_not_managed");
+    assert.equal(h.created.length, 0, "unmanaged ChatGPT tabs must not create Conversation Fabric children");
   }
 
   {
