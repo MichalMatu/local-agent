@@ -1,6 +1,6 @@
 # ChatGPT DOM contract for Chat Bridge
 
-This document records the current **browser compatibility boundary** used by the Chat Bridge 0.7.0 candidate. Selectors are evidence, not ChatGPT product guarantees. Unsupported page shapes fail closed.
+This document records the current **browser compatibility boundary** used by Chat Bridge `0.8.3` / content protocol `18`. Selectors are evidence, not ChatGPT product guarantees. Unsupported page shapes fail closed.
 
 Normal pacing/status for a GitHub-managed conversation does **not** depend on assistant DOM parsing. GitHub desired state is authoritative for `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL`.
 
@@ -9,14 +9,14 @@ Historical release notes describe earlier renderer assumptions and assistant-sid
 ## Release checkpoint
 
 ```text
-Prepared Local Agent release: v4.20.0
-Prepared Chat Bridge release: 0.7.0
-content protocol:             v13
-assistant guard:              v8
-runtime schema:               3
+Local Agent release line: 4.20.6
+Chat Bridge:              0.8.3
+content protocol:         18
+assistant guard:          8
+runtime schema:           3 + optional conversation_controls
 ```
 
-Before merge/tag the deployed production baseline remains Local Agent v4.19.12 / Chat Bridge 0.6.2. The existing desired-state contract remains documented in `GITHUB_BRIDGE_CONTROL.md`; Conversation Fabric release evidence is documented in `RELEASE_NOTES_V4.20.0.md` and `docs/conversation_fabric/`.
+Current browser-native Conversation Fabric runs in the operator's existing authenticated Chrome session. Isolated-profile browser tooling is test/development evidence only.
 
 ## What DOM still owns
 
@@ -28,6 +28,7 @@ DOM inspection is limited to facts that cannot be obtained from GitHub desired s
 - confirming the exact submitted user turn;
 - recognizing bounded structured assistant Retry/error cards;
 - detecting conversation-length exhaustion;
+- discovering the latest bounded child assistant result for Conversation Fabric;
 - explicit legacy binding/maintenance controls during migration.
 
 Assistant-turn text must not decide whether a GitHub-managed chat is paused, resumed or scheduled.
@@ -70,17 +71,21 @@ Legacy compatibility code may observe:
 [data-turn-key]
 ```
 
-Do not assume a role marker contains the assistant body. Live saved-page evidence on 2026-09-30 showed `data-conversation-role="assistant"` attached to an accessibility heading containing only `ChatGPT said:` while the visible assistant body was a sibling in the same rendered unit.
+Do not assume a role marker contains the assistant body. Live saved-page evidence showed `data-conversation-role="assistant"` attached to an accessibility heading containing only `ChatGPT said:` while the visible assistant body was a sibling in the same rendered unit.
 
-That evidence is the reason normal scheduling authority moved out of assistant DOM text in 0.6.0.
+That evidence is the reason normal scheduling authority moved out of assistant DOM text. Existing grouped/explicit assistant compatibility remains only for diagnostics, structured assistant error/exhaustion handling and bounded Conversation Fabric result extraction. New DOM heuristics must not reintroduce assistant-text scheduling authority.
 
-Existing grouped/explicit assistant compatibility remains only for legacy diagnostics and structured assistant error/exhaustion handling. New DOM heuristics must not reintroduce assistant-text scheduling authority.
+## Same-browser Conversation Fabric
 
-## Same-browser Conversation Fabric candidate
+Bridge `0.8.3` / content protocol `18` uses explicit parent delegation and bounded child-result reading in ordinary tabs of the same authenticated Chrome session.
 
-Bridge 0.8.3 / content protocol 18 adds explicit parent delegation and bounded child-result reading. Live Chrome evidence on 2026-10-04 confirmed an assistant role heading beside the answer body inside a logical `data-turn-key` group. The current answer body is scoped by an assistant `data-content-search-unit-key` or `data-chatgpt-search-unit-key` ending in `:assistant`, then `data-chatgpt-selection-message-id`. This excludes surrounding rating questions and user prompts. Explicit/grouped older renderer forms remain supported when that body scope is absent.
+The current answer body is scoped by an assistant `data-content-search-unit-key` or `data-chatgpt-search-unit-key` ending in `:assistant`, then `data-chatgpt-selection-message-id`. This excludes surrounding rating questions and user prompts. Explicit/grouped older renderer forms remain supported when that body scope is absent.
+
+A child result is terminal/adoptable only when the expected Conversation Fabric completion marker is present and the bounded assistant result is stable across repeated observation. The marker is stripped before the result is delivered to the parent.
 
 Submitted-user confirmation accepts a new exact user-turn identity even when history virtualization keeps the visible user-message count constant. Delegation changes neither GitHub pacing authority nor repository execution bindings.
+
+After service-worker/session restart, DOM/page evidence may participate in child ownership recovery only together with the exact spawn transaction/request/bootstrap/current-child-URL claim. A tab id or visually plausible child page by itself is never sufficient ownership proof.
 
 ## Assistant generation state
 
@@ -91,7 +96,7 @@ button[data-testid="stop-button"]
 button[data-testid="composer-stop-button"]
 ```
 
-External recovery/reload and managed diagnostic-browser stop fail closed while generation is active unless an explicit emergency force path is deliberately used.
+Recovery/reload and managed diagnostic-browser stop fail closed while generation is active unless an explicit emergency force path is deliberately used.
 
 ## Conversation-length exhaustion
 
@@ -124,8 +129,7 @@ Detection is not authorization. Automatic Retry requires worker revalidation of:
 
 - exact preferred tab;
 - exact normalized conversation URL;
-- current binding revision;
-- current local conversation generation;
+- current binding revision/generation safety epoch;
 - global Master enabled state;
 - conversation enabled state;
 - Bridge ownership of the triggering user message.
@@ -136,7 +140,7 @@ Immediately before Retry the guard rechecks the same live error snapshot, genera
 
 ## Retry identity and budget
 
-Assistant DOM ids are not durable retry identity. The durable key is scoped to conversation, binding revision, error kind and deterministic triggering-user identity.
+Assistant DOM ids are not durable retry identity. The durable key is scoped to conversation, safety generation, error kind and deterministic triggering-user identity.
 
 Authorized native Retry timing remains:
 
@@ -152,7 +156,7 @@ After the third unsuccessful Retry, Bridge records `assistant_retry_exhausted`, 
 
 One ChatGPT conversation has one concrete Bridge chat identity. Legacy ADD/REBIND metadata may create a new local generation/compatibility epoch, but it does not authorize repository work. Wake ownership and DOM safety are scoped to the exact conversation and current delivery/safety generation.
 
-A parent Superchat may reason across multiple donor/target repositories without making DOM identity ambiguous. Any Local Agent task still uses the exact canonical binding of its actual target repository.
+A parent Superchat may reason across multiple donor/target repositories without making DOM identity ambiguous. Any Local Agent task still resolves its actual target through the canonical runtime catalog, requires `execution_enabled=true` and uses the exact canonical target binding.
 
 Never infer repository execution authority from DOM ids, assistant/user text, renderer structure, Bridge binding metadata or model output.
 
@@ -166,8 +170,9 @@ Do not depend on:
 - any one assistant-role family existing globally;
 - `data-message-id` remaining stable across rehydration;
 - a role-marker node containing the corresponding message body;
-- a normal page refresh reloading a stale unpacked MV3 service worker;
+- a normal page refresh reloading stale unpacked MV3 extension code;
 - assistant DOM markers as the scheduling source of truth;
+- a reused child tab id as ownership proof;
 - speculative automatic cross-conversation rollover.
 
 Renderer changes must be added only from bounded live evidence plus focused DOM tests and real-extension browser regression coverage.

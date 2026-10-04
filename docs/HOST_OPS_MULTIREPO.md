@@ -17,11 +17,13 @@ parent Superchat
 
 ## Executable target identity
 
-For every Local Agent task, resolve the actual target repository and use that repository's exact canonical binding:
+For every Local Agent task, resolve the actual target through the canonical runtime catalog before queueing work. The catalog record must exist, `execution_enabled` must be true, and the exact canonical target binding must agree end-to-end:
 
 ```text
-registry binding == .agent/binding.json binding == task.agent_binding
+canonical catalog binding == registry binding == .agent/binding.json binding == task.agent_binding
 ```
+
+Registry/control agreement without the canonical catalog record is not sufficient execution authority and fails closed.
 
 The task never inherits the `host-ops` binding merely because the parent Superchat uses Host Ops for orchestration. Executor validation, repository leases, resource admission, watchdogs, cancellation ownership and durable evidence remain repository-scoped.
 
@@ -29,7 +31,7 @@ The task never inherits the `host-ops` binding merely because the parent Superch
 
 A donor repository can be inspected, compared or edited through permitted GitHub operations while another repository is the executable target. Donor context never grants machine authority over the target.
 
-The canonical `local-agent` catalog entry is execution-enabled. Local Agent may queue executable work against its own repository only with the exact canonical `local-agent` binding; self-execution does not relax registry/control/task binding equality, leases, resource admission or emergency controls.
+The current canonical `local-agent` catalog entry is execution-enabled. Local Agent may queue executable work against its own repository only with the exact canonical `local-agent` binding; self-execution does not relax catalog admission, registry/control/task binding equality, leases, resource admission or emergency controls.
 
 ## Chat Bridge behavior
 
@@ -43,20 +45,26 @@ GitHub `conversation_controls` owns pacing for managed chats. Repository/binding
 
 ## Host Ops
 
-Use the execution-enabled `host-ops` repository only for bounded Mac-local operations that genuinely belong to Host Ops: inspecting worktrees/process state, running local release gates, managing isolated development profiles or other host-level operations. Project work belongs to the actual project repository and uses that project's exact task binding.
+Use the execution-enabled `host-ops` repository only for bounded Mac-local operations that genuinely belong to Host Ops: inspecting worktrees/process state, running local release gates, managing host services or other machine-level operations. Project work belongs to the actual project repository and uses that project's exact task binding.
+
+Use direct GitHub edits when an exact source/docs diff plus CI is sufficient. Use Local Agent only when the task genuinely requires machine-local commands, local builds/tests, devices or host state.
 
 ## Child reasoning
 
-Child chats, when used, are reasoning-only. They may audit, debug, compare donor/target code and propose fixes. They never receive independent machine execution authority; the parent Superchat decides what becomes executable work and queues only exact-bound target tasks.
+Conversation Fabric children are reasoning-only. They may audit, debug, compare donor/target code and propose fixes, but they do not create `.agent/tasks`, run machine commands, mutate repositories or make the final execution decision.
 
-The current browser child-spawn path has a known `chatgpt_login_timeout` detector failure in the isolated profile. Do not repeat login/Cloudflare/DOM loops as a parent-Superchat acceptance gate. Treat child-browser transport as a separately repairable component while the parent continues operating.
+Production child delegation uses ordinary tabs in the operator's already authenticated primary Chrome session. The retired isolated-profile/login path is historical development tooling only and is not a production acceptance or recovery mechanism.
+
+Campaign/result recovery is durable in Bridge local storage. Child ownership after worker/session restart must be proven by exact transaction/request/bootstrap/current-URL evidence, not a reused tab id. Explicit collect may inspect/recover already-submitted children but must never replay their prompts.
 
 ## Security properties
 
 - chat identity is transport/scheduling identity only;
 - repository reasoning context does not grant execution authority;
+- the canonical runtime catalog is mandatory final admission authority;
 - every executable task uses the target repository's exact canonical binding;
 - execution-disabled targets never receive executable tasks;
 - self-execution for `local-agent` uses the same hard binding and repository isolation rules as every other execution-enabled target;
 - global emergency controls, repository leases and task/resource limits remain unchanged;
-- GitHub remains the durable control/evidence plane.
+- GitHub remains the durable control/evidence plane;
+- Conversation Fabric children remain reasoning-only and cannot upgrade browser transport into machine execution authority.

@@ -1,259 +1,209 @@
 # Local Agent architecture
 
-> **Design goal:** keep planning outside the executor and make local execution deterministic, bounded, observable and recoverable.
+> **Design goal:** keep planning outside the executor and make local execution deterministic, target-bound, bounded, observable and recoverable.
 
-This document describes the current code ownership boundaries. Runtime truth still comes from `main`, `AGENTS.md`, operational documentation and live daemon evidence.
+Runtime truth comes from current `main`, the canonical runtime catalog, `AGENTS.md`, current operational documentation and live daemon evidence.
 
 ## System boundary
 
 ```mermaid
 flowchart LR
-    Planner["ChatGPT / planner"]
+    Parent["Managed Superchat parent"]
     Bridge["Chat Bridge"]
-    Control["Git control plane"]
+    Desired["GitHub conversation desired state"]
+    Catalog["Canonical runtime catalog"]
+    Tasks["Git .agent/tasks"]
     Entry["Guarded entrypoint"]
     Supervisor["Supervisor"]
     Worker["Repository worker"]
     Runtime["Task runtime"]
-    MCP["Generic local MCP client"]
-    LocalApp["Configured loopback MCP server"]
-    Repo["Project repository"]
-    Results["Durable result / status"]
-    Operator["Local + remote operator controls"]
+    Repo["Actual target repository"]
+    Results["Durable result/status"]
+    Operator["Local + remote controls"]
 
-    Bridge --> Planner
-    Planner -->|exact immutable task| Control
-    Control --> Supervisor
+    Desired --> Bridge
+    Bridge --> Parent
+    Parent -->|reasoning delegation| Bridge
+    Parent -->|resolve execution target| Catalog
+    Catalog -->|enabled + exact binding| Tasks
+    Tasks --> Supervisor
     Operator --> Entry
     Entry --> Supervisor
     Supervisor --> Worker
     Worker --> Runtime
     Runtime --> Repo
-    Runtime -->|packaged CLI/client| MCP
-    MCP -->|Streamable HTTP, loopback only| LocalApp
     Runtime --> Results
-    Results --> Control
+    Results --> Tasks
 ```
 
-The planner chooses intent. The executor independently owns repository identity, hard binding, resource admission, process lifecycle, watchdogs, checkpoints, publication and emergency stop. Optional MCP access is a separate Local Agent-owned boundary: machine-local configuration chooses an exact loopback server and exact tool policy; discovery metadata never grants execution authority.
+The parent chooses intent and owns the final execution decision. Chat Bridge owns browser transport and Conversation Fabric lifecycle. Local Agent independently owns repository authorization, hard binding, leases/resources, process lifecycle, watchdogs, checkpoints, publication and emergency controls.
 
-## Package map
+## Transport is not execution authority
+
+A managed ChatGPT conversation is transport/scheduling identity only. Conversation reasoning scope may span donor and target repositories without chat rebinding.
+
+For every executable Local Agent task:
+
+1. resolve the actual target through the canonical runtime catalog;
+2. require a matching catalog record with `execution_enabled=true`;
+3. require the exact canonical `agent_binding` to agree across catalog, registry/control identity and task payload;
+4. acquire the normal repository/resource leases;
+5. honor local/remote emergency controls.
+
+Registry/control agreement without a canonical catalog record is not sufficient authority and fails closed.
+
+The current catalog enables `local-agent`. Self-execution therefore uses the same ordinary target-bound rules as any other enabled repository; there is no permanent special-case self-execution bypass or prohibition.
+
+## Root launchers and service lifecycle
+
+Root Python files remain thin operational launchers only. Reusable implementation lives under `local_agent/`.
+
+Important entrypoints:
+
+- `agent_entrypoint.py` — guarded installed service lifecycle;
+- `agent_parallel.py` — parallel multirepo supervisor;
+- `agent_multirepo.py` — serial multirepo supervisor/fallback mode;
+- `agentd.py` — compatibility operational launcher routed through `local_agent.daemon.launcher`.
+
+The supported `agentd.py` path is registry-backed. If the machine repository registry is absent, it fails closed; it does **not** enter the legacy single-repository execution loop. Legacy daemon helpers remain implementation/recovery compatibility code, not an alternate authorization path.
+
+## Package ownership
+
+Key ownership boundaries:
+
+| Area | Owner | Responsibility |
+| --- | --- | --- |
+| Canonical target/binding catalog | `local_agent/repository/binding.py` + catalog data | target identity, `execution_enabled`, canonical binding |
+| Repository registry/context | `local_agent/repository/context.py` | machine provisioning/workspace paths/config digest/lease identities |
+| Daemon launcher | `local_agent/daemon/launcher.py` | registry-backed operational `agentd.py` admission |
+| Durable daemon state | `local_agent/daemon/service.py` | claims, durable result spool, run journal, self-update/control helpers |
+| Serial repository worker | `local_agent/repository/worker.py` | one repository turn, final binding admission, repository controls |
+| Parallel repository worker | `local_agent/supervisor/worker.py` | resource-aware admission, dedupe and task dispatch |
+| Parallel supervisor | `local_agent/supervisor/orchestrator.py` | worker/process/control coordination |
+| Serial supervisor | `local_agent/supervisor/serial.py` | serial multirepo fallback orchestration |
+| Task contract | `local_agent/runtime/task_contract.py` | validation, binding/resources/dedupe metadata, limits and digest |
+| Task runtime | `local_agent/runtime/executor.py` | command lifecycle, task budget, idle/RSS watchdogs, progress |
+| Execution core | `local_agent/foundation/core.py` | workspace prepare/edit/verify/checkpoint/cleanup and publication |
+| Process foundation | `local_agent/foundation/process.py` | registered process groups, bounded output, termination and lease FD inheritance |
+| Emergency controls | `local_agent/operator/` | local disable and remote desired state |
+| Chat Bridge worker composition | `chat_bridge/service_worker.js` + `worker_*.js` | browser transport/control/recovery routing |
+| Fabric protocol/content | `chat_bridge/conversation_fabric_*.js` | delegate/collect envelope and parent content behavior |
+| Fabric recovery/delivery | Fabric worker recovery + terminal-delivery guard modules | durable campaign recovery and terminal at-most-once semantics |
+
+New implementation should live in its packaged owner rather than growing root compatibility shims.
+
+## Task durability and replay safety
+
+Task execution uses durable claims and final-result spooling. Interrupted claimed work is not silently replayed.
+
+Parallel dedupe persists admitted/completed receipts. A crash can occur after the final result is durably published and the task claim is released but before the normal completion receipt write. Recovery therefore checks matching durable local `result_published` run evidence for the same task digest and promotes the admitted receipt to completed. Without matching durable publication evidence, corrective work remains retryable rather than being falsely marked complete.
+
+This closes duplicate-execution replay without turning uncertain state into a false success.
+
+## Serial vs parallel execution
+
+Parallel multirepo execution is the production path and owns production queue coalescing/dedupe semantics. Serial mode remains a bounded fallback/diagnostic execution variant unless/until its parity contract is explicitly expanded.
+
+Any future parity change must be stated in `OPERATIONS.md` and backed by a shared worker-path acceptance matrix rather than inferred from similarly named helpers.
+
+## Process and timeout boundary
+
+`local_agent/foundation/process.py` owns registered spawning, process-group termination, bounded output transfer and inherited repository/resource lease descriptors.
+
+`local_agent/runtime/executor.py` owns command timeout, idle timeout, memory watchdogs and the task execution deadline used to decide whether another command can start while reserving finalization budget.
+
+Workspace preparation, checkpointing and cleanup still have their own bounded operations. If `task_timeout` is ever promoted from execution-budget semantics to a strict total wall-clock contract, all preparation/finalization subprocess timeouts must be derived from the same remaining deadline and the documentation/tests must change together.
+
+## Conversation Fabric
+
+Production Conversation Fabric runs inside the operator's already authenticated primary Chrome session:
 
 ```text
-local_agent/
-├── __init__.py
-├── config.py
-├── paths.py
-├── entrypoint.py
-├── version.py
-├── cli/
-│   └── diagnostics.py
-├── daemon/
-│   ├── installation.py
-│   └── service.py
-├── foundation/
-│   ├── core.py
-│   ├── process.py
-│   └── storage.py
-├── mcp/
-│   ├── __init__.py
-│   ├── artifacts.py
-│   ├── cli.py
-│   ├── client.py
-│   ├── config.py
-│   ├── errors.py
-│   ├── policy.py
-│   └── registry.py
-├── operator/
-│   ├── local.py
-│   └── remote.py
-├── platform/
-│   └── macos_launchd.py
-├── repository/
-│   ├── admin.py
-│   ├── binding.py
-│   ├── cleanup.py
-│   ├── context.py
-│   └── worker.py
-├── runtime/
-│   ├── executor.py
-│   ├── output.py
-│   ├── progress.py
-│   ├── task_contract.py
-│   ├── task_transport.py
-│   └── telemetry.py
-└── supervisor/
-    ├── control.py
-    ├── policy.py
-    ├── orchestrator.py
-    ├── serial.py
-    ├── resources.py
-    ├── scheduling.py
-    └── worker.py
+managed parent
+  -> LOCAL_AGENT_CF delegate
+  -> service worker
+  -> worker_spawn.js ownership transaction
+  -> ordinary reasoning-only child tabs
+  -> stable result capture
+  -> durable campaign state
+  -> exact owned-tab cleanup
+  -> terminal parent feedback at most once
 ```
 
-The package is the implementation home for reusable code. New implementation must not be added to a root compatibility module when a packaged owner exists.
+Children are reasoning-only. They do not create `.agent/tasks`, execute machine commands, mutate repositories or make the final parent decision.
 
-## Ownership boundaries
+### Durable campaign recovery
 
-| Area | Owner | Responsibilities |
-| --- | --- | --- |
-| Installation transaction | `local_agent/daemon/installation.py` | installation lock, durable pending revisions and fail-closed admission after interrupted validation |
-| Daemon service | `local_agent/daemon/service.py` | lifecycle, durable claims/results, control and validated self-update |
-| Parallel orchestration | `local_agent/supervisor/orchestrator.py` | side-effect coordination: worker admission/reaping, control probing/draining, status publication and shutdown |
-| Serial fallback | `local_agent/supervisor/serial.py` | serial repository polling and mode-preserving restart |
-| Checkout paths | `local_agent/paths.py` | explicit source checkout resolution, independent of cwd |
-| Release version | `local_agent/version.py` | one release version constant |
-| Runtime configuration | `local_agent/config.py` | startup-loaded timeout policy |
-| Generic local MCP | `local_agent/mcp/` | typed machine-local server registry, loopback Streamable HTTP sessions, explicit per-tool policy, bounded discovery/results/artifacts and MCP CLI |
-| Execution core | `local_agent/foundation/core.py` | deterministic task execution, workspace preparation/checkpointing and result publication |
-| Process foundation | `local_agent/foundation/process.py` | registered spawning, process groups, bounded stdout, durable writes and inherited lease FDs |
-| Storage foundation | `local_agent/foundation/storage.py` | bounded control Git sync, resilient network retry and storage diagnostics |
-| Repository identity | `local_agent/repository/context.py` | registry parsing, workspace identity, config digests and lease keys |
-| Hard binding | `local_agent/repository/binding.py` | canonical UUID identity and control-binding validation |
-| Repository administration | `local_agent/repository/admin.py` | explicit provisioning and checkout validation |
-| Repository runtime cleanup | `local_agent/repository/cleanup.py` | bounded terminal metadata GC with path-exact publication |
-| Repository worker | `local_agent/repository/worker.py` | one isolated repository turn, binding admission and repository-scoped controls |
-| Task executor | `local_agent/runtime/executor.py` | staged command lifecycle, time/RSS watchdog orchestration and task-level execution budget |
-| Task contract | `local_agent/runtime/task_contract.py` | task limits, digest/binding/resource validation and payload-reference materialization |
-| Task transport | `local_agent/runtime/task_transport.py` | escape-safe external text-payload externalization and local task-bundle publication |
-| Output | `local_agent/runtime/output.py` | bounded live/summary rendering |
-| Progress | `local_agent/runtime/progress.py` | validated progress markers and bounded async publication |
-| Telemetry | `local_agent/runtime/telemetry.py` | host/process telemetry parsing and collection |
-| Local emergency state | `local_agent/operator/local.py` | persistent disable marker, disabled-only runtime reset and binding migration |
-| Remote emergency intent | `local_agent/operator/remote.py` | central operator desired-state polling and fail-closed validation |
-| Guarded service lifecycle | `local_agent/entrypoint.py` | operator polling plus safe supervisor start/stop/reexec |
-| Diagnostics CLI | `local_agent/cli/diagnostics.py` | status, task inspection, task validation and doctor checks |
-| Supervisor polling policy | `local_agent/supervisor/policy.py` | shared adaptive polling/order/time policy |
-| Production scheduling | `local_agent/supervisor/scheduling.py` | pure retry/due/backoff/max-worker policy plus control-probe retry/admission state and `RETRY` / `PAUSE_CONTROL_REPOSITORY` / `DRAIN_ALL` classification |
-| Resource admission | `local_agent/supervisor/resources.py` | machine/named-resource flock arbitration and inherited resource FDs |
-| Parallel repository worker | `local_agent/supervisor/worker.py` | resource-aware parallel task admission and dispatch |
-| macOS integration | `local_agent/platform/macos_launchd.py` | portable LaunchAgent generation/lifecycle helpers |
+Campaigns and captured results are stored in `chrome.storage.local`.
 
-The task transport is an additive representation boundary, not a second executor. It externalizes source-like UTF-8 text from JSON, while `task_contract.py` materializes references before normal validation and digesting so inline and externalized forms have the same logical task identity. Payload references remain confined to the task-id-scoped control directory and the fully resolved logical task stays inside the existing task-size bound.
+After service-worker/session restart, a child tab may be reattached only when page evidence matches the exact transaction id, child-request digest, bootstrap digest and current child conversation URL. Tab id alone is never ownership proof. Ambiguous/pre-submit submission fails closed rather than replaying an already-submitted child bootstrap.
 
-The MCP boundary is deliberately parallel to, not embedded in, the task executor. An ordinary task may invoke the packaged MCP CLI, which performs its own server/policy/bounds checks and returns structured bounded output through the existing command/result mechanism. `host-ops` is not a protocol owner and the task schema/scheduler do not gain MCP-specific fields.
+Stable child results require the explicit completion marker and repeated identical observation. Each stable result is saved before sibling completion or cleanup. Transient observation errors remain pending/recoverable.
 
-The control-admission boundary is deliberate: `scheduling.py` owns deterministic state transitions and policy decisions and has no Git/process/daemon side effects. `orchestrator.py` observes real probe outcomes and executes the chosen side effect. This keeps BUG-002 handling directly testable without embedding another policy state machine in the supervisor loop.
+The existing GitHub-control alarm normally reconciles remote conversation controls and then polls active Fabric campaigns while parent + Master are enabled. Explicit `collect` is a recovery/inspection operation for already-submitted children, not the normal polling loop and never permission to resubmit prompts.
 
-## Root boundary
+### Terminal delivery journal
 
-All implementation lives under `local_agent/`. Four root Python files remain as operational launchers, with no module aliases or `__file__` mutation:
+Ordinary Bridge wake delivery does not maintain a durable ambiguous-send journal; unconfirmed ordinary wake delivery remains diagnostic and is not speculatively replayed.
 
-| Launcher | Operational requirement |
-| --- | --- |
-| `agent_entrypoint.py` | installed guarded LaunchAgent and guard self-reexec |
-| `agent_parallel.py` | existing direct parallel LaunchAgents and parallel self-update/restart |
-| `agent_multirepo.py` | serial LaunchAgent, daemon registry dispatch and serial restart |
-| `agentd.py` | single-daemon LaunchAgent and daemon self-update/restart |
+Conversation Fabric **terminal feedback is different**. It has a durable campaign-specific delivery claim written before crossing the parent Send boundary:
 
-Keeping these filenames preserves installed launchd configuration and explicit restart commands. The v4.17 updater still needs an operator-managed transition because its in-memory validator names deleted files; see [v4.18 release notes](RELEASE_NOTES_V4.18.0.md). They are executable boundaries, not supported import APIs. All other root aliases and worker/admin/diagnostic/operator shims are removed.
+- definite no-send clears the claim;
+- confirmed delivery marks the campaign delivered;
+- an ambiguous claim surviving worker restart is treated as consumed and is not resent.
 
-Workers run as package modules with an explicit checkout cwd. Direct supervisor module invocation is also supported. Restart uses an absolute launcher under `repository_root()` and preserves the exact serial/parallel mode, registry, one-shot flag and worker count. The daemon's `SELF_REPO` uses the same resolver for Git revision and self-update. Installed-update compile discovery delegates to `scripts/verify.py --only compile`; validation still isolates HOME, strips lease metadata, bounds each command and runs the full Python suite before accepting an update.
+That rule provides durable terminal at-most-once semantics and intentionally trades possible terminal-notification liveness for replay safety.
 
-The guard and updater serialize source acceptance through an installation lock. The updater records both revisions durably before installing the inspected commit. Validation failure rolls back; interrupted validation leaves a journal that blocks supervisor startup and local enable until operator recovery. The guard keeps emergency polling active while validation is running. See [operations](OPERATIONS.md#interrupted-self-update-recovery).
+A parent cannot start a different new delegation while an older terminal campaign still has undelivered feedback. This prevents stale cross-campaign terminal replay.
 
-`tests/test_package_layout.py` enforces this boundary and tests launcher/module execution and restart paths. The launchd generator keeps the installed launcher contract and validates packaged runtime files before installation.
+## GitHub desired state and pacing
 
-## Dependency direction
+GitHub `conversation_controls` is authoritative for managed-chat `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL`. Every scheduling mutation increments `control_generation`. The global Bridge Master remains independent operator state and cannot be changed by per-conversation desired state.
 
-The intended direction is:
+Legacy LAB pacing/binding controls remain migration/diagnostic compatibility only.
 
-```mermaid
-flowchart TD
-    Root["operational root launchers"] --> Supervisor["local_agent.supervisor"]
-    Root --> Repo["local_agent.repository"]
-    Root --> Runtime["local_agent.runtime"]
-    Root --> Operator["local_agent.operator"]
-    Runtime --> MCP["local_agent.mcp CLI/client"]
-    Supervisor --> Repo
-    Supervisor --> Runtime
-    Supervisor --> Foundation["local_agent.foundation"]
-    Repo --> Foundation
-    Runtime --> Foundation
-    MCP --> Foundation
-    Operator --> Repo
-    Operator --> Foundation
-```
+## Direct GitHub edits vs Local Agent
 
-Packaged modules and tests import packaged owners directly. Imports of root launcher names are unsupported and prohibited. MCP does not import scheduler, task-contract, repository-worker or host-ops application code; its only low-level Local Agent dependency is the durable filesystem helper used for artifact publication.
+Use direct GitHub edits when the desired repository/source/docs diff is exact and CI is sufficient verification. Use Local Agent for work that genuinely requires machine-local commands, local builds/tests, devices, services or host state.
 
-## Remaining decomposition opportunities
+This choice does not alter target authorization: any Local Agent task must still pass canonical catalog admission and exact target binding.
 
-The daemon service and parallel orchestrator remain substantial coordination modules, but that alone is not a reason for a risky cosmetic split. Extract a responsibility only when it has a clear owner, deterministic contract and focused tests.
+## Safety invariants
 
-For v4.18.14, control-probe retry/admission state was extracted into the existing scheduling owner rather than creating a new one-off module. `orchestrator.py` still coordinates real worker/process/control side effects; it no longer owns the BUG-002 retry counters or the known-worker-vs-unexplained-holder policy decision.
+Refactoring or cleanup must not weaken these properties:
 
-Future candidates may extract supervisor status/process coordination or daemon update operations if doing so reduces coupling without changing claim/result, update rollback, resource admission, control drain or shutdown behavior.
-
-The scheduling extraction remains direct: production calls `scheduling.py` and scheduling tests exercise that owner; supervisor and temporary-Git integration tests exercise its production consumers.
-
-## Safety invariants that layout work must not weaken
-
-> [!CAUTION]
-> Refactoring file layout is never a reason to weaken an executor invariant.
-
-- repository/control/task agent bindings must match before execution;
-- global disabled state takes precedence over task admission;
-- interrupted claimed work is never silently replayed;
-- publication retry may republish evidence but may not rerun commands;
-- command output, task time and RSS remain bounded;
-- external task payload references must remain task-id scoped, symlink/path-traversal safe and bounded by the same resolved logical task-size ceiling as inline tasks;
-- MCP endpoint identity remains explicit loopback-only machine configuration and MCP discovery remains separate from execution authorization;
-- MCP write/arbitrary-code execution requires matching machine policy plus matching explicit invocation intent;
-- MCP stdio remains unavailable until its process is owned by the registered spawn/process-group lifecycle contract;
-- repository and resource lease FDs remain inherited through descendants;
-- resource contention occurs before claim and remains durable waiting;
-- global maintenance drains active workers and acquires repository identities;
-- confirmed pending global control drains immediately;
-- unexplained repeated control-repository lease contention remains fail-closed through bounded global drain;
-- remote operator `enabled` never clears the persistent local disable marker;
-- dirty workspaces are never destructively replaced without recoverable evidence;
-- daemon/self-update and supervisor restart paths must still resolve to the installed root checkout.
+- canonical catalog admission is mandatory before worker execution;
+- `execution_enabled=false` fails closed;
+- exact catalog/registry/control/task binding agreement is required;
+- local disable state wins over task admission;
+- repository/resource leases prevent conflicting execution;
+- interrupted claimed task work is not silently replayed;
+- durable result publication may be retried without rerunning commands;
+- parallel dedupe recovery suppresses duplicate equivalent work after proven final-result publication;
+- command output/time/RSS are bounded;
+- dirty workspace state is checkpointed before destructive cleanup;
+- child reasoning cannot obtain machine authority;
+- Fabric restart recovery cannot adopt a child from tab id alone;
+- terminal Fabric feedback is durably at-most-once;
+- stale terminal campaigns cannot replay after a newer delegation becomes authoritative.
 
 ## Verification architecture
 
-The executable verification source of truth is:
+Primary verification entrypoint:
 
 ```bash
 python scripts/verify.py
 ```
 
-```mermaid
-flowchart LR
-    Verify["scripts/verify.py"] --> Compile["Python compile"]
-    Verify --> Ruff["Ruff"]
-    Verify --> Bridge["Chat Bridge syntax + tests"]
-    Verify --> Python["Python unit/integration"]
-    CI["GitHub Actions"] --> Verify
-    CI --> Coverage["branch-aware coverage"]
-    CI --> Py314["Python 3.14"]
-    CI --> Mac["macOS smoke"]
-    Mac --> MCPHTTP["real loopback MCP HTTP smoke"]
-```
+CI additionally covers branch-aware coverage, Python 3.14, macOS smoke and real-extension browser smoke. Runtime/Bridge changes require focused regressions plus full exact-head CI before merge.
 
-Package-layout changes additionally require `tests/test_package_layout.py` to stay green so moved implementations cannot silently grow back into root shims. MCP changes additionally require the hermetic Streamable HTTP tests because mocks cannot prove the transport and SDK negotiation boundary.
+Browser lifecycle/recovery changes should be proven through production routing where feasible: parent content → worker event routing → child spawn/observation → durable campaign state → terminal delivery → restart/reload reconciliation → no duplicate delivery.
 
-Coverage remains a risk map, not a vanity gate. Lower-covered orchestration and shutdown paths deserve targeted tests before cosmetic decomposition. Current-documentation and release-metadata contract tests prevent operational examples and release identity from silently drifting behind runtime behavior.
+See also:
 
-## macOS service boundary
-
-Tracked machine-specific plist files are replaced by generated configuration:
-
-```bash
-.venv/bin/python scripts/macos_launchd.py render
-.venv/bin/python scripts/macos_launchd.py install --mode parallel --max-workers 4
-.venv/bin/python scripts/macos_launchd.py restart --mode parallel --max-workers 4
-```
-
-`install` is intentionally non-disruptive. `restart` is the explicit service interruption boundary.
-
-## Browser transport boundary
-
-`chat_bridge/service_worker.js` is composition-only. Worker responsibilities are split by ownership: `worker_state.js` serializes Chrome storage, `worker_runtime.js` validates/caches runtime configuration, `worker_binding.js` owns transport-workspace lookup plus the minimal chat prompt envelope, `worker_schedule.js` owns alarms, `worker_transport.js` owns tab/content-script transport and delivery authorization, `worker_controls.js` owns assistant inspection/pacing/maintenance plus legacy binding compatibility transitions, `worker_delivery.js` owns one delivery lifecycle, `worker_conversations.js` owns popup/operator conversation/global-setting mutations, `worker_lab_commands.js` owns diagnostic feedback and user-authored legacy `LAB:OP:*` handling, and `worker_events.js` routes Chrome events/messages. `worker_base.js` contains only shared constants and small process-local registries.
-
-`content.js` owns ChatGPT DOM interaction, assistant/operator marker discovery and observable delivery confirmation. `bridge_state.js` owns state normalization; `control_protocol.js` owns the shared command catalog, marker parsing and content-protocol version. `popup.js` owns explicit manual rendering/actions, while `popup_live.js` owns live popup synchronization and in-place state patching. Legacy content-originated `ADD`/`REBIND` and user-authored `LAB:OP:*` binding commands remain worker-validated and persistently deduplicated for migration compatibility, but they are not normal repository routing. Per-conversation schedule/maintenance controls remain bounded and can never mutate the global Master switch.
-
-Bridge keeps no durable ambiguous-delivery journal. A lost post-submit confirmation is diagnostic `delivery_unconfirmed` only and never creates `pendingDelivery` or blocks future controls. Only an actively running delivery is protected by an in-memory overlap guard, which disappears when the send completes or the worker restarts.
-
-The planner chooses direct GitHub edits with sufficient diff/CI evidence or bounded local execution. Neither the Bridge nor the daemon chooses implementation work. See [the planner contract](AUTONOMOUS_CHAT_LOOP.md), [the current Bridge README](../chat_bridge/README.md), [the current DOM contract](CHATGPT_DOM_CONTRACT.md), [the GitHub Bridge control contract](GITHUB_BRIDGE_CONTROL.md), and [the post-release Bridge audit](CHAT_BRIDGE_AUDIT_2026-09-30.md).
+- [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md)
+- [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md)
+- [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md)
+- [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md)
+- [`OPERATIONS.md`](OPERATIONS.md)
+- [`../chat_bridge/README.md`](../chat_bridge/README.md)

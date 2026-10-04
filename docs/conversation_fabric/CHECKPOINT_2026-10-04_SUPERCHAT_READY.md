@@ -1,8 +1,12 @@
 # Checkpoint — ready for bounded live Superchat acceptance
 
+> **HISTORICAL SNAPSHOT — ACCEPTANCE COMPLETED LATER ON 2026-10-04**
+>
+> This checkpoint records the state immediately before the first bounded live Superchat acceptance. It is not current operating guidance. Statements below about Chat Bridge `0.8.1`, `local-agent` being execution-disabled, deferred dedupe behavior, or acceptance still being “next” were superseded later the same day. For current behavior read `../CURRENT_HANDOFF.md`, `../GOLDEN_STANDARD.md`, `README.md` and `CURRENT_PLAN.md`.
+
 Date: 2026-10-04
 
-## Immutable anchors
+## Immutable anchors at this checkpoint
 
 - Local Agent release line: `4.20.6`.
 - Chat Bridge: `0.8.1`.
@@ -13,7 +17,7 @@ Date: 2026-10-04
 
 Current `main` may be later because this checkpoint/documentation is committed after the code checkpoint. Always read it fresh.
 
-## Verified code state
+## Verified code state at this checkpoint
 
 The self-diagnostic and follow-up cleanup established:
 
@@ -25,9 +29,11 @@ The self-diagnostic and follow-up cleanup established:
 - composer readiness remains bounded at pre-submit time;
 - exact refreshed child repair passed `test`, `python-314`, `coverage`, `macos-smoke` and `bridge-browser`.
 
-## Operational rest state
+## Operational rest state at this checkpoint
 
-At the end of the self-diagnostic, all known managed Chat Bridge `conversation_controls` were disabled with no scheduled wake. `local-agent` is execution-disabled as a normal task target. Conversation Operator intake must be treated as explicit live configuration: verify fresh before use, enable only through the supported path for the bounded proof, and do not leave it unintentionally active afterward.
+At the end of the self-diagnostic, all known managed Chat Bridge `conversation_controls` were disabled with no scheduled wake. `local-agent` was execution-disabled as a normal task target at that checkpoint. Conversation Operator intake was treated as explicit live configuration for the bounded proof.
+
+This is historical state only. The current canonical runtime catalog is authoritative for `execution_enabled` and binding admission.
 
 ## Branch policy
 
@@ -39,12 +45,12 @@ Permanent branches are only:
 
 `work/*`, historical `develop/*` and `archive/*` refs are disposable once their evidence is merged/closed. They are never source of truth.
 
-## Known deferred issue
+## Known deferred issue at this checkpoint
 
-Recent-completion dedupe currently records a bounded completion receipt after a task result is successfully published even if the underlying task result is failed. Reusing the same explicit `dedupe_key` for a materially changed correction could therefore be suppressed within the TTL. For the live acceptance, never reuse an old intent key for a changed corrective plan. Harden this later without weakening duplicate suppression.
+Recent-completion dedupe then recorded a bounded completion receipt after a task result was successfully published even if the underlying task result was failed. This was a historical deferred concern. Current dedupe semantics and recovery must be read from current source and `../GOLDEN_STANDARD.md`, not inferred from this checkpoint.
 
-## Readiness verdict
+## Historical readiness verdict
 
 **READY FOR BOUNDED LIVE ACCEPTANCE.**
 
-The next chat must prove the user-visible architecture rather than perform another broad self-audit: one Superchat parent delegates real reasoning to child chats on real code, observes their outputs, synthesizes the decision and remains the only authority that may request target-bound Local Agent execution.
+That acceptance was subsequently completed and the production model moved to same-browser Chat Bridge `0.8.3` with durable Conversation Fabric recovery and later runtime/Fabric hardening. Current work is the stronger restart/reload/no-replay acceptance described in `CURRENT_PLAN.md`.

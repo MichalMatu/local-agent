@@ -2,11 +2,11 @@
 
 ## Status
 
-This is the canonical scheduling/control contract for Chat Bridge `0.8.2`. GitHub desired state owns managed-chat pacing; Chat Bridge owns browser transport and browser-native Conversation Fabric; repository execution authorization remains exclusively at executable `.agent/tasks`.
+This is the canonical scheduling/control contract for Chat Bridge `0.8.3`. GitHub desired state owns managed-chat pacing; Chat Bridge owns browser transport and browser-native Conversation Fabric; repository execution authorization remains exclusively at executable `.agent/tasks` after canonical runtime-catalog admission.
 
 Normal `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL` operations for a managed conversation are not transported by assistant scheduling text. GitHub desired state in `chat_bridge/runtime.json` on `chat-bridge-state` is authoritative.
 
-Conversation Fabric uses a dedicated `LOCAL_AGENT_CF` assistant control only for child delegation/collection. It does not own pacing. When a campaign needs another observation, the parent updates its GitHub `conversation_controls` record with a new `control_generation` and bounded `next_wake_at`.
+Conversation Fabric uses a dedicated `LOCAL_AGENT_CF` assistant control for delegation and bounded recovery/inspection. It does not own repository execution authority and does not replace GitHub conversation pacing.
 
 ## Desired-state record
 
@@ -58,26 +58,41 @@ Once GitHub ownership is established, temporary network failure, malformed remot
 
 ## Browser ownership boundary
 
-Production topology is one normal/daily Chrome profile acting as the executor for a managed conversation. Parent and Conversation Fabric child tabs are ordinary tabs in that same session.
+Production topology is one normal/daily Chrome profile acting as the browser executor for a managed conversation. Parent and Conversation Fabric child tabs are ordinary tabs in that same session.
 
-A second profile may exist only for bounded diagnostics/test work when it cannot execute the same managed conversation. It is not a second production executor. Conversation Fabric acceptance must not use an isolated `chat-bridge-cft` profile, another production Chrome process, CDP as a second production control plane, cookie migration or a separate login/Cloudflare path.
+A second profile may exist only for bounded diagnostics/test work when it cannot execute the same managed conversation. It is not a second production executor. Conversation Fabric acceptance must not use an isolated production profile, another production Chrome process, CDP as a second production control plane, cookie migration or a separate login/Cloudflare path.
 
 ## Conversation Fabric interaction
 
-Chat Bridge `0.8.2` adds browser-native child reasoning without changing scheduling authority:
+Chat Bridge `0.8.3` adds browser-native child reasoning without changing scheduling authority:
 
 ```text
 managed parent
-  -> LOCAL_AGENT_CF delegate/collect control
+  -> LOCAL_AGENT_CF delegate
   -> Chat Bridge service worker
   -> existing worker_spawn.js tab ownership primitives
   -> reasoning-only child tabs
-  -> stable result capture / owned-tab cleanup
+  -> stable result capture into durable campaign state
+  -> owned-tab cleanup
+  -> terminal parent feedback at most once
 ```
 
-Only the exact managed parent may start/collect a campaign. Children cannot recursively gain parent authority. Campaign state is browser-session scoped and does not authorize repository execution.
+Only the exact managed parent may start/collect a campaign. Children cannot recursively gain parent authority. Campaign/result state is durable in `chrome.storage.local` and does not authorize repository execution.
 
-If a campaign is still pending, Bridge returns a parent feedback prompt instructing the planner to schedule a GitHub-managed future wake. The planner must update the exact `conversation_controls` record and increment `control_generation`; it must not use LAB `NEXT`/`INTERVAL` markers for normal Conversation Fabric pacing.
+The existing one-minute GitHub-control alarm performs the normal combined lifecycle: reconcile GitHub conversation controls, then poll active Conversation Fabric campaigns while the parent and Master are enabled. Parent-authored short wake scheduling is not required merely to keep observing an active campaign.
+
+An explicit `collect` control is reserved for bounded recovery/inspection of already-submitted children. It must never replay or resubmit their bootstrap prompts.
+
+## Conversation Fabric restart and delivery semantics
+
+- Stable child results are durably saved before sibling completion or owned-tab cleanup.
+- Service-worker restart/reload may clear session ownership. Reattachment is permitted only after the child page proves the exact transaction id, child-request digest, bootstrap digest and current child conversation URL. Tab id alone is insufficient.
+- Ambiguous/pre-submit child submission fails closed rather than being blindly replayed.
+- Transient observation failures remain pending and may recover on later polls.
+- Terminal feedback uses a durable per-campaign delivery claim persisted before crossing the parent Send boundary.
+- Definite no-send clears the claim; confirmed delivery marks it delivered; an ambiguous surviving claim is treated as consumed after restart to preserve at-most-once delivery.
+- A new delegation for the same parent is rejected while an older terminal campaign still has undelivered feedback. This prevents stale terminal feedback from an obsolete campaign being replayed after a newer campaign becomes authoritative.
+- The at-most-once rule intentionally prefers a potentially missed terminal notification after an ambiguous crash over duplicate terminal delivery.
 
 ## Legacy LAB compatibility
 
@@ -99,19 +114,26 @@ GitHub desired state
   -> exact submitted-user confirmation
 ```
 
-Visible assistant generation blocks overlapping submission. Operator composer edits are never overwritten. Unconfirmed delivery does not cause speculative repeat clicks.
+Visible assistant generation blocks overlapping submission. Operator composer edits are never overwritten. Unconfirmed ordinary wake delivery does not cause speculative repeat clicks.
+
+Conversation Fabric terminal delivery has the additional durable campaign-specific at-most-once claim described above; do not generalize that journal to ordinary wake delivery.
+
+## Repository execution authority
+
+Chat Bridge never turns transport identity into task authority. For any executable Local Agent work, the parent must resolve the actual repository through the canonical runtime catalog, require `execution_enabled=true`, and use the exact canonical target `agent_binding`. Registry/control agreement without a catalog match fails closed.
+
+The current catalog enables `local-agent`; this is not a special bypass. Self-execution follows the same target binding, lease, resource and emergency-control gates as any other repository.
 
 ## Historical live evidence
 
-Earlier 2026-09-30 and 2026-10-01 production proofs established GitHub-managed pause/resume/NEXT discovery and wake delivery in normal daily Chrome. Those proofs remain historical pacing evidence; they predate browser-native Conversation Fabric `0.8.2` and do not by themselves satisfy the new primary-Chrome child acceptance.
+Earlier 2026-09-30 and 2026-10-01 production proofs established GitHub-managed pause/resume/NEXT discovery and wake delivery in normal daily Chrome. Those proofs remain historical pacing evidence; browser-native Conversation Fabric acceptance must additionally cover durable campaign recovery and terminal at-most-once semantics.
 
 ## Source of truth
 
 - desired-state model: `chat_bridge/github_control_model.js`;
 - reconciliation: `chat_bridge/worker_github_control.js`;
-- legacy authority gate: `chat_bridge/worker_github_legacy_gate.js`;
-- scheduler: `chat_bridge/worker_schedule.js`;
+- scheduler/alarm identity: `chat_bridge/worker_base.js` + `chat_bridge/worker_events.js`;
 - normal delivery: `chat_bridge/content.js` + worker delivery modules;
-- Conversation Fabric: `chat_bridge/conversation_fabric_protocol.js`, `chat_bridge/conversation_fabric_content.js`, `chat_bridge/worker_conversation_fabric.js`;
+- Conversation Fabric: `chat_bridge/conversation_fabric_protocol.js`, `chat_bridge/conversation_fabric_content.js`, `chat_bridge/worker_conversation_fabric.js`, recovery and terminal-delivery guard modules;
 - planner flow: `docs/AUTONOMOUS_CHAT_LOOP.md`;
-- release invariants: `docs/GOLDEN_STANDARD.md`.
+- release/runtime invariants: `docs/GOLDEN_STANDARD.md`.

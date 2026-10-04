@@ -1,6 +1,6 @@
 # Autonomous Chat Planner Loop
 
-This document defines the current autonomous loop connecting a managed parent Superchat, Chat Bridge `0.8.2`, GitHub desired state, browser-native Conversation Fabric child reasoning and deterministic Local Agent execution.
+This document defines the current autonomous loop connecting a managed parent Superchat, Chat Bridge `0.8.3`, GitHub desired state, browser-native Conversation Fabric child reasoning and deterministic Local Agent execution.
 
 ## Ownership
 
@@ -8,7 +8,7 @@ This document defines the current autonomous loop connecting a managed parent Su
 ChatGPT parent       planner / synthesis / final execution decision
 Chat Bridge          normal Chrome wake + Conversation Fabric child-tab transport
 GitHub               durable conversation desired state + task/evidence transport
-Local Agent           deterministic bounded executor
+Local Agent          deterministic bounded executor
 Target repository    source/work result
 ```
 
@@ -18,7 +18,7 @@ The ChatGPT DOM is not a scheduling source of truth and chat identity is not rep
 
 Every configured conversation has one concrete Bridge chat identity for transport/scheduling. Active user goals or durable requests may reason across donor and target repositories without chat rebind.
 
-Every executable Local Agent task still uses the exact canonical `agent_binding` of its actual target repository. An execution-disabled target such as `local-agent` may be inspected/edited through direct GitHub operations but must not receive a Local Agent task. `host-ops` remains an explicit host-operation/multirepo scope and its binding is never inherited by another target repository.
+Every executable Local Agent task resolves the actual target through the canonical runtime catalog, requires `execution_enabled=true`, and uses that target repository's exact canonical `agent_binding`. Registry/control agreement without a canonical catalog record fails closed. The current catalog enables `local-agent`, so self-execution is allowed only through the same target-bound admission, lease, resource and emergency-control rules as any other repository; there is no permanent special-case self-execution prohibition. `host-ops` remains an explicit host-operation/multirepo reasoning scope and its binding is never inherited by another target repository.
 
 ## GitHub-only pacing
 
@@ -42,7 +42,7 @@ enabled = true
 next_wake_at = exact offset-aware future timestamp
 ```
 
-For ordinary Local Agent task progress, a justified early re-check should be scheduled no sooner than about two minutes; normal multi-minute build/test work should usually be checked at 5-10 minutes rather than at 30-second cadence. Conversation Fabric child-result collection is a separate bounded browser-reasoning lifecycle and may use its explicitly defined shorter collection interval without changing machine-task polling policy.
+For ordinary Local Agent task progress, a justified early re-check should be scheduled no sooner than about two minutes; normal multi-minute build/test work should usually be checked at 5-10 minutes rather than at 30-second cadence. Conversation Fabric child-result collection is not driven by parent-authored short polling: the existing GitHub-control alarm observes active campaigns while the parent and Master are enabled.
 
 Completion/pause uses:
 
@@ -56,11 +56,23 @@ The global Bridge Master switch is independent operator state and must never be 
 
 ## Browser-native Conversation Fabric
 
-A managed parent may delegate reasoning by ending its assistant reply with one exact `LOCAL_AGENT_CF` block. Chat Bridge validates the exact parent tab/conversation, creates ordinary child tabs through the existing `worker_spawn.js` primitives, and keeps campaign/dedupe state in `chrome.storage.session`.
+A managed parent may delegate reasoning by ending its assistant reply with one exact `LOCAL_AGENT_CF` block. Chat Bridge validates the exact parent tab/conversation, creates ordinary child tabs through the existing `worker_spawn.js` primitives, and stores durable campaign/result state in `chrome.storage.local`.
 
-Children are reasoning-only and receive no Local Agent task or machine-command authority. Child results are bounded and must be stable before adoption. Completed/failed campaign cleanup closes only exact owned child tabs.
+Children are reasoning-only and receive no Local Agent task or machine-command authority. They do not create `.agent/tasks`, execute machine commands, mutate repositories or make the parent decision. Child results are bounded and must be stable before adoption. Completed/failed campaign cleanup closes only exact owned child tabs.
 
-When Bridge asks for another collection attempt, the parent updates GitHub `conversation_controls` for a bounded future wake. On that wake the parent emits the exact collect block. No second Chrome/profile, CDP production control plane, Native Messaging, cookie migration, second scheduler or isolated ChatGPT login is part of the normal flow.
+Normal collection is worker-driven. The existing minute GitHub-control alarm reconciles GitHub conversation state and polls active Fabric campaigns while parent + Master are enabled. An explicit `collect` control is a bounded recovery/inspection operation for children whose prompts were already submitted; it is never permission to submit the bootstrap again.
+
+Restart/reload recovery is durable:
+
+- campaign state and each captured stable result survive service-worker restart in `chrome.storage.local`;
+- submitted child tabs are reattached only when exact transaction, request digest, bootstrap digest and current child URL evidence agree;
+- ambiguous/pre-submit spawning fails closed rather than replaying a prompt;
+- transient observation failures remain pending and can recover later;
+- results are persisted before sibling completion or owned-tab cleanup.
+
+Terminal feedback is at-most-once across restart. Bridge persists a campaign-specific terminal delivery claim before crossing the parent send boundary. Definite no-send clears the claim; confirmed delivery records it; an ambiguous surviving claim is treated as consumed and is not resent after restart. This deliberately trades possible terminal-notification liveness for replay safety. A parent cannot start a different new delegation while an older terminal campaign still has undelivered feedback, preventing stale cross-campaign replay.
+
+No second Chrome/profile, CDP production control plane, Native Messaging, cookie migration, second scheduler or isolated ChatGPT login is part of the normal flow.
 
 ## Planner turn
 
@@ -69,15 +81,18 @@ At every user or Bridge wake:
 1. identify the exact parent conversation and active goal;
 2. inspect only evidence needed for the next decision;
 3. check active/pending/recent work before queueing equivalent work;
-4. use direct GitHub edits when an exact diff plus CI is enough;
+4. use direct GitHub edits when an exact repository diff plus CI is sufficient;
 5. use Local Agent only for local commands/builds/tests/devices/machine state in the actual execution-enabled target;
-6. use Conversation Fabric children only for bounded parallel reasoning, not machine execution;
-7. verify exact commit/result evidence before declaring completion;
-8. choose one continuation state: complete, pause, bounded next wake, or exact-task cancellation.
+6. for every Local Agent task, resolve the actual target from the canonical runtime catalog and use its exact binding;
+7. use Conversation Fabric children only for bounded parallel reasoning, not machine execution;
+8. verify exact commit/result evidence before declaring completion;
+9. choose one continuation state: complete, pause, bounded next wake, or exact-task cancellation.
 
 ## Local Agent task discipline
 
 One parent goal should not create overlapping equivalent target tasks. Every task must use the target repository's exact runtime-catalog binding and, when cross-chat overlap is possible, a stable branch-scoped `dedupe_key`.
+
+Production parallel dedupe persists admission/completion evidence. If a crash occurs after durable final-result publication but before the completion receipt is written, restart reconciliation uses matching durable `result_published` run evidence to promote the admitted receipt rather than allowing equivalent work to execute again.
 
 If evidence proves an active task cannot achieve its goal, issue exact repository-scoped cancellation and wait for durable cancellation/result evidence before replacement. Resource/capacity waiting is a continuation state, not completion.
 
@@ -87,6 +102,10 @@ Chat Bridge polls GitHub desired state, reconciles exact conversation/generation
 
 The extension stores no GitHub credential and never writes GitHub desired state itself.
 
+## Direct GitHub edits vs Local Agent
+
+Use direct GitHub edits for repository inspection/source/docs work when the intended diff is exact and repository CI is sufficient verification. Use Local Agent for work that genuinely depends on the Mac or another target machine: local builds/tests, devices, local services, host state or environment-specific commands. Chat Bridge itself never upgrades transport identity into execution authority.
+
 ## Release/verification loop
 
 For Bridge/runtime behavior changes:
@@ -94,12 +113,13 @@ For Bridge/runtime behavior changes:
 1. isolate a branch from current `main`;
 2. add focused positive/negative tests plus browser/DOM coverage when the content boundary changes;
 3. run exact-head full CI, including browser and macOS smoke;
-4. update current release/changelog/contracts;
+4. update current contracts/documentation;
 5. re-run exact-head CI after the final metadata commit;
-6. merge only with no blocking review;
+6. merge only with green jobs and an expected-head guard;
 7. verify deployed source/revision/version and reload the unpacked Bridge when required;
-8. run one bounded live acceptance in normal Chrome;
-9. leave the managed conversation paused unless continued automation is explicitly required.
+8. run one bounded live/real-browser acceptance when lifecycle/recovery changed;
+9. retire only branches proven fully merged;
+10. leave the managed conversation paused unless continued automation is explicitly required.
 
 ## Canonical references
 
