@@ -6,6 +6,8 @@ if (!conversationFabricProtocol) {
 const CONVERSATION_FABRIC_CAMPAIGN_PREFIX = "conversation-fabric-campaign:";
 const CONVERSATION_FABRIC_RESULT_CHARS = 6_000;
 const CONVERSATION_FABRIC_SUBMIT_RETRIES = 5;
+const CONVERSATION_FABRIC_SUBMIT_RETRY_BASE_MS = 350;
+const CONVERSATION_FABRIC_SUBMIT_RETRY_MAX_MS = 2_800;
 const CONVERSATION_FABRIC_TIMEOUT_MS = 15 * 60 * 1000;
 const CONVERSATION_FABRIC_HISTORY_LIMIT = 32;
 const conversationFabricOperations = new Map();
@@ -25,6 +27,7 @@ async function listConversationFabricCampaigns() {
     key.startsWith(CONVERSATION_FABRIC_CAMPAIGN_PREFIX) && value?.schema_version === 1
   ).map(([, value]) => value);
 }
+
 const CONVERSATION_FABRIC_TRANSIENT_SPAWN_REASONS = new Set([
   "spawn_page_not_ready",
   "spawn_composer_not_found",
@@ -78,34 +81,82 @@ function conversationFabricNextWakeInstruction(campaignId) {
   ].join("\n\n");
 }
 
+function conversationFabricChildFailure(child) {
+  const detail = child?.failure && typeof child.failure === "object" ? child.failure : {};
+  return {
+    id: String(child?.id || ""),
+    role: String(child?.role || ""),
+    attempt: Number.isInteger(detail.attempt) ? detail.attempt : Number(child?.attempts || 0),
+    reason: String(detail.reason || child?.last_reason || "unknown"),
+    error: String(detail.error || child?.last_error || "")
+  };
+}
+
+function conversationFabricFailedChildren(campaign) {
+  const stored = Array.isArray(campaign?.failed_children) ? campaign.failed_children : [];
+  if (stored.length) return stored;
+  return (campaign?.children || [])
+    .filter((child) => child?.state === "failed")
+    .map(conversationFabricChildFailure);
+}
+
+function conversationFabricFailureSummary(failure) {
+  const attempt = Number.isInteger(failure.attempt) && failure.attempt > 0
+    ? ` after attempt ${failure.attempt}`
+    : "";
+  const detail = failure.error ? ` (${failure.error})` : "";
+  return `${failure.id || "unknown"}: ${failure.reason || "unknown"}${attempt}${detail}`;
+}
+
 function conversationFabricPendingPrompt(campaign, pendingIds) {
+  const failures = conversationFabricFailedChildren(campaign);
   return [
     `Conversation Fabric campaign ${campaign.id} is still running in child tabs: ${pendingIds.join(", ")}.`,
+    failures.length
+      ? `Child startup/observation failures already recorded: ${failures.map(conversationFabricFailureSummary).join("; ")}. These children will not be replayed automatically.`
+      : "",
     "Do not synthesize the delegated work yet.",
     conversationFabricNextWakeInstruction(campaign.id)
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
 }
 
 function conversationFabricStartedPrompt(campaign) {
-  const ids = campaign.children.map((child) => child.id).join(", ");
+  const submitted = campaign.children.filter((child) => child.state === "submitted");
+  const failures = conversationFabricFailedChildren(campaign);
+  const ids = submitted.map((child) => child.id).join(", ");
   return [
-    `Conversation Fabric started ${campaign.children.length} reasoning child tab(s) in this Chrome session: ${ids}.`,
+    `Conversation Fabric started ${submitted.length}/${campaign.children.length} reasoning child tab(s) in this Chrome session${ids ? `: ${ids}` : "."}`,
     `Campaign id: ${campaign.id}.`,
+    failures.length
+      ? `Child startup failures: ${failures.map(conversationFabricFailureSummary).join("; ")}. Continue with the children that started; failed children will be reported as missing coverage and will not be replayed automatically.`
+      : "",
     "Do not synthesize the delegated work yet.",
     conversationFabricNextWakeInstruction(campaign.id)
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
 }
 
 function conversationFabricCompletedPrompt(campaign) {
+  const failures = conversationFabricFailedChildren(campaign);
   const sections = campaign.results.map((result) => [
     `--- child ${result.id} (${result.role})${result.truncated ? " [truncated]" : ""} ---`,
     result.assistant_text
   ].join("\n"));
+  const failedSections = failures.map((failure) => [
+    `--- child ${failure.id} (${failure.role || "unknown"}) FAILED ---`,
+    `reason=${failure.reason || "unknown"}`,
+    failure.attempt ? `attempt=${failure.attempt}` : "",
+    failure.error ? `error=${failure.error}` : ""
+  ].filter(Boolean).join("\n"));
   return [
-    `Conversation Fabric campaign ${campaign.id} completed.`,
+    failures.length
+      ? `Conversation Fabric campaign ${campaign.id} completed with partial child failures.`
+      : `Conversation Fabric campaign ${campaign.id} completed.`,
     campaign.cleanup_pending ? "Results are saved; some owned child tabs still require cleanup." : "Owned child tabs were closed after stable result capture.",
     ...sections,
-    "Synthesize the final parent answer now. Do not delegate machine execution to a child."
+    ...failedSections,
+    failures.length
+      ? "Synthesize the final parent answer from the available results and explicitly report the missing child coverage. Do not invent or automatically replay failed child work."
+      : "Synthesize the final parent answer now. Do not delegate machine execution to a child."
   ].join("\n\n");
 }
 
@@ -211,34 +262,133 @@ async function conversationFabricIntent(authority, campaignId, child) {
   };
 }
 
+function conversationFabricSpawnError(message, reason, attempt = 0, error = "") {
+  const failure = new Error(message);
+  failure.reason = String(reason || "unknown");
+  failure.attempt = Number.isInteger(attempt) ? attempt : 0;
+  failure.detail = String(error || "");
+  return failure;
+}
+
+function conversationFabricRetryDelay(attempt) {
+  return Math.min(
+    CONVERSATION_FABRIC_SUBMIT_RETRY_MAX_MS,
+    CONVERSATION_FABRIC_SUBMIT_RETRY_BASE_MS * (2 ** Math.max(0, attempt - 1))
+  );
+}
+
 async function submitConversationFabricChild(intent, checkpoint) {
-    const created = await createConversationSpawnTab(intent);
-    if (!created?.ok || !Number.isInteger(created.tabId)) {
-      throw new Error(`Conversation Fabric child tab creation failed: ${created?.reason || "unknown"}`);
+  let created;
+  try {
+    created = await createConversationSpawnTab(intent);
+  } catch (error) {
+    throw conversationFabricSpawnError(
+      `Conversation Fabric child tab creation failed: ${String(error)}`,
+      "spawn_tab_creation_exception",
+      0,
+      String(error)
+    );
+  }
+  if (!created?.ok || !Number.isInteger(created.tabId)) {
+    throw conversationFabricSpawnError(
+      `Conversation Fabric child tab creation failed: ${created?.reason || "unknown"}`,
+      created?.reason || "spawn_tab_creation_failed",
+      0,
+      created?.error || ""
+    );
+  }
+
+  const activeIntent = { ...intent, tab_id: created.tabId };
+  await checkpoint(activeIntent, "tab_created", {
+    attempts: 0,
+    last_reason: "",
+    last_error: ""
+  });
+
+  let lastReason = "";
+  let lastError = "";
+  for (let attempt = 1; attempt <= CONVERSATION_FABRIC_SUBMIT_RETRIES + 1; attempt += 1) {
+    await checkpoint(activeIntent, "submitting", {
+      attempts: attempt,
+      last_reason: lastReason,
+      last_error: lastError
+    });
+
+    let submitted;
+    try {
+      submitted = await submitConversationSpawnBootstrap(activeIntent);
+    } catch (error) {
+      throw conversationFabricSpawnError(
+        `Conversation Fabric child submission threw: ${String(error)}`,
+        "spawn_submit_exception",
+        attempt,
+        String(error)
+      );
     }
-    const activeIntent = { ...intent, tab_id: created.tabId };
-    await checkpoint(activeIntent, "tab_created");
-    for (let attempt = 0; attempt <= CONVERSATION_FABRIC_SUBMIT_RETRIES; attempt += 1) {
-      await checkpoint(activeIntent, "submitting");
-      const submitted = await submitConversationSpawnBootstrap(activeIntent);
-      if (submitted?.ok && submitted.childConversationUrl) {
-        return { intent: activeIntent, childConversationUrl: submitted.childConversationUrl };
-      }
-      if (submitted?.reason === "spawn_submission_ambiguous") {
-        const reconciled = await reconcileConversationSpawn(activeIntent);
-        if (reconciled?.ok && reconciled.childConversationUrl) {
-          return { intent: activeIntent, childConversationUrl: reconciled.childConversationUrl };
-        }
-        throw new Error(`Conversation Fabric child submission is ambiguous: ${reconciled?.reason || submitted.reason}`);
-      }
-      if (!CONVERSATION_FABRIC_TRANSIENT_SPAWN_REASONS.has(String(submitted?.reason || ""))) {
-        throw new Error(`Conversation Fabric child submission failed: ${submitted?.reason || "unknown"}`);
-      }
-      if (attempt < CONVERSATION_FABRIC_SUBMIT_RETRIES) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
-      }
+
+    if (submitted?.ok && submitted.childConversationUrl) {
+      return {
+        intent: activeIntent,
+        childConversationUrl: submitted.childConversationUrl,
+        attempts: attempt
+      };
     }
-    throw new Error("Conversation Fabric child submission exceeded bounded retries");
+
+    if (submitted?.reason === "spawn_submission_ambiguous") {
+      let reconciled;
+      try {
+        reconciled = await reconcileConversationSpawn(activeIntent);
+      } catch (error) {
+        throw conversationFabricSpawnError(
+          `Conversation Fabric child reconciliation threw: ${String(error)}`,
+          "spawn_reconcile_exception",
+          attempt,
+          String(error)
+        );
+      }
+      if (reconciled?.ok && reconciled.childConversationUrl) {
+        return {
+          intent: activeIntent,
+          childConversationUrl: reconciled.childConversationUrl,
+          attempts: attempt
+        };
+      }
+      throw conversationFabricSpawnError(
+        `Conversation Fabric child submission is ambiguous: ${reconciled?.reason || submitted.reason}`,
+        reconciled?.reason || submitted.reason,
+        attempt,
+        reconciled?.error || submitted?.error || ""
+      );
+    }
+
+    lastReason = String(submitted?.reason || "unknown");
+    lastError = String(submitted?.error || "");
+    await checkpoint(activeIntent, "submitting", {
+      attempts: attempt,
+      last_reason: lastReason,
+      last_error: lastError
+    });
+
+    if (!CONVERSATION_FABRIC_TRANSIENT_SPAWN_REASONS.has(lastReason)) {
+      throw conversationFabricSpawnError(
+        `Conversation Fabric child submission failed: ${lastReason}`,
+        lastReason,
+        attempt,
+        lastError
+      );
+    }
+
+    if (attempt <= CONVERSATION_FABRIC_SUBMIT_RETRIES) {
+      await new Promise((resolve) => setTimeout(resolve, conversationFabricRetryDelay(attempt)));
+    }
+  }
+
+  throw conversationFabricSpawnError(
+    `Conversation Fabric child submission exceeded bounded retries: ${lastReason || "unknown"}`,
+    lastReason || "spawn_retry_exhausted",
+    CONVERSATION_FABRIC_SUBMIT_RETRIES + 1,
+    lastError
+  );
 }
 
 async function cleanupConversationFabricChildren(children) {
@@ -263,7 +413,9 @@ async function delegateConversationFabric(authority) {
     if (!["running", "completed"].includes(existing.state)) {
       return { ok: false, reason: `conversation_fabric_${existing.state}`, campaignId };
     }
-    if (existing.state === "completed" && existing.feedback_delivered) return { ok: true, reason: "conversation_fabric_already_delivered", campaignId };
+    if (existing.state === "completed" && existing.feedback_delivered) {
+      return { ok: true, reason: "conversation_fabric_already_delivered", campaignId };
+    }
     return {
       ok: true,
       reason: existing.state === "completed" ? "conversation_fabric_completed" : "conversation_fabric_started",
@@ -280,7 +432,11 @@ async function delegateConversationFabric(authority) {
     return { ok: false, reason: "conversation_fabric_parent_busy" };
   }
   const occupied = campaigns.filter(value => ["spawning", "running"].includes(value.state) || value.cleanup_pending);
-  if (occupied.reduce((count, value) => count + value.children.length, 0) + authority.control.children.length > conversationFabricProtocol.MAX_CHILDREN) {
+  if (
+    occupied.reduce((count, value) => count + value.children.length, 0) +
+    authority.control.children.length >
+    conversationFabricProtocol.MAX_CHILDREN
+  ) {
     return { ok: false, reason: "conversation_fabric_capacity" };
   }
   const history = campaigns.filter((value) => !["spawning", "running"].includes(value.state) && value.feedback_delivered)
@@ -288,7 +444,11 @@ async function delegateConversationFabric(authority) {
   for (const old of history.slice(CONVERSATION_FABRIC_HISTORY_LIMIT - 1)) {
     await chrome.storage.local.remove(conversationFabricCampaignKey(old.id));
   }
-  if (campaigns.length - Math.max(0, history.length - CONVERSATION_FABRIC_HISTORY_LIMIT + 1) >= CONVERSATION_FABRIC_HISTORY_LIMIT + 4) {
+  if (
+    campaigns.length -
+    Math.max(0, history.length - CONVERSATION_FABRIC_HISTORY_LIMIT + 1) >=
+    CONVERSATION_FABRIC_HISTORY_LIMIT + 4
+  ) {
     return { ok: false, reason: "conversation_fabric_history_full" };
   }
 
@@ -302,48 +462,95 @@ async function delegateConversationFabric(authority) {
     fingerprint: authority.fingerprint,
     created_at: new Date().toISOString(),
     children: [],
-    results: []
+    results: [],
+    failed_children: []
   };
   await saveConversationFabricCampaign(campaign);
 
-  try {
-    for (const child of authority.control.children) {
-      const intent = await conversationFabricIntent(authority, campaignId, child);
-      const record = {
-        id: child.id,
-        role: child.role,
-        intent,
-        state: "pending",
-        child_conversation_url: ""
-      };
-      campaign.children.push(record);
-      await saveConversationFabricCampaign(campaign);
-      const spawned = await submitConversationFabricChild(intent, async (activeIntent, state) => {
+  for (const child of authority.control.children) {
+    const intent = await conversationFabricIntent(authority, campaignId, child);
+    const record = {
+      id: child.id,
+      role: child.role,
+      intent,
+      state: "pending",
+      child_conversation_url: "",
+      attempts: 0,
+      last_reason: "",
+      last_error: ""
+    };
+    campaign.children.push(record);
+    await saveConversationFabricCampaign(campaign);
+
+    try {
+      const spawned = await submitConversationFabricChild(intent, async (activeIntent, state, diagnostic = {}) => {
         record.intent = activeIntent;
         record.state = state;
+        if (Number.isInteger(diagnostic.attempts)) record.attempts = diagnostic.attempts;
+        if (typeof diagnostic.last_reason === "string") record.last_reason = diagnostic.last_reason;
+        if (typeof diagnostic.last_error === "string") record.last_error = diagnostic.last_error;
         await saveConversationFabricCampaign(campaign);
       });
       record.intent = spawned.intent;
       record.state = "submitted";
       record.child_conversation_url = spawned.childConversationUrl;
-      await saveConversationFabricCampaign(campaign);
+      record.attempts = spawned.attempts;
+      record.last_reason = "";
+      record.last_error = "";
+      delete record.failure;
+    } catch (error) {
+      record.state = "failed";
+      record.failure = {
+        reason: String(error?.reason || "unknown"),
+        attempt: Number.isInteger(error?.attempt) ? error.attempt : record.attempts,
+        error: String(error?.detail || error?.message || error || "")
+      };
+      record.last_reason = record.failure.reason;
+      record.last_error = record.failure.error;
+      campaign.failed_children = campaign.children
+        .filter((item) => item.state === "failed")
+        .map(conversationFabricChildFailure);
     }
-  } catch (error) {
+    await saveConversationFabricCampaign(campaign);
+  }
+
+  const submittedChildren = campaign.children.filter(
+    (child) => child.state === "submitted" && child.child_conversation_url
+  );
+  campaign.failed_children = campaign.children
+    .filter((child) => child.state === "failed")
+    .map(conversationFabricChildFailure);
+
+  if (!submittedChildren.length) {
     campaign.state = "failed";
-    campaign.failure = String(error);
+    campaign.failure = campaign.failed_children.length
+      ? `all_children_failed: ${campaign.failed_children.map(conversationFabricFailureSummary).join("; ")}`
+      : "all_children_failed";
+    campaign.feedback_delivered = false;
     await saveConversationFabricCampaign(campaign);
     campaign.cleanup_pending = !await cleanupConversationFabricChildren(campaign.children);
     await saveConversationFabricCampaign(campaign);
-    throw error;
+    return {
+      ok: false,
+      reason: "conversation_fabric_failed",
+      campaignId,
+      error: campaign.failure
+    };
   }
 
   campaign.state = "running";
+  campaign.partial_failure = campaign.failed_children.length > 0;
   await saveConversationFabricCampaign(campaign);
   return {
     ok: true,
     reason: "conversation_fabric_started",
     campaignId,
-    children: campaign.children.map((child) => ({ id: child.id, childConversationUrl: child.child_conversation_url })),
+    children: campaign.children.map((child) => ({
+      id: child.id,
+      state: child.state,
+      childConversationUrl: child.child_conversation_url,
+      failure: child.state === "failed" ? conversationFabricChildFailure(child) : null
+    })),
     feedbackPrompt: conversationFabricStartedPrompt(campaign)
   };
 }
@@ -372,7 +579,9 @@ async function collectConversationFabric(authority) {
     return { ok: false, reason: "conversation_fabric_parent_mismatch" };
   }
   if (campaign.state === "completed") {
-    if (campaign.feedback_delivered) return { ok: true, reason: "conversation_fabric_already_delivered", campaignId: campaign.id };
+    if (campaign.feedback_delivered) {
+      return { ok: true, reason: "conversation_fabric_already_delivered", campaignId: campaign.id };
+    }
     return {
       ok: true,
       reason: "conversation_fabric_completed",
@@ -380,6 +589,7 @@ async function collectConversationFabric(authority) {
       feedbackPrompt: conversationFabricCompletedPrompt(campaign)
     };
   }
+
   const recoverableObservation = campaign.state === "failed" && campaign.children.length > 0 &&
     campaign.children.every(child => child.state === "submitted" && child.child_conversation_url);
   if (campaign.state !== "running" && !recoverableObservation) {
@@ -388,7 +598,23 @@ async function collectConversationFabric(authority) {
 
   const results = [];
   const pending = [];
+  const failedChildren = conversationFabricFailedChildren(campaign);
   for (const child of campaign.children) {
+    if (child.state === "failed") continue;
+    if (child.state !== "submitted" || !child.child_conversation_url) {
+      const failure = {
+        id: child.id,
+        role: child.role,
+        attempt: Number(child.attempts || 0),
+        reason: `invalid_child_state_${child.state || "unknown"}`,
+        error: ""
+      };
+      failedChildren.push(failure);
+      child.state = "failed";
+      child.failure = failure;
+      continue;
+    }
+
     const observed = await stableConversationFabricResult(child);
     if (observed?.ok && observed.reason === "child_result_ready") {
       results.push({
@@ -397,21 +623,34 @@ async function collectConversationFabric(authority) {
         child_conversation_url: child.child_conversation_url,
         assistant_identity: String(observed.assistantIdentity || ""),
         assistant_text: String(observed.assistantText || "").slice(0, CONVERSATION_FABRIC_RESULT_CHARS),
-        truncated: observed.truncated === true || String(observed.assistantText || "").length > CONVERSATION_FABRIC_RESULT_CHARS
+        truncated: observed.truncated === true ||
+          String(observed.assistantText || "").length > CONVERSATION_FABRIC_RESULT_CHARS
       });
       continue;
     }
-    if (observed?.ok && ["child_generating", "child_result_missing", "child_result_unstable"].includes(observed.reason)) {
+    if (
+      observed?.ok &&
+      ["child_generating", "child_result_missing", "child_result_unstable"].includes(observed.reason)
+    ) {
       pending.push(child.id);
       continue;
     }
-    return {
-      ok: false,
-      reason: observed?.reason || "conversation_fabric_child_observation_failed"
+
+    const failure = {
+      id: child.id,
+      role: child.role,
+      attempt: Number(child.attempts || 0),
+      reason: String(observed?.reason || "conversation_fabric_child_observation_failed"),
+      error: String(observed?.error || "")
     };
+    failedChildren.push(failure);
+    child.state = "failed";
+    child.failure = failure;
   }
 
+  campaign.failed_children = failedChildren;
   if (pending.length) {
+    await saveConversationFabricCampaign(campaign);
     return {
       ok: true,
       reason: "conversation_fabric_pending",
@@ -424,6 +663,7 @@ async function collectConversationFabric(authority) {
   campaign.results = results;
   campaign.feedback_delivered = false;
   if (recoverableObservation) campaign.recovered_observation = true;
+  campaign.partial_failure = failedChildren.length > 0;
   campaign.state = "completed";
   campaign.completed_at = new Date().toISOString();
   // Save captured results before closing any tab so interruption cannot destroy evidence.
@@ -451,8 +691,21 @@ async function applyConversationFabricControl(message, sender) {
     if (!parent) {
       return { ok: false, reason: "conversation_fabric_parent_not_managed" };
     }
-    if (authority.control.action === "delegate") return await serializeConversationFabric(authority.conversationUrl, () => serializeConversationFabric("delegation-admission", () => delegateConversationFabric(authority)));
-    if (authority.control.action === "collect") return await serializeConversationFabric(authority.conversationUrl, () => collectConversationFabric(authority));
+    if (authority.control.action === "delegate") {
+      return await serializeConversationFabric(
+        authority.conversationUrl,
+        () => serializeConversationFabric(
+          "delegation-admission",
+          () => delegateConversationFabric(authority)
+        )
+      );
+    }
+    if (authority.control.action === "collect") {
+      return await serializeConversationFabric(
+        authority.conversationUrl,
+        () => collectConversationFabric(authority)
+      );
+    }
     return { ok: false, reason: "conversation_fabric_action_unsupported" };
   } catch (error) {
     return { ok: false, reason: "conversation_fabric_failed", error: String(error) };
@@ -474,9 +727,13 @@ async function conversationFabricFeedbackForParent(parentUrl) {
 async function acknowledgeConversationFabricFeedback(message, sender) {
   try {
     const authority = validateConversationFabricMessage(message, sender);
-    if (!await conversationFabricManagedParent(authority)) return { ok: false, reason: "conversation_fabric_parent_not_managed" };
+    if (!await conversationFabricManagedParent(authority)) {
+      return { ok: false, reason: "conversation_fabric_parent_not_managed" };
+    }
     const campaign = await loadConversationFabricCampaign(message.campaignId);
-    if (!campaign || campaign.parent_conversation_url !== authority.conversationUrl) return { ok: false, reason: "conversation_fabric_parent_mismatch" };
+    if (!campaign || campaign.parent_conversation_url !== authority.conversationUrl) {
+      return { ok: false, reason: "conversation_fabric_parent_mismatch" };
+    }
     if (authority.control.action === "collect" && ["completed", "failed"].includes(campaign.state)) {
       campaign.feedback_delivered = true;
       await saveConversationFabricCampaign(campaign);
@@ -498,15 +755,25 @@ async function pollConversationFabricCampaigns() {
     await serializeConversationFabric(campaign.parent_conversation_url, async () => {
       const current = await loadConversationFabricCampaign(campaign.id);
       if (!current || current.feedback_delivered) return;
-      if (current.state === "spawning" || (current.state === "running" && Date.now() - Date.parse(current.created_at) > CONVERSATION_FABRIC_TIMEOUT_MS)) {
+      if (
+        current.state === "spawning" ||
+        (current.state === "running" &&
+          Date.now() - Date.parse(current.created_at) > CONVERSATION_FABRIC_TIMEOUT_MS)
+      ) {
         current.state = "failed";
-        current.failure = current.children.some((child) => child.state === "submitting") ? "spawn_interrupted_submission_ambiguous" : "campaign_interrupted_or_timed_out";
+        current.failure = current.children.some((child) => child.state === "submitting")
+          ? "spawn_interrupted_submission_ambiguous"
+          : "campaign_interrupted_or_timed_out";
         await saveConversationFabricCampaign(current);
       }
-      const recoverableClaims = current.state === "failed" && current.failure === "spawn_tab_claim_mismatch" &&
+      const recoverableClaims = current.state === "failed" &&
+        current.failure === "spawn_tab_claim_mismatch" &&
         current.children.every(child => child.state === "submitted" && child.child_conversation_url);
       if (current.state === "running" || recoverableClaims) {
-        const result = await collectConversationFabric({ conversationUrl: parent.url, control: { campaign_id: current.id } });
+        const result = await collectConversationFabric({
+          conversationUrl: parent.url,
+          control: { campaign_id: current.id }
+        });
         if (!result.ok) {
           current.state = "failed";
           current.failure = result.reason;
@@ -518,7 +785,9 @@ async function pollConversationFabricCampaigns() {
         finished.cleanup_pending = !await cleanupConversationFabricChildren(finished.children);
         await saveConversationFabricCampaign(finished);
       }
-      if (["completed", "failed"].includes(finished?.state)) await runFeedbackCycle({ conversationId: parent.id });
+      if (["completed", "failed"].includes(finished?.state)) {
+        await runFeedbackCycle({ conversationId: parent.id });
+      }
     });
   }
 }
