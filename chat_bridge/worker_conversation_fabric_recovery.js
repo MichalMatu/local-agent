@@ -11,33 +11,36 @@ const CONVERSATION_FABRIC_TRANSIENT_OBSERVATION_REASONS = new Set([
   "child_result_unstable"
 ]);
 
-const baseDelegateConversationFabric = delegateConversationFabric;
+const baseDelegateConversationFabric =
+  typeof delegateConversationFabric === "function" ? delegateConversationFabric : null;
 const baseApplyConversationFabricControl = applyConversationFabricControl;
 const basePollConversationFabricCampaigns = pollConversationFabricCampaigns;
 
 // A new delegation must not become authoritative while an older terminal campaign for
 // the same parent is still waiting for durable terminal delivery. Otherwise the normal
 // parent delivery path can later select the stale terminal campaign by storage order.
-delegateConversationFabric = async function delegateConversationFabricRecovered(authority) {
-  const campaignId = await conversationFabricCampaignId(authority);
-  const existing = await loadConversationFabricCampaign(campaignId);
-  if (existing) return baseDelegateConversationFabric(authority);
+if (baseDelegateConversationFabric) {
+  delegateConversationFabric = async function delegateConversationFabricRecovered(authority) {
+    const campaignId = await conversationFabricCampaignId(authority);
+    const existing = await loadConversationFabricCampaign(campaignId);
+    if (existing) return baseDelegateConversationFabric(authority);
 
-  const campaigns = await listConversationFabricCampaigns();
-  const pendingTerminal = campaigns.find((campaign) =>
-    campaign.parent_conversation_url === authority.conversationUrl &&
-    ["completed", "failed"].includes(campaign.state) &&
-    !campaign.feedback_delivered
-  );
-  if (pendingTerminal) {
-    return {
-      ok: false,
-      reason: "conversation_fabric_terminal_feedback_pending",
-      campaignId: pendingTerminal.id
-    };
-  }
-  return baseDelegateConversationFabric(authority);
-};
+    const campaigns = await listConversationFabricCampaigns();
+    const pendingTerminal = campaigns.find((campaign) =>
+      campaign.parent_conversation_url === authority.conversationUrl &&
+      ["completed", "failed"].includes(campaign.state) &&
+      !campaign.feedback_delivered
+    );
+    if (pendingTerminal) {
+      return {
+        ok: false,
+        reason: "conversation_fabric_terminal_feedback_pending",
+        campaignId: pendingTerminal.id
+      };
+    }
+    return baseDelegateConversationFabric(authority);
+  };
+}
 
 function conversationFabricStoredResult(campaign, childId) {
   return (campaign.results || []).find((result) => result.id === childId) || null;
