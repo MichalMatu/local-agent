@@ -38,6 +38,7 @@ from local_agent.repository.worker import (
     WORKER_PROCESSED,
     repository_execution_lease,
 )
+from local_agent.supervisor.worker import WORKER_MACHINE_BUSY, WORKER_RESOURCE_BUSY
 from local_agent.version import RELEASE_VERSION
 from local_agent.supervisor.control import (
     bind_supervisor_control as bind_shared_supervisor_control,
@@ -65,17 +66,9 @@ def log(message: str) -> None:
     agentd.log(f"[multi-repo] {message}")
 
 
-
-
 def format_idle_summary(repository_count: int) -> str:
     noun = "repository" if repository_count == 1 else "repositories"
     return f"no pending task ({repository_count} {noun})"
-
-
-
-
-
-
 
 
 def scheduler_sleep_seconds(
@@ -257,17 +250,16 @@ def service_supervisor_control_safely(
     return True
 
 
-
-
 def worker_command(
     repository: RepositoryContext,
     *,
     registry_path: Path | None,
 ) -> list[str]:
+    """Use the shared hardened worker even when supervisor concurrency is one."""
     command = [
         sys.executable,
         "-m",
-        "local_agent.repository.worker",
+        "local_agent.supervisor.worker",
         "--repository-id",
         repository.repository_id,
         "--expected-config-digest",
@@ -328,6 +320,10 @@ def install_signal_handlers() -> None:
     signal.signal(signal.SIGINT, shutdown_handler)
 
 
+def _worker_deferred(return_code: int) -> bool:
+    return return_code in {WORKER_BUSY, WORKER_RESOURCE_BUSY, WORKER_MACHINE_BUSY}
+
+
 def run_repository_cycle(
     repository_id: str,
     *,
@@ -345,8 +341,11 @@ def run_repository_cycle(
         return True
     if return_code == WORKER_IDLE:
         return False
-    if return_code == WORKER_BUSY:
-        log(f"repository turn deferred repository={repository.repository_id}: lease busy")
+    if _worker_deferred(return_code):
+        log(
+            f"repository turn deferred repository={repository.repository_id} "
+            f"worker_exit={return_code}"
+        )
         return False
     if return_code == WORKER_CONFIG_CHANGED:
         log(
@@ -374,8 +373,11 @@ def run_cycle(
             return True, repository.repository_id
         if return_code == WORKER_IDLE:
             continue
-        if return_code == WORKER_BUSY:
-            log(f"repository turn deferred repository={repository.repository_id}: lease busy")
+        if _worker_deferred(return_code):
+            log(
+                f"repository turn deferred repository={repository.repository_id} "
+                f"worker_exit={return_code}"
+            )
             continue
         if return_code == WORKER_CONFIG_CHANGED:
             log(
