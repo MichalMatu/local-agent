@@ -110,6 +110,22 @@ def catalog_record_for_repository(
     )
 
 
+def resolve_execution_target(target: str, *, path: Path | None = None) -> AgentBindingRecord:
+    """Resolve an explicit id or owner/name; never infer authority from a chat."""
+    if not isinstance(target, str) or not target or target != target.strip():
+        raise ValueError("repository target must be an explicit id or owner/name")
+    matches = [
+        record for record in load_binding_catalog(path)
+        if target.casefold() in {record.repository_id.casefold(), record.repository.casefold()}
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"repository target is unknown or ambiguous: {target!r}")
+    record = matches[0]
+    if not record.execution_enabled:
+        raise ValueError(f"repository target is execution-disabled: {record.repository_id}")
+    return record
+
+
 def control_binding_payload(control_dir: Path) -> dict[str, Any]:
     path = control_dir / CONTROL_BINDING_RELATIVE
     try:

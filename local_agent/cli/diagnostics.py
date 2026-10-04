@@ -11,9 +11,17 @@ import local_agent.foundation.core as core
 import local_agent.foundation.storage as storage
 import local_agent.daemon.service as agentd
 from local_agent.repository.admin import validate_repository
+from local_agent.repository.binding import resolve_execution_target, validate_repository_control_binding
 from local_agent.repository.context import RepositoryContext, load_repository_registry
+from local_agent.operator.local import is_disabled
+from local_agent.runtime.task_preparation import EXECUTION_PROFILES, prepare_task
+from local_agent.runtime.task_transport import write_task_bundle
 from local_agent.runtime.task_contract import (
+    MAX_TASK_FILE_BYTES,
     idle_timeout_for,
+    memory_limit_for,
+    require_task_agent_binding,
+    task_resources_for,
     task_timeout_for,
 )
 from local_agent.version import RELEASE_VERSION
@@ -65,17 +73,92 @@ def command_validate(args: argparse.Namespace) -> int:
     except Exception as exc:
         print_json({"valid": False, "error": f"{type(exc).__name__}: {exc}"})
         return 1
-    print_json(
-        {
-            "valid": True,
-            "id": task["id"],
+    payload = {
+        "valid": True,
+        "id": task["id"],
+        "task_digest": agentd.task_digest(task),
+        "command_timeout": core.command_timeout_for(task),
+        "idle_timeout": idle_timeout_for(task),
+        "task_timeout": task_timeout_for(task),
+    }
+    if getattr(args, "repository", None):
+        payload["preflight"] = task_preflight(task, args)
+    print_json(payload)
+    return 0 if payload.get("preflight", {}).get("ready", True) else 1
+
+
+def task_preflight(task: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    """Read local target evidence without acquiring execution leases or repairing it."""
+    checks = [_check("operator_enabled", not is_disabled(), "global operator disable marker")]
+    report: dict[str, Any] = {"ready": False, "checks": checks}
+    try:
+        target = resolve_execution_target(args.repository, path=args.catalog)
+        report.update({
+            "repository_id": target.repository_id,
+            "repository": target.repository,
+            "agent_binding": target.agent_binding,
+            "work_branch": task.get("work_branch", "main"),
+            "resources": list(task_resources_for(task)),
+            "memory_limit_mb": memory_limit_for(task),
+            "resource_admission": "checked_by_executor",
+        })
+        registry = load_repository_registry(path=args.registry or agentd.multirepo_registry_path())
+        matches = [item for item in registry if item.repository_id == target.repository_id]
+        if len(matches) != 1:
+            raise ValueError(f"target is not enabled in the local registry: {target.repository_id}")
+        repository = matches[0]
+        if (repository.repository.casefold() != target.repository.casefold() or
+                repository.agent_binding != target.agent_binding):
+            raise ValueError("local registry identity differs from the target catalog")
+        require_task_agent_binding(task, target.agent_binding)
+        validate_repository_control_binding(
+            repository_id=repository.repository_id,
+            repository=repository.repository,
+            expected_agent_binding=target.agent_binding,
+            control_dir=repository.control,
+        )
+        validate_repository(repository)
+        core.validate_branch(task.get("work_branch", "main"), cwd=repository.control)
+        checks.append(_check("target_admission", True, "catalog, registry, control and task identities agree"))
+    except Exception as exc:
+        checks.append(_check("target_admission", False, f"{type(exc).__name__}: {exc}"))
+    report["ready"] = all(check["ok"] for check in checks)
+    if not report["ready"]:
+        report["blocked_reason"] = next(check["detail"] for check in checks if not check["ok"])
+    return report
+
+
+def command_prepare(args: argparse.Namespace) -> int:
+    try:
+        with Path(args.path).open("rb") as handle:
+            content = handle.read(MAX_TASK_FILE_BYTES + 1)
+        if len(content) > MAX_TASK_FILE_BYTES:
+            raise ValueError(f"task draft exceeds {MAX_TASK_FILE_BYTES} bytes")
+        task = prepare_task(
+            json.loads(content), repository=args.repository, profile=args.profile,
+            catalog_path=args.catalog,
+        )
+        output_dir = args.output_dir.resolve()
+        registry_path = args.registry or agentd.multirepo_registry_path()
+        for repository in load_repository_registry(path=registry_path, include_disabled=True):
+            if output_dir == repository.control or repository.control in output_dir.parents:
+                raise ValueError("prepare-task cannot write into a daemon control checkout; use a publication checkout")
+        manifest = write_task_bundle(output_dir, task)
+        print_json({
+            "prepared": True,
+            "manifest": str(manifest),
+            "agent_binding": task["agent_binding"],
             "task_digest": agentd.task_digest(task),
+            "profile": args.profile,
+            "resources": list(task_resources_for(task)),
             "command_timeout": core.command_timeout_for(task),
             "idle_timeout": idle_timeout_for(task),
             "task_timeout": task_timeout_for(task),
-        }
-    )
-    return 0
+        })
+        return 0
+    except Exception as exc:
+        print_json({"prepared": False, "error": f"{type(exc).__name__}: {exc}"})
+        return 1
 
 
 def _check(name: str, ok: bool, detail: str = "") -> dict[str, Any]:
@@ -318,7 +401,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = sub.add_parser("validate-task", help="validate a task JSON file")
     validate.add_argument("path")
+    validate.add_argument("--repository", help="explicit catalog id or owner/name for local admission preflight")
+    validate.add_argument("--registry", type=Path, help="local repository registry path")
+    validate.add_argument("--catalog", type=Path, help="canonical binding catalog path")
     validate.set_defaults(func=command_validate)
+
+    prepare = sub.add_parser("prepare-task", help="compile a draft into a target-bound task bundle")
+    prepare.add_argument("path")
+    prepare.add_argument("--repository", required=True, help="explicit catalog id or owner/name")
+    prepare.add_argument("--profile", choices=EXECUTION_PROFILES, default="repository")
+    prepare.add_argument("--output-dir", type=Path, required=True, help="publication staging directory, never a daemon control clone")
+    prepare.add_argument("--registry", type=Path, help="local repository registry path")
+    prepare.add_argument("--catalog", type=Path, help="canonical binding catalog path")
+    prepare.set_defaults(func=command_prepare)
 
     doctor = sub.add_parser("doctor", help="run daemon installation checks")
     doctor.set_defaults(func=command_doctor)

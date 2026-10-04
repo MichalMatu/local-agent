@@ -81,7 +81,7 @@
       }
 
       const repo = card.querySelector(".repo-badge");
-      if (repo) repo.textContent = conversation.repositoryId || "UNBOUND";
+      if (repo) repo.textContent = "transport";
 
       const enabled = card.querySelector(".enable-switch input");
       if (enabled) enabled.checked = Boolean(conversation.enabled);

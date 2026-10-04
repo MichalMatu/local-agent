@@ -232,6 +232,17 @@ class ParallelWorkerDedupeTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["failure_reason"], "invalid_dedupe_key")
 
+    def test_conflicting_plan_publishes_explicit_failure_without_admission(self) -> None:
+        first = {**self.task("task-a"), "dedupe_key": "fix"}
+        second = {**self.task("task-b"), "dedupe_key": "fix", "commands": ["false"]}
+        with mock.patch.object(worker.serial_worker, "repository_state_dir", return_value=self.state_dir), mock.patch.object(worker.core, "publish_result") as publish, mock.patch.object(worker.agentd, "publish_run_state") as progress:
+            candidates = worker._coalesce_pending_tasks(
+                self.repository, [(Path("a.json"), first), (Path("b.json"), second)],
+            )
+        self.assertEqual([item[1]["id"] for item in candidates], ["task-a"])
+        self.assertEqual(publish.call_args.args[1]["failure_reason"], "dedupe_intent_conflict")
+        self.assertEqual(progress.call_args.args[1]["failure_reason"], "dedupe_intent_conflict")
+
     def test_recent_receipt_is_applied_by_worker_queue_coalescing(self) -> None:
         first = self.task("task-a")
         second = self.task("task-b")

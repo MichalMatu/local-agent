@@ -159,7 +159,7 @@ def _publish_invalid_dedupe_task(
     result = {
         "id": task_id,
         "status": "failed",
-        "failure_reason": "invalid_dedupe_key",
+        "failure_reason": invalid.reason,
         "task_digest": agentd.task_digest(task),
         "started_at": None,
         "finished_at": agentd.now_iso(),
@@ -174,14 +174,14 @@ def _publish_invalid_dedupe_task(
         {
             "event": "task_rejected",
             "status": "failed",
-            "failure_reason": "invalid_dedupe_key",
+            "failure_reason": invalid.reason,
             "error": invalid.error,
             "updated_at": agentd.now_iso(),
         },
         force_remote=True,
     )
     core.log(
-        f"invalid dedupe key rejected repository={repository.repository_id} "
+        f"dedupe task rejected reason={invalid.reason} repository={repository.repository_id} "
         f"task={task_id}: {invalid.error}"
     )
 

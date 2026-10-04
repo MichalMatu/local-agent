@@ -2,19 +2,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from local_agent.foundation.process import atomic_write_text
-from local_agent.runtime.task_contract import task_timeout_for
+from local_agent.runtime.task_contract import task_dedupe_identity, task_timeout_for
 
-MAX_DEDUPE_KEY_CHARS = 200
 RECENT_COMPLETION_TTL_SECONDS = 30 * 60
 ADMISSION_GRACE_SECONDS = 10 * 60
-_DEDUPE_KEY_RE = re.compile(r"^[A-Za-z0-9._:/-]+$")
 
 PendingTask = tuple[Path, dict[str, Any]]
 
@@ -32,6 +29,7 @@ class SuppressedTask:
 class InvalidTask:
     item: PendingTask
     error: str
+    reason: str = "invalid_dedupe_key"
 
 
 @dataclass(frozen=True)
@@ -83,24 +81,9 @@ def execution_fingerprint(task: dict[str, Any]) -> str:
     return hashlib.sha256(_serialized(execution_contract(task))).hexdigest()
 
 
-def explicit_dedupe_key(task: dict[str, Any]) -> str | None:
-    raw = task.get("dedupe_key")
-    if raw is None:
-        return None
-    if not isinstance(raw, str):
-        raise ValueError("dedupe_key must be a string")
-    if not raw or raw != raw.strip() or len(raw) > MAX_DEDUPE_KEY_CHARS:
-        raise ValueError(
-            f"dedupe_key must be canonical non-empty text up to {MAX_DEDUPE_KEY_CHARS} characters"
-        )
-    if _DEDUPE_KEY_RE.fullmatch(raw) is None:
-        raise ValueError("dedupe_key contains unsupported characters")
-    return raw
-
-
 def queue_key(task: dict[str, Any]) -> str:
     """Return branch-scoped intent identity or fall back to the exact effect fingerprint."""
-    explicit = explicit_dedupe_key(task)
+    explicit, _ = task_dedupe_identity(task)
     if explicit is not None:
         branch = str(task.get("work_branch", "main"))
         return f"intent:{branch}:{explicit}"
@@ -166,7 +149,7 @@ def plan_pending(
 ) -> QueuePlan:
     """Keep one task per queue identity and suppress recent cross-chat repeats."""
     now_value = time.time() if now_epoch is None else now_epoch
-    seen: dict[str, str] = {}
+    seen: dict[str, dict[str, Any]] = {}
     candidates: list[PendingTask] = []
     suppressed: list[SuppressedTask] = []
     invalid: list[InvalidTask] = []
@@ -180,8 +163,28 @@ def plan_pending(
             invalid.append(InvalidTask(item=item, error=str(exc)))
             continue
         fingerprint = execution_fingerprint(task)
+        _, revision = task_dedupe_identity(task)
 
         receipt = _read_receipt(state_dir, key, now_epoch=now_value)
+        if receipt is not None and receipt["task_id"] != task_id:
+            previous_revision = receipt.get("dedupe_revision", 1)
+            if type(previous_revision) is not int:
+                previous_revision = 1
+            changed = receipt.get("execution_fingerprint") != fingerprint
+            revised = revision > previous_revision
+            if receipt["state"] == "completed" and revised:
+                receipt = None
+            elif changed or revised:
+                invalid.append(InvalidTask(
+                    item=item,
+                    reason="dedupe_intent_conflict",
+                    error=(
+                        f"intent conflicts with task {receipt['task_id']!r} "
+                        f"({receipt['state']}, revision {previous_revision}); "
+                        "wait for completion, then publish a new task id with a higher dedupe_revision"
+                    ),
+                ))
+                continue
         if receipt is not None and receipt["task_id"] != task_id:
             suppressed.append(
                 SuppressedTask(
@@ -195,11 +198,19 @@ def plan_pending(
             continue
 
         prior = seen.get(key)
-        if prior is not None and prior != task_id:
+        if prior is not None and prior["id"] != task_id:
+            if (execution_fingerprint(prior) != fingerprint or
+                    task_dedupe_identity(prior)[1] != revision):
+                invalid.append(InvalidTask(
+                    item=item,
+                    reason="dedupe_intent_conflict",
+                    error=f"intent already queued as task {prior['id']!r}; wait for its completion before revising",
+                ))
+                continue
             suppressed.append(
                 SuppressedTask(
                     item=item,
-                    duplicate_of=prior,
+                    duplicate_of=str(prior["id"]),
                     queue_key=key,
                     execution_fingerprint=fingerprint,
                     reason="queued_duplicate",
@@ -207,7 +218,7 @@ def plan_pending(
             )
             continue
 
-        seen[key] = task_id
+        seen[key] = task
         candidates.append(item)
 
     return QueuePlan(tuple(candidates), tuple(suppressed), tuple(invalid))
@@ -228,6 +239,7 @@ def _write_receipt(
         "queue_key": key,
         "task_id": str(task["id"]),
         "execution_fingerprint": execution_fingerprint(task),
+        "dedupe_revision": task_dedupe_identity(task)[1],
         "state": state,
         "outcome": outcome,
         "updated_at_epoch": now_epoch,

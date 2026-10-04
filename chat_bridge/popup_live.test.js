@@ -105,6 +105,7 @@ function makeCard() {
   assert.equal(restartCountdownCount, 1);
   assert.equal(card.dataset.conversationId, "chat1");
   assert.equal(card.nodes.enabled.checked, false);
+  assert.equal(card.nodes.repo.textContent, "transport", "chat metadata must not imply repository authority");
   assert.equal(card.classes.has("is-paused"), true);
   assert.equal(card.nodes.status.textContent, "paused_by_assistant");
   assert.equal(card.nodes.interval.value, "9");

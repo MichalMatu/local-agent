@@ -240,7 +240,7 @@ def run_command(
     }
 
 
-def validate_branch(branch: str) -> str:
+def validate_branch(branch: str, *, cwd: Path | None = None) -> str:
     if (
         not branch
         or not _BRANCH_RE.fullmatch(branch)
@@ -250,7 +250,7 @@ def validate_branch(branch: str) -> str:
     ):
         raise ValueError(f"invalid work_branch: {branch!r}")
 
-    check = process(["git", "check-ref-format", "--branch", branch], CONTROL, timeout=30)
+    check = process(["git", "check-ref-format", "--branch", branch], cwd or CONTROL, timeout=30)
     if check["exit_code"] != 0:
         raise ValueError(f"invalid work_branch: {branch!r}")
     return branch

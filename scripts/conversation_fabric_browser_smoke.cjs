@@ -76,7 +76,8 @@ async function waitFor(label, predicate, timeout = 30000) {
   try {
     const extension = path.join(root, "chat_bridge");
     context = await chromium.launchPersistentContext(profile, {
-      channel: "chromium", headless: true,
+      channel: "chromium",
+      ignoreDefaultArgs: ["--disable-extensions"], headless: true,
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
     });
     await context.setOffline(true);

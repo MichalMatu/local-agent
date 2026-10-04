@@ -44,9 +44,11 @@ const { createHarness } = require("./worker_test_harness.js");
   response = await sendRuntimeMessage({ type: "bridge:run-now", conversationId: aId });
   assert.equal(response.ok, true, response.reason);
   assert.equal(response.bridgeMode, "bootstrap");
-  assert.equal(response.repositoryId, "host-ops");
+  assert.equal(Object.hasOwn(response, "repositoryId"), false);
+  assert.equal(Object.hasOwn(sentMessages.at(-1).message, "agentBinding"), false);
   let prompt = sentMessages.at(-1).message.prompt;
   assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nBOOTSTRAP\n/);
+  assert.match(prompt, /<<<LOCAL_AGENT_CF/, "bootstrap must establish the delegation protocol");
   assert.doesNotMatch(prompt, /\[LA_AGENT=/);
   assert.doesNotMatch(prompt, /Current runtime catalog:/);
   assert.doesNotMatch(prompt, /Work only on repository/);
@@ -56,6 +58,8 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(response.bridgeMode, "wake");
   prompt = sentMessages.at(-1).message.prompt;
   assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nWAKE\n/);
+  assert.doesNotMatch(prompt, /<<<LOCAL_AGENT_CF/, "wake must not repeat the full protocol example");
+  assert.match(prompt, /Wait for actual child feedback/);
   assert.doesNotMatch(prompt, /\[LA_AGENT=/);
 
   // Explicit legacy metadata may still be stored, but it does not narrow the chat's reasoning scope.

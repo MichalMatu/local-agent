@@ -33,6 +33,26 @@ Production bounded-parallel execution uses `agent_parallel.py` with a hard worke
 - Inspect pending/active/recent work before publishing another task.
 - Children and Superchat transport never bypass this boundary.
 
+### Draft preparation and admission preflight
+
+Use the existing diagnostics CLI to compile an inline task draft without manually copying a binding UUID:
+
+```sh
+python -m local_agent.cli.diagnostics prepare-task draft.json \
+  --repository growclip --profile repository \
+  --output-dir /path/to/publication-checkout/.agent/tasks
+python -m local_agent.cli.diagnostics validate-task \
+  /path/to/publication-checkout/.agent/tasks/example.json --repository growclip
+```
+
+An inline draft can be as small as `{"id":"example","commands":["python -m unittest -q"]}`. The explicit target accepts a catalog id or `owner/name`; chat metadata is never consulted. Existing mismatched bindings are rejected rather than replaced. `repository` supplies `resources: []` when absent, `hardware` requires explicit named resources, and `host-maintenance` requires the `host-ops` target and exclusive `machine` resource. Profiles compile to the existing task schema and keep its configured timeout and memory limits.
+
+Preparation uses the existing atomic task-bundle writer and refuses to overwrite an existing manifest or write into a registered daemon control clone, including disabled entries and symlink aliases. Publish the manifest and its adjacent payload directory together through the target's remote `agent-control` branch. Preparation itself does not commit, push, enqueue or execute work.
+
+`validate-task --repository` reports schema validity separately from local admission readiness. It checks emergency disable, catalog/registry/control/task identity, checkout origins and branch validity. `--catalog` and `--registry` select explicit local configuration files. Preflight is a read-only snapshot; resource and execution leases are still acquired by the executor at admission.
+
+For a corrective plan or deliberate rerun after completion, publish a **new task id** with the same `dedupe_key` and an increased integer `dedupe_revision`. Changing commands under the same revision produces `dedupe_intent_conflict`; unchanged duplicates remain suppressed. A higher revision cannot bypass an active claim. Never reuse the old task id or automatically replay interrupted work.
+
 ## Multi-repository / host operations
 
 `host-ops` is the explicit `multirepo` host-operation/planning scope. Use it only for host effects that belong there. A repository edit/build/test still belongs to its actual target repository and requires that target repository's own execution-enabled binding.

@@ -86,7 +86,7 @@ class TaskDedupeTests(unittest.TestCase):
         self.assertEqual(plan.suppressed[0].reason, "queued_duplicate")
         self.assertEqual(plan.invalid, ())
 
-    def test_explicit_intent_key_suppresses_different_plans_for_same_goal(self) -> None:
+    def test_explicit_intent_key_reports_conflicting_plans_for_same_goal(self) -> None:
         first = self.task("task-a", "first-plan")
         second = self.task("task-b", "different-plan")
         first["dedupe_key"] = "growclip:nodeflow:diagnostics"
@@ -97,8 +97,58 @@ class TaskDedupeTests(unittest.TestCase):
             plan = task_dedupe.plan_pending(Path(tmp), pending, now_epoch=100.0)
 
         self.assertEqual([item[1]["id"] for item in plan.candidates], ["task-a"])
-        self.assertEqual(plan.suppressed[0].duplicate_of, "task-a")
-        self.assertEqual(plan.invalid, ())
+        self.assertEqual(plan.suppressed, ())
+        self.assertEqual(plan.invalid[0].reason, "dedupe_intent_conflict")
+        self.assertIn("task-a", plan.invalid[0].error)
+
+    def test_completed_failed_plan_requires_revision_for_correction(self) -> None:
+        first = {**self.task("task-a", "false"), "dedupe_key": "fix"}
+        correction = {**self.task("task-b", "true"), "dedupe_key": "fix"}
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            task_dedupe.record_completion(state, first, "failed", now_epoch=100)
+            conflict = task_dedupe.plan_pending(state, [(Path("b.json"), correction)], now_epoch=101)
+            correction["dedupe_revision"] = 2
+            revised = task_dedupe.plan_pending(state, [(Path("b.json"), correction)], now_epoch=102)
+        self.assertEqual(conflict.candidates, ())
+        self.assertEqual(conflict.invalid[0].reason, "dedupe_intent_conflict")
+        self.assertEqual([item[1]["id"] for item in revised.candidates], ["task-b"])
+        self.assertEqual(revised.invalid, ())
+
+    def test_higher_revision_cannot_bypass_active_claim(self) -> None:
+        first = {**self.task("task-a"), "dedupe_key": "fix"}
+        correction = {**self.task("task-b", "false"), "dedupe_key": "fix", "dedupe_revision": 2}
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            task_dedupe.record_admission(state, first, now_epoch=100)
+            self.create_claim(state, "task-a")
+            plan = task_dedupe.plan_pending(state, [(Path("b.json"), correction)], now_epoch=101)
+        self.assertEqual(plan.candidates, ())
+        self.assertEqual(plan.invalid[0].reason, "dedupe_intent_conflict")
+
+    def test_explicit_revision_allows_deliberate_rerun_but_not_same_revision_duplicate(self) -> None:
+        first = {**self.task("task-a"), "dedupe_key": "verify", "dedupe_revision": 2}
+        duplicate = {**self.task("task-b"), "dedupe_key": "verify", "dedupe_revision": 2}
+        rerun = {**self.task("task-c"), "dedupe_key": "verify", "dedupe_revision": 3}
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            task_dedupe.record_completion(state, first, "success", now_epoch=100)
+            repeated = task_dedupe.plan_pending(state, [(Path("b.json"), duplicate)], now_epoch=101)
+            revised = task_dedupe.plan_pending(state, [(Path("c.json"), rerun)], now_epoch=101)
+        self.assertEqual(repeated.candidates, ())
+        self.assertEqual(repeated.suppressed[0].duplicate_of, "task-a")
+        self.assertEqual([item[1]["id"] for item in revised.candidates], ["task-c"])
+
+    def test_revision_requires_explicit_key_and_bounded_integer(self) -> None:
+        for task in (
+            {**self.task("task-a"), "dedupe_revision": 2},
+            {**self.task("task-a"), "dedupe_key": "fix", "dedupe_revision": True},
+            {**self.task("task-a"), "dedupe_key": "fix", "dedupe_revision": 0},
+        ):
+            with self.subTest(task=task), tempfile.TemporaryDirectory() as tmp:
+                plan = task_dedupe.plan_pending(Path(tmp), [(Path("a.json"), task)])
+                self.assertEqual(plan.candidates, ())
+                self.assertEqual(plan.invalid[0].reason, "invalid_dedupe_key")
 
     def test_invalid_dedupe_key_is_rejected_without_blocking_other_tasks(self) -> None:
         invalid = self.task("task-a")

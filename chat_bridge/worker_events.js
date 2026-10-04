@@ -42,7 +42,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
       lastStatus: `worker_error:${String(error)}`,
       lastRuntimeSource: runtime.source
     }, generation);
-    if (state.settings.masterEnabled && conversation.enabled && stateModel.isBoundConversation(conversation)) {
+    if (state.settings.masterEnabled && conversation.enabled && stateModel.isTransportReady(conversation)) {
       await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes, generation);
     }
   });

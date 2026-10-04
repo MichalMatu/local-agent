@@ -270,6 +270,7 @@ def load_repository_registry(
     *,
     home: Path | None = None,
     path: Path | None = None,
+    include_disabled: bool = False,
 ) -> list[RepositoryContext]:
     resolved_home = (home or Path.home()).resolve()
     registry_path = path or default_registry_path(resolved_home)
@@ -295,7 +296,7 @@ def load_repository_registry(
         enabled = item.get("enabled", True)
         if not isinstance(enabled, bool):
             raise ValueError("repository enabled must be a boolean")
-        if not enabled:
+        if not enabled and not include_disabled:
             continue
         repositories.append(repository_from_dict(item, home=resolved_home))
     return validate_repository_set(repositories)

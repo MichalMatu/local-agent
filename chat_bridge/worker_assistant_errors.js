@@ -42,7 +42,7 @@ function assistantErrorConversationForSender(state, message, sender) {
 }
 
 function bridgeOwnsAssistantError(conversation, payload) {
-  if (!stateModel.isBoundConversation(conversation) || conversation.bootstrapPending) return false;
+  if (!stateModel.isTransportReady(conversation) || conversation.bootstrapPending) return false;
   const expected = normalizedAssistantErrorText(bindingEnvelope(conversation));
   return normalizedAssistantErrorText(payload.userText).startsWith(expected);
 }

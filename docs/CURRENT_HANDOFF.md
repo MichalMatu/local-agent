@@ -62,6 +62,14 @@ Merged PR `#141` introduced the native path. The verified same-browser repair co
 
 No Native Messaging path, Local Agent-to-browser RPC, new scheduler or second browser is introduced.
 
+## Task authoring improvements in the current source candidate
+
+- `python -m local_agent.cli.diagnostics prepare-task` compiles inline drafts using an explicit catalog target and execution profile, then writes the existing immutable task/payload bundle into a publication checkout.
+- `validate-task --repository` adds read-only local admission preflight without weakening worker binding checks or taking execution leases. See `docs/OPERATIONS.md` for commands and profile contracts.
+- Corrective plans use a new task id and higher `dedupe_revision` after completion. Conflicting queued/active intents are reported as `dedupe_intent_conflict`; revisions never bypass an active claim. This addresses the historical deferred completion-dedupe issue in the Superchat readiness checkpoint.
+- Local Codex invocation policy permits literal mentions and search arguments while rejecting recognizable invocations. It is not a shell sandbox.
+- Normal Bridge delivery no longer sends repository identity fields. Transport readiness uses the conversation URL, popup badges describe transport, and wake prompts reference the bootstrap delegation protocol without repeating its full example.
+
 ## Current milestone
 
 The same-browser repair passed full verification, macOS smoke, the real-extension browser/DOM suite and a live two-child acceptance in the normal Chrome session. See [the acceptance proof](conversation_fabric/SAME_BROWSER_PROOF_2026-10-04.md) for exact evidence and scope. The parent was paused after completion. Repository mutation was not required or claimed by the arithmetic transport proof.

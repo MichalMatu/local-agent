@@ -153,7 +153,7 @@ function contentProbeReason(result) {
 async function refreshConfiguredContentScripts() {
   const state = await getBridgeState();
   const configured = Object.values(state.conversations || {}).filter((conversation) =>
-    stateModel.isBoundConversation(conversation)
+    stateModel.isTransportReady(conversation)
   );
   if (!configured.length) return { checked: 0, ready: 0, refreshed: 0, failed: 0 };
 

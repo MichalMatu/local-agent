@@ -9,7 +9,7 @@ The current source and production release is `v4.20.6`. The immutable Local Agen
 - Every executable task requires the exact canonical `agent_binding` of the actual target repository.
 - Repository reasoning context, donor repositories and chat identity never grant execution authority.
 - Child chats are reasoning-only and must never execute machine commands independently.
-- Executable task command strings containing the `codex` token are rejected before execution.
+- Recognizable local Codex invocations are rejected before execution; mentions in search arguments and filenames are allowed. This planner policy is not a shell sandbox.
 - Task ids/payloads are immutable within a repository; interrupted claimed work is never silently replayed.
 - Terminal results are durably spooled before remote publication.
 
@@ -26,6 +26,8 @@ The current source and production release is `v4.20.6`. The immutable Local Agen
 
 - Production parallel workers coalesce equivalent pending work before execution.
 - A canonical explicit `dedupe_key` is branch-scoped and represents one logical intent.
+- `dedupe_revision` defaults to 1 and requires an explicit key. A new task id with a higher revision may follow a completed attempt, including a failed attempt, without waiting for the completion TTL. It never bypasses an active claim.
+- Different plans for the same queued/active intent, or a changed completed plan without a higher revision, produce terminal `dedupe_intent_conflict` evidence rather than being silently suppressed.
 - Without an explicit key, deterministic execution effects are fingerprinted.
 - Active admission receipts are claim-aware; when the durable claim disappears, they stop blocking corrective work.
 - Recent completed intent/effect receipts are bounded in time.

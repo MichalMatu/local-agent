@@ -303,7 +303,7 @@ def load_task_file(path: Path) -> dict[str, Any]:
             f"task file exceeds {MAX_TASK_FILE_BYTES} bytes: {path.name} has {size}"
         )
     task = json.loads(path.read_text(encoding="utf-8"))
-    validate_task(task)
+    validate_task(task, tasks_root=path.parent)
     return task
 
 

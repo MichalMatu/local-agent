@@ -114,10 +114,8 @@
     };
   }
 
-  // Compatibility name retained for older worker modules/tests. In Bridge 0.8 the
-  // repository tuple is legacy metadata only; a concrete configured chat is ready
-  // for transport even when those fields are absent or stale.
-  function isBoundConversation(conversation) {
+  // Transport readiness depends only on the concrete conversation URL.
+  function isTransportReady(conversation) {
     return Boolean(conversation && protocol.normalizeConversationUrl(conversation.url || ""));
   }
 
@@ -241,7 +239,7 @@
     sanitizeRepository,
     sanitizeAgentBinding,
     sanitizeConversation,
-    isBoundConversation,
+    isTransportReady,
     emptyState,
     normalizeState,
     migrateLegacyStorage,

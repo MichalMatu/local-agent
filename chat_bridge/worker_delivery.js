@@ -13,14 +13,14 @@ async function deliverConversation(chatId, manual) {
   const state = await getBridgeState();
   const conversation = state.conversations[chatId];
   if (!conversation) return { ok: false, reason: "conversation_not_found" };
-  if (!stateModel.isBoundConversation(conversation)) {
+  if (!stateModel.isTransportReady(conversation)) {
     await updateConversationStatus(chatId, {
       enabled: false,
-      lastStatus: "binding_required",
+      lastStatus: "conversation_url_required",
       nextRunAt: null
     }, conversation.generation);
     await clearConversationAlarm(chatId, conversation.generation);
-    return { ok: false, reason: "conversation_unbound" };
+    return { ok: false, reason: "conversation_url_required" };
   }
   if (conversation.lastStatus === "conversation_exhausted") {
     await clearConversationAlarm(chatId, conversation.generation);
@@ -40,17 +40,6 @@ async function deliverConversation(chatId, manual) {
     if (!manual) await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes, conversation.generation);
     return { ok: false, reason: "runtime_unavailable", runtime };
   }
-  const runtimeAgent = runtimeAgentForConversation(runtime, conversation);
-  if (!runtimeAgent) {
-    await updateConversationStatus(chatId, {
-      enabled: false,
-      lastStatus: "binding_catalog_mismatch",
-      nextRunAt: null
-    }, conversation.generation);
-    await clearConversationAlarm(chatId, conversation.generation);
-    return { ok: false, reason: "binding_catalog_mismatch", runtime };
-  }
-
   const runAt = new Date().toISOString();
   const tab = await findConversationTab(conversation);
   if (!tab?.id) {
@@ -86,9 +75,6 @@ async function deliverConversation(chatId, manual) {
       runtime,
       status,
       conversationId: chatId,
-      agentBinding: conversation.agentBinding,
-      repositoryId: conversation.repositoryId,
-      repository: conversation.repository,
       bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
     };
   }
@@ -112,9 +98,6 @@ async function deliverConversation(chatId, manual) {
         recovery,
         runtime,
         conversationId: chatId,
-        agentBinding: conversation.agentBinding,
-        repositoryId: conversation.repositoryId,
-        repository: conversation.repository,
         bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
       };
     }
@@ -148,10 +131,7 @@ async function deliverConversation(chatId, manual) {
         expectedUrl: conversation.url,
         deliveryId,
         recoverBridgePrompt,
-        bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake",
-        agentBinding: conversation.agentBinding,
-        repositoryId: conversation.repositoryId,
-        repository: conversation.repository
+        bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
       }, { frameId: 0 }),
       new Promise((resolve) => {
         deliveryTimeout = setTimeout(
@@ -209,9 +189,6 @@ async function deliverConversation(chatId, manual) {
     runtime,
     status,
     conversationId: chatId,
-    agentBinding: conversation.agentBinding,
-    repositoryId: conversation.repositoryId,
-    repository: conversation.repository,
     bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
   };
 }

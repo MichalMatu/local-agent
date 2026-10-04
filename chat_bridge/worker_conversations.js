@@ -17,7 +17,7 @@ async function upsertConversation(patch) {
   const id = conversationId(url);
   const existing = currentState.conversations[id];
   const agent = existing
-    ? (runtimeAgentForConversation(runtime, existing) || transportAgent(runtime))
+    ? transportAgent(runtime)
     : resolveBindingInput(runtime, patch);
 
   const result = await mutateState((state) => {
@@ -25,9 +25,7 @@ async function upsertConversation(patch) {
     if (previous && previous.url !== url) {
       throw new Error("Conversation identity changed during update; reopen the popup.");
     }
-    const currentAgent = previous
-      ? (runtimeAgentForConversation(runtime, previous) || agent)
-      : agent;
+    const currentAgent = agent;
     const upserted = stateModel.upsertConversation(state, {
       label: patch.label,
       enabled: previous ? previous.enabled : patch.enabled,
@@ -35,9 +33,9 @@ async function upsertConversation(patch) {
       url,
       // These fields are compatibility metadata only. The selected transport workspace
       // never determines the repository target of executable work.
-      repositoryId: currentAgent?.repositoryId || previous?.repositoryId || null,
-      repository: currentAgent?.repository || previous?.repository || null,
-      agentBinding: currentAgent?.agentBinding || previous?.agentBinding || null,
+      repositoryId: previous?.repositoryId || currentAgent?.repositoryId || null,
+      repository: previous?.repository || currentAgent?.repository || null,
+      agentBinding: previous?.agentBinding || currentAgent?.agentBinding || null,
       bindingRevision: previous?.bindingRevision || 1,
       bindingSetAt: previous?.bindingSetAt || new Date().toISOString(),
       assistantBaseline: previous?.assistantBaseline || String(patch.assistantBaseline || ""),

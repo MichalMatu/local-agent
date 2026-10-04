@@ -4,7 +4,7 @@ const ASSISTANT_BINDING_DEDUPE_LIMIT = 64;
 async function controlContext(message, sender) {
   const state = await getBridgeState();
   const conversation = conversationForSender(state, message, sender);
-  if (!stateModel.isBoundConversation(conversation)) {
+  if (!stateModel.isTransportReady(conversation)) {
     return { ok: false, reason: "control_not_ready" };
   }
   return {
@@ -97,7 +97,7 @@ async function rememberMaintenanceControl(message, sender, parsed) {
   if (!fingerprint) return { ok: false, reason: "control_invalid_fingerprint" };
   const result = await mutateState((state) => {
     const conversation = conversationForSender(state, message, sender);
-    if (!conversation || !stateModel.isBoundConversation(conversation)) {
+    if (!conversation || !stateModel.isTransportReady(conversation)) {
       return { state, value: { ok: false, reason: "control_unbound_conversation" } };
     }
     // Bridge-local maintenance must remain usable while a binding bootstrap is pending.
@@ -164,7 +164,7 @@ async function applyAssistantControl(message, sender) {
   const result = await mutateState((state) => {
     const conversation = conversationForSender(state, message, sender);
     if (!conversation) return { state, value: { ok: false, reason: "control_wrong_conversation" } };
-    if (!stateModel.isBoundConversation(conversation)) {
+    if (!stateModel.isTransportReady(conversation)) {
       return { state, value: { ok: false, reason: "control_unbound_conversation" } };
     }
     const freshBindingControlsAllowed = conversation.bootstrapPending && conversation.bindingRevision === 1;

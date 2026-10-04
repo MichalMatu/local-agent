@@ -4,7 +4,8 @@ import hashlib
 import json
 import re
 import secrets
-from pathlib import PurePosixPath
+import shlex
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from local_agent.config import TIMEOUTS
@@ -12,7 +13,8 @@ from local_agent.repository.binding import canonical_agent_binding
 
 _TASK_ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 _RESOURCE_RE = re.compile(r"^[a-z0-9._:-]+$")
-_LOCAL_CODEX_RE = re.compile(r"\bcodex\b", re.IGNORECASE)
+_DEDUPE_KEY_RE = re.compile(r"^[A-Za-z0-9._:/-]+$")
+MAX_DEDUPE_KEY_CHARS = 200
 DEFAULT_IDLE_TIMEOUT = TIMEOUTS.idle_default
 MAX_IDLE_TIMEOUT = TIMEOUTS.idle_max
 DEFAULT_TASK_TIMEOUT = TIMEOUTS.task_default
@@ -99,12 +101,181 @@ def task_resources_for(task: dict[str, Any]) -> tuple[str, ...]:
     return tuple(resources)
 
 
+def task_dedupe_identity(task: dict[str, Any]) -> tuple[str | None, int]:
+    key = task.get("dedupe_key")
+    if key is None:
+        if "dedupe_revision" in task:
+            raise ValueError("dedupe_revision requires an explicit dedupe_key")
+        return None, 1
+    if not isinstance(key, str):
+        raise ValueError("dedupe_key must be a string")
+    if not key or key != key.strip() or len(key) > MAX_DEDUPE_KEY_CHARS:
+        raise ValueError("dedupe_key must be canonical non-empty text up to 200 characters")
+    if not _DEDUPE_KEY_RE.fullmatch(key):
+        raise ValueError("dedupe_key contains unsupported characters")
+    revision = task.get("dedupe_revision", 1)
+    if type(revision) is not int or not 1 <= revision <= 1_000_000:
+        raise ValueError("dedupe_revision must be an integer between 1 and 1000000")
+    return key, revision
+
+
 def _reject_local_codex(command: str, *, field: str) -> None:
-    if _LOCAL_CODEX_RE.search(command):
+    if _invokes_local_codex(command):
         raise ValueError(
             f"{field} may not invoke local Codex; ChatGPT is the planner and "
             "Local Agent executes deterministic commands only"
         )
+
+
+def _invokes_local_codex(command: str, *, depth: int = 0) -> bool:
+    """Recognize command positions, not mentions in filenames or search arguments.
+
+    This planner policy is not a shell sandbox or an executable allowlist.
+    """
+    if depth > 8:
+        raise ValueError("nested shell commands exceed policy inspection depth")
+    if not re.search(r"\bcodex\b", command, re.IGNORECASE):
+        return False
+    command, substitutions = _shell_policy_sources(command)
+    for nested in _shell_substitutions(substitutions):
+        if _invokes_local_codex(nested, depth=depth + 1):
+            return True
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|()<>\n")
+    lexer.whitespace_split = True
+    lexer.whitespace = " \t\r"
+    lexer.commenters = ""
+    try:
+        tokens = list(lexer)
+    except ValueError as exc:
+        raise ValueError(f"invalid shell command: {exc}") from exc
+    segments: list[list[str]] = [[]]
+    comment = False
+    for token in tokens:
+        if token.startswith("#"):
+            comment = True
+        if token and all(char in ";&|()\n" for char in token):
+            segments.append([])
+            if "\n" in token:
+                comment = False
+        elif comment:
+            continue
+        else:
+            if token.startswith(("'", '"')):
+                token = shlex.split(token)[0]
+            segments[-1].append(token)
+    wrappers = {"env", "sudo", "command", "exec", "timeout", "nice", "nohup", "time"}
+    option_values = {"-u", "-g", "-C", "--user", "--group", "--chdir", "--unset", "-n"}
+    for words in segments:
+        index = 0
+        while index < len(words):
+            word = words[index]
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", word) or word in {"if", "then", "do", "elif", "!", "{"}:
+                index += 1
+                continue
+            executable = PurePosixPath(word).name.casefold()
+            if executable == "codex":
+                return True
+            if executable in {"npx", "pnpm", "yarn", "bun"}:
+                args = words[index + 1:]
+                while args and (args[0].startswith("-") or args[0] in {"exec", "dlx", "x"}):
+                    args = args[1:]
+                if args and re.fullmatch(r"(?:@openai/)?codex(?:@[^\s]+)?", args[0], re.IGNORECASE):
+                    return True
+            if executable in {"sh", "bash", "zsh"}:
+                for offset, argument in enumerate(words[index + 1:], index + 1):
+                    if argument.startswith("-") and "c" in argument[1:] and offset + 1 < len(words):
+                        if _invokes_local_codex(words[offset + 1], depth=depth + 1):
+                            return True
+                        break
+            if executable not in wrappers:
+                break
+            index += 1
+            while index < len(words) and words[index].startswith("-"):
+                option = words[index]
+                index += 2 if option in option_values else 1
+            if executable == "timeout" and index < len(words):
+                index += 1
+    return False
+
+
+def _shell_policy_sources(command: str) -> tuple[str, str]:
+    """Exclude heredoc data from command positions; expand only unquoted bodies."""
+    source: list[str] = []
+    substitutions: list[str] = []
+    pending: list[tuple[str, bool, bool]] = []
+    for line in command.splitlines(keepends=True):
+        if pending:
+            delimiter, expand, strip_tabs = pending[0]
+            text = line.lstrip("\t") if strip_tabs else line
+            if text.rstrip("\r\n") == delimiter:
+                pending.pop(0)
+            elif expand:
+                substitutions.append(line)
+            continue
+        source.append(line)
+        substitutions.append(line)
+        if "<<" not in line:
+            continue
+        lexer = shlex.shlex(line, posix=False, punctuation_chars=";&|()<>")
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+        for index, token in enumerate(tokens[:-1]):
+            if token == "<<":
+                raw = tokens[index + 1]
+                strip_tabs = raw.startswith("-")
+                raw = raw.removeprefix("-")
+                quoted = raw.startswith(("'", '"'))
+                delimiter = shlex.split(raw)[0] if quoted else raw
+                pending.append((delimiter, not quoted, strip_tabs))
+    return "".join(source), "".join(substitutions)
+
+
+def _shell_substitutions(source: str) -> list[str]:
+    """Extract recognizable command substitutions outside single-quoted data."""
+    result: list[str] = []
+    quote = ""
+    index = 0
+    while index < len(source):
+        char = source[index]
+        if char == "\\" and quote != "'":
+            index += 2
+            continue
+        if char in {"'", '"'}:
+            if char == quote:
+                quote = ""
+            elif not quote:
+                quote = char
+        if quote != "'" and source.startswith("$(", index):
+            start = index + 2
+            end = start
+            nesting = 1
+            inner_quote = ""
+            while end < len(source) and nesting:
+                current = source[end]
+                if current == "\\" and inner_quote != "'":
+                    end += 2
+                    continue
+                if current in {"'", '"'}:
+                    if current == inner_quote:
+                        inner_quote = ""
+                    elif not inner_quote:
+                        inner_quote = current
+                if not inner_quote:
+                    nesting += (current == "(") - (current == ")")
+                end += 1
+            if nesting == 0:
+                result.append(source[start:end - 1])
+                index = end
+                continue
+            break
+        elif quote != "'" and char == "`":
+            end = source.find("`", index + 1)
+            if end >= 0:
+                result.append(source[index + 1:end])
+                index = end + 1
+                continue
+        index += 1
+    return result
 
 
 def _payload_reference(value: Any, *, field: str) -> str | None:
@@ -150,7 +321,7 @@ def _read_payload_text(
     else:
         from local_agent.foundation import core as core_module
 
-        tasks_root = (core_module.CONTROL / ".agent/tasks").resolve()
+        tasks_root = (state["tasks_root"] or core_module.CONTROL / ".agent/tasks").resolve()
         current = tasks_root
         for part in pure.parts:
             current = current / part
@@ -216,8 +387,8 @@ def _resolve_payload_text(
     )
 
 
-def _materialize_task_payloads(task: dict[str, Any], task_id: str) -> None:
-    state: dict[str, Any] = {"cache": {}, "seen": set(), "bytes": 0}
+def _materialize_task_payloads(task: dict[str, Any], task_id: str, tasks_root: Path | None) -> None:
+    state: dict[str, Any] = {"cache": {}, "seen": set(), "bytes": 0, "tasks_root": tasks_root}
 
     if "patch" in task:
         task["patch"] = _resolve_payload_text(
@@ -273,7 +444,9 @@ def _materialize_task_payloads(task: dict[str, Any], task_id: str) -> None:
                 )
 
 
-def validate_task(task: dict[str, Any], *, require_agent_binding: bool = False) -> None:
+def validate_task(
+    task: dict[str, Any], *, require_agent_binding: bool = False, tasks_root: Path | None = None,
+) -> None:
     if not isinstance(task, dict):
         raise ValueError("task must be an object")
     task_id = task.get("id")
@@ -290,6 +463,7 @@ def validate_task(task: dict[str, Any], *, require_agent_binding: bool = False) 
     if "work_branch" in task and not isinstance(task["work_branch"], str):
         raise ValueError("work_branch must be a string")
     task_resources_for(task)
+    task_dedupe_identity(task)
     for field in (
         "writes",
         "deletes",
@@ -303,7 +477,7 @@ def validate_task(task: dict[str, Any], *, require_agent_binding: bool = False) 
         if len(task.get(field, [])) > MAX_TASK_LIST_ITEMS:
             raise ValueError(f"{field} exceeds {MAX_TASK_LIST_ITEMS} items")
 
-    _materialize_task_payloads(task, task_id)
+    _materialize_task_payloads(task, task_id, tasks_root)
 
     resolved_size = len(_serialized_task_bytes(task))
     if resolved_size > MAX_TASK_FILE_BYTES:

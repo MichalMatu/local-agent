@@ -58,7 +58,8 @@ document.querySelector('form').onsubmit = (event) => {
   try {
     const extension = path.join(root, "chat_bridge");
     const launch = () => chromium.launchPersistentContext(profile, {
-      channel: "chromium", headless: true,
+      channel: "chromium",
+      ignoreDefaultArgs: ["--disable-extensions"], headless: true,
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
     });
     context = await launch();

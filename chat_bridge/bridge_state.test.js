@@ -34,7 +34,7 @@ assert.equal(old.enabled, true);
 assert.equal(old.bootstrapPending, false);
 assert.equal(old.lastStatus, "sent");
 assert.equal(old.agentBinding, null);
-assert.equal(stateModel.isBoundConversation(old), true);
+assert.equal(stateModel.isTransportReady(old), true);
 
 const migratedLegacy = stateModel.migrateLegacyStorage({
   enabled: true,
@@ -111,7 +111,7 @@ assert.equal(Object.keys(state.conversations).length, 2);
 assert.equal(state.conversations[aId].bootstrapPending, true);
 assert.equal(state.conversations[aId].repositoryId, "matrixhub");
 assert.equal(state.conversations[aId].agentBinding, MATRIX_BINDING);
-assert.equal(stateModel.isBoundConversation(state.conversations[aId]), true);
+assert.equal(stateModel.isTransportReady(state.conversations[aId]), true);
 assert.equal(state.conversations[bId].agentBinding, TRACKER_BINDING);
 
 const patched = stateModel.patchConversation(state, aId, {
@@ -135,7 +135,7 @@ result = stateModel.upsertConversation(state, {
   agentBinding: "MATRIX"
 });
 assert.equal(result.conversation.agentBinding, null);
-assert.equal(stateModel.isBoundConversation(result.conversation), true);
+assert.equal(stateModel.isTransportReady(result.conversation), true);
 
 assert.equal(stateModel.findConversationByUrl(state, "https://chat.openai.com/c/b")?.id, bId);
 state = stateModel.removeConversation(state, aId);

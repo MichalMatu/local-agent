@@ -10,19 +10,6 @@ function transportAgent(runtime) {
     agents[0] || null;
 }
 
-function runtimeAgentForConversation(runtime, conversation) {
-  if (!conversation) return null;
-  const legacy = runtimeAgentForBinding(runtime, conversation.agentBinding);
-  if (
-    legacy &&
-    legacy.repositoryId === conversation.repositoryId &&
-    legacy.repository.toLowerCase() === String(conversation.repository || "").toLowerCase()
-  ) {
-    return legacy;
-  }
-  return transportAgent(runtime);
-}
-
 function resolveBindingInput(runtime, raw = {}) {
   const requestedBinding = stateModel.sanitizeAgentBinding(raw.agentBinding);
   const requestedId = stateModel.sanitizeRepositoryId(raw.repositoryId);
@@ -30,7 +17,7 @@ function resolveBindingInput(runtime, raw = {}) {
   if (!agent && requestedId) {
     agent = runtime.agents.find((item) => item.repositoryId === requestedId) || null;
   }
-  if (!agent && !requestedBinding && !requestedId) agent = transportAgent(runtime);
+  if (!agent && !requestedBinding && !requestedId) return transportAgent(runtime);
   if (!agent) throw new Error("No Local Agent transport workspace is available.");
   if (requestedBinding && requestedBinding !== agent.agentBinding) {
     throw new Error("agent binding does not match selected repository");
@@ -50,7 +37,7 @@ function buildBootstrapPrompt(runtime, conversation) {
 }
 
 function buildWakePrompt(runtime, conversation) {
-  return `${bindingEnvelope(conversation)}\n${runtime.wakePrompt}\n\n${conversationFabricParentInstructions()}`;
+  return `${bindingEnvelope(conversation)}\n${runtime.wakePrompt}\n\nUse the LOCAL_AGENT_CF delegation protocol established at bootstrap when independent reasoning helps. Wait for actual child feedback before synthesis; do not repeat a pending delegation.`;
 }
 
 function conversationFabricParentInstructions() {

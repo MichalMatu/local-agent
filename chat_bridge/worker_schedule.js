@@ -30,7 +30,7 @@ async function clearConversationAlarm(chatId, expectedGeneration = null, clearNe
 async function scheduleAt(chatId, when, expectedGeneration = null) {
   const result = await mutateState(async (state) => {
     const conversation = state.conversations[chatId];
-    if (!conversation || !conversation.enabled || !stateModel.isBoundConversation(conversation)) {
+    if (!conversation || !conversation.enabled || !stateModel.isTransportReady(conversation)) {
       await chrome.alarms.clear(alarmName(chatId));
       return { state, value: false };
     }
@@ -93,7 +93,7 @@ async function reconcileSchedules() {
   }
 
   for (const conversation of Object.values(state.conversations)) {
-    if (!conversation.enabled || !stateModel.isBoundConversation(conversation)) {
+    if (!conversation.enabled || !stateModel.isTransportReady(conversation)) {
       await clearConversationAlarm(conversation.id, conversation.generation);
       continue;
     }
