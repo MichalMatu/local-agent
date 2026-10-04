@@ -10,6 +10,7 @@ from typing import Any
 import local_agent.foundation.core as core
 from local_agent.foundation.process import atomic_write_text
 from local_agent.runtime.task_contract import (
+    InvalidDedupeMetadata,
     idle_timeout_for,
     memory_limit_for,
     task_dedupe_identity,
@@ -188,7 +189,7 @@ def plan_pending(
         task_id = str(task.get("id", ""))
         try:
             key = queue_key(task)
-        except ValueError as exc:
+        except InvalidDedupeMetadata as exc:
             invalid.append(InvalidTask(item=item, error=str(exc)))
             continue
         fingerprint = execution_fingerprint(task)
