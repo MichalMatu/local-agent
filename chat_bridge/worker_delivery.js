@@ -37,10 +37,13 @@ async function conversationFabricTerminalFeedbackAlreadySubmitted(tabId, expecte
           seenTurns.add(turn);
           userMessages.push(message);
         }
-        const latest = userMessages[userMessages.length - 1];
-        if (!latest) return false;
+        if (!userMessages.length) return false;
         const normalizeText = (text) => String(text || "").trim().replace(/\s+/g, " ");
-        return normalizeText(latest.innerText || latest.textContent) === normalizeText(expectedPrompt);
+        const normalizedExpectedPrompt = normalizeText(expectedPrompt);
+        if (!normalizedExpectedPrompt) return false;
+        return userMessages.some((message) =>
+          normalizeText(message.innerText || message.textContent) === normalizedExpectedPrompt
+        );
       }
     });
     return executions?.[0]?.result === true;

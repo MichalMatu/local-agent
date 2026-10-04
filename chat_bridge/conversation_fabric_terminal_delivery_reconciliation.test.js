@@ -7,7 +7,12 @@ const workerSource = fs.readFileSync(path.join(__dirname, "worker_delivery.js"),
 const PROMPT = "Conversation Fabric campaign cf-deadbeef completed.\n\nSynthesize the final parent answer now.";
 const URL = "https://chatgpt.com/c/parent-1";
 
-function makeHarness({ latestUserText = PROMPT, fabric = true, lastStatus = "delivery_unconfirmed" } = {}) {
+function makeHarness({
+  latestUserText = PROMPT,
+  earlierUserTexts = [],
+  fabric = true,
+  lastStatus = "delivery_unconfirmed"
+} = {}) {
   const state = {
     settings: { masterEnabled: true },
     conversations: {
@@ -35,12 +40,14 @@ function makeHarness({ latestUserText = PROMPT, fabric = true, lastStatus = "del
   let saveCalls = 0;
   let scheduleCalls = 0;
 
-  const turn = {};
-  const latestUser = {
-    innerText: latestUserText,
-    textContent: latestUserText,
-    closest: () => turn
-  };
+  const userMessages = [...earlierUserTexts, latestUserText].map((text) => {
+    const turn = {};
+    return {
+      innerText: text,
+      textContent: text,
+      closest: () => turn
+    };
+  });
 
   const context = {
     console,
@@ -57,7 +64,7 @@ function makeHarness({ latestUserText = PROMPT, fabric = true, lastStatus = "del
     crypto: { randomUUID: () => "delivery-1" },
     location: { href: URL },
     document: {
-      querySelectorAll: () => [latestUser]
+      querySelectorAll: () => userMessages
     },
     stateModel: { isTransportReady: () => true },
     getBridgeState: async () => state,
@@ -130,8 +137,29 @@ async function testExactTerminalPromptIsReconciledWithoutReplay() {
   });
 }
 
-async function testDifferentLatestUserMessageFallsBackToNormalDelivery() {
-  const harness = makeHarness({ latestUserText: "operator wrote something else" });
+async function testEarlierExactTerminalPromptSurvivesLaterOperatorTurn() {
+  const harness = makeHarness({
+    earlierUserTexts: [PROMPT],
+    latestUserText: "gotowe wznowilem tez zbindowany chat bridge"
+  });
+  const result = await harness.context.deliverConversation("parent", false);
+  assert.equal(result.ok, true);
+  assert.equal(result.reason, "already_sent");
+  assert.equal(result.status, "sent");
+  assert.equal(harness.campaign.feedback_delivered, true);
+  assert.deepEqual(harness.counts(), {
+    sendCalls: 0,
+    scriptCalls: 1,
+    saveCalls: 1,
+    scheduleCalls: 1
+  });
+}
+
+async function testDifferentUserHistoryFallsBackToNormalDelivery() {
+  const harness = makeHarness({
+    earlierUserTexts: ["older operator message"],
+    latestUserText: "operator wrote something else"
+  });
   const result = await harness.context.deliverConversation("parent", false);
   assert.equal(result.ok, true);
   assert.equal(result.reason, "sent");
@@ -172,7 +200,8 @@ async function testSendButtonRetryDoesNotClaimPriorUserTurn() {
 
 (async () => {
   await testExactTerminalPromptIsReconciledWithoutReplay();
-  await testDifferentLatestUserMessageFallsBackToNormalDelivery();
+  await testEarlierExactTerminalPromptSurvivesLaterOperatorTurn();
+  await testDifferentUserHistoryFallsBackToNormalDelivery();
   await testNormalWakeNeverUsesFabricReconciliation();
   await testSendButtonRetryDoesNotClaimPriorUserTurn();
   console.log("conversation_fabric_terminal_delivery_reconciliation.test.js: OK");
