@@ -83,9 +83,22 @@ function chromeExecutable() {
   return legacy ? executableFile(legacy, "LOCAL_AGENT_CHROME_EXECUTABLE") : null;
 }
 
-function browserProfile(cliProfile) {
+function browserProfile(cliProfile, headless) {
   const explicit = String(process.env.LOCAL_AGENT_CONVERSATION_BROWSER_PROFILE || "").trim();
-  const selected = explicit || cliProfile;
+  let selected = explicit;
+  if (!selected && !headless && process.platform === "darwin") {
+    // One long-lived isolated profile for all Conversation Fabric campaigns.
+    // Keep it independent from per-campaign lab state so auth survives workflow resets.
+    selected = path.join(
+      os.homedir(),
+      "Library",
+      "Application Support",
+      "local-agent-dev-stage8-cf-manual",
+      "browser-profile",
+      "live-slice"
+    );
+  }
+  if (!selected) selected = cliProfile;
   if (!path.isAbsolute(selected)) {
     throw new Error("conversation browser profile must be an absolute path");
   }
@@ -681,7 +694,7 @@ async function closeChild(context, payload) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const executablePath = chromeExecutable();
-  const profile = browserProfile(args.profile);
+  const profile = browserProfile(args.profile, args.headless);
   const launchOptions = {
     headless: args.headless,
     args: ["--restore-last-session"]
