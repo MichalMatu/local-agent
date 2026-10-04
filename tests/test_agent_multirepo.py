@@ -99,11 +99,11 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         )
         self.assertEqual(actions, ("control", "full_scan"))
 
-    def test_worker_command_targets_exact_repository(self) -> None:
+    def test_worker_command_targets_exact_repository_with_shared_hardened_worker(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             registry = Path(tmp) / "repositories.json"
             command = multi.worker_command(repository("a"), registry_path=registry)
-        self.assertEqual(command[1:3], ["-m", "local_agent.repository.worker"])
+        self.assertEqual(command[1:3], ["-m", "local_agent.supervisor.worker"])
         self.assertEqual(command[3:5], ["--repository-id", "a"])
         self.assertIn("--expected-config-digest", command)
         self.assertEqual(command[-2:], ["--registry", str(registry)])
@@ -129,6 +129,14 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
             processed = multi.run_repository_cycle("a", registry_path=None)
         self.assertTrue(processed)
         run_worker.assert_called_once_with(repositories[0], registry_path=None)
+
+    def test_active_repository_cycle_treats_resource_busy_as_deferred(self) -> None:
+        repositories = [repository("a")]
+        for return_code in (multi.WORKER_RESOURCE_BUSY, multi.WORKER_MACHINE_BUSY):
+            with self.subTest(return_code=return_code), mock.patch.object(
+                multi, "load_repository_registry", return_value=repositories
+            ), mock.patch.object(multi, "run_worker", return_value=return_code):
+                self.assertFalse(multi.run_repository_cycle("a", registry_path=None))
 
     def test_cycle_continues_after_repository_worker_failure(self) -> None:
         repositories = [repository("a"), repository("b"), repository("c")]
@@ -168,6 +176,26 @@ class MultiRepositorySupervisorTests(unittest.TestCase):
         self.assertEqual(
             [call.args[0].repository_id for call in run_worker.call_args_list],
             ["b", "c"],
+        )
+
+    def test_cycle_treats_resource_busy_as_deferred_and_continues(self) -> None:
+        repositories = [repository("a"), repository("b")]
+        with mock.patch.object(
+            multi, "load_repository_registry", return_value=repositories
+        ), mock.patch.object(
+            multi,
+            "run_worker",
+            side_effect=[multi.WORKER_RESOURCE_BUSY, WORKER_PROCESSED],
+        ) as run_worker:
+            processed, last_repository = multi.run_cycle(
+                registry_path=None,
+                start_after=None,
+            )
+        self.assertTrue(processed)
+        self.assertEqual(last_repository, "b")
+        self.assertEqual(
+            [call.args[0].repository_id for call in run_worker.call_args_list],
+            ["a", "b"],
         )
 
     def test_supervisor_control_uses_first_repository(self) -> None:
