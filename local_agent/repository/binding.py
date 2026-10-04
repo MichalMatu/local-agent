@@ -145,8 +145,25 @@ def validate_repository_control_binding(
     repository: str,
     expected_agent_binding: str,
     control_dir: Path,
+    catalog_path: Path | None = None,
 ) -> str:
+    """Fail closed unless catalog, registry expectation and control binding all agree."""
     expected = canonical_agent_binding(expected_agent_binding, field="expected_agent_binding")
+    catalog_record = catalog_record_for_repository(
+        repository_id,
+        repository,
+        path=catalog_path,
+    )
+    if not catalog_record.execution_enabled:
+        raise ValueError(
+            f"repository execution is disabled in canonical catalog: {catalog_record.repository_id}"
+        )
+    if catalog_record.agent_binding != expected:
+        raise ValueError(
+            f"registry binding differs from canonical catalog for {repository_id!r}: "
+            f"expected {catalog_record.agent_binding}, got {expected}"
+        )
+
     payload = control_binding_payload(control_dir)
     actual_id = payload.get("repository_id")
     actual_repository = payload.get("repository")
