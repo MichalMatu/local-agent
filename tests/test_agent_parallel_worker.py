@@ -158,6 +158,108 @@ class ParallelWorkerResourceTests(unittest.TestCase):
             )
 
 
+class ParallelWorkerDedupeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.repository = RepositoryContext(
+            repository_id="project-a",
+            repository="owner/project-a",
+            control=root / "control",
+            work=root / "work",
+            checkpoints=root / "checkpoints",
+            agent_binding="3da0947d-9acf-4ecf-adce-a29be7dc5c09",
+        )
+        self.state_dir = root / "state"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def task(self, task_id: str) -> dict[str, object]:
+        return {
+            "id": task_id,
+            "agent_binding": self.repository.agent_binding,
+            "mode": "commands",
+            "work_branch": "main",
+            "allow_write": False,
+            "resources": [],
+            "commands": ["true"],
+        }
+
+    def test_coalesce_publishes_terminal_done_result_for_duplicate(self) -> None:
+        first = self.task("task-a")
+        second = self.task("task-b")
+        pending = [(Path("a.json"), first), (Path("b.json"), second)]
+
+        with mock.patch.object(
+            worker.serial_worker,
+            "repository_state_dir",
+            return_value=self.state_dir,
+        ), mock.patch.object(worker.core, "publish_result") as publish_result, mock.patch.object(
+            worker.agentd,
+            "publish_run_state",
+        ) as publish_run:
+            candidates = worker._coalesce_pending_tasks(self.repository, pending)
+
+        self.assertEqual([item[1]["id"] for item in candidates], ["task-a"])
+        publish_result.assert_called_once()
+        result = publish_result.call_args.args[1]
+        self.assertEqual(result["id"], "task-b")
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(result["outcome"], "duplicate_task_suppressed")
+        self.assertEqual(result["duplicate_of"], "task-a")
+        publish_run.assert_called_once()
+
+    def test_invalid_dedupe_key_is_terminally_rejected(self) -> None:
+        task = self.task("task-a")
+        task["dedupe_key"] = "bad key"
+
+        with mock.patch.object(
+            worker.serial_worker,
+            "repository_state_dir",
+            return_value=self.state_dir,
+        ), mock.patch.object(worker.core, "publish_result") as publish_result, mock.patch.object(
+            worker.agentd,
+            "publish_run_state",
+        ):
+            candidates = worker._coalesce_pending_tasks(
+                self.repository,
+                [(Path("a.json"), task)],
+            )
+
+        self.assertEqual(candidates, [])
+        result = publish_result.call_args.args[1]
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["failure_reason"], "invalid_dedupe_key")
+
+    def test_recent_receipt_is_applied_by_worker_queue_coalescing(self) -> None:
+        first = self.task("task-a")
+        second = self.task("task-b")
+        worker.task_dedupe.record_admission(self.state_dir, first, now_epoch=100.0)
+        claim_path = worker.task_dedupe._claim_path(self.state_dir, "task-a")
+        claim_path.parent.mkdir(parents=True, exist_ok=True)
+        claim_path.write_text("{}\n", encoding="utf-8")
+
+        with mock.patch.object(
+            worker.serial_worker,
+            "repository_state_dir",
+            return_value=self.state_dir,
+        ), mock.patch.object(worker.task_dedupe.time, "time", return_value=101.0), mock.patch.object(
+            worker.core,
+            "publish_result",
+        ) as publish_result, mock.patch.object(worker.agentd, "publish_run_state"):
+            candidates = worker._coalesce_pending_tasks(
+                self.repository,
+                [(Path("b.json"), second)],
+            )
+
+        self.assertEqual(candidates, [])
+        result = publish_result.call_args.args[1]
+        self.assertEqual(result["status"], "done")
+        self.assertEqual(result["duplicate_reason"], "recent_duplicate")
+        self.assertEqual(result["duplicate_of"], "task-a")
+
+
 class ParallelWorkerMainTests(unittest.TestCase):
     def setUp(self) -> None:
         root = Path("/tmp/parallel-worker-main")

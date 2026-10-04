@@ -15,6 +15,7 @@ from local_agent.foundation.process import ExecutionLeaseBusy
 from local_agent.repository.context import RepositoryContext
 from local_agent.runtime.task_contract import require_task_agent_binding
 from local_agent.supervisor import resources as resource_admission
+from local_agent.supervisor import task_dedupe
 
 WORKER_RESOURCE_BUSY = 13
 WORKER_MACHINE_BUSY = 14
@@ -78,7 +79,10 @@ def _reject_task_binding(repository: RepositoryContext, task: dict[str, object])
         "repository": repository.repository,
         "expected_agent_binding": expected,
         "provided_agent_binding": provided,
-        "error": "Task rejected before claim because its agent_binding does not match the bound repository.",
+        "error": (
+            "Task rejected before claim because its agent_binding does not match "
+            "the bound repository."
+        ),
     }
     core.publish_result(task_id, result)
     agentd.publish_run_state(
@@ -99,6 +103,105 @@ def _reject_task_binding(repository: RepositoryContext, task: dict[str, object])
     )
 
 
+def _publish_duplicate_suppression(
+    repository: RepositoryContext,
+    suppressed: task_dedupe.SuppressedTask,
+) -> None:
+    _, task = suppressed.item
+    task_id = str(task.get("id", ""))
+    result = {
+        "id": task_id,
+        "status": "done",
+        "outcome": "duplicate_task_suppressed",
+        "task_digest": agentd.task_digest(task),
+        "execution_fingerprint": suppressed.execution_fingerprint,
+        "dedupe_queue_key": suppressed.queue_key,
+        "duplicate_of": suppressed.duplicate_of,
+        "duplicate_reason": suppressed.reason,
+        "started_at": None,
+        "finished_at": agentd.now_iso(),
+        "daemon_version": PARALLEL_DAEMON_VERSION,
+        "repository_id": repository.repository_id,
+        "repository": repository.repository,
+        "message": (
+            "Equivalent work is already queued, admitted, or was completed recently; "
+            "duplicate execution was intentionally suppressed."
+        ),
+    }
+    core.publish_result(task_id, result)
+    agentd.publish_run_state(
+        task_id,
+        {
+            "event": "duplicate_task_suppressed",
+            "status": "done",
+            "outcome": "duplicate_task_suppressed",
+            "execution_fingerprint": suppressed.execution_fingerprint,
+            "dedupe_queue_key": suppressed.queue_key,
+            "duplicate_of": suppressed.duplicate_of,
+            "duplicate_reason": suppressed.reason,
+            "updated_at": agentd.now_iso(),
+        },
+        force_remote=True,
+    )
+    core.log(
+        f"duplicate task suppressed repository={repository.repository_id} "
+        f"task={task_id} duplicate_of={suppressed.duplicate_of} "
+        f"reason={suppressed.reason}"
+    )
+
+
+def _publish_invalid_dedupe_task(
+    repository: RepositoryContext,
+    invalid: task_dedupe.InvalidTask,
+) -> None:
+    _, task = invalid.item
+    task_id = str(task.get("id", ""))
+    result = {
+        "id": task_id,
+        "status": "failed",
+        "failure_reason": "invalid_dedupe_key",
+        "task_digest": agentd.task_digest(task),
+        "started_at": None,
+        "finished_at": agentd.now_iso(),
+        "daemon_version": PARALLEL_DAEMON_VERSION,
+        "repository_id": repository.repository_id,
+        "repository": repository.repository,
+        "error": invalid.error,
+    }
+    core.publish_result(task_id, result)
+    agentd.publish_run_state(
+        task_id,
+        {
+            "event": "task_rejected",
+            "status": "failed",
+            "failure_reason": "invalid_dedupe_key",
+            "error": invalid.error,
+            "updated_at": agentd.now_iso(),
+        },
+        force_remote=True,
+    )
+    core.log(
+        f"invalid dedupe key rejected repository={repository.repository_id} "
+        f"task={task_id}: {invalid.error}"
+    )
+
+
+def _coalesce_pending_tasks(
+    repository: RepositoryContext,
+    pending: list[task_dedupe.PendingTask],
+) -> list[task_dedupe.PendingTask]:
+    """Drain invalid and duplicate queue entries before selecting execution work."""
+    plan = task_dedupe.plan_pending(
+        serial_worker.repository_state_dir(repository),
+        pending,
+    )
+    for invalid in plan.invalid:
+        _publish_invalid_dedupe_task(repository, invalid)
+    for suppressed in plan.suppressed:
+        _publish_duplicate_suppression(repository, suppressed)
+    return list(plan.candidates)
+
+
 def _repository_binding_ready(repository: RepositoryContext) -> bool:
     if repository.agent_binding is None:
         serial_worker.publish_repository_status(
@@ -108,7 +211,10 @@ def _repository_binding_ready(repository: RepositoryContext) -> bool:
             execution_variant="parallel",
             error="repository registry is missing agent_binding",
         )
-        core.log(f"repository admission blocked: missing agent_binding repository={repository.repository_id}")
+        core.log(
+            "repository admission blocked: missing agent_binding "
+            f"repository={repository.repository_id}"
+        )
         return False
     try:
         validate_repository_control_binding(
@@ -125,7 +231,10 @@ def _repository_binding_ready(repository: RepositoryContext) -> bool:
             execution_variant="parallel",
             error=str(exc),
         )
-        core.log(f"repository admission blocked by binding check repository={repository.repository_id}: {exc}")
+        core.log(
+            "repository admission blocked by binding check "
+            f"repository={repository.repository_id}: {exc}"
+        )
         return False
     return True
 
@@ -153,11 +262,13 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
         serial_worker.handle_repository_control(repository)
         if agent_operator.is_disabled():
             serial_worker.publish_repository_status(
-                repository, "disabled", force_remote=True,
+                repository,
+                "disabled",
+                force_remote=True,
                 execution_variant="parallel",
             )
             return False
-        pending = agentd.pending_tasks()
+        pending = _coalesce_pending_tasks(repository, agentd.pending_tasks())
         if not pending:
             state = "publication_pending" if agentd.has_pending_publications() else "idle"
             serial_worker.publish_repository_status(
@@ -177,6 +288,8 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
             _reject_task_binding(repository, task)
             return True
 
+        dedupe_state_dir = serial_worker.repository_state_dir(repository)
+        task_dedupe.record_admission(dedupe_state_dir, task)
         try:
             with machine_resource_lease(task) as resources:
                 serial_worker.publish_repository_status(
@@ -189,7 +302,8 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                 )
                 core.log(
                     f"[parallel] TASK START repository={repository.repository_id} "
-                    f"task={task_id} binding={repository.agent_binding} resources={list(resources)}"
+                    f"task={task_id} binding={repository.agent_binding} "
+                    f"resources={list(resources)}"
                 )
                 with serial_worker.ActiveRepositoryControlWatcher(repository, task_id):
                     outcome = agentd.execute_task(
@@ -212,6 +326,7 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
             )
             raise
 
+        task_dedupe.record_completion(dedupe_state_dir, task, outcome)
         state = "publication_pending" if outcome == "publication_pending" else "idle"
         serial_worker.publish_repository_status(
             repository,
