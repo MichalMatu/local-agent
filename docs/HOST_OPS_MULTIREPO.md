@@ -29,7 +29,7 @@ The task never inherits the `host-ops` binding merely because the parent Superch
 
 A donor repository can be inspected, compared or edited through permitted GitHub operations while another repository is the executable target. Donor context never grants machine authority over the target.
 
-The canonical `local-agent` catalog entry is intentionally `execution_enabled: false`; Local Agent source can be inspected or edited through GitHub, but Local Agent must not queue an executable `.agent/tasks` item against its own disabled catalog entry.
+The canonical `local-agent` catalog entry is execution-enabled. Local Agent may queue executable work against its own repository only with the exact canonical `local-agent` binding; self-execution does not relax registry/control/task binding equality, leases, resource admission or emergency controls.
 
 ## Chat Bridge behavior
 
@@ -57,5 +57,6 @@ The current browser child-spawn path has a known `chatgpt_login_timeout` detecto
 - repository reasoning context does not grant execution authority;
 - every executable task uses the target repository's exact canonical binding;
 - execution-disabled targets never receive executable tasks;
+- self-execution for `local-agent` uses the same hard binding and repository isolation rules as every other execution-enabled target;
 - global emergency controls, repository leases and task/resource limits remain unchanged;
 - GitHub remains the durable control/evidence plane.
