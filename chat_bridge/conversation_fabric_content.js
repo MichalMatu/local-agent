@@ -259,7 +259,10 @@
     try {
       requestControl = decorateDelegateControl(control, fingerprint);
     } catch (error) {
-      retryGate.defer(signature);
+      // Prompt length is deterministic for this assistant turn. Retrying cannot
+      // make the completion guard fit, so fail closed until a new turn arrives.
+      lastScannedSignature = signature;
+      retryGate.reset(signature);
       console.warn("Local Agent Conversation Fabric completion guard failed:", error);
       return;
     }
