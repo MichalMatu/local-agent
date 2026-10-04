@@ -1,0 +1,257 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const vm = require("node:vm");
+
+const root = __dirname;
+const parentUrl = "https://chatgpt.com/c/recovery-parent";
+const campaignId = "cf-1234567890abcdef";
+const campaignKey = `conversation-fabric-campaign:${campaignId}`;
+
+function clone(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
+function child(id, state = "submitted", tabId = 100) {
+  return {
+    id,
+    role: "verification",
+    state,
+    intent: { tab_id: tabId },
+    child_conversation_url: state === "submitted" ? `https://chatgpt.com/c/${id}` : "",
+    attempts: state === "submitted" ? 1 : 0,
+    last_reason: "",
+    last_error: ""
+  };
+}
+
+function campaign(children, overrides = {}) {
+  return {
+    schema_version: 1,
+    id: campaignId,
+    state: "running",
+    parent_conversation_url: parentUrl,
+    parent_tab_id: 11,
+    assistant_identity: "assistant-parent",
+    fingerprint: "a1b2c3d4",
+    created_at: new Date().toISOString(),
+    children,
+    results: [],
+    failed_children: [],
+    feedback_delivered: false,
+    ...overrides
+  };
+}
+
+function createHarness(initialCampaign, observationPlan = {}) {
+  const storage = { [campaignKey]: clone(initialCampaign) };
+  const observed = [];
+  const closed = [];
+  let feedbackDeliveries = 0;
+  const plan = Object.fromEntries(
+    Object.entries(observationPlan).map(([id, values]) => [id, [...values]])
+  );
+
+  const context = vm.createContext({
+    console,
+    Date,
+    JSON,
+    Object,
+    Array,
+    Set,
+    Map,
+    Number,
+    String,
+    Boolean,
+    Promise,
+    setTimeout: (fn) => { fn(); return 1; },
+    clearTimeout: () => {},
+    chrome: {
+      runtime: { id: "test-bridge" },
+      storage: {
+        local: {
+          async get(key) {
+            if (key === null) return clone(storage);
+            return { [key]: clone(storage[key]) };
+          },
+          async set(patch) { Object.assign(storage, clone(patch)); },
+          async remove(key) { delete storage[key]; }
+        }
+      }
+    }
+  });
+  context.globalThis = context;
+  context.LocalAgentConversationFabricProtocol = {
+    SCHEMA_VERSION: 1,
+    MAX_CHILDREN: 4,
+    CAMPAIGN_ID_RE: /^cf-[0-9a-f]{16}$/,
+    validateControl(value) { return value; }
+  };
+  Object.assign(context, {
+    CONTENT_PROTOCOL_VERSION: 1,
+    normalizeConversationUrl: value => String(value || ""),
+    conversationId: () => "parent-id",
+    async getBridgeState() {
+      return {
+        settings: { masterEnabled: true },
+        conversations: {
+          "parent-id": { id: "parent-id", url: parentUrl, preferredTabId: 11, enabled: true }
+        }
+      };
+    },
+    async observeConversationSpawnResult(intent) {
+      const current = Object.values(storage[campaignKey].children)
+        .find(item => item.intent.tab_id === intent.tab_id);
+      const id = current?.id || "unknown";
+      observed.push(id);
+      const queue = plan[id] || [];
+      const reason = queue.length ? queue.shift() : "child_result_ready";
+      if (reason === "child_result_ready") {
+        return {
+          ok: true,
+          reason,
+          assistantIdentity: `assistant-${id}`,
+          assistantText: `final-${id}`,
+          truncated: false
+        };
+      }
+      return { ok: reason !== "child_route_not_ready" && reason !== "child_result_unavailable", reason };
+    },
+    async closeConversationSpawnTab(intent) {
+      closed.push(intent.tab_id);
+      return { ok: true, reason: "child_closed" };
+    },
+    async runFeedbackCycle() {
+      feedbackDeliveries += 1;
+      const stored = clone(storage[campaignKey]);
+      stored.feedback_delivered = true;
+      storage[campaignKey] = stored;
+      return { ok: true, reason: "sent" };
+    }
+  });
+
+  vm.runInContext(
+    fs.readFileSync(path.join(root, "worker_conversation_fabric.js"), "utf8"),
+    context,
+    { filename: "worker_conversation_fabric.js" }
+  );
+  vm.runInContext(
+    fs.readFileSync(path.join(root, "worker_conversation_fabric_recovery.js"), "utf8"),
+    context,
+    { filename: "worker_conversation_fabric_recovery.js" }
+  );
+
+  return {
+    context,
+    storage,
+    observed,
+    closed,
+    feedbackDeliveries: () => feedbackDeliveries,
+    stored: () => clone(storage[campaignKey])
+  };
+}
+
+(async () => {
+  // Restart during spawning after A/B submitted, before C completes: never replay C.
+  {
+    const h = createHarness(campaign([
+      child("a", "submitted", 101),
+      child("b", "submitted", 102),
+      child("c", "pending", 103)
+    ], { state: "spawning" }));
+    await h.context.pollConversationFabricCampaigns();
+    const stored = h.stored();
+    assert.equal(stored.state, "completed");
+    assert.deepEqual(stored.results.map(item => item.id), ["a", "b"]);
+    assert.equal(stored.failed_children.length, 1);
+    assert.equal(stored.failed_children[0].id, "c");
+    assert.equal(stored.failed_children[0].reason, "spawn_interrupted_before_submission");
+  }
+
+  // Restart after every child submitted but before spawning -> running checkpoint.
+  {
+    const h = createHarness(campaign([
+      child("a", "submitted", 101),
+      child("b", "submitted", 102)
+    ], { state: "spawning" }));
+    await h.context.pollConversationFabricCampaigns();
+    const stored = h.stored();
+    assert.equal(stored.state, "completed");
+    assert.equal(stored.failed_children.length, 0);
+    assert.deepEqual(stored.results.map(item => item.id), ["a", "b"]);
+  }
+
+  // child_route_not_ready is transient and recovers without delegation replay.
+  {
+    const h = createHarness(campaign([child("a", "submitted", 101)]), {
+      a: ["child_route_not_ready", "child_result_ready", "child_result_ready"]
+    });
+    await h.context.pollConversationFabricCampaigns();
+    assert.equal(h.stored().state, "running");
+    assert.equal(h.stored().children[0].last_observation_reason, "child_route_not_ready");
+    await h.context.pollConversationFabricCampaigns();
+    assert.equal(h.stored().state, "completed");
+    assert.equal(h.stored().results[0].assistant_text, "final-a");
+  }
+
+  // child_result_unavailable is transient and recovers to final.
+  {
+    const h = createHarness(campaign([child("a", "submitted", 101)]), {
+      a: ["child_result_unavailable", "child_result_ready", "child_result_ready"]
+    });
+    await h.context.pollConversationFabricCampaigns();
+    assert.equal(h.stored().state, "running");
+    await h.context.pollConversationFabricCampaigns();
+    assert.equal(h.stored().state, "completed");
+  }
+
+  // Terminal feedback has one durable delivery authority and is delivered at most once.
+  {
+    const h = createHarness(campaign([child("a", "submitted", 101)]));
+    await h.context.pollConversationFabricCampaigns();
+    await h.context.pollConversationFabricCampaigns();
+    assert.equal(h.feedbackDeliveries(), 1);
+    assert.equal(h.stored().feedback_delivered, true);
+  }
+
+  // Fast sibling is durably captured before slow sibling finishes; restart keeps it.
+  {
+    const first = createHarness(campaign([
+      child("fast", "submitted", 101),
+      child("slow", "submitted", 102)
+    ]), {
+      fast: ["child_result_ready", "child_result_ready"],
+      slow: ["child_generating"]
+    });
+    await first.context.pollConversationFabricCampaigns();
+    assert.equal(first.stored().state, "running");
+    assert.deepEqual(first.stored().results.map(item => item.id), ["fast"]);
+
+    const restarted = createHarness(first.stored(), {
+      slow: ["child_result_ready", "child_result_ready"]
+    });
+    await restarted.context.pollConversationFabricCampaigns();
+    assert.equal(restarted.stored().state, "completed");
+    assert.deepEqual(restarted.stored().results.map(item => item.id), ["fast", "slow"]);
+    assert.ok(!restarted.observed.includes("fast"), "durably captured sibling must not be re-observed after restart");
+  }
+
+  // A result that becomes final immediately before timeout wins the final safe collect.
+  {
+    const old = new Date(Date.now() - (16 * 60 * 1000)).toISOString();
+    const h = createHarness(campaign([child("a", "submitted", 101)], { created_at: old }), {
+      a: ["child_result_ready", "child_result_ready"]
+    });
+    await h.context.pollConversationFabricCampaigns();
+    assert.equal(h.stored().state, "completed");
+    assert.equal(h.stored().results[0].id, "a");
+    assert.notEqual(h.stored().failure, "campaign_timed_out_after_final_collect");
+  }
+
+  console.log("Conversation Fabric recovery tests passed.");
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
