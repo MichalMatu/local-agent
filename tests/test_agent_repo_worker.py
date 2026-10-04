@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 import local_agent.foundation.core as core
+import local_agent.repository.binding as binding
 import local_agent.repository.worker as worker
 import local_agent.foundation.storage as storage
 import local_agent.daemon.service as agentd
@@ -42,6 +43,25 @@ class RepositoryWorkerTests(unittest.TestCase):
             checkpoints=root / "checkpoints",
             agent_binding=PROJECT_BINDING,
         )
+        self.original_catalog_path = binding.DEFAULT_CATALOG_PATH
+        self.catalog = root / "agent_bindings.json"
+        self.catalog.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "agents": [
+                        {
+                            "id": self.repository.repository_id,
+                            "repository": self.repository.repository,
+                            "agent_binding": PROJECT_BINDING,
+                            "execution_enabled": True,
+                        }
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+        binding.DEFAULT_CATALOG_PATH = self.catalog
         (self.repository.control / ".git").mkdir(parents=True)
         (self.repository.work / ".git").mkdir(parents=True)
         binding_path = self.repository.control / ".agent" / "binding.json"
@@ -82,6 +102,7 @@ class RepositoryWorkerTests(unittest.TestCase):
         agentd.LOCAL_RUNS_DIR = self.originals["LOCAL_RUNS_DIR"]
         agentd.RESULT_SPOOL_DIR = self.originals["RESULT_SPOOL_DIR"]
         agentd.STATE_DIR = self.originals["STATE_DIR"]
+        binding.DEFAULT_CATALOG_PATH = self.original_catalog_path
         self.tmp.cleanup()
 
     def test_bind_repository_scopes_paths_inside_worker_process(self) -> None:
