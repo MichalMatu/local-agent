@@ -219,6 +219,39 @@ def assert_repository_result(
     return payload
 
 
+def queue_equivalent_duplicate(
+    root: Path,
+    item: dict[str, Path | str],
+) -> Path:
+    control = Path(item["control"])
+    original_path = control / ".agent" / "tasks" / "shared-task-id.json"
+    original = json.loads(original_path.read_text(encoding="utf-8"))
+    counter = root / "serial-dedupe-counter.txt"
+    command = (
+        f"printf 'run\\n' >> {str(counter)!r}; "
+        f"printf '{item['id']}-ok\\n'"
+    )
+    original["steps"][0]["command"] = command
+    original_path.write_text(json.dumps(original, indent=2) + "\n", encoding="utf-8")
+
+    duplicate = json.loads(json.dumps(original))
+    duplicate["id"] = "zz-duplicate-task-id"
+    duplicate_path = control / ".agent" / "tasks" / "zz-duplicate-task-id.json"
+    duplicate_path.write_text(json.dumps(duplicate, indent=2) + "\n", encoding="utf-8")
+
+    git(
+        [
+            "add",
+            ".agent/tasks/shared-task-id.json",
+            ".agent/tasks/zz-duplicate-task-id.json",
+        ],
+        cwd=control,
+    )
+    git(["commit", "-m", "Queue equivalent duplicate tasks"], cwd=control)
+    git(["push", "origin", "agent-control"], cwd=control)
+    return counter
+
+
 class MultiRepositoryIntegrationTests(unittest.TestCase):
     def test_two_repository_workers_with_same_task_id_are_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -295,6 +328,50 @@ class MultiRepositoryIntegrationTests(unittest.TestCase):
                 first_result["commands"][0]["output"],
                 second_result["commands"][0]["output"],
             )
+
+    def test_serial_supervisor_uses_parallel_dedupe_admission_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            item = create_repository_fixture(root, "project-a")
+            counter = queue_equivalent_duplicate(root, item)
+            registry = write_registry(root, (item,))
+            _home, env = test_environment(root)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(REPO_ROOT / "agent_multirepo.py"),
+                    "--registry",
+                    str(registry),
+                    "--once",
+                ],
+                cwd=REPO_ROOT,
+                env=env,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=90,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertEqual(counter.read_text(encoding="utf-8").splitlines(), ["run"])
+
+            control = Path(item["control"])
+            executed = json.loads(
+                (control / ".agent" / "results" / "shared-task-id.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            suppressed = json.loads(
+                (control / ".agent" / "results" / "zz-duplicate-task-id.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(executed["status"], "done")
+            self.assertEqual(suppressed["status"], "done")
+            self.assertEqual(suppressed["outcome"], "duplicate_task_suppressed")
+            self.assertEqual(suppressed["duplicate_of"], "shared-task-id")
+            self.assertEqual(suppressed["duplicate_reason"], "queued_duplicate")
 
 
 if __name__ == "__main__":
