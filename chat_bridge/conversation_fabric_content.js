@@ -151,19 +151,29 @@
 
   async function deliverFabricFeedback(prompt, expectedUrl) {
     const normalizedUrl = normalizeConversationUrl(expectedUrl);
+    const normalized = (value) => String(value || "").trim().replace(/\s+/g, " ");
     if (!normalizedUrl || normalizeConversationUrl(location.href) !== normalizedUrl) {
       return { ok: false, reason: "wrong_conversation" };
+    }
+    if (normalized(latestUserText()) === normalized(prompt)) {
+      return { ok: true, reason: "already_sent" };
     }
     if (document.visibilityState === "prerender") return { ok: false, reason: "page_not_ready" };
     if (assistantIsGenerating()) return { ok: false, reason: "assistant_busy" };
     const composer = findComposer();
     if (!composer) return { ok: false, reason: "composer_not_found" };
-    if (composerText(composer).trim()) return { ok: false, reason: "composer_not_empty" };
+    const existingComposerText = composerText(composer);
+    const reuseExactPrompt = Boolean(existingComposerText && normalized(existingComposerText) === normalized(prompt));
+    if (existingComposerText.trim() && !reuseExactPrompt) {
+      return { ok: false, reason: "composer_not_empty" };
+    }
 
-    try {
-      setComposerText(composer, prompt);
-    } catch (error) {
-      return { ok: false, reason: "composer_write_failed", error: String(error) };
+    if (!reuseExactPrompt) {
+      try {
+        setComposerText(composer, prompt);
+      } catch (error) {
+        return { ok: false, reason: "composer_write_failed", error: String(error) };
+      }
     }
     const inserted = composerText(composer);
     if (!inserted.trim()) return { ok: false, reason: "composer_write_failed" };
@@ -190,7 +200,6 @@
     } catch (error) {
       return { ok: false, reason: "send_button_not_ready", error: String(error) };
     }
-    const normalized = (value) => String(value || "").trim().replace(/\s+/g, " ");
     const confirmDeadline = Date.now() + 5000;
     while (Date.now() < confirmDeadline) {
       const current = latestUserText();
