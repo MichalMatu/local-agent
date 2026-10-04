@@ -1,14 +1,18 @@
 # Conversation Fabric DEV lab
 
-Status: current isolated development/runtime boundary for Conversation Fabric Stage 8.
+> **HISTORICAL / RETIRED PRODUCTION PATH**
+>
+> This document records the isolated Stage 8 development lab that predated the accepted same-browser Conversation Fabric architecture. Do not use it as current production operating guidance. Production child delegation now uses ordinary tabs in the operator's already authenticated primary Chrome session. Current guidance is in `README.md`, `CURRENT_PLAN.md`, `NEXT_CHAT_PROMPT.md`, `../CURRENT_HANDOFF.md` and `../GOLDEN_STANDARD.md`.
 
-## Purpose
+Status: retained development/test evidence only.
 
-Conversation Fabric development must not mutate or compete with the installed production Local Agent or the operator's normal Chrome profile.
+## Historical purpose
 
-The DEV lab provides a separate checkout, durable state root and browser profile for synthetic browser tests and the explicitly bounded Stage 8 live-child proof. It does not start a second production Local Agent executor.
+Conversation Fabric development originally isolated browser proof work from the installed production Local Agent and the operator's normal Chrome profile.
 
-## Canonical topology
+The DEV lab provided a separate checkout, durable state root and browser profile for synthetic browser tests and the explicitly bounded Stage 8 live-child proof. It never represented a second production Local Agent executor.
+
+## Historical topology
 
 ```text
 Production checkout
@@ -30,11 +34,11 @@ Primary DEV state root
   node-deps/
 ```
 
-The checkout and DEV state root are intentionally disjoint so checkout replacement cannot erase durable proof evidence.
+The checkout and DEV state root were intentionally disjoint so checkout replacement could not erase durable proof evidence.
 
 ## Protected production boundaries
 
-DEV path validation must reject overlap, aliasing or ancestor/descendant collisions with production-owned locations, including:
+DEV path validation rejected overlap, aliasing or ancestor/descendant collisions with production-owned locations, including:
 
 - `/Users/michal/local-agent`;
 - `/Users/michal/Library/Application Support/local-agent`;
@@ -43,13 +47,13 @@ DEV path validation must reject overlap, aliasing or ancestor/descendant collisi
 - the normal Chrome profile root;
 - any production Native Messaging registration.
 
-Symlink aliases to protected production paths are also invalid.
+Symlink aliases to protected production paths were also invalid.
 
 ## Disabled capabilities
 
-The DEV lab must not become a second production executor/control plane.
+The DEV lab was never allowed to become a second production executor/control plane.
 
-Keep these capabilities disabled:
+These capabilities stayed disabled:
 
 ```text
 executor_enabled
@@ -58,16 +62,16 @@ real_chrome_profile_enabled
 native_host_registration_enabled
 ```
 
-The canonical `local-agent` repository may be execution-enabled in production. The isolated Stage 8 DEV lab remains non-executing because its own executor capability is disabled and the live reasoning-child proof never queues a repository task.
+The canonical `local-agent` repository may be execution-enabled in production. The isolated Stage 8 DEV lab remained non-executing because its own executor capability was disabled and its live reasoning-child proof never queued a repository task.
 
-Protected operational branches are not DEV workspaces:
+Protected operational branches were not DEV workspaces:
 
 - `chat-bridge-state`
 - `operator-control`
 
-## Lab commands
+## Historical lab commands
 
-Run from the DEV checkout:
+The retired DEV checkout used:
 
 ```bash
 python -m local_agent.development.lab plan
@@ -75,64 +79,49 @@ python -m local_agent.development.lab init
 python -m local_agent.development.lab status
 ```
 
-`plan` is read-only.
+`plan` was read-only. `init` created only the isolated DEV namespace and inert lab directories. `status` validated the durable DEV marker and expected layout.
 
-`init` may create only the isolated DEV namespace and inert lab directories. It must not switch production Git state, start production supervisors, install/restart LaunchAgents, mutate production operator state, register Native Messaging or touch operational branches.
+These commands may remain useful for regression archaeology, but they are not prerequisites for current production Conversation Fabric acceptance.
 
-`status` validates the durable DEV marker and expected layout. Unknown non-empty directories are never silently adopted.
+## Retired browser boundary
 
-## Browser boundary
-
-Two browser modes are allowed in DEV:
+Two browser modes existed in the DEV phase:
 
 ### Synthetic browser tests
 
-Browser smokes use isolated temporary/persistent Chromium profiles with controlled fixtures. They are the normal regression path and may run repeatedly.
+Browser smokes used isolated temporary/persistent Chromium profiles with controlled fixtures. This remains valid for deterministic CI/test coverage.
 
-### Stage 8 live proof
+### Stage 8 isolated live proof
 
-A real ChatGPT child may be created only by the bounded Stage 8 live flow using a dedicated isolated DEV profile.
-
-Required live sequence:
+The historical real ChatGPT child proof used a dedicated isolated DEV profile and the sequence:
 
 ```text
 seed -> prepare -> login -> arm -> run
 ```
 
-Each invocation performs exactly one authority step. Never auto-chain or automatically retry `run`.
-
-The live flow must not use the operator's normal Chrome profile, production Native Messaging or production Local Agent execution authority.
+That live path is retired. Current production acceptance must use the already authenticated primary Chrome session and installed Chat Bridge; isolated login/Cloudflare state is not a production dependency.
 
 ## Durable evidence rule
 
-Live-state files are proof evidence, not disposable cache.
+Historical live-state files remain proof evidence, not disposable cache. Terminal or ambiguous attempts should not be rewritten or deleted merely to manufacture a passing historical proof.
 
-If an attempt becomes terminal or `ambiguous`:
+## Current Mac-operation rule
 
-- do not hand-edit it back to an earlier state;
-- do not delete it to make a retry possible;
-- do not reuse the same attempt for another live proof.
+Current machine work follows target authority, not this retired lab topology:
 
-A later proof must use a fresh isolated DEV live state namespace while preserving the failed namespace as evidence.
+- use direct GitHub edits for exact repository/source/docs changes when CI is sufficient;
+- use Local Agent only when machine-local commands/builds/tests/devices/host state are genuinely required;
+- resolve the actual target through the canonical runtime catalog, require `execution_enabled=true`, and use the exact canonical target binding;
+- Conversation Fabric children remain reasoning-only.
 
-The current preserved ambiguous attempt is documented in `docs/CURRENT_HANDOFF.md`.
+## Current production replacement
 
-## Mac operation rule
+For current Conversation Fabric work, read:
 
-All Mac-local operations for this project must go through the exact execution target selected for the operation. `host-ops` remains the target for host-level maintenance; repository project work uses that repository's own canonical binding, including `local-agent` self-work when explicitly requested.
+1. `../CURRENT_HANDOFF.md`
+2. `../GOLDEN_STANDARD.md`
+3. `README.md`
+4. `CURRENT_PLAN.md`
+5. `NEXT_CHAT_PROMPT.md`
 
-Direct GitHub operations remain the normal path for repository inspection and repository-side edits when local execution is unnecessary.
-
-## Stage 8 lab acceptance
-
-Before a live browser effect, confirm:
-
-1. exact `develop/conversation-fabric` SHA;
-2. clean DEV checkout;
-3. isolated DEV state root/profile;
-4. current exact-SHA validation evidence;
-5. the isolated DEV executor remains disabled;
-6. no production profile or Native Messaging path is involved;
-7. the live namespace has no unresolved reused attempt.
-
-The lab boundary is successful when Stage 8 can produce one fresh child proof without altering production paths or granting child execution authority.
+The accepted architecture is same-browser, durable in `chrome.storage.local`, worker-polled through the existing GitHub-control alarm, exact-ownership recovered after restart, and terminal-feedback at-most-once.

@@ -5,39 +5,51 @@ This roadmap contains only active forward work. Historical rollout detail belong
 ## Baseline — complete
 
 - deterministic target-bound `.agent/tasks` execution;
+- canonical runtime catalog as mandatory final execution authority;
+- exact target `agent_binding` + `execution_enabled` admission;
 - bounded parallel multi-repository scheduler and resource admission;
 - durable task/result/recovery contracts;
-- GitHub-backed Chat Bridge control;
+- crash-safe parallel dedupe completion reconciliation;
+- GitHub-backed Chat Bridge conversation pacing;
 - transport-only Superchat conversation identity;
+- browser-native same-session Conversation Fabric in the operator's authenticated Chrome;
 - reasoning-only Conversation Fabric children;
-- isolated child-browser lifecycle path;
-- production queue deduplication (`v4.20.6`);
-- child auth readiness decoupled from composer DOM readiness (`main@e4b3da908cfac61bb11cd0e4182b7d9e7c42d5b8` code checkpoint).
+- durable campaign/result recovery in `chrome.storage.local`;
+- terminal Conversation Fabric feedback at-most-once across worker restart;
+- stale cross-campaign terminal replay prevention;
+- same-browser multi-child live acceptance;
+- supported `agentd.py` launcher fails closed when the machine repository registry is absent.
 
-## Milestone 1 — live single-Superchat acceptance — NEXT
+The isolated child-browser/profile path is historical test/development tooling only. It is not the production Conversation Fabric architecture.
 
-Prove the product shape on real code:
+## Milestone 1 — complete restart/reload E2E acceptance
 
-- one parent Superchat owns one bounded real goal;
-- parent delegates at least two narrow, non-overlapping reasoning jobs to child chats;
-- children return bounded evidence/recommendations and have no machine authority;
-- parent synthesizes the final decision;
-- if code execution is justified, exactly one target repository task is queued with the exact binding and stable intent identity;
-- Local Agent executes once and publishes durable evidence;
-- no duplicate expensive build/test task runs;
-- child/operator state is cleanly retired or paused after the proof.
+Strengthen the browser acceptance so one deterministic scenario exercises the real production routing from parent control to terminal reconciliation:
 
-Do not expand scope until this passes end to end.
+- parent content discovers a real `LOCAL_AGENT_CF` delegate control;
+- 3–4 ordinary child tabs are spawned through the installed extension;
+- at least one child completes quickly and another remains active longer;
+- stable results are captured and persisted before sibling completion;
+- service-worker/extension lifecycle is interrupted while the campaign is active;
+- captured results survive recovery;
+- transient child observation failure recovers without bootstrap replay;
+- final collection uses normal production polling/routing;
+- exact owned child tabs are cleaned up;
+- terminal feedback reaches the parent exactly once;
+- a later reload/poll does not replay the terminal campaign.
 
-## Milestone 2 — live recovery and lifecycle proof
+Prefer a genuine MV3 worker/extension restart when the browser harness can force it deterministically. If Chrome does not expose a reliable test primitive, use the strongest production-shaped restart available and state the remaining limitation explicitly instead of simulating recovery only through direct helper calls.
 
-After Milestone 1 passes:
+## Milestone 2 — runtime parity and timeout semantics
 
-- restart/reconnect during an active child lifecycle;
-- recover bounded durable child state without duplicate authoritative workers;
-- exercise pause/resume and one controlled rollover;
-- prove hard conversation exhaustion remains fail-closed;
-- preserve goal continuity from durable checkpoint/evidence rather than old-chat prose.
+Close remaining correctness gaps only where current production behavior is confirmed:
+
+- define whether serial fallback must share production parallel dedupe semantics or is intentionally a reduced recovery mode;
+- make any intended parity explicit in tests and operations docs;
+- decide whether `task_timeout` is a command-budget concept or a full task wall-clock contract including prepare/checkpoint/cleanup, then make implementation + docs agree;
+- ensure idle-output activity is measured at the byte/chunk boundary if commands that emit progress without newline are supported.
+
+Do not change these semantics merely for symmetry; require a production consequence and a regression first.
 
 ## Milestone 3 — operator observability
 
@@ -45,19 +57,26 @@ Expose one concise normal status surface for:
 
 - Conversation Operator enabled/configured/running state;
 - active parent goal and child count;
-- latest child lifecycle result;
-- queue dedupe suppression counts/reasons;
+- current campaign id/state and captured-result count;
+- terminal feedback delivery state;
+- queue dedupe suppression/reconciliation counts and reasons;
 - exact deployed Local Agent and Chat Bridge revisions.
 
 This should remove the need to infer operator readiness from scattered files.
 
-## Milestone 4 — dedupe hardening
+## Milestone 4 — test architecture hardening
 
-Review completion receipt semantics for failed terminal results. A materially changed corrective task must not be accidentally suppressed solely because a failed predecessor published successfully. Preserve the bounded anti-duplication guarantee while allowing explicit corrective intent.
+Reduce the gap between helper-level confidence and production-path confidence:
+
+- shared serial/parallel runtime-admission acceptance matrix;
+- real worker-path wrong-binding, execution-disabled and stale-registry cases;
+- production-ingestion dedupe collision/malformed-metadata cases;
+- browser smoke that goes through content → worker event routing → durable state instead of calling Fabric helpers directly;
+- explicit restart/reload regression for terminal at-most-once delivery.
 
 ## Milestone 5 — bounded multi-goal supervision
 
-Only after single-goal lifecycle/recovery is proven:
+Only after the complete restart/reload E2E remains stable:
 
 - deterministic active-goal limit;
 - explicit priorities and pause/resume;
@@ -68,4 +87,4 @@ Only after single-goal lifecycle/recovery is proven:
 
 ## Not current work
 
-Do not reopen legacy repository-bound chat routing, broad manual browser debugging, a second executor/scheduler, child machine authority, or predictive autonomous fan-out. Those directions conflict with the accepted architecture or are premature before live acceptance.
+Do not reopen legacy repository-bound chat routing, isolated-profile production control, a second executor/scheduler, child machine authority, cookie migration, direct OpenAI API reasoning loops or predictive autonomous fan-out. Those directions conflict with the accepted architecture or add authority outside the current safety model.

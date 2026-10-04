@@ -1,6 +1,6 @@
 # Local Agent documentation
 
-> **Start here when you need the current contract quickly.** Current operational docs are separated from historical release/design evidence.
+> **Start here for the current contract.** Current operational docs are separated from historical release/design evidence.
 
 ## Choose your path
 
@@ -11,12 +11,11 @@
 | Understand security boundaries | [`SECURITY_MODEL.md`](SECURITY_MODEL.md) |
 | Understand repository scheduling | [`MULTI_REPOSITORY.md`](MULTI_REPOSITORY.md) |
 | Understand current release/runtime invariants | [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) |
-| Continue development after the checkpoint | [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) |
-| Resume from the latest checkpoint | [`CURRENT_HANDOFF.md`](CURRENT_HANDOFF.md) |
-| Run the ChatGPT autonomous loop | [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) |
-| Control Chat Bridge pacing/status through GitHub | [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md) |
-| Review the post-v4.19.9 Chat Bridge hardening audit | [`CHAT_BRIDGE_AUDIT_2026-09-30.md`](CHAT_BRIDGE_AUDIT_2026-09-30.md) |
-| Use the host-ops multirepo workspace | [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md) |
+| Continue current development | [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) |
+| Resume from the current handoff | [`CURRENT_HANDOFF.md`](CURRENT_HANDOFF.md) |
+| Run the Superchat planner loop | [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) |
+| Control managed-chat pacing/status through GitHub | [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md) |
+| Understand Host Ops and multirepo authority | [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md) |
 | Understand remaining ChatGPT DOM dependencies | [`CHATGPT_DOM_CONTRACT.md`](CHATGPT_DOM_CONTRACT.md) |
 | Stop/cancel/recover execution | [`EMERGENCY_CONTROLS.md`](EMERGENCY_CONTROLS.md) |
 | Recreate the established macOS environment | [`SESSION_BOOTSTRAP.md`](SESSION_BOOTSTRAP.md) |
@@ -27,21 +26,26 @@
 
 ```mermaid
 flowchart LR
-    Planner["ChatGPT / planner"]
+    Parent["Managed Superchat parent"]
     Desired["GitHub conversation desired state"]
-    Bridge["Chat Bridge 0.6"]
-    Chat["Exact ChatGPT conversation"]
-    Tasks["Git-backed repository tasks"]
+    Bridge["Chat Bridge"]
+    Children["Reasoning-only child tabs"]
+    Catalog["Canonical runtime catalog"]
+    Tasks["Git-backed .agent/tasks"]
     Supervisor["Local Agent supervisor"]
     Worker["Bounded repository worker"]
-    Repo["Target repository"]
-    Result["Status + durable result"]
+    Repo["Actual target repository"]
+    Result["Durable status/result"]
 
-    Planner -->|STATUS/PAUSE/RESUME/NEXT/INTERVAL| Desired
+    Parent -->|STATUS/PAUSE/RESUME/NEXT/INTERVAL| Desired
     Desired -->|public read| Bridge
-    Bridge -->|bounded wake| Chat
-    Chat --> Planner
-    Planner -->|exact task| Tasks
+    Bridge -->|bounded wake| Parent
+    Parent -->|LOCAL_AGENT_CF| Bridge
+    Bridge -->|same-browser child tabs| Children
+    Children -->|stable bounded results| Bridge
+    Bridge -->|terminal feedback at most once| Parent
+    Parent -->|resolve target| Catalog
+    Catalog -->|execution_enabled + exact binding| Tasks
     Tasks --> Supervisor
     Supervisor --> Worker
     Worker --> Repo
@@ -49,9 +53,11 @@ flowchart LR
     Result --> Tasks
 ```
 
-The planner decides **what** should change. GitHub is the durable control surface. Chat Bridge owns bounded browser wake delivery. Local Agent owns deterministic execution. Repository identity, resource admission and emergency controls remain executor-side safety contracts.
+The parent planner decides **what** should change. GitHub is the durable conversation control/evidence plane. Chat Bridge owns bounded browser transport and reasoning-child lifecycle. Local Agent owns deterministic machine execution. Chat identity and reasoning scope never grant repository execution authority.
 
-For a GitHub-managed conversation, the ChatGPT DOM is not the source of truth for pacing/status.
+For executable work, the actual target must exist in the canonical runtime catalog, have `execution_enabled=true`, and use the exact canonical `agent_binding`. The current catalog enables `local-agent`; self-execution follows the same normal admission/lease/resource/emergency-control rules as every other enabled target.
+
+Conversation Fabric campaign/results are durable in `chrome.storage.local`. The normal GitHub-control alarm observes active campaigns. Explicit `collect` is recovery/inspection for already-submitted children, not normal polling and never prompt replay. Terminal feedback has durable at-most-once semantics across worker restart.
 
 ## Current operational documentation
 
@@ -62,18 +68,18 @@ For a GitHub-managed conversation, the ChatGPT DOM is not the source of truth fo
 - [`SECURITY_MODEL.md`](SECURITY_MODEL.md) — trust boundaries and enforced safety properties.
 - [`MULTI_REPOSITORY.md`](MULTI_REPOSITORY.md) — registry, workers and scheduling.
 - [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) — accepted release/runtime invariants.
-- [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) — current product direction and next development milestone.
-- [`CURRENT_HANDOFF.md`](CURRENT_HANDOFF.md) — concise release/checkpoint continuation state.
+- [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) — active forward work only.
+- [`CURRENT_HANDOFF.md`](CURRENT_HANDOFF.md) — concise current continuation state.
 - [`EMERGENCY_CONTROLS.md`](EMERGENCY_CONTROLS.md) — cancellation, disable state and recovery.
 
 ### Planner and Bridge
 
-- [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) — current planner/executor continuation loop.
-- [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md) — canonical GitHub-backed conversation pacing/status contract.
-- [`CHAT_BRIDGE_AUDIT_2026-09-30.md`](CHAT_BRIDGE_AUDIT_2026-09-30.md) — post-v4.19.9 hardening findings, accepted fixes and remaining non-goals.
-- [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md) — explicit `host-ops` multirepo authorization and target-binding rules.
-- [`CHATGPT_DOM_CONTRACT.md`](CHATGPT_DOM_CONTRACT.md) — remaining browser DOM compatibility boundary.
-- [`../chat_bridge/README.md`](../chat_bridge/README.md) — extension architecture, installation and migration surfaces.
+- [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) — current parent planner/executor continuation loop.
+- [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md) — canonical GitHub-backed conversation pacing/status + Fabric recovery interaction.
+- [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md) — multirepo reasoning and target-execution authority boundaries.
+- [`CHATGPT_DOM_CONTRACT.md`](CHATGPT_DOM_CONTRACT.md) — browser DOM compatibility boundary.
+- [`../chat_bridge/README.md`](../chat_bridge/README.md) — current extension architecture and Conversation Fabric lifecycle.
+- [`conversation_fabric/README.md`](conversation_fabric/README.md) — Conversation Fabric surface and supporting evidence.
 
 ### Development and verification
 
@@ -82,20 +88,20 @@ For a GitHub-managed conversation, the ChatGPT DOM is not the source of truth fo
 - [`BUG_BACKLOG.md`](BUG_BACKLOG.md) — confirmed defects and required regressions.
 - [`TEST_EXECUTION_GOLDEN_PLAN.md`](TEST_EXECUTION_GOLDEN_PLAN.md) — verification design/evidence.
 
+## Direct GitHub edits vs Local Agent
+
+Use direct GitHub edits when the intended repository/source/docs diff is exact and repository CI is sufficient verification. Use Local Agent for tasks that genuinely require machine-local commands, local builds/tests, devices, services or host state. Conversation Fabric children never perform repository or machine mutations; the parent owns those decisions and actions.
+
 ## Release and audit evidence
 
-- [`CHANGELOG.md`](CHANGELOG.md) — current release history/index.
-- `RELEASE_NOTES_V*.md` — release-specific evidence retained for rollback/audit work.
-- [`CHAT_BRIDGE_AUDIT_2026-09-30.md`](CHAT_BRIDGE_AUDIT_2026-09-30.md) — current post-release Bridge hardening evidence until that candidate is explicitly advanced.
-- Git tag `vX.Y.Z` plus `local_agent.version.RELEASE_VERSION` are the release-version source of truth.
-
-Superseded dated Chat Bridge handoffs are historical evidence only. The current continuation handoff is `CURRENT_HANDOFF.md`; durable findings belong in canonical docs rather than repeated dated handoff files.
+- [`CHANGELOG.md`](CHANGELOG.md) — release history/index.
+- `RELEASE_NOTES_V*.md` — release-specific historical evidence retained for rollback/audit work.
+- dated audit/checkpoint files — historical evidence for the state they describe, not the current control contract.
+- Git tag `vX.Y.Z` plus `local_agent.version.RELEASE_VERSION` — immutable release-line anchors; current `main`/deployed `self_revision` are read separately.
 
 ## Historical material
 
-Files under [`history/`](history/) and old release notes are non-canonical evidence. Current behavior must be verified against `main`, the operational docs above and live runtime evidence.
-
-The frozen v4.18.13 checkpoint remains available at [`PRODUCTION_BASELINE_V4.18.13.md`](PRODUCTION_BASELINE_V4.18.13.md) for that specific rollback/audit purpose.
+Files under [`history/`](history/), old release notes and dated Conversation Fabric checkpoints are non-canonical evidence. Current behavior must be verified against `main`, the operational docs above and live runtime evidence.
 
 > [!IMPORTANT]
-> When documentation disagrees with runtime evidence, do not infer compatibility or silently repair state. Follow the fail-closed rules in `AGENTS.md` and the current operational documentation.
+> When documentation disagrees with current source/runtime evidence, do not infer compatibility or silently repair state. Follow the fail-closed rules in `AGENTS.md`, the canonical runtime catalog and the current operational documentation.

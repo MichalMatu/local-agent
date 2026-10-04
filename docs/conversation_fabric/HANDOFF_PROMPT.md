@@ -1,6 +1,10 @@
-# Conversation Fabric Stage 8 — continuation prompt
+# Conversation Fabric Stage 8 — historical continuation prompt
 
-Use this prompt to start a fresh implementation conversation. `docs/CURRENT_HANDOFF.md` remains the authoritative state checkpoint.
+> **HISTORICAL / DO NOT USE FOR CURRENT WORK**
+>
+> This file preserves the isolated-profile Stage 8 handoff that predated the accepted same-browser Conversation Fabric architecture. Current work must start from `../CURRENT_HANDOFF.md`, `README.md`, `CURRENT_PLAN.md` and `NEXT_CHAT_PROMPT.md`. Do not restore `develop/conversation-fabric`, the isolated live profile, or the `seed -> prepare -> login -> arm -> run` production workflow from this document.
+
+## Historical prompt
 
 ```text
 Continue Conversation Fabric Stage 8 in MichalMatu/local-agent.
@@ -31,3 +35,7 @@ Stage 8 is complete only after one fresh proof produces exactly one real https:/
 
 Stop after that proof and review the evidence before starting later lifecycle work.
 ```
+
+## Current replacement
+
+Current production Conversation Fabric uses ordinary child tabs in the operator's existing authenticated Chrome session. Campaign/results are durable in `chrome.storage.local`; normal campaign observation runs from the existing GitHub-control alarm; explicit collect is recovery-only; terminal feedback is durable at-most-once; and executable machine work, if any, is authorized separately through the canonical runtime catalog and exact target binding.

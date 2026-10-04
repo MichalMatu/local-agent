@@ -1,6 +1,10 @@
 # Local Agent / Superchat self-diagnostic — 2026-10-04
 
-Status: parent-led audit complete enough to make bounded repair decisions. No release, production restart, branch cleanup, or active Growclip interruption was performed.
+> **HISTORICAL SNAPSHOT — SUPERSEDED LATER ON 2026-10-04**
+>
+> This diagnostic accurately records an earlier state, before browser-native same-session Conversation Fabric acceptance and before the current runtime-catalog/self-execution policy. Do not use statements below such as “local-agent remains execution-disabled” or “child delegation is unavailable” as current guidance. Current authority is `../CURRENT_HANDOFF.md`, `../GOLDEN_STANDARD.md`, `README.md`, `CURRENT_PLAN.md` and current `main`.
+
+Status at the time: parent-led audit complete enough to make bounded repair decisions. No release, production restart, branch cleanup, or active Growclip interruption was performed.
 
 ## Baseline verified
 
@@ -90,6 +94,6 @@ Children therefore performed no host commands and received no machine execution 
 4. Reconcile current durable release docs and add Conversation Operator configuration state to normal diagnostics/observability.
 5. Evaluate workspace/storage-policy maintenance after the self-diagnostic; do not mix it into the child transport repair.
 
-## Current verdict
+## Current verdict at this historical checkpoint
 
-Core executor/scheduler/routing/process safety boundaries are healthy on 4.20.5. The primary functional blocker discovered by the Superchat self-diagnostic is production child delegation readiness; the browser authentication/composer defect now has a CI-green repair candidate but is not deployed. The primary quality issues are stale release documentation and incomplete operator observability. Parent-level Superchat coordination remains usable while the child path stays disabled.
+Core executor/scheduler/routing/process safety boundaries were healthy on 4.20.5. The primary functional blocker discovered by this diagnostic was production child delegation readiness; the browser authentication/composer defect had a CI-green repair candidate but was not deployed. This verdict is historical and was superseded later the same day by the accepted browser-native same-session Conversation Fabric path and subsequent runtime/Fabric hardening.
