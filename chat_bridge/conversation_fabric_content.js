@@ -287,18 +287,24 @@
           retryGate.defer(signature);
           return;
         }
-        const receipt = await chrome.runtime.sendMessage({
-          type: "bridge:conversation-fabric-feedback",
-          conversationUrl: url,
-          fingerprint,
-          assistantIdentity: latest.identity,
-          contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
-          control: requestControl,
-          campaignId: response.campaignId
-        });
-        if (!receipt?.ok) {
-          retryGate.defer(signature);
-          return;
+        const terminalFeedback = [
+          "conversation_fabric_completed",
+          "conversation_fabric_already_delivered"
+        ].includes(response.reason);
+        if (terminalFeedback) {
+          const receipt = await chrome.runtime.sendMessage({
+            type: "bridge:conversation-fabric-feedback",
+            conversationUrl: url,
+            fingerprint,
+            assistantIdentity: latest.identity,
+            contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
+            control: requestControl,
+            campaignId: response.campaignId
+          });
+          if (!receipt?.ok) {
+            retryGate.defer(signature);
+            return;
+          }
         }
       }
       lastSubmittedFingerprint = fingerprint;
