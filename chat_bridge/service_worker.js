@@ -15,6 +15,7 @@ importScripts(
   "worker_spawn_route_transition.js",
   "worker_spawn_result.js",
   "worker_conversation_fabric.js",
+  "worker_conversation_fabric_recovery.js",
   "worker_lab_commands.js",
   "worker_github_legacy_gate.js",
   "worker_events.js"
