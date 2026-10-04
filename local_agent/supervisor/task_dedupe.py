@@ -7,8 +7,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import local_agent.foundation.core as core
 from local_agent.foundation.process import atomic_write_text
-from local_agent.runtime.task_contract import task_dedupe_identity, task_timeout_for
+from local_agent.runtime.task_contract import (
+    idle_timeout_for,
+    memory_limit_for,
+    task_dedupe_identity,
+    task_timeout_for,
+)
 
 RECENT_COMPLETION_TTL_SECONDS = 30 * 60
 ADMISSION_GRACE_SECONDS = 10 * 60
@@ -48,18 +54,29 @@ def _serialized(value: Any) -> bytes:
     ).encode("utf-8")
 
 
-def _structured_commands(task: dict[str, Any], field: str) -> list[str]:
-    commands: list[str] = []
+def _structured_execution_steps(
+    task: dict[str, Any],
+    field: str,
+    *,
+    command_timeout: int,
+) -> list[dict[str, Any]]:
+    steps: list[dict[str, Any]] = []
     for item in task.get(field, []):
-        if isinstance(item, dict):
-            command = item.get("command")
-            if isinstance(command, str):
-                commands.append(command)
-    return commands
+        if not isinstance(item, dict):
+            continue
+        command = item.get("command")
+        if not isinstance(command, str):
+            continue
+        steps.append({
+            "command": command,
+            "timeout": item.get("timeout", command_timeout),
+        })
+    return steps
 
 
 def execution_contract(task: dict[str, Any]) -> dict[str, Any]:
-    """Return deterministic task effects while ignoring cosmetic execution metadata."""
+    """Return deterministic task effects plus limits that can change completion."""
+    command_timeout = core.command_timeout_for(task)
     return {
         "agent_binding": task.get("agent_binding"),
         "mode": task.get("mode", "commands"),
@@ -71,13 +88,25 @@ def execution_contract(task: dict[str, Any]) -> dict[str, Any]:
         "deletes": task.get("deletes", []),
         "commands": task.get("commands", []),
         "verify_commands": task.get("verify_commands", []),
-        "steps": _structured_commands(task, "steps"),
-        "verify_steps": _structured_commands(task, "verify_steps"),
+        "steps": _structured_execution_steps(
+            task,
+            "steps",
+            command_timeout=command_timeout,
+        ),
+        "verify_steps": _structured_execution_steps(
+            task,
+            "verify_steps",
+            command_timeout=command_timeout,
+        ),
+        "command_timeout": command_timeout,
+        "idle_timeout": idle_timeout_for(task),
+        "task_timeout": task_timeout_for(task),
+        "memory_limit_mb": memory_limit_for(task),
     }
 
 
 def execution_fingerprint(task: dict[str, Any]) -> str:
-    """Fingerprint task effects independently of id, stage names and timeout/log tuning."""
+    """Fingerprint task effects independently of id, stage labels and output tuning."""
     return hashlib.sha256(_serialized(execution_contract(task))).hexdigest()
 
 
