@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-The current Local Agent release line is `v4.20.6`. The immutable release tag points to `48eb9d8b6c26a9dfb317906d5099acabce8719c8`; the current source candidate advances Chat Bridge to `0.8.2`. `main` and deployed `self_revision` may legitimately be later verified revisions on the same release line. Never infer deployment from a source checkout: read fresh daemon status.
+The current source and production release is `v4.20.6`. The immutable Local Agent release tag points to `48eb9d8b6c26a9dfb317906d5099acabce8719c8`; the current post-release source candidate advances Chat Bridge to `0.8.2` on that unchanged Local Agent release line. `main` and deployed `self_revision` may legitimately be later verified revisions on the same release line. Never infer deployment from a source checkout: read fresh daemon status.
 
 ## Authority and execution
 
