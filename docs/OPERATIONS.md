@@ -48,20 +48,28 @@ If a task fails and a materially changed corrective plan is required, publish a 
 
 Never use `host-ops` to tunnel around a disabled target repository.
 
+## Superchat browser model
+
+Production Conversation Fabric reuses the operator's existing authenticated Chrome session and installed Chat Bridge. Parent and child conversations are ordinary tabs in the same Chrome process.
+
+Do not launch a second production Chrome/Chromium process, create a separate ChatGPT profile, migrate cookies, or require a separate child-browser login. Browser separation is not a security boundary for child reasoning; exact tab/conversation/transaction ownership is.
+
+Isolated Chromium/profile automation is test-only and remains appropriate for deterministic CI/browser smokes.
+
 ## Superchat live operation
 
 At rest, keep Conversation Operator intake disabled unless an intentional campaign needs it. A live acceptance/campaign must:
 
 1. verify the parent conversation and current Bridge control state;
-2. verify the isolated child-browser/operator configuration;
+2. verify the operator's normal Chrome session is authenticated and the installed Chat Bridge is healthy;
 3. explicitly enable only the supported operator path if required;
-4. create bounded reasoning-only children;
+4. create bounded reasoning-only children as normal tabs in that same Chrome session;
 5. keep execution authority in the parent -> target `.agent/tasks` boundary;
-6. collect exact child registration/result/evidence;
+6. collect exact child tab/conversation/result evidence;
 7. retire/close owned child state when the bounded proof ends;
 8. pause/disable campaign intake again unless continuing deliberately.
 
-Do not fall back to repeated manual Chrome login/Cloudflare/DOM loops. Ambiguous auth/ownership is a stop condition, not a reason to weaken checks.
+Do not fall back to a separate profile, repeated manual Chrome login, cookie copying, Cloudflare loops or another Playwright-controlled production browser. Ambiguous tab ownership is a stop condition, not a reason to weaken checks.
 
 ## Chat Bridge pacing/control
 
@@ -77,4 +85,6 @@ For GitHub-managed pacing use the exact `conversation_controls` record for that 
 
 ## Current acceptance boundary
 
-The next production activity is one bounded live Superchat acceptance on real code. It is not a broad fan-out, stress test or autonomous multi-goal campaign. Success means visible parent delegation, child reasoning evidence, parent synthesis and at most one justified real target execution without duplicate work.
+Do not run the next production Superchat acceptance until the live child lifecycle has been moved off the separate Playwright persistent profile and onto the installed Chat Bridge in the primary Chrome session.
+
+After that implementation is verified, run one bounded live Superchat acceptance on real code. It is not a broad fan-out, stress test or autonomous multi-goal campaign. Success means visible parent delegation into normal Chrome child tabs, child reasoning evidence, parent synthesis and at most one justified real target execution without duplicate work.
