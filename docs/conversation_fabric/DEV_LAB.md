@@ -58,7 +58,7 @@ real_chrome_profile_enabled
 native_host_registration_enabled
 ```
 
-`local-agent` remains `execution_enabled=false` for the Stage 8 reasoning-child proof.
+The canonical `local-agent` repository may be execution-enabled in production. The isolated Stage 8 DEV lab remains non-executing because its own executor capability is disabled and the live reasoning-child proof never queues a repository task.
 
 Protected operational branches are not DEV workspaces:
 
@@ -119,16 +119,9 @@ The current preserved ambiguous attempt is documented in `docs/CURRENT_HANDOFF.m
 
 ## Mac operation rule
 
-All Mac-local operations for this project must go through `host-ops`, including:
+All Mac-local operations for this project must go through the exact execution target selected for the operation. `host-ops` remains the target for host-level maintenance; repository project work uses that repository's own canonical binding, including `local-agent` self-work when explicitly requested.
 
-- DEV checkout/worktree operations;
-- local focused tests;
-- Chromium/Playwright tests;
-- browser-profile inspection;
-- live `seed/prepare/login/arm/run` execution;
-- local durable-state inspection.
-
-Direct GitHub operations remain the normal path for repository inspection and repository-side edits.
+Direct GitHub operations remain the normal path for repository inspection and repository-side edits when local execution is unnecessary.
 
 ## Stage 8 lab acceptance
 
@@ -138,7 +131,7 @@ Before a live browser effect, confirm:
 2. clean DEV checkout;
 3. isolated DEV state root/profile;
 4. current exact-SHA validation evidence;
-5. `local-agent` execution remains disabled;
+5. the isolated DEV executor remains disabled;
 6. no production profile or Native Messaging path is involved;
 7. the live namespace has no unresolved reused attempt.
 
