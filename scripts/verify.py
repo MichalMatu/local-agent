@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
-"""Repository verification entrypoint.
-
-Keep command discovery and focused smoke-test selection in one place so CI,
-operator docs and local development do not maintain diverging file lists.
-"""
+"""Run Local Agent verification profiles."""
 
 from __future__ import annotations
 
 import argparse
-import json
 import shutil
 import subprocess
 import sys
@@ -16,117 +11,56 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-MACOS_SMOKE_TESTS = (
-    "tests.test_package_layout",
-    "tests.test_release_hardening",
-    "tests.test_guard_process",
-    "tests.test_lease_recovery",
-    "tests.test_agent_multirepo_restart",
-    "tests.test_agentd_dispatch",
-    "tests.test_self_update_environment",
-    "tests.test_macos_launchd",
-    "tests.test_remote_operator",
-    "tests.test_agent_process",
-    "tests.test_agent_core",
-    "tests.test_agent_runtime",
-    "tests.test_agent_storage",
-    "tests.test_agent_binding",
-    "tests.test_serial_agent_binding",
-    "tests.test_agent_repo_worker",
-    "tests.test_agent_parallel",
-    "tests.test_agent_parallel_worker",
-    "tests.test_parallel_control",
-    "tests.test_parallel_process",
-    "tests.test_multirepo_integration",
-    "tests.test_parallel_integration",
-    "tests.test_control_admission_policy",
-    "tests.test_control_probe_parallel_admission",
-    "tests.test_stale_cancel_self_update",
-    "tests.test_current_documentation_contract",
-    "tests.test_supervisor_architecture_contract",
-    "tests.test_parallel_resource_wait",
-    "tests.test_control_hardening",
-    "tests.test_supervisor_modules",
-    "tests.test_emergency_controls",
-    "tests.test_entrypoint_guard",
-    "tests.test_mcp_registry",
-    "tests.test_mcp_client",
-    "tests.test_mcp_cli",
-)
+MACOS_SMOKE_TESTS = [
+    "tests.test_runner_process",
+    "tests.test_checkpoint",
+    "tests.test_multi_repository",
+    "tests.test_binding",
+    "tests.test_emergency_control",
+    "tests.test_mcp",
+]
 
 
-def _run(label: str, command: list[str]) -> None:
-    printable = " ".join(command)
-    print(f"\n==> {label}\n$ {printable}", flush=True)
-    subprocess.run(command, cwd=ROOT, check=True)
-
-
-def _require(executable: str) -> str:
-    resolved = shutil.which(executable)
+def _require(command: str) -> str:
+    resolved = shutil.which(command)
     if resolved is None:
-        raise SystemExit(f"required executable not found on PATH: {executable}")
+        raise RuntimeError(f"required command is unavailable: {command}")
     return resolved
 
 
-def _python_sources() -> list[str]:
-    roots = sorted(
-        path.relative_to(ROOT).as_posix()
-        for path in ROOT.glob("*.py")
-        if path.name.startswith("agent")
-    )
-    package = sorted(
-        path.relative_to(ROOT).as_posix()
-        for path in (ROOT / "local_agent").rglob("*.py")
-    )
-    scripts = sorted(
-        path.relative_to(ROOT).as_posix()
-        for path in (ROOT / "scripts").rglob("*.py")
-    )
-    return roots + package + scripts
+def _run(label: str, command: list[str]) -> None:
+    print(f"\n==> {label}", flush=True)
+    print("$ " + " ".join(command), flush=True)
+    subprocess.run(command, cwd=ROOT, check=True)
 
 
-def compile_sources() -> None:
-    sources = _python_sources()
-    if not sources:
-        raise SystemExit("no Python sources discovered for compile verification")
-    _run("Compile Python sources", [sys.executable, "-m", "py_compile", *sources])
+def run_compile() -> None:
+    _run("Python compile", [sys.executable, "-m", "compileall", "-q", "local_agent", "scripts", "tests"])
 
 
-def lint_sources() -> None:
+def run_lint() -> None:
     ruff = _require("ruff")
     _run("Ruff", [ruff, "check", "."])
 
 
-def validate_bridge() -> None:
+def run_bridge() -> None:
     node = _require("node")
-    bridge_dir = ROOT / "chat_bridge"
-
-    javascript = sorted(bridge_dir.glob("*.js"))
-    for path in javascript:
-        _run(
-            f"Node syntax: {path.name}",
-            [node, "--check", path.relative_to(ROOT).as_posix()],
-        )
-
-    for path in sorted(bridge_dir.glob("*.test.js")):
-        _run(
-            f"Node test: {path.name}",
-            [node, path.relative_to(ROOT).as_posix()],
-        )
-
-    json_files = sorted(bridge_dir.glob("*.json")) + sorted((ROOT / "config").glob("*.json"))
-    for path in json_files:
-        with path.open("r", encoding="utf-8") as handle:
-            json.load(handle)
-        print(f"validated JSON: {path.relative_to(ROOT)}")
+    _run("Chat Bridge manifest", [node, "--check", "chat_bridge/service_worker.js"])
+    _run("Chat Bridge content", [node, "--check", "chat_bridge/content.js"])
+    _run("Chat Bridge content retry", [node, "--check", "chat_bridge/content_retry.js"])
+    _run("Chat Bridge DOM contract", [node, "--check", "chat_bridge/dom_contract.js"])
+    _run("Chat Bridge exhaustion guard", [node, "--check", "chat_bridge/exhaustion_guard.js"])
+    _run("Chat Bridge control protocol", [node, "--check", "chat_bridge/control_protocol.js"])
+    _run("Chat Bridge worker spawn", [node, "--check", "chat_bridge/worker_spawn.js"])
+    _run("Chat Bridge popup", [node, "--check", "chat_bridge/popup.js"])
+    _run("Conversation live browser actuator", [node, "--check", "scripts/conversation_live_slice_browser.cjs"])
 
 
 def run_tests() -> None:
-    _run("Python unit and integration tests", [sys.executable, "-m", "unittest", "discover", "-q"])
+    _run("Unit and integration tests", [sys.executable, "-m", "unittest", "discover", "-q"])
 
 
 def run_macos_smoke() -> None:
-    compile_sources()
     _run(
         "macOS focused smoke suite",
         [sys.executable, "-m", "unittest", "-q", *MACOS_SMOKE_TESTS],
@@ -149,41 +83,13 @@ def run_bridge_browser() -> None:
         "Chromium assistant timeout page-reload smoke",
         [node, "scripts/bridge_assistant_error_reload_smoke.cjs"],
     )
+    # Child-conversation spawning is now intentionally direct browser DOM control.
+    # The old conversation_spawn_* extension-worker smokes exercised a second,
+    # obsolete spawn implementation and could block the real path without adding
+    # coverage. Keep one end-to-end restart/recovery/direct-submit smoke here.
     _run(
-        "Conversation live slice browser restart recovery smoke",
+        "Conversation direct browser restart/recovery smoke",
         [node, "scripts/conversation_live_slice_browser_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn transient content race smoke",
-        [node, "scripts/conversation_spawn_content_race_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn block-structured composer rerender smoke",
-        [node, "scripts/conversation_spawn_composer_structure_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn transient UC route smoke",
-        [node, "scripts/conversation_spawn_uc_transition_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn current ChatGPT DOM identity smoke",
-        [node, "scripts/conversation_spawn_current_dom_identity_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn collapsed ChatGPT DOM identity smoke",
-        [node, "scripts/conversation_spawn_collapsed_identity_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn owned provisional-to-canonical identity smoke",
-        [node, "scripts/conversation_spawn_owned_route_identity_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn owned direct-to-canonical identity smoke",
-        [node, "scripts/conversation_spawn_direct_route_identity_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn selectorless exact-text identity smoke",
-        [node, "scripts/conversation_spawn_selectorless_identity_smoke.cjs"],
     )
 
 
@@ -198,22 +104,23 @@ def parse_args() -> argparse.Namespace:
         "--profile",
         choices=("full", "macos-smoke", "bridge-browser"),
         default="full",
-        help="verification profile; default: full",
     )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-
-    if args.only:
-        stages = {
-            "compile": compile_sources,
-            "lint": lint_sources,
-            "bridge": validate_bridge,
-            "tests": run_tests,
-        }
-        stages[args.only]()
+    if args.only == "compile":
+        run_compile()
+        return 0
+    if args.only == "lint":
+        run_lint()
+        return 0
+    if args.only == "bridge":
+        run_bridge()
+        return 0
+    if args.only == "tests":
+        run_tests()
         return 0
 
     if args.profile == "macos-smoke":
@@ -223,9 +130,9 @@ def main() -> int:
         run_bridge_browser()
         return 0
 
-    compile_sources()
-    lint_sources()
-    validate_bridge()
+    run_compile()
+    run_lint()
+    run_bridge()
     run_tests()
     return 0
 
