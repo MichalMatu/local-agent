@@ -4,7 +4,6 @@ const elements = {
   masterEnabled: document.querySelector("#masterEnabled"),
   currentTitle: document.querySelector("#currentTitle"),
   currentUrl: document.querySelector("#currentUrl"),
-  currentAgent: document.querySelector("#currentAgent"),
   addCurrent: document.querySelector("#addCurrent"),
   conversationList: document.querySelector("#conversationList"),
   conversationCount: document.querySelector("#conversationCount"),
@@ -97,34 +96,6 @@ async function injectContentScript(tabId, expectedUrl) {
     throw new Error(response?.reason || response?.error || "Bridge content script did not become ready.");
   }
   return response;
-}
-
-function agentLabel(agent) {
-  return `${agent.repositoryId} · ${agent.repository}`;
-}
-
-function createAgentSelect(agents, selectedBinding = null, includeBlank = true) {
-  const select = document.createElement("select");
-  if (includeBlank) {
-    const blank = document.createElement("option");
-    blank.value = "";
-    blank.textContent = "Choose repository...";
-    select.append(blank);
-  }
-  for (const agent of agents || []) {
-    const option = document.createElement("option");
-    option.value = agent.agentBinding;
-    option.textContent = agentLabel(agent);
-    select.append(option);
-  }
-  select.value = selectedBinding || "";
-  return select;
-}
-
-function replaceSelectOptions(select, agents, selectedBinding = null, includeBlank = true) {
-  const fresh = createAgentSelect(agents, selectedBinding, includeBlank);
-  select.replaceChildren(...fresh.childNodes);
-  select.value = selectedBinding || "";
 }
 
 function makeButton(text, className = "") {
@@ -329,13 +300,11 @@ function renderConversations(state, schedules = {}, runtime = null, githubOwners
   }
 }
 
-async function refreshCurrentTabForm(state, runtime) {
+async function refreshCurrentTabForm(state) {
   currentTab = await getCurrentChatTab();
   if (!currentTab) {
     elements.currentTitle.textContent = "No ChatGPT conversation detected";
     elements.currentUrl.textContent = "Open a ChatGPT conversation, then open Bridge again.";
-    replaceSelectOptions(elements.currentAgent, runtime?.agents || [], null, true);
-    elements.currentAgent.disabled = true;
     elements.addCurrent.textContent = "Add current chat";
     elements.addCurrent.disabled = true;
     return;
@@ -344,9 +313,6 @@ async function refreshCurrentTabForm(state, runtime) {
   const existing = state.conversations?.[id];
   elements.currentTitle.textContent = existing?.label || chatLabelFromTitle(currentTab.title);
   elements.currentUrl.textContent = currentTab.normalizedUrl;
-  const transportBinding = existing?.agentBinding || preferredTransportBinding(runtime);
-  replaceSelectOptions(elements.currentAgent, runtime?.agents || [], transportBinding, false);
-  elements.currentAgent.disabled = true;
   elements.addCurrent.textContent = existing ? "Added" : "Add current chat";
   elements.addCurrent.disabled = Boolean(existing);
 }
@@ -369,7 +335,7 @@ async function refresh() {
   latestRuntime = response.runtime || null;
   renderSettings(latestState, latestRuntime);
   renderConversations(latestState, response.schedules || {}, latestRuntime, response.githubOwnership || {});
-  await refreshCurrentTabForm(latestState, latestRuntime);
+  await refreshCurrentTabForm(latestState);
   restartCountdownTimer();
 }
 
@@ -425,10 +391,6 @@ elements.masterEnabled.addEventListener("change", async () => {
     showMessage(`Error: ${error.message}`);
     await refresh();
   }
-});
-
-elements.currentAgent.addEventListener("change", () => {
-  elements.addCurrent.disabled = !currentTab;
 });
 
 elements.addCurrent.addEventListener("click", () => {

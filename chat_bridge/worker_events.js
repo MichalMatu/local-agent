@@ -22,7 +22,7 @@ chrome.runtime.onStartup.addListener(() => initializeBridgeLifecycle());
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === GITHUB_CONTROL_ALARM_NAME) {
-    reconcileGithubConversationControls().catch((error) => console.error(error));
+    reconcileGithubConversationControls().then(() => pollConversationFabricCampaigns()).catch((error) => console.error(error));
     return;
   }
   if (!alarm.name.startsWith(ALARM_PREFIX)) return;
@@ -57,6 +57,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     "bridge:assistant-control": applyAssistantControl,
     "bridge:operator-control": applyOperatorLabControl,
     "bridge:conversation-fabric-control": applyConversationFabricControl,
+    "bridge:conversation-fabric-feedback": acknowledgeConversationFabricFeedback,
     "bridge:conversation-exhausted": reportConversationExhausted,
     "bridge:assistant-error": reportAssistantError,
     "bridge:authorize-assistant-retry": authorizeAssistantRetry

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Local Agent Chat Bridge",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "Schedules Local Agent wake-ups as transport only; repository execution authority is validated separately.",
   "permissions": [
     "alarms",

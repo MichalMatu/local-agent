@@ -29,6 +29,7 @@ window.submits = 0;
 window.dropDelivery = false;
 window.replaceComposerOnSubmit = false;
 window.currentUserDom = false;
+window.virtualizeUserTurns = false;
 document.querySelector('form').onsubmit = (event) => {
   event.preventDefault();
   window.submits++;
@@ -39,6 +40,8 @@ document.querySelector('form').onsubmit = (event) => {
   if (window.currentUserDom) message.dataset.userMessageBubble = '';
   else message.dataset.messageAuthorRole = 'user';
   message.textContent = input.innerText || input.textContent || '';
+  message.dataset.messageId = 'submitted-' + window.submits;
+  if (window.virtualizeUserTurns) document.querySelectorAll('[data-message-author-role="user"], [data-user-message-bubble]').forEach(node => node.remove());
   document.body.append(message);
   if (window.replaceComposerOnSubmit) {
     form.innerHTML = '<div id="prompt-textarea" class="ProseMirror" contenteditable="true" role="textbox"></div><button id="composer-submit-button" type="submit">Send</button>';
@@ -165,6 +168,13 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await page.evaluate(() => window.submits), 2);
     assert.equal(await page.locator('[data-user-message-bubble]').count(), 1);
     console.log("PASS: later current user bubble confirms delivery even when an older legacy user turn remains");
+
+    await page.evaluate(() => { window.virtualizeUserTurns = true; window.currentUserDom = false; });
+    assert.equal((await run(id)).reason, "sent");
+    assert.equal((await run(id)).reason, "sent");
+    assert.equal(await page.locator('[data-message-author-role="user"]').count(), 1);
+    assert.equal(await page.evaluate(() => window.submits), 4);
+    console.log("PASS: new exact user turn confirms delivery when virtualization keeps the message count constant");
 
     id = await add("replacement");
     await page.evaluate(() => { window.replaceComposerOnSubmit = true; });

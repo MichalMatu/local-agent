@@ -11,7 +11,8 @@
   const CLAIM_PREFIX = "local-agent:conversation-spawn:";
 
   const existing = globalThis.__localAgentConversationSpawnResultContent;
-  if (existing?.protocolVersion === SPAWN_PROTOCOL_VERSION) return;
+  // Reinstall the read-only listener after extension reload even when its wire
+  // protocol is unchanged: the previous extension context may be detached.
   try { existing?.dispose?.(); } catch (_error) {}
 
   function assistantIsGenerating() {
@@ -60,7 +61,9 @@
   }
 
   function cleanAssistantText(element) {
-    const clone = element?.cloneNode?.(true);
+    const bodies = element?.querySelectorAll?.('[data-content-search-unit-key$=":assistant"] [data-chatgpt-selection-message-id], [data-chatgpt-search-unit-key$=":assistant"] [data-chatgpt-selection-message-id]');
+    const body = bodies?.length ? bodies[bodies.length - 1] : element;
+    const clone = body?.cloneNode?.(true);
     if (!clone || typeof clone.querySelectorAll !== "function") return "";
     clone.querySelectorAll(
       '[data-message-author-role="user"], [data-conversation-role="user"], [data-user-message-bubble], button, [role="button"], form, textarea, .sr-only'
@@ -75,7 +78,9 @@
     if (explicit.length) {
       const message = explicit[explicit.length - 1];
       const turn = message.closest?.('[data-turn-key]') || message;
-      const text = cleanAssistantText(message);
+      // Current ChatGPT role markers can be accessibility headings; the body is
+      // a sibling in the same logical turn, so read the sanitized whole turn.
+      const text = cleanAssistantText(turn);
       const identity = String(
         turn.getAttribute?.("data-turn-key") ||
         message.getAttribute?.("data-message-id") ||

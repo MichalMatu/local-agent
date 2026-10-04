@@ -43,7 +43,9 @@
   }
 
   function cleanTurnText(turn) {
-    const clone = turn?.cloneNode?.(true);
+    const bodies = turn?.querySelectorAll?.('[data-content-search-unit-key$=":assistant"] [data-chatgpt-selection-message-id], [data-chatgpt-search-unit-key$=":assistant"] [data-chatgpt-selection-message-id]');
+    const body = bodies?.length ? bodies[bodies.length - 1] : turn;
+    const clone = body?.cloneNode?.(true);
     if (!clone || typeof clone.querySelectorAll !== "function") return "";
     clone.querySelectorAll(
       `${USER_SELECTORS.join(",")}, button, [role="button"], form, textarea, .sr-only`
@@ -247,6 +249,19 @@
       if (response.feedbackPrompt) {
         const feedback = await deliverFabricFeedback(String(response.feedbackPrompt), url);
         if (!feedback.ok) {
+          retryGate.defer(signature);
+          return;
+        }
+        const receipt = await chrome.runtime.sendMessage({
+          type: "bridge:conversation-fabric-feedback",
+          conversationUrl: url,
+          fingerprint,
+          assistantIdentity: latest.identity,
+          contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
+          control,
+          campaignId: response.campaignId
+        });
+        if (!receipt?.ok) {
           retryGate.defer(signature);
           return;
         }

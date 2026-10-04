@@ -126,12 +126,21 @@
       node.nodeType === Node.TEXT_NODE && (node.nodeValue || "") === ""
     ));
     if (!children.length) return "";
-    if (!children.every((node) => (
-      node instanceof HTMLElement && COMPOSER_BLOCK_TAGS.has(node.tagName)
-    ))) {
-      return null;
+    if (!children.some(node => node instanceof HTMLElement && COMPOSER_BLOCK_TAGS.has(node.tagName))) return null;
+    // Chromium may keep the first line as a text node and render later lines as blocks.
+    // Read that exact logical structure rather than innerText's doubled blank lines.
+    const lines = [];
+    let inline = "";
+    for (const node of children) {
+      if (node instanceof HTMLElement && COMPOSER_BLOCK_TAGS.has(node.tagName)) {
+        if (inline) { lines.push(inline); inline = ""; }
+        lines.push(blockLineText(node));
+      } else {
+        inline += descendantText(node);
+      }
     }
-    return children.map((block) => blockLineText(block)).join("\n");
+    if (inline) lines.push(inline);
+    return lines.join("\n");
   }
 
   function composerTextVariants(composer) {
@@ -328,7 +337,7 @@
 
   function latestExactUserMessage(prompt) {
     const normalized = (text) => String(text || "").trim().replace(/\s+/g, " ");
-    const messages = document.querySelectorAll('[data-message-author-role="user"]');
+    const messages = document.querySelectorAll('[data-message-author-role="user"], [data-conversation-role="user"], [data-user-message-bubble]');
     const latest = messages[messages.length - 1];
     if (!latest) return false;
     return normalized(latest.innerText || latest.textContent) === normalized(prompt);

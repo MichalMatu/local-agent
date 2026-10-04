@@ -12,7 +12,7 @@ assert.ok(
   Number.isInteger(protocol.CONTENT_PROTOCOL_VERSION) && protocol.CONTENT_PROTOCOL_VERSION > 0,
   "shared CONTENT_PROTOCOL_VERSION must be a positive integer"
 );
-assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 14, "Conversation Fabric parent controls require content protocol v14");
+assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 18, "Conversation Fabric parent controls require content protocol v18");
 for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_harness.js"]) {
   assert.doesNotMatch(
     read(name),
@@ -37,7 +37,7 @@ assert.match(
 );
 
 const manifest = JSON.parse(read("manifest.json"));
-assert.equal(manifest.version, "0.8.2", "browser-native Conversation Fabric must have an unambiguous Bridge version");
+assert.equal(manifest.version, "0.8.3", "browser-native Conversation Fabric must have an unambiguous Bridge version");
 const scripts = manifest.content_scripts?.[0]?.js || [];
 const bridgeProtocolIndex = scripts.indexOf("control_protocol.js");
 const fabricProtocolIndex = scripts.indexOf("conversation_fabric_protocol.js");
@@ -62,7 +62,7 @@ assert.match(workerBase, /GITHUB_CONTROL_ALARM_NAME/, "worker base must own the 
 const transport = read("worker_transport.js");
 assert.match(
   transport,
-  /files: \["control_protocol\.js", "content_retry\.js", "content\.js"\]/,
+  /files: \["control_protocol\.js", "conversation_fabric_protocol\.js", "content_retry\.js", "spawn_result_content\.js", "conversation_fabric_content\.js", "content\.js"\]/,
   "normal Bridge dynamic reinjection must preserve the existing content path"
 );
 assert.match(
@@ -72,8 +72,8 @@ assert.match(
 );
 
 const fabricWorker = read("worker_conversation_fabric.js");
-assert.match(fabricWorker, /refreshConversationFabricContentScripts/, "Conversation Fabric must refresh its controller in already-open ChatGPT tabs");
-assert.match(fabricWorker, /chrome\.storage\.session/, "Conversation Fabric campaign state must be browser-session scoped");
+assert.match(transport, /conversation_fabric_content\.js/, "shared transport must refresh Conversation Fabric in already-open tabs");
+assert.match(fabricWorker, /chrome\.storage\.local/, "campaign evidence must survive browser restart");
 assert.match(fabricWorker, /createConversationSpawnTab/, "Conversation Fabric must reuse the existing Bridge spawn primitive");
 assert.doesNotMatch(fabricWorker, /launchPersistentContext|connectOverCDP|nativeMessaging/i, "Conversation Fabric must not create a second browser control plane");
 

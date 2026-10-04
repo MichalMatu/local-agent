@@ -7,14 +7,14 @@ Chrome Manifest V3 extension that binds one ChatGPT conversation to Local Agent,
 Release checkpoint:
 
 ```text
-Local Agent:      v4.20.2 candidate
-Chat Bridge:      0.7.0
-content protocol: v13
+Local Agent:      v4.20.6
+Chat Bridge:      0.8.3 candidate
+content protocol: v18
 assistant guard:  v8
 runtime schema:    3 + optional conversation_controls
 ```
 
-The 4.20.2 candidate does not change Chat Bridge code or protocol behavior. It adds a Local Agent-only fail-closed migration for an existing isolated Conversation Fabric Chromium profile so the authenticated lab session can be retained without copying production/daily Chrome state or repeating the login loop. Production remains Local Agent v4.20.1 / Chat Bridge 0.7.0 until an explicit release decision advances `main`.
+The Bridge candidate adds native same-browser Superchat delegation. It does not change the Local Agent release version or repository execution authority. Candidate changes remain local until an explicit release decision.
 
 Canonical behavior is defined by current source plus:
 
@@ -195,3 +195,37 @@ python scripts/verify.py --profile bridge-browser
 ```
 
 Runtime-changing releases require full CI plus macOS smoke and a bounded live desired-state E2E ending PAUSED, according to `AGENTS.md` and `docs/GOLDEN_STANDARD.md`.
+
+## Same-browser Superchat delegation
+
+Candidate Bridge version: **0.8.3**, content protocol **18**. The Local Agent release remains 4.20.6.
+
+Reload the already-installed unpacked extension after updating its checkout. Add the parent conversation through the popup and enable that conversation with Master on. Existing configured tabs are refreshed through the shared Bridge content lifecycle. No CDP endpoint, profile copy, or additional Chrome process is required.
+
+Bootstrap and wake messages explain the native delegation contract. The parent ends an assistant response with a plain-text control block (without Markdown fences or trailing prose):
+
+```text
+<<<LOCAL_AGENT_CF
+{"schema_version":1,"action":"delegate","children":[{"id":"analysis","role":"research","prompt":"Analyze the supplied source context."},{"id":"check","role":"verification","prompt":"Independently verify the supplied claim."}]}
+LOCAL_AGENT_CF>>>
+```
+
+Each child receives its own bounded prompt and reasoning-only instructions. Child prompts must contain their source context; the children do not inherit the parent's conversation. Supported roles are research, implementation, verification, and integration; every role remains reasoning-only.
+
+The existing minute GitHub-control poll collects stable child answers and delivers the results through the normal authorized feedback path. The parent synthesizes those results. A campaign holds at most four child slots globally and one active delegation per parent. Disable the parent or Master to stop further collection/delivery.
+
+Campaigns and captured results survive worker/browser restart in local extension storage. Interrupted spawning fails explicitly without replaying a bootstrap. Results are saved before tabs close, and cleanup checks the exact spawn ownership claim. Campaigns time out after 15 minutes while enabled. Extension reload may clear session tab claims. Bridge recovers ownership only after the child controller validates the exact transaction, request digest, bootstrap digest, and current child URL. Missing or conflicting page claims fail closed; a reused tab id alone never proves ownership. An explicit collect can recover already-submitted children after an observation failure without resubmitting their prompts. Completed history is bounded; undelivered evidence is retained.
+
+Focused checks:
+
+```bash
+node chat_bridge/conversation_fabric_protocol.test.js
+node chat_bridge/conversation_fabric_worker.test.js
+node scripts/conversation_fabric_dom_smoke.cjs
+node scripts/conversation_fabric_browser_smoke.cjs
+python scripts/verify.py
+python scripts/verify.py --profile bridge-browser
+python scripts/verify.py --profile macos-smoke
+```
+
+The browser tests use offline disposable Chromium profiles. `conversation_live_slice_browser.cjs` is legacy DEV proof tooling, not the native Superchat delegation backend.

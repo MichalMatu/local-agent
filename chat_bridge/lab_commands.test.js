@@ -307,7 +307,10 @@ function fingerprint(value) {
     assert.equal(contentReloadInjections[0].hasFunction, true);
     assert.deepEqual(contentReloadInjections[1].files, [
       "control_protocol.js",
+      "conversation_fabric_protocol.js",
       "content_retry.js",
+      "spawn_result_content.js",
+      "conversation_fabric_content.js",
       "content.js",
       "dom_contract.js",
       "exhaustion_guard.js"

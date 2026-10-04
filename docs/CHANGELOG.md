@@ -2,6 +2,14 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
+## Unreleased — Chat Bridge 0.8.3 candidate
+
+- Enable same-browser Superchat delegation through the existing extension spawn primitives, without CDP or another browser profile.
+- Capture up to four reasoning children, persist campaign/results before owned-tab cleanup, and collect results through the existing GitHub-control poll.
+- Serialize duplicate delegation, retain failure evidence without automatic replay, and deliver result feedback once to the parent.
+- Refresh all parent/child controllers through the shared content lifecycle and preserve exact logical multiline composer text.
+- Local Agent remains at 4.20.6; repository execution bindings and scheduler admission are unchanged.
+
 ## v4.20.6
 
 - Add deterministic production queue deduplication for the parallel repository worker so equivalent tasks from overlapping conversations are terminally suppressed before expensive execution.
@@ -9,7 +17,7 @@ This changelog records the current operationally relevant Local Agent release li
 - Keep short claim-aware admission/completion receipts so late duplicates cannot run immediately after the original task, while interrupted/cancelled claims stop blocking legitimate corrective work after recovery.
 - Publish terminal `duplicate_task_suppressed` evidence that points at the original task instead of leaving duplicate queue entries to execute later.
 - Reject malformed explicit dedupe keys before task execution and add focused regression coverage for queue, claim, completion and branch-scope behavior.
-- Advance the current post-release Chat Bridge source patch to 0.8.2: browser-native Conversation Fabric delegation/collection now runs through the installed Bridge in the already authenticated primary Chrome session and reuses the existing `worker_spawn.js` transaction/tab primitives.
+- Advance the post-release Chat Bridge source patch to 0.8.3: browser-native Conversation Fabric delegation/collection runs through the installed Bridge in the already authenticated primary Chrome session and reuses the existing `worker_spawn.js` transaction/tab primitives.
 - Keep Conversation Fabric children reasoning-only, keep pacing GitHub-managed through exact `conversation_controls`, add stable bounded child-result capture/owned-tab cleanup, and explicitly avoid a second production browser/profile, CDP control plane, Native Messaging or Local Agent-to-browser RPC.
 - Repository binding, resource admission, executable `.agent/tasks` authority and deterministic Local Agent command semantics remain unchanged.
 

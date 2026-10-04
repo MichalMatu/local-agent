@@ -120,9 +120,10 @@ async function deliverConversation(chatId, manual) {
     }
   }
 
-  const prompt = conversation.bootstrapPending
+  const fabricFeedback = await conversationFabricFeedbackForParent(conversation.url);
+  const prompt = fabricFeedback?.prompt || (conversation.bootstrapPending
     ? buildBootstrapPrompt(runtime, conversation)
-    : buildWakePrompt(runtime, conversation);
+    : buildWakePrompt(runtime, conversation));
   const deliveryId = crypto.randomUUID();
   const active = {
     id: deliveryId,
@@ -172,6 +173,11 @@ async function deliverConversation(chatId, manual) {
     response = { ok: false, reason: "content_script_protocol_mismatch", protocolVersion: response?.protocolVersion };
   }
   const status = response?.ok ? "sent" : String(response?.reason || "delivery_unconfirmed");
+  if (response?.ok && fabricFeedback) {
+    const campaign = await loadConversationFabricCampaign(fabricFeedback.campaign.id);
+    campaign.feedback_delivered = true;
+    await saveConversationFabricCampaign(campaign);
+  }
   await mutateState((current) => {
     const latest = current.conversations[chatId];
     if (!latest || latest.bindingRevision !== conversation.bindingRevision) return current;

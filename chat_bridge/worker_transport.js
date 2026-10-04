@@ -116,7 +116,7 @@ async function ensureContentScript(tab, expectedUrl) {
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, frameIds: [0] },
-        files: ["control_protocol.js", "content_retry.js", "content.js"]
+        files: ["control_protocol.js", "conversation_fabric_protocol.js", "content_retry.js", "spawn_result_content.js", "conversation_fabric_content.js", "content.js"]
       });
     } catch (error) {
       return { ok: false, reason: "content_script_unavailable", error: String(error) };
@@ -225,7 +225,12 @@ async function updateConversationStatus(chatId, patch, expectedGeneration = null
 
 function conversationForSender(state, message, sender) {
   if (sender?.id !== chrome.runtime.id || sender?.frameId !== 0 || !sender?.tab?.id) return null;
-  const senderUrl = normalizeConversationUrl(sender.url || "");
+  // A fresh chat changes its route with history.pushState. Chrome's document sender URL
+  // may still be the original home/provisional route; the top-frame tab URL is current.
+  let documentUrl;
+  try { documentUrl = new URL(sender.url); } catch (_error) { return null; }
+  if (documentUrl.protocol !== "https:" || !["chatgpt.com", "chat.openai.com"].includes(documentUrl.hostname)) return null;
+  const senderUrl = normalizeConversationUrl(sender.tab.url || "");
   const declaredUrl = normalizeConversationUrl(message.conversationUrl || "");
   if (!senderUrl || senderUrl !== declaredUrl) return null;
   const conversation = state.conversations[conversationId(declaredUrl)];

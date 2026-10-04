@@ -212,15 +212,22 @@ async function labForceReloadContent(tabId, expectedUrl) {
       func: () => {
         try { globalThis.__localAgentChatBridgeState?.dispose?.(); } catch (_error) {}
         try { globalThis.__localAgentChatExhaustionGuard?.dispose?.(); } catch (_error) {}
+        try { globalThis.__localAgentConversationFabricContent?.dispose?.(); } catch (_error) {}
+        try { globalThis.__localAgentConversationSpawnResultContent?.dispose?.(); } catch (_error) {}
         globalThis.__localAgentChatBridgeState = null;
         globalThis.__localAgentChatExhaustionGuard = null;
+        globalThis.__localAgentConversationFabricContent = null;
+        globalThis.__localAgentConversationSpawnResultContent = null;
       }
     });
     await chrome.scripting.executeScript({
       target: { tabId, frameIds: [0] },
       files: [
         "control_protocol.js",
+        "conversation_fabric_protocol.js",
         "content_retry.js",
+        "spawn_result_content.js",
+        "conversation_fabric_content.js",
         "content.js",
         "dom_contract.js",
         "exhaustion_guard.js"

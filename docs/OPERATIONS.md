@@ -8,7 +8,7 @@ This is the canonical operational workflow for `MichalMatu/local-agent`.
 Local Agent release line: 4.20.6
 immutable tag v4.20.6: 48eb9d8b6c26a9dfb317906d5099acabce8719c8
 released Bridge at tag: 0.8.1
-current source candidate Bridge: 0.8.2
+current source candidate Bridge: 0.8.3
 ```
 
 `main` is a moving production source branch and may contain later verified post-release patches. Before any live operation, read fresh daemon status and verify `daemon_version`, `self_revision`, repository registry identity, execution variant and installed Bridge version.
@@ -79,28 +79,24 @@ or later:
 LOCAL_AGENT_CF>>>
 ```
 
-The service worker admits controls only from the exact top-frame managed parent. Children are explicitly reasoning-only. Campaign state/dedupe is browser-session scoped, results are bounded and must be stable across repeated observations, and only exact owned child tabs are closed.
+The service worker admits controls only from the exact top-frame managed parent. Children are explicitly reasoning-only. Campaign state/dedupe is durable in local extension storage, results are bounded and must be stable across repeated observations, and only exact owned child tabs are closed.
 
 ## Chat Bridge pacing/control
 
-Conversation Fabric does not use LAB schedule markers for normal pacing. When a child campaign needs another observation:
+Conversation Fabric does not use LAB schedule markers for normal pacing. Its existing minute GitHub-control alarm automatically collects child answers and delivers terminal feedback while the parent and Master are enabled. An explicit collect may recover an observation of already-submitted children without repeating prompts.
 
-1. read this parent's exact `conversation_controls` record on `chat-bridge-state`;
-2. increment `control_generation`;
-3. set `enabled=true` and an exact offset-aware future `next_wake_at`;
-4. on the next parent wake emit the exact `LOCAL_AGENT_CF` collect block supplied by the Bridge;
-5. when complete, return scheduling to the intended paused state (`enabled=false`, `next_wake_at=null`) unless continued automation is explicitly needed.
+GitHub remains authoritative for remotely managed parent scheduling. Any change to its exact `conversation_controls` record must increment `control_generation`. Pause the parent after bounded acceptance unless continued automation is explicitly intended.
 
 Never modify Bridge Master through conversation desired state.
 
 ## Live acceptance
 
-After exact-head CI is green and PR `#141` is merged/deployed/reloaded into the normal Chrome session:
+The bounded arithmetic acceptance is recorded in `conversation_fabric/SAME_BROWSER_PROOF_2026-10-04.md`. For a fresh acceptance after verified code is loaded into the normal Chrome session:
 
-1. verify exact source/deployed revision, Bridge `0.8.2`, parent URL/tab and GitHub control state;
+1. verify exact source/deployed revision, Bridge `0.8.3`, parent URL/tab and GitHub control state;
 2. delegate at least two narrow non-overlapping reasoning jobs from one managed parent;
 3. visibly confirm both children open as normal tabs in the same Chrome session without another login/profile;
-4. schedule bounded collect wakes only through GitHub control generations;
+4. wait for automatic result collection on the existing control alarm;
 5. collect stable results and confirm owned child tabs close;
 6. parent reconciles results and makes the final decision;
 7. if execution is justified, queue exactly one target-bound task with the target repository's canonical binding and stable dedupe key;

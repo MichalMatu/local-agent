@@ -52,7 +52,8 @@ async function installParentChromeStub(page) {
     const runtime = {
       async sendMessage(message) {
         window.__cfRuntimeMessages.push(JSON.parse(JSON.stringify(message)));
-        return { ok: true, reason: "conversation_fabric_started", feedbackPrompt: "FABRIC FEEDBACK" };
+        return message.type === "bridge:conversation-fabric-feedback" ? { ok: true } :
+          { ok: true, reason: "conversation_fabric_started", campaignId: "cf-1234567890abcdef", feedbackPrompt: "FABRIC FEEDBACK" };
       },
       onMessage: { addListener() {}, removeListener() {} }
     };
@@ -122,18 +123,22 @@ async function runParentSmoke(context) {
     turn.dataset.turnKey = "assistant-parent-control";
     const message = document.createElement("div");
     message.dataset.messageAuthorRole = "assistant";
-    message.textContent = text;
+    for (const line of text.split("\n")) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = line;
+      message.appendChild(paragraph);
+    }
     turn.appendChild(message);
     document.querySelector("#turns").appendChild(turn);
   }, assistantText);
 
-  await page.waitForFunction(() => window.__cfRuntimeMessages.length === 1);
+  await page.waitForFunction(() => window.__cfRuntimeMessages.length >= 1);
   const runtimeMessage = await page.evaluate(() => window.__cfRuntimeMessages[0]);
   assert.equal(runtimeMessage.type, "bridge:conversation-fabric-control");
   assert.equal(runtimeMessage.conversationUrl, parentUrl);
   assert.equal(runtimeMessage.control.action, "delegate");
   assert.equal(runtimeMessage.control.children.length, 2);
-  assert.equal(runtimeMessage.contentProtocolVersion, 14);
+  assert.equal(runtimeMessage.contentProtocolVersion, require(path.join(bridge, "control_protocol.js")).CONTENT_PROTOCOL_VERSION);
 
   await page.waitForFunction(() => window.__submitted.includes("FABRIC FEEDBACK"));
   assert.deepEqual(await page.evaluate(() => window.__submitted), ["FABRIC FEEDBACK"]);

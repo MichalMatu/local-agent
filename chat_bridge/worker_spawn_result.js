@@ -9,10 +9,8 @@ async function sendConversationSpawnResultMessage(intent) {
     return { ok: false, reason: "spawn_tab_unavailable", error: String(error) };
   }
   if (!tab?.id) return { ok: false, reason: "spawn_tab_unavailable" };
-  const route = await validateConversationSpawnTabRoute(intent, tab);
-  if (!route.ok || route.route !== "child") {
-    return route.ok ? { ok: false, reason: "child_route_not_ready" } : route;
-  }
+  const childUrl = normalizeConversationUrl(tab.url || "");
+  if (!childUrl) return { ok: false, reason: "child_route_not_ready" };
 
   const message = {
     type: "bridge:spawn-result",
@@ -26,7 +24,8 @@ async function sendConversationSpawnResultMessage(intent) {
   let response;
   try {
     response = await deliver();
-  } catch (_error) {
+  } catch (_error) { response = null; }
+  if (response?.protocolVersion !== CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION) {
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, frameIds: [0] },
@@ -39,6 +38,12 @@ async function sendConversationSpawnResultMessage(intent) {
   }
   if (response?.protocolVersion !== CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION) {
     return { ok: false, reason: "spawn_content_protocol_mismatch" };
+  }
+  if (response?.ok) {
+    if (response.childConversationUrl !== childUrl) return { ok: false, reason: "spawn_child_identity_invalid" };
+    // Extension reload clears storage.session. Recover only from the tab's exact
+    // transaction/request/bootstrap claim, validated by the child content controller.
+    await rememberConversationSpawnTab(intent.transaction_id, tab.id);
   }
   return response || { ok: false, reason: "child_result_unavailable" };
 }
@@ -59,7 +64,8 @@ async function closeConversationSpawnTab(intent) {
   }
   if (tab?.id) {
     if (!await conversationSpawnTabClaimMatches(intent.transaction_id, tab.id)) {
-      return { ok: false, reason: "spawn_tab_claim_mismatch" };
+      const owned = await sendConversationSpawnResultMessage(intent);
+      if (!owned?.ok) return { ok: false, reason: "spawn_tab_claim_mismatch" };
     }
     try {
       await chrome.tabs.remove(tab.id);

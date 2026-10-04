@@ -57,3 +57,7 @@ assert.equal(protocol.parseConversationFabricControl(block({
 })), null);
 
 console.log("Conversation Fabric protocol tests passed.");
+
+assert.ok(protocol.parseConversationFabricControl("<<<LOCAL_AGENT_CF " + JSON.stringify(delegate) + " LOCAL_AGENT_CF>>>"), "rendered Markdown may collapse separator line breaks");
+
+assert.equal(protocol.validateControl({ ...delegate, children: [{ id: "a", role: "research", prompt: {text: "invalid"} }] }), null);

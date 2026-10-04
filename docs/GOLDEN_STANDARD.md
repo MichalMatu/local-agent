@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-The current source and production release is `v4.20.6`. The immutable Local Agent release tag points to `48eb9d8b6c26a9dfb317906d5099acabce8719c8`; the current post-release source candidate advances Chat Bridge to `0.8.2` on that unchanged Local Agent release line. `main` and deployed `self_revision` may legitimately be later verified revisions on the same release line. Never infer deployment from a source checkout: read fresh daemon status.
+The current source and production release is `v4.20.6`. The immutable Local Agent release tag points to `48eb9d8b6c26a9dfb317906d5099acabce8719c8`; the current post-release source candidate advances Chat Bridge to `0.8.3` on that unchanged Local Agent release line. `main` and deployed `self_revision` may legitimately be later verified revisions on the same release line. Never infer deployment from a source checkout: read fresh daemon status.
 
 ## Authority and execution
 
@@ -39,7 +39,7 @@ The current source and production release is `v4.20.6`. The immutable Local Agen
 - Children receive bounded reasoning goals and never obtain `.agent/tasks` or machine-command authority.
 - Production children are ordinary tabs in the operator's already authenticated primary Chrome session with the installed Chat Bridge.
 - Conversation Fabric must not launch a second production Chrome/Chromium process, create/migrate a separate ChatGPT profile, copy cookies, use CDP as another production browser-control plane, or require another ChatGPT/Cloudflare login.
-- Child isolation is logical: exact parent URL, child URL, tab id, spawn transaction, request/bootstrap digests and browser-session campaign state. Ambiguous ownership fails closed.
+- Child isolation is logical: exact parent URL, child URL, tab id, spawn transaction, request/bootstrap digests and durable local campaign state. Ambiguous ownership fails closed.
 - Only an already managed parent conversation may issue a `LOCAL_AGENT_CF` delegate/collect control. An unmanaged tab or child tab must not recursively fan out.
 - The dedicated `LOCAL_AGENT_CF` envelope is separate from legacy LAB controls. Conversation Fabric scheduling/pacing uses GitHub `conversation_controls`, not LAB schedule markers.
 - Campaign creation is deduplicated, submit/recovery is bounded, results require stable repeated observation, and cleanup closes only exact owned child tabs.
