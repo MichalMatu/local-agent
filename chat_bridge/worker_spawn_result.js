@@ -1,9 +1,50 @@
-async function observeConversationSpawnResult(intent) {
-  const response = await sendConversationSpawnContentMessage(intent, "bridge:spawn-result");
-  if (!response || typeof response !== "object") {
-    return { ok: false, reason: "child_result_unavailable" };
+async function sendConversationSpawnResultMessage(intent) {
+  validateConversationSpawnBrowserIntent(intent, { requireTab: true });
+  await requireConversationSpawnBootstrapDigest(intent);
+
+  let tab;
+  try {
+    tab = await chrome.tabs.get(intent.tab_id);
+  } catch (error) {
+    return { ok: false, reason: "spawn_tab_unavailable", error: String(error) };
   }
-  return response;
+  if (!tab?.id) return { ok: false, reason: "spawn_tab_unavailable" };
+  const route = await validateConversationSpawnTabRoute(intent, tab);
+  if (!route.ok || route.route !== "child") {
+    return route.ok ? { ok: false, reason: "child_route_not_ready" } : route;
+  }
+
+  const message = {
+    type: "bridge:spawn-result",
+    protocolVersion: CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION,
+    transactionId: intent.transaction_id,
+    childRequestDigest: intent.child_request_digest,
+    bootstrapDigest: intent.bootstrap_digest
+  };
+  const deliver = async () => chrome.tabs.sendMessage(tab.id, message, { frameId: 0 });
+
+  let response;
+  try {
+    response = await deliver();
+  } catch (_error) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id, frameIds: [0] },
+        files: ["control_protocol.js", "spawn_result_content.js"]
+      });
+      response = await deliver();
+    } catch (error) {
+      return { ok: false, reason: "child_result_unavailable", error: String(error) };
+    }
+  }
+  if (response?.protocolVersion !== CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION) {
+    return { ok: false, reason: "spawn_content_protocol_mismatch" };
+  }
+  return response || { ok: false, reason: "child_result_unavailable" };
+}
+
+async function observeConversationSpawnResult(intent) {
+  return sendConversationSpawnResultMessage(intent);
 }
 
 async function closeConversationSpawnTab(intent) {
