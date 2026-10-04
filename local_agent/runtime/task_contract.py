@@ -36,6 +36,10 @@ MAX_TASK_PAYLOAD_FILES = 1536
 MAX_TASK_PAYLOAD_BYTES = MAX_TASK_FILE_BYTES
 
 
+class InvalidDedupeMetadata(ValueError):
+    """Task dedupe metadata is malformed and should retain a precise failure reason."""
+
+
 def _serialized_task_bytes(task: dict[str, Any]) -> bytes:
     return json.dumps(
         task,
@@ -105,17 +109,21 @@ def task_dedupe_identity(task: dict[str, Any]) -> tuple[str | None, int]:
     key = task.get("dedupe_key")
     if key is None:
         if "dedupe_revision" in task:
-            raise ValueError("dedupe_revision requires an explicit dedupe_key")
+            raise InvalidDedupeMetadata("dedupe_revision requires an explicit dedupe_key")
         return None, 1
     if not isinstance(key, str):
-        raise ValueError("dedupe_key must be a string")
+        raise InvalidDedupeMetadata("dedupe_key must be a string")
     if not key or key != key.strip() or len(key) > MAX_DEDUPE_KEY_CHARS:
-        raise ValueError("dedupe_key must be canonical non-empty text up to 200 characters")
+        raise InvalidDedupeMetadata(
+            "dedupe_key must be canonical non-empty text up to 200 characters"
+        )
     if not _DEDUPE_KEY_RE.fullmatch(key):
-        raise ValueError("dedupe_key contains unsupported characters")
+        raise InvalidDedupeMetadata("dedupe_key contains unsupported characters")
     revision = task.get("dedupe_revision", 1)
     if type(revision) is not int or not 1 <= revision <= 1_000_000:
-        raise ValueError("dedupe_revision must be an integer between 1 and 1000000")
+        raise InvalidDedupeMetadata(
+            "dedupe_revision must be an integer between 1 and 1000000"
+        )
     return key, revision
 
 
@@ -140,7 +148,8 @@ def _invokes_local_codex(command: str, *, depth: int = 0) -> bool:
     for nested in _shell_substitutions(substitutions):
         if _invokes_local_codex(nested, depth=depth + 1):
             return True
-    lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|()<>\n")
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|()<>
+")
     lexer.whitespace_split = True
     lexer.whitespace = " \t\r"
     lexer.commenters = ""
@@ -153,9 +162,11 @@ def _invokes_local_codex(command: str, *, depth: int = 0) -> bool:
     for token in tokens:
         if token.startswith("#"):
             comment = True
-        if token and all(char in ";&|()\n" for char in token):
+        if token and all(char in ";&|()
+" for char in token):
             segments.append([])
-            if "\n" in token:
+            if "
+" in token:
                 comment = False
         elif comment:
             continue
@@ -169,11 +180,13 @@ def _invokes_local_codex(command: str, *, depth: int = 0) -> bool:
         index = 0
         while index < len(words):
             word = words[index]
-            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", word) or word in {"if", "then", "do", "elif", "!", "{"}:
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", word) or word in {
+                "if", "then", "do", "elif", "!", "{"
+            }:
                 index += 1
                 continue
             executable = PurePosixPath(word).name.casefold()
-            if executable == "codex":
+            if executable in {"codex", "eval"}:
                 return True
             if executable in {"npx", "pnpm", "yarn", "bun"}:
                 args = words[index + 1:]
@@ -207,7 +220,8 @@ def _shell_policy_sources(command: str) -> tuple[str, str]:
         if pending:
             delimiter, expand, strip_tabs = pending[0]
             text = line.lstrip("\t") if strip_tabs else line
-            if text.rstrip("\r\n") == delimiter:
+            if text.rstrip("\r
+") == delimiter:
                 pending.pop(0)
             elif expand:
                 substitutions.append(line)
