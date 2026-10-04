@@ -4,10 +4,11 @@
   const protocol = globalThis.LocalAgentBridgeProtocol;
   if (!protocol) throw new Error("Local Agent Chat Bridge protocol is unavailable");
   const { normalizeConversationUrl } = protocol;
-  const SPAWN_PROTOCOL_VERSION = 1;
+  const SPAWN_PROTOCOL_VERSION = 2;
   const MAX_RESULT_CHARS = 6_000;
   const TRANSACTION_RE = /^spawn-[0-9a-f]{64}$/;
   const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
+  const COMPLETION_MARKER_RE = /^<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>$/;
   const CLAIM_PREFIX = "local-agent:conversation-spawn:";
 
   const existing = globalThis.__localAgentConversationSpawnResultContent;
@@ -44,8 +45,10 @@
     const transactionId = String(message.transactionId || "");
     const childRequestDigest = String(message.childRequestDigest || "");
     const bootstrapDigest = String(message.bootstrapDigest || "");
+    const completionMarker = String(message.completionMarker || "");
     if (!TRANSACTION_RE.test(transactionId)) return null;
     if (!DIGEST_RE.test(childRequestDigest) || !DIGEST_RE.test(bootstrapDigest)) return null;
+    if (!COMPLETION_MARKER_RE.test(completionMarker)) return null;
     const claim = readClaim(transactionId);
     if (
       !claim ||
@@ -57,7 +60,7 @@
     }
     const childConversationUrl = normalizeConversationUrl(location.href);
     if (!childConversationUrl) return null;
-    return { transactionId, childRequestDigest, bootstrapDigest, childConversationUrl };
+    return { transactionId, childRequestDigest, bootstrapDigest, completionMarker, childConversationUrl };
   }
 
   function cleanAssistantText(element) {
@@ -127,8 +130,28 @@
         childConversationUrl: validated.childConversationUrl
       };
     }
-    const truncated = snapshot.text.length > MAX_RESULT_CHARS;
-    const text = truncated ? snapshot.text.slice(0, MAX_RESULT_CHARS) : snapshot.text;
+
+    const visibleText = snapshot.text.trim();
+    if (!visibleText.endsWith(validated.completionMarker)) {
+      // A paused tool/reasoning turn may expose stable assistant text while no Stop
+      // control is visible. Absence of Stop is therefore not terminal evidence.
+      return {
+        ok: true,
+        reason: "child_generating",
+        childConversationUrl: validated.childConversationUrl
+      };
+    }
+
+    const completedText = visibleText.slice(0, -validated.completionMarker.length).trimEnd();
+    if (!completedText.trim()) {
+      return {
+        ok: true,
+        reason: "child_result_missing",
+        childConversationUrl: validated.childConversationUrl
+      };
+    }
+    const truncated = completedText.length > MAX_RESULT_CHARS;
+    const text = truncated ? completedText.slice(0, MAX_RESULT_CHARS) : completedText;
     const identity = snapshot.identity || `assistant:${await sha256(`${validated.childConversationUrl}\n${text}`)}`;
     return {
       ok: true,
