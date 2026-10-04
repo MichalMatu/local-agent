@@ -61,7 +61,7 @@ class AgentBindingHelpersTests(unittest.TestCase):
         infra = agent_binding.catalog_record_for_repository(
             "local-agent", "MichalMatu/local-agent"
         )
-        self.assertFalse(infra.execution_enabled)
+        self.assertTrue(infra.execution_enabled)
 
     def test_registry_migration_adds_binding_but_refuses_existing_mismatch(self) -> None:
         payload = {
