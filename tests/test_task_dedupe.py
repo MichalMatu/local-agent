@@ -55,7 +55,7 @@ class TaskDedupeTests(unittest.TestCase):
         variants = []
 
         command_timeout = self.task("task-b")
-        command_timeout["command_timeout"] = 900
+        command_timeout["command_timeout"] = 600
         variants.append(command_timeout)
 
         stage_timeout = self.task("task-c")
