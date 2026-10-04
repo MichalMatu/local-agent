@@ -5,7 +5,7 @@
       "id": "local-agent",
       "repository": "MichalMatu/local-agent",
       "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
-      "execution_enabled": false
+      "execution_enabled": true
     },
     {
       "id": "growclip",
