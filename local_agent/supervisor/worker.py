@@ -103,6 +103,24 @@ def _reject_task_binding(repository: RepositoryContext, task: dict[str, object])
     )
 
 
+def _filter_pending_task_bindings(
+    repository: RepositoryContext,
+    pending: list[task_dedupe.PendingTask],
+) -> list[task_dedupe.PendingTask]:
+    """Reject stale/misbound work before it can affect repository-local dedupe intent."""
+    assert repository.agent_binding is not None
+    accepted: list[task_dedupe.PendingTask] = []
+    for item in pending:
+        _, task = item
+        try:
+            require_task_agent_binding(task, repository.agent_binding)
+        except ValueError:
+            _reject_task_binding(repository, task)
+            continue
+        accepted.append(item)
+    return accepted
+
+
 def _publish_duplicate_suppression(
     repository: RepositoryContext,
     suppressed: task_dedupe.SuppressedTask,
@@ -268,7 +286,8 @@ def poll_repository_once(repository: RepositoryContext) -> bool:
                 execution_variant="parallel",
             )
             return False
-        pending = _coalesce_pending_tasks(repository, agentd.pending_tasks())
+        pending = _filter_pending_task_bindings(repository, agentd.pending_tasks())
+        pending = _coalesce_pending_tasks(repository, pending)
         if not pending:
             state = "publication_pending" if agentd.has_pending_publications() else "idle"
             serial_worker.publish_repository_status(
