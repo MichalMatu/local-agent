@@ -103,7 +103,11 @@ def task_preflight(task: dict[str, Any], args: argparse.Namespace) -> dict[str, 
             "resource_admission": "checked_by_executor",
         })
         registry = load_repository_registry(path=args.registry or agentd.multirepo_registry_path())
-        matches = [item for item in registry if item.repository_id == target.repository_id]
+        matches = [
+            item
+            for item in registry
+            if item.repository_id.casefold() == target.repository_id.casefold()
+        ]
         if len(matches) != 1:
             raise ValueError(f"target is not enabled in the local registry: {target.repository_id}")
         repository = matches[0]
