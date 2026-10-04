@@ -56,6 +56,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     "bridge:control-context": controlContext,
     "bridge:assistant-control": applyAssistantControl,
     "bridge:operator-control": applyOperatorLabControl,
+    "bridge:conversation-fabric-control": applyConversationFabricControl,
     "bridge:conversation-exhausted": reportConversationExhausted,
     "bridge:assistant-error": reportAssistantError,
     "bridge:authorize-assistant-retry": authorizeAssistantRetry
