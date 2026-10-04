@@ -1,6 +1,6 @@
 # Local Agent Golden Standard
 
-The current source and production release is `v4.20.6` with Chat Bridge `0.8.1`. The immutable release tag points to `48eb9d8b6c26a9dfb317906d5099acabce8719c8`; current `main` and the deployed `self_revision` may legitimately be later verified revisions on the same release line. Never infer deployment from a source checkout: read fresh daemon status.
+The current Local Agent release line is `v4.20.6`. The immutable release tag points to `48eb9d8b6c26a9dfb317906d5099acabce8719c8`; the current source candidate advances Chat Bridge to `0.8.2`. `main` and deployed `self_revision` may legitimately be later verified revisions on the same release line. Never infer deployment from a source checkout: read fresh daemon status.
 
 ## Authority and execution
 
@@ -20,7 +20,7 @@ The current source and production release is `v4.20.6` with Chat Bridge `0.8.1`.
 - Repository leases prevent two workers from executing the same repository concurrently.
 - Named hardware/external resources and the `machine` resource are admitted before execution.
 - `local-agent` remains execution-disabled as a normal task target unless an explicit future policy change says otherwise.
-- Emergency disable/cancel controls remain authoritative over new work and active work according to their existing contracts.
+- Emergency disable/cancel controls remain authoritative over new and active work according to their existing contracts.
 
 ## Queue deduplication
 
@@ -30,39 +30,40 @@ The current source and production release is `v4.20.6` with Chat Bridge `0.8.1`.
 - Active admission receipts are claim-aware; when the durable claim disappears, they stop blocking corrective work.
 - Recent completed intent/effect receipts are bounded in time.
 - Suppressed duplicates publish terminal `duplicate_task_suppressed` evidence pointing at the original task.
-- Dedupe is a fail-safe, not permission for planners to spam the queue. The parent planner must inspect active/pending/recent work before creating another task.
+- Dedupe is a fail-safe, not permission for planners to spam the queue. The parent must inspect active/pending/recent work before creating another task.
 
 ## Superchat / Conversation Fabric invariants
 
 - A managed ChatGPT conversation is transport/scheduling identity, not repository execution binding.
-- One Superchat parent owns orchestration and the final execution decision.
-- Children receive bounded goals plus pinned repository evidence and return bounded reasoning/evidence.
-- Children have no `.agent/tasks` authority.
-- Production child conversations run in normal tabs of the operator's already authenticated primary Chrome session with the installed Chat Bridge. Conversation Fabric must not launch a second Chrome process or maintain a separate production browser profile for child work.
-- Child isolation is logical, not browser-profile isolation: exact child URL, tab id, spawn transaction, request digest and lifecycle state identify ownership. Ambiguous ownership still fails closed.
-- Existing authenticated browser state is reused. Normal child creation must never require a second ChatGPT login, profile migration, cookie copy, manual Cloudflare loop or isolated-session recovery.
-- Isolated Chromium/profile automation remains allowed for synthetic tests and CI only; it is not the production Conversation Fabric transport.
-- Composer/readiness checks remain bounded and fail closed before submission.
-- Conversation Operator intake is explicit configuration and should remain disabled at rest unless an active bounded campaign intentionally enables it.
-- No second scheduler, direct model-execution loop or Native Messaging execution authority is introduced by Superchat.
+- One managed Superchat parent owns orchestration and the final execution decision.
+- Children receive bounded reasoning goals and never obtain `.agent/tasks` or machine-command authority.
+- Production children are ordinary tabs in the operator's already authenticated primary Chrome session with the installed Chat Bridge.
+- Conversation Fabric must not launch a second production Chrome/Chromium process, create/migrate a separate ChatGPT profile, copy cookies, use CDP as another production browser-control plane, or require another ChatGPT/Cloudflare login.
+- Child isolation is logical: exact parent URL, child URL, tab id, spawn transaction, request/bootstrap digests and browser-session campaign state. Ambiguous ownership fails closed.
+- Only an already managed parent conversation may issue a `LOCAL_AGENT_CF` delegate/collect control. An unmanaged tab or child tab must not recursively fan out.
+- The dedicated `LOCAL_AGENT_CF` envelope is separate from legacy LAB controls. Conversation Fabric scheduling/pacing uses GitHub `conversation_controls`, not LAB schedule markers.
+- Campaign creation is deduplicated, submit/recovery is bounded, results require stable repeated observation, and cleanup closes only exact owned child tabs.
+- Isolated Chromium/profile automation remains allowed for deterministic tests and CI only.
+- No second scheduler, Native Messaging execution authority, direct OpenAI API reasoning loop, or Local Agent-to-browser RPC is introduced by Conversation Fabric.
 
 ## Chat Bridge invariants
 
-- Chat Bridge is the browser-side authority for normal Chrome tab creation, content-script injection, child bootstrap delivery and tab-scoped lifecycle operations.
-- GitHub-backed conversation control uses the exact conversation identity and monotonic `control_generation` for schedule mutations.
+- Chat Bridge is the browser-side authority for primary-Chrome child tab creation, content injection, bootstrap delivery, result observation and owned-tab cleanup.
+- Existing `worker_spawn.js` transaction/claim primitives remain the source of truth for child tab ownership.
+- GitHub-backed conversation control uses the exact conversation identity and monotonic `control_generation` for every schedule mutation.
 - Terminal conversation exhaustion remains fail-closed and cannot be resurrected by stale desired state.
 - The global Bridge Master is not modified through per-conversation desired state.
 - Bootstrap/wake prompts remain bounded; historical chat text is not copied wholesale into recurring prompts.
 
 ## Release/runtime invariants
 
-- `local_agent.version.RELEASE_VERSION` names the release line.
+- `local_agent.version.RELEASE_VERSION` names the Local Agent release line.
 - `vX.Y.Z` tags are immutable release anchors; moving `main` is read independently.
-- Behavior-changing release candidates require matching release notes/changelog before a new version is frozen.
-- Post-release patches on the same version line must be explicit in the checkpoint and verified by exact-head CI before merge/deploy.
-- Fresh production acceptance requires both `daemon_version` and exact `self_revision` evidence.
+- A Bridge-only post-release patch may advance the manifest version on the same Local Agent release line, but current docs/changelog must state that explicitly.
+- Behavior-changing candidates require exact-head CI before merge/deploy.
+- Fresh production acceptance requires both `daemon_version` and exact `self_revision` evidence plus the installed Bridge version.
 - Candidate worktrees/branches are disposable and never become source of truth merely because they exist.
 
 ## Live acceptance standard
 
-A Superchat acceptance is successful only when one parent conversation demonstrably delegates bounded reasoning to children opened in the existing primary Chrome session, receives their outputs, synthesizes the decision, and—if execution is needed—causes exactly one target-bound Local Agent task to run. No child may execute commands, no secondary production browser/profile may be created, no ambiguous tab ownership may be adopted, and no duplicate expensive task may run.
+A Superchat acceptance passes only when one managed parent visibly delegates at least two bounded, non-overlapping reasoning jobs into normal child tabs in the same existing Chrome session, receives stable results, closes its owned child tabs, synthesizes the final decision itself and—only if execution is justified—causes at most one exact target-bound Local Agent task to run. No secondary production browser/profile, child machine authority, ambiguous tab adoption, LAB pacing fallback or duplicate expensive execution is acceptable.

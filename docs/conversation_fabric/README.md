@@ -1,38 +1,67 @@
 # Conversation Fabric
 
-Conversation Fabric is the reasoning-child layer beneath one Superchat parent. This directory contains current implementation/acceptance material plus historical design evidence.
+Conversation Fabric is the reasoning-child layer beneath one managed Superchat parent. Current production design is browser-native: child work stays inside the operator's already authenticated primary Chrome session and installed Chat Bridge.
 
-## Current branch model
+## Branch/state model
 
-- `main` — production source of truth.
-- `chat-bridge-state` — operational Chat Bridge desired/runtime state.
-- `operator-control` — operational Conversation Operator control/evidence.
-- `work/*` — disposable short-lived candidate branches only.
+- `main` — production source of truth;
+- `chat-bridge-state` — GitHub desired/runtime state for managed conversations;
+- `operator-control` — durable Conversation Operator control/evidence where still applicable;
+- `work/*` — disposable candidate branches only.
 
-There is no long-lived Conversation Fabric development branch in the current operating model. Historical `develop/*` or `archive/*` refs are not source of truth.
+Historical isolated-profile/DEV-lab branches and documents are not current operating instructions.
 
-## Architecture boundary
+## Architecture
 
 ```text
-operator's normal authenticated Chrome
-  -> parent Superchat tab
-  -> Chat Bridge
-  -> bounded reasoning-only child tabs in the same Chrome session
-  -> child evidence/results
+normal authenticated Chrome
+  -> managed parent Superchat
+  -> LOCAL_AGENT_CF control
+  -> Chat Bridge service worker
+  -> existing worker_spawn.js
+  -> reasoning-only child tabs in same Chrome session
+  -> bounded stable child results
+  -> owned child-tab cleanup
   -> parent synthesis
-  -> target repository .agent/tasks (only when execution is justified)
-  -> deterministic Local Agent execution
+  -> exact target .agent/tasks only if execution is justified
 ```
 
-GitHub owns durable control/evidence. Chat Bridge owns normal browser tab/content lifecycle. Children never receive machine execution authority.
+GitHub owns managed-chat pacing through `conversation_controls`. Local Agent remains the only machine executor. Children never receive machine execution authority.
 
-Production child isolation is logical: exact tab id, canonical conversation URL, spawn transaction and request/bootstrap digests. It is not implemented by a second Chrome process or a separate browser profile.
+## Current implementation
 
-Isolated Chromium remains valid for deterministic tests and CI only.
+The Chat Bridge `0.8.2` candidate implements the primary-Chrome path directly:
 
-## Current implementation boundary
+- `conversation_fabric_protocol.js` — exact delegate/collect envelope and bounds;
+- `conversation_fabric_content.js` — managed parent DOM controller and idempotent parent feedback;
+- `worker_conversation_fabric.js` — campaign admission, dedupe, child lifecycle and stable collection;
+- `worker_spawn.js` — existing transaction-safe tab creation/bootstrap/reconciliation primitives;
+- `worker_spawn_result.js` + `spawn_result_content.js` — exact owned child result/cleanup helpers;
+- browser-session campaign state in `chrome.storage.session`;
+- content protocol `14`, Bridge manifest `0.8.2`;
+- synthetic Node and real headless Chromium DOM coverage.
 
-The existing live actuator still launches a Playwright persistent context. That path is now considered transitional and must not be used for the next production acceptance. The immediate implementation goal is to route the live child lifecycle through the installed Chat Bridge in the already authenticated primary Chrome session, reusing the existing `chrome.tabs`, `chrome.scripting`, spawn and content-script primitives.
+No production CDP attachment, dedicated browser/profile, Native Messaging, second scheduler or Local Agent-to-browser RPC is part of this design.
+
+## Control model
+
+Delegate:
+
+```text
+<<<LOCAL_AGENT_CF
+{"schema_version":1,"action":"delegate","children":[...]}
+LOCAL_AGENT_CF>>>
+```
+
+Collect:
+
+```text
+<<<LOCAL_AGENT_CF
+{"schema_version":1,"action":"collect","campaign_id":"cf-..."}
+LOCAL_AGENT_CF>>>
+```
+
+Only the exact managed parent may issue these controls. Normal Conversation Fabric pacing is GitHub-managed; LAB schedule markers are not used for child campaign continuation.
 
 ## Read order
 
@@ -42,4 +71,4 @@ The existing live actuator still launches a Playwright persistent context. That 
 4. `../GOLDEN_STANDARD.md`
 5. `../OPERATIONS.md`
 
-`CHECKPOINT_2026-10-04_SUPERCHAT_READY.md`, `SELF_DIAGNOSTIC_2026-10-04.md`, DEV-lab notes, isolated-profile material, old handoff prompts and implementation plans are historical evidence. Consult them only when investigating a specific failure; do not treat them as current instructions.
+Historical checkpoint/self-diagnostic/DEV-lab/isolated-profile material remains evidence only.

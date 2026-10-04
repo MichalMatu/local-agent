@@ -1,12 +1,12 @@
-# Next chat prompt — primary Chrome child lifecycle implementation
+# Next chat prompt — bounded primary-Chrome live acceptance
 
-Use the following in one new parent ChatGPT conversation.
+Use this only after PR `#141` is merged/deployed and Chat Bridge `0.8.2` is loaded in the operator's normal Chrome session.
 
 ---
 
 Continue `MichalMatu/local-agent`, but do not use prior-chat memory as source of truth.
 
-First read fresh from current `main`:
+Read fresh:
 
 1. `AGENTS.md`
 2. `docs/CURRENT_HANDOFF.md`
@@ -15,23 +15,18 @@ First read fresh from current `main`:
 5. `docs/conversation_fabric/README.md`
 6. `docs/conversation_fabric/CURRENT_PLAN.md`
 
-The current goal is **not** another isolated-profile login repair and not yet the final live Superchat acceptance.
+Goal: run one bounded real Conversation Fabric acceptance in the already authenticated primary Chrome session. Do not repair or use an isolated profile, `chat-bridge-cft`, CDP, another browser process, cookie migration or manual Cloudflare/login flow.
 
-Implement the architecture correction: production Conversation Fabric child chats must be created and managed as normal tabs in the operator's already authenticated primary Chrome session through the installed Chat Bridge. Do not launch a second Chrome/Chromium process, do not create or migrate a separate ChatGPT profile, do not copy cookies and do not add manual Cloudflare/login recovery to the normal flow.
+Before delegating, verify fresh `main`, exact installed Local Agent `self_revision`, Chat Bridge `0.8.2`, the exact managed parent conversation/tab and its GitHub `conversation_controls` record.
 
-Reuse existing browser-side primitives rather than rebuilding them:
+Delegate at least two narrow non-overlapping reasoning-only children using one exact trailing `LOCAL_AGENT_CF` delegate block. Children may inspect/reason from bounded repository evidence but may not create `.agent/tasks`, run machine commands, mutate repositories or make the final parent decision.
 
-- `chat_bridge/worker_spawn.js` transaction-safe tab creation/recovery/bootstrap primitives;
-- Chat Bridge `chrome.tabs` / `chrome.scripting` permissions;
-- existing content-script composer interaction;
-- canonical child URL and transaction/digest ownership rules.
+Verify that the children open as ordinary tabs in the same existing Chrome session. When Bridge returns a collect instruction, schedule the next parent wake through the exact GitHub `conversation_controls` record and increment `control_generation`; do not use LAB scheduling markers.
 
-The current `scripts/conversation_live_slice_browser.cjs` production path still launches a Playwright persistent context. Replace that production dependency with primary-Chrome/Chat-Bridge control while preserving fail-closed tab ownership, duplicate-submit protection, bounded readiness checks and child observe/close behavior.
+On the next wake, emit the exact `LOCAL_AGENT_CF` collect block supplied by Bridge. Require stable child results, verify the owned child tabs are retired/closed, then synthesize the final parent decision.
 
-Keep isolated Chromium/profile automation only for deterministic synthetic tests and CI.
+If real execution is justified, resolve the actual target repository from the runtime catalog and queue at most one bounded `.agent/tasks` item with that repository's exact canonical `agent_binding` and a stable branch-scoped `dedupe_key`. `local-agent` itself remains execution-disabled. If execution is not needed, create no task.
 
-Add focused regression coverage that proves production mode does not launch or require a second browser/profile. Run the exact relevant verification/CI. Do not weaken repository execution authority: children remain reasoning-only and only the parent may request one exact target-bound `.agent/tasks` execution when later live acceptance justifies it.
-
-After the primary-Chrome path is implemented and verified, update the current handoff with the exact candidate SHA/evidence and make the next milestone the bounded real-code Superchat acceptance.
+Verify no equivalent duplicate work ran. End the managed parent in its intended paused state unless continued automation is explicitly required. Record PASS / PARTIAL / FAIL with exact evidence and one next blocker if any.
 
 ---

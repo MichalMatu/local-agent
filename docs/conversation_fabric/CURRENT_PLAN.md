@@ -2,81 +2,91 @@
 
 ## Goal
 
-Move production child-chat lifecycle into the operator's already authenticated primary Chrome session and then run one bounded live Superchat acceptance on real code.
+Finish verification and live acceptance of the browser-native Conversation Fabric path in the operator's already authenticated primary Chrome session.
 
-The isolated-profile production approach is retired. It introduced an unnecessary second authentication boundary: ChatGPT login and Cloudflare verification can block child creation even while the operator's normal Chrome session is already healthy.
+The separate-profile production approach is retired. The implementation is now in PR `#141`; the remaining work is verification, merge/deploy/reload and one bounded real live proof.
 
-## Production browser model
+## Implemented production model
 
 Production Conversation Fabric uses:
 
-- the operator's normal Chrome process;
-- the existing authenticated ChatGPT session;
-- the installed Chat Bridge extension;
-- normal Chrome tabs for parent and child conversations;
-- logical ownership through exact tab id, canonical child URL, spawn transaction id, request digest and bootstrap digest.
+- one managed parent Superchat in the operator's normal Chrome;
+- installed Chat Bridge `0.8.2` candidate;
+- a dedicated trailing `LOCAL_AGENT_CF` control envelope, separate from legacy LAB controls;
+- the existing `worker_spawn.js` `chrome.tabs` / `chrome.scripting` primitives;
+- ordinary child tabs in the same authenticated Chrome session;
+- `chrome.storage.session` campaign/dedupe state;
+- exact transaction/tab/request/bootstrap ownership;
+- bounded stable child-result capture and exact owned-tab cleanup;
+- GitHub `conversation_controls` for pacing/next wakes.
 
-Production Conversation Fabric does **not**:
+Production does **not** launch another browser, create/migrate another ChatGPT profile, copy cookies, use CDP as a second production control plane, add Native Messaging, create a Local Agent-to-browser RPC, or use LAB scheduling for normal Conversation Fabric pacing.
 
-- launch another Chrome/Chromium process;
-- create or migrate a separate ChatGPT profile;
-- copy cookies/session files;
-- require manual login in a child browser;
-- treat Cloudflare/login recovery as a normal orchestration step.
+## Candidate mechanics
 
-Isolated Chromium remains test infrastructure for deterministic synthetic browser/extension coverage.
+A parent delegation ends with:
 
-## Existing building blocks to reuse
+```text
+<<<LOCAL_AGENT_CF
+{"schema_version":1,"action":"delegate","children":[
+  {"id":"audit","role":"research","prompt":"..."},
+  {"id":"verify","role":"verification","prompt":"..."}
+]}
+LOCAL_AGENT_CF>>>
+```
 
-Do not reimplement browser mechanics that already exist:
+The Bridge admits this only from the exact top-frame managed parent. Each child bootstrap states that it is reasoning-only and may not create Local Agent tasks, run machine commands, mutate repositories or make the final parent decision.
 
-- `chat_bridge/worker_spawn.js` already contains transaction-safe child-tab creation, recovery and bootstrap submission primitives using `chrome.tabs` and `chrome.scripting`;
-- Chat Bridge content scripts already interact with the ChatGPT composer and preserve operator edits fail-closed;
-- canonical conversation URL and ownership checks already exist;
-- GitHub remains durable control/evidence; Local Agent remains the only machine executor.
+When a campaign is running, Bridge returns a parent feedback prompt containing the exact collect block and instructions to schedule one GitHub-managed wake. The parent updates its exact `conversation_controls` record with `control_generation += 1` and a bounded `next_wake_at`.
 
-The implementation task is to make the live production Conversation Fabric path use these normal-Chrome Bridge primitives instead of `chromium.launchPersistentContext(...)`.
+Collection ends with:
 
-## Implementation sequence
+```text
+<<<LOCAL_AGENT_CF
+{"schema_version":1,"action":"collect","campaign_id":"cf-..."}
+LOCAL_AGENT_CF>>>
+```
 
-1. Remove the separate-profile requirement from the production live child actuator path.
-2. Route create/recover/probe/submit/reconcile/open/observe/close lifecycle operations through the installed Chat Bridge in the primary Chrome session.
-3. Preserve exact transaction/tab ownership and fail closed on ambiguous or missing tabs.
-4. Preserve bounded composer/readiness checks and duplicate-submit protection.
-5. Keep isolated Chromium only in synthetic browser tests/CI.
-6. Remove normal-flow manual login/profile migration from the acceptance path.
-7. Add focused regression coverage proving production mode does not launch a second browser/profile.
-8. Run exact-head CI and the relevant real Chrome/Bridge smoke.
-9. Only then resume the bounded live Superchat acceptance.
+Results must be stable across repeated observations before they are returned to the parent. Completed campaigns close only their owned child tabs.
 
-## Live acceptance sequence after implementation
+## Verification already encoded
 
-1. Verify current `main`, installed Local Agent `self_revision`, Chat Bridge version and the parent conversation control state.
-2. Verify the normal Chrome session is already authenticated and Chat Bridge is active; do not start another browser.
-3. Choose one small real-code goal in an execution-enabled repository.
-4. Parent creates at least two reasoning-only children as normal tabs in the same Chrome session with non-overlapping assignments.
-5. Give children pinned repository/commit context and a bounded output contract. No child may create `.agent/tasks` or run machine commands.
-6. Parent reads both child results and records exact tab/conversation lifecycle evidence.
-7. Parent reconciles disagreements and decides whether a code change is justified.
-8. If execution is justified, parent creates exactly one bounded target-repository task with the exact canonical binding and a stable branch-scoped `dedupe_key`.
-9. Observe one Local Agent execution/result and confirm no equivalent duplicate task/build/test runs.
-10. Retire owned child tabs/lifecycle state and return scheduling/operator state to the intended paused state.
-11. Record PASS / PARTIAL / FAIL with exact evidence and any single next blocker.
+The candidate includes:
+
+- exact positive/negative protocol tests;
+- worker lifecycle tests for two children, dedupe, managed-parent admission, stable collect and partial-failure cleanup;
+- content protocol v14 / manifest 0.8.2 contract tests;
+- real headless Chromium DOM smoke for parent control detection/composer feedback and child result capture/claim rejection;
+- full repository CI coverage through the existing `bridge-browser`, test, coverage, Python 3.14 and macOS smoke jobs.
+
+## Remaining sequence
+
+1. Freeze one final candidate SHA with code + current docs/release metadata.
+2. Require exact-head full CI green on that SHA.
+3. Inspect PR `#141` reviews/threads and merge only with no blocking review.
+4. Verify current `main`, Local Agent runtime `self_revision`, and installed Chat Bridge source/version.
+5. Reload the unpacked Chat Bridge in the operator's normal Chrome session so content protocol v14/Bridge 0.8.2 is active in the existing parent tab.
+6. Run one bounded live acceptance with at least two narrow non-overlapping reasoning children.
+7. Verify children appear as ordinary tabs in the same Chrome session and no extra login/Cloudflare/profile is involved.
+8. Use only GitHub-managed `conversation_controls` for bounded collect wakes.
+9. Collect both stable results, verify exact owned-tab cleanup, and let the parent synthesize the final answer.
+10. If execution is justified, publish at most one exact target-repository task with canonical binding and stable dedupe key; otherwise publish no executable task.
+11. Verify no duplicate execution and leave the parent in the intended paused state.
 
 ## Stop conditions
 
-Stop rather than weakening safety if any of these occurs:
+Stop rather than weakening safety if:
 
-- the normal Chrome/Bridge session is not available;
-- child tab ownership is ambiguous;
-- two authoritative child generations appear for one child slot;
+- the parent is not a managed exact conversation/tab;
+- child tab/transaction ownership is ambiguous;
 - a child obtains machine execution authority;
+- result identity is missing/unstable beyond bounded retry;
+- GitHub conversation-control ownership/generation is uncertain;
 - target binding/repository identity is uncertain;
-- equivalent expensive tasks execute twice;
-- the parent cannot observe durable child result evidence.
+- equivalent expensive tasks execute twice.
 
-A missing isolated profile, isolated-profile login failure or Cloudflare challenge is no longer a production blocker because that path is no longer part of the accepted production architecture.
+A missing isolated profile, isolated-profile login failure or Cloudflare challenge is not a production blocker because that path is no longer part of the accepted architecture.
 
 ## Success criteria
 
-The milestone passes only when the user can visibly see one Superchat parent orchestrating real child tabs inside the existing Chrome session and, when needed, exactly one deterministic Local Agent execution on real code.
+The milestone passes only when the user can visibly see one managed parent orchestrating at least two reasoning-only child tabs inside the already-running normal Chrome session, collecting their stable results, closing those owned tabs and—only if justified—causing no more than one deterministic target-bound Local Agent execution.
