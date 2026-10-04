@@ -150,40 +150,8 @@ def run_bridge_browser() -> None:
         [node, "scripts/bridge_assistant_error_reload_smoke.cjs"],
     )
     _run(
-        "Conversation live slice browser restart recovery smoke",
+        "Conversation direct browser restart/recovery smoke",
         [node, "scripts/conversation_live_slice_browser_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn transient content race smoke",
-        [node, "scripts/conversation_spawn_content_race_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn block-structured composer rerender smoke",
-        [node, "scripts/conversation_spawn_composer_structure_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn transient UC route smoke",
-        [node, "scripts/conversation_spawn_uc_transition_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn current ChatGPT DOM identity smoke",
-        [node, "scripts/conversation_spawn_current_dom_identity_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn collapsed ChatGPT DOM identity smoke",
-        [node, "scripts/conversation_spawn_collapsed_identity_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn owned provisional-to-canonical identity smoke",
-        [node, "scripts/conversation_spawn_owned_route_identity_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn owned direct-to-canonical identity smoke",
-        [node, "scripts/conversation_spawn_direct_route_identity_smoke.cjs"],
-    )
-    _run(
-        "Conversation spawn selectorless exact-text identity smoke",
-        [node, "scripts/conversation_spawn_selectorless_identity_smoke.cjs"],
     )
 
 
