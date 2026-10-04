@@ -46,13 +46,21 @@ function conversationFabricCollectBlock(campaignId) {
   ].join("\n");
 }
 
+function conversationFabricNextWakeInstruction(campaignId) {
+  return [
+    `Schedule one GitHub-managed wake for this parent about ${CONVERSATION_FABRIC_COLLECT_DELAY_SECONDS} seconds from now.`,
+    "Use this conversation's exact conversation_controls record and increment control_generation for the schedule mutation.",
+    "Do not use LAB schedule markers for Conversation Fabric pacing.",
+    "On that wake, end the parent reply with this exact Conversation Fabric collect block:",
+    conversationFabricCollectBlock(campaignId)
+  ].join("\n\n");
+}
+
 function conversationFabricPendingPrompt(campaign, pendingIds) {
   return [
     `Conversation Fabric campaign ${campaign.id} is still running in child tabs: ${pendingIds.join(", ")}.`,
     "Do not synthesize the delegated work yet.",
-    `End this reply with [LAB:NEXT=${CONVERSATION_FABRIC_COLLECT_DELAY_SECONDS}s].`,
-    "On the next wake, end the reply with this exact Conversation Fabric collect block:",
-    conversationFabricCollectBlock(campaign.id)
+    conversationFabricNextWakeInstruction(campaign.id)
   ].join("\n\n");
 }
 
@@ -62,9 +70,7 @@ function conversationFabricStartedPrompt(campaign) {
     `Conversation Fabric started ${campaign.children.length} reasoning child tab(s) in this Chrome session: ${ids}.`,
     `Campaign id: ${campaign.id}.`,
     "Do not synthesize the delegated work yet.",
-    `End this reply with [LAB:NEXT=${CONVERSATION_FABRIC_COLLECT_DELAY_SECONDS}s].`,
-    "On the next wake, end the reply with this exact Conversation Fabric collect block:",
-    conversationFabricCollectBlock(campaign.id)
+    conversationFabricNextWakeInstruction(campaign.id)
   ].join("\n\n");
 }
 
@@ -118,6 +124,20 @@ function validateConversationFabricMessage(message, sender) {
     fingerprint,
     control
   };
+}
+
+async function conversationFabricManagedParent(authority) {
+  const state = await getBridgeState();
+  const parent = state.conversations?.[conversationId(authority.conversationUrl)] || null;
+  if (!parent || parent.url !== authority.conversationUrl) return null;
+  if (
+    parent.preferredTabId !== null &&
+    parent.preferredTabId !== undefined &&
+    parent.preferredTabId !== authority.parentTabId
+  ) {
+    return null;
+  }
+  return parent;
 }
 
 async function conversationFabricCampaignId(authority) {
@@ -367,6 +387,10 @@ async function applyConversationFabricControl(message, sender) {
     return { ok: false, reason: "conversation_fabric_control_invalid", error: String(error) };
   }
   try {
+    const parent = await conversationFabricManagedParent(authority);
+    if (!parent) {
+      return { ok: false, reason: "conversation_fabric_parent_not_managed" };
+    }
     if (authority.control.action === "delegate") {
       return await delegateConversationFabric(authority);
     }
