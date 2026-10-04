@@ -38,13 +38,17 @@ The current source and production release is `v4.20.6` with Chat Bridge `0.8.1`.
 - One Superchat parent owns orchestration and the final execution decision.
 - Children receive bounded goals plus pinned repository evidence and return bounded reasoning/evidence.
 - Children have no `.agent/tasks` authority.
-- Browser child lifecycle actions use isolated owned browser state and fail closed on ambiguous ownership/authentication.
-- Authentication readiness is independent from composer DOM readiness; composer stabilization is checked before submission.
+- Production child conversations run in normal tabs of the operator's already authenticated primary Chrome session with the installed Chat Bridge. Conversation Fabric must not launch a second Chrome process or maintain a separate production browser profile for child work.
+- Child isolation is logical, not browser-profile isolation: exact child URL, tab id, spawn transaction, request digest and lifecycle state identify ownership. Ambiguous ownership still fails closed.
+- Existing authenticated browser state is reused. Normal child creation must never require a second ChatGPT login, profile migration, cookie copy, manual Cloudflare loop or isolated-session recovery.
+- Isolated Chromium/profile automation remains allowed for synthetic tests and CI only; it is not the production Conversation Fabric transport.
+- Composer/readiness checks remain bounded and fail closed before submission.
 - Conversation Operator intake is explicit configuration and should remain disabled at rest unless an active bounded campaign intentionally enables it.
 - No second scheduler, direct model-execution loop or Native Messaging execution authority is introduced by Superchat.
 
 ## Chat Bridge invariants
 
+- Chat Bridge is the browser-side authority for normal Chrome tab creation, content-script injection, child bootstrap delivery and tab-scoped lifecycle operations.
 - GitHub-backed conversation control uses the exact conversation identity and monotonic `control_generation` for schedule mutations.
 - Terminal conversation exhaustion remains fail-closed and cannot be resurrected by stale desired state.
 - The global Bridge Master is not modified through per-conversation desired state.
@@ -61,4 +65,4 @@ The current source and production release is `v4.20.6` with Chat Bridge `0.8.1`.
 
 ## Live acceptance standard
 
-A Superchat acceptance is successful only when one parent conversation demonstrably delegates bounded reasoning to children, receives their outputs, synthesizes the decision, and—if execution is needed—causes exactly one target-bound Local Agent task to run. No child may execute commands, no ambiguous browser state may be adopted, and no duplicate expensive task may run.
+A Superchat acceptance is successful only when one parent conversation demonstrably delegates bounded reasoning to children opened in the existing primary Chrome session, receives their outputs, synthesizes the decision, and—if execution is needed—causes exactly one target-bound Local Agent task to run. No child may execute commands, no secondary production browser/profile may be created, no ambiguous tab ownership may be adopted, and no duplicate expensive task may run.
