@@ -13,7 +13,17 @@ function clone(value) {
   return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
 
-function createHarness({ failSecondSubmit = false, managed = true, storage = {} } = {}) {
+function childIdForIntent(intent) {
+  const match = String(intent?.bootstrap_text || "").match(/^child_id=([^\n]+)$/m);
+  return match ? match[1] : "";
+}
+
+function createHarness({
+  failChildId = "",
+  failReason = "spawn_unexpected_route",
+  managed = true,
+  storage = {}
+} = {}) {
   const session = storage;
   const created = [];
   const submitted = [];
@@ -102,8 +112,12 @@ function createHarness({ failSecondSubmit = false, managed = true, storage = {} 
     },
     async submitConversationSpawnBootstrap(intent) {
       submitted.push(clone(intent));
-      if (failSecondSubmit && submitted.length === 2) {
-        return { ok: false, reason: "spawn_unexpected_route" };
+      if (failChildId && childIdForIntent(intent) === failChildId) {
+        return {
+          ok: false,
+          reason: failReason,
+          error: `synthetic failure for ${failChildId}`
+        };
       }
       return {
         ok: true,
@@ -126,7 +140,10 @@ function createHarness({ failSecondSubmit = false, managed = true, storage = {} 
       };
     },
     async closeConversationSpawnTab(intent) {
-      assert.ok(Object.values(session).some(campaign => ["completed", "failed"].includes(campaign.state)), "terminal evidence must be saved before tabs close");
+      assert.ok(
+        Object.values(session).some(campaign => ["completed", "failed"].includes(campaign.state)),
+        "terminal evidence must be saved before tabs close"
+      );
       closed.push(clone(intent));
       return { ok: true, reason: "child_closed" };
     }
@@ -222,8 +239,11 @@ function createHarness({ failSecondSubmit = false, managed = true, storage = {} 
     await h.context.saveConversationFabricCampaign(delivered);
     staleCleanup.cleanup_pending = false;
     await h.context.saveConversationFabricCampaign(staleCleanup);
-    assert.equal((await h.context.loadConversationFabricCampaign(started.campaignId)).feedback_delivered, true,
-      "late cleanup must not erase the receipt of concurrent terminal feedback delivery");
+    assert.equal(
+      (await h.context.loadConversationFabricCampaign(started.campaignId)).feedback_delivered,
+      true,
+      "late cleanup must not erase the receipt of concurrent terminal feedback delivery"
+    );
 
     const wrongSender = await h.context.applyConversationFabricControl(
       h.delegateMessage,
@@ -242,11 +262,75 @@ function createHarness({ failSecondSubmit = false, managed = true, storage = {} 
   }
 
   {
-    const h = createHarness({ failSecondSubmit: true });
-    const result = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
-    assert.equal(result.ok, false, JSON.stringify(result));
-    assert.equal(result.reason, "conversation_fabric_failed");
-    assert.equal(h.closed.length, 2, "partial failure must close both the completed child and current failed owned tab");
+    const h = createHarness({
+      failChildId: "tests",
+      failReason: "spawn_page_not_ready"
+    });
+    const fourChildMessage = {
+      ...h.delegateMessage,
+      fingerprint: "c1d2e3f4",
+      assistantIdentity: "assistant-four-child-partial-failure",
+      control: {
+        schema_version: 1,
+        action: "delegate",
+        marker: "synthetic-four-child-marker",
+        children: [
+          { id: "logic", role: "research", prompt: "Audit runtime logic." },
+          { id: "architecture", role: "integration", prompt: "Audit architecture." },
+          { id: "tests", role: "verification", prompt: "Audit verification." },
+          { id: "races", role: "verification", prompt: "Audit lifecycle races." }
+        ]
+      }
+    };
+    const started = await h.context.applyConversationFabricControl(fourChildMessage, h.sender);
+    assert.equal(started.ok, true, JSON.stringify(started));
+    assert.equal(started.reason, "conversation_fabric_started");
+    assert.equal(h.created.length, 4, "one failed child must not prevent later children from starting");
+
+    const campaign = await h.context.loadConversationFabricCampaign(started.campaignId);
+    assert.deepEqual(
+      Array.from(campaign.children, child => child.state),
+      ["submitted", "submitted", "failed", "submitted"]
+    );
+    const failed = campaign.children.find(child => child.id === "tests");
+    assert.equal(failed.attempts, 6, "initial submit plus five bounded retries must be recorded");
+    assert.equal(failed.last_reason, "spawn_page_not_ready");
+    assert.match(failed.last_error, /synthetic failure for tests/);
+    assert.equal(campaign.failed_children.length, 1);
+    assert.equal(campaign.failed_children[0].id, "tests");
+    assert.equal(campaign.failed_children[0].attempt, 6);
+    assert.equal(campaign.partial_failure, true);
+    assert.match(started.feedbackPrompt, /started 3\/4 reasoning child tab/);
+    assert.match(started.feedbackPrompt, /tests: spawn_page_not_ready/);
+    assert.equal(h.closed.length, 0, "partial startup failure must not close already-running children");
+
+    const collected = await h.context.applyConversationFabricControl({
+      type: "bridge:conversation-fabric-control",
+      conversationUrl: parentUrl,
+      fingerprint: "d1e2f3a4",
+      assistantIdentity: "assistant-four-child-collect",
+      contentProtocolVersion: h.context.CONTENT_PROTOCOL_VERSION,
+      control: {
+        schema_version: 1,
+        action: "collect",
+        campaign_id: started.campaignId,
+        marker: "synthetic-four-child-collect"
+      }
+    }, h.sender);
+    assert.equal(collected.ok, true, JSON.stringify(collected));
+    assert.equal(collected.reason, "conversation_fabric_completed");
+    assert.equal(h.observed.length, 6, "three successful children require stable double observation");
+    assert.equal(h.closed.length, 4, "terminal cleanup closes all owned tabs only after results are captured");
+    assert.match(collected.feedbackPrompt, /completed with partial child failures/);
+    assert.match(collected.feedbackPrompt, /child tests \(verification\) FAILED/);
+    assert.match(collected.feedbackPrompt, /reason=spawn_page_not_ready/);
+    assert.match(collected.feedbackPrompt, /Result for tab 101\./);
+    assert.match(collected.feedbackPrompt, /Result for tab 102\./);
+    assert.match(collected.feedbackPrompt, /Result for tab 104\./);
+    const completed = await h.context.loadConversationFabricCampaign(started.campaignId);
+    assert.equal(completed.state, "completed");
+    assert.equal(completed.results.length, 3);
+    assert.equal(completed.failed_children.length, 1);
   }
 
   {
@@ -257,13 +341,20 @@ function createHarness({ failSecondSubmit = false, managed = true, storage = {} 
     ]);
     assert.ok(simultaneous.every(result => result.ok));
     assert.equal(h.created.length, 2, "concurrent duplicate controls must not create extra children");
-    const another = await h.context.applyConversationFabricControl({ ...h.delegateMessage, assistantIdentity: "new-delegation" }, h.sender);
+    const another = await h.context.applyConversationFabricControl(
+      { ...h.delegateMessage, assistantIdentity: "new-delegation" },
+      h.sender
+    );
     assert.equal(another.reason, "conversation_fabric_parent_busy");
     const restarted = createHarness({ storage: h.session });
-    const duplicate = await restarted.context.applyConversationFabricControl(restarted.delegateMessage, restarted.sender);
+    const duplicate = await restarted.context.applyConversationFabricControl(
+      restarted.delegateMessage,
+      restarted.sender
+    );
     assert.equal(duplicate.campaignId, simultaneous[0].campaignId);
     assert.equal(restarted.created.length, 0, "worker restart must preserve campaign ownership and dedupe");
   }
+
   {
     const h = createHarness();
     const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
@@ -276,6 +367,7 @@ function createHarness({ failSecondSubmit = false, managed = true, storage = {} 
     assert.equal(result.reason, "conversation_fabric_failed");
     assert.equal(h.created.length, 2, "failed or interrupted delegations must never replay automatically");
   }
+
   {
     const h = createHarness();
     h.context.getBridgeState = async () => ({ settings: { masterEnabled: false }, conversations: {} });
@@ -283,6 +375,7 @@ function createHarness({ failSecondSubmit = false, managed = true, storage = {} 
     assert.equal(result.reason, "conversation_fabric_parent_not_managed");
     assert.equal(h.created.length, 0);
   }
+
   {
     const h = createHarness();
     const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
@@ -291,7 +384,10 @@ function createHarness({ failSecondSubmit = false, managed = true, storage = {} 
     campaign.cleanup_pending = true;
     campaign.children = [...campaign.children, ...campaign.children];
     await h.context.saveConversationFabricCampaign(campaign);
-    const result = await h.context.applyConversationFabricControl({ ...h.delegateMessage, assistantIdentity: "new-delegation" }, h.sender);
+    const result = await h.context.applyConversationFabricControl(
+      { ...h.delegateMessage, assistantIdentity: "new-delegation" },
+      h.sender
+    );
     assert.equal(result.reason, "conversation_fabric_capacity");
     assert.equal(h.created.length, 2, "unclosed failed child tabs must continue to consume the global capacity");
   }
