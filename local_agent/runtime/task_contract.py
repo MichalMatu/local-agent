@@ -148,8 +148,7 @@ def _invokes_local_codex(command: str, *, depth: int = 0) -> bool:
     for nested in _shell_substitutions(substitutions):
         if _invokes_local_codex(nested, depth=depth + 1):
             return True
-    lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|()<>
-")
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=";&|()<>\n")
     lexer.whitespace_split = True
     lexer.whitespace = " \t\r"
     lexer.commenters = ""
@@ -162,11 +161,9 @@ def _invokes_local_codex(command: str, *, depth: int = 0) -> bool:
     for token in tokens:
         if token.startswith("#"):
             comment = True
-        if token and all(char in ";&|()
-" for char in token):
+        if token and all(char in ";&|()\n" for char in token):
             segments.append([])
-            if "
-" in token:
+            if "\n" in token:
                 comment = False
         elif comment:
             continue
@@ -220,8 +217,7 @@ def _shell_policy_sources(command: str) -> tuple[str, str]:
         if pending:
             delimiter, expand, strip_tabs = pending[0]
             text = line.lstrip("\t") if strip_tabs else line
-            if text.rstrip("\r
-") == delimiter:
+            if text.rstrip("\r\n") == delimiter:
                 pending.pop(0)
             elif expand:
                 substitutions.append(line)
