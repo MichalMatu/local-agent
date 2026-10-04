@@ -93,18 +93,35 @@ def load_binding_catalog(path: Path | None = None) -> list[AgentBindingRecord]:
     return records
 
 
-def catalog_record_for_repository(
+def catalog_record_for_repository_if_present(
     repository_id: str,
     repository: str,
     *,
     path: Path | None = None,
-) -> AgentBindingRecord:
+) -> AgentBindingRecord | None:
+    """Return canonical policy when the repository participates in the binding catalog."""
     for record in load_binding_catalog(path):
         if (
             record.repository_id.casefold() == repository_id.casefold()
             and record.repository.casefold() == repository.casefold()
         ):
             return record
+    return None
+
+
+def catalog_record_for_repository(
+    repository_id: str,
+    repository: str,
+    *,
+    path: Path | None = None,
+) -> AgentBindingRecord:
+    record = catalog_record_for_repository_if_present(
+        repository_id,
+        repository,
+        path=path,
+    )
+    if record is not None:
+        return record
     raise ValueError(
         f"no canonical agent binding for repository id={repository_id!r} repository={repository!r}"
     )
@@ -147,22 +164,23 @@ def validate_repository_control_binding(
     control_dir: Path,
     catalog_path: Path | None = None,
 ) -> str:
-    """Fail closed unless catalog, registry expectation and control binding all agree."""
+    """Validate control identity and enforce canonical policy for cataloged repositories."""
     expected = canonical_agent_binding(expected_agent_binding, field="expected_agent_binding")
-    catalog_record = catalog_record_for_repository(
+    catalog_record = catalog_record_for_repository_if_present(
         repository_id,
         repository,
         path=catalog_path,
     )
-    if not catalog_record.execution_enabled:
-        raise ValueError(
-            f"repository execution is disabled in canonical catalog: {catalog_record.repository_id}"
-        )
-    if catalog_record.agent_binding != expected:
-        raise ValueError(
-            f"registry binding differs from canonical catalog for {repository_id!r}: "
-            f"expected {catalog_record.agent_binding}, got {expected}"
-        )
+    if catalog_record is not None:
+        if not catalog_record.execution_enabled:
+            raise ValueError(
+                f"repository execution is disabled in canonical catalog: {catalog_record.repository_id}"
+            )
+        if catalog_record.agent_binding != expected:
+            raise ValueError(
+                f"registry binding differs from canonical catalog for {repository_id!r}: "
+                f"expected {catalog_record.agent_binding}, got {expected}"
+            )
 
     payload = control_binding_payload(control_dir)
     actual_id = payload.get("repository_id")
