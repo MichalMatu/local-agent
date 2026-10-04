@@ -74,13 +74,13 @@ class DevelopmentLiveFlowTests(unittest.TestCase):
         args = prepare.call_args.args
         self.assertEqual(args[1:], (live_seed.LIVE_SEED_WORKFLOW_ID, live_seed.LIVE_SEED_REQUEST_ID))
 
-    def test_successful_login_points_to_exact_plan_digest_arm(self) -> None:
+    def test_successful_login_probe_points_to_exact_plan_digest_arm(self) -> None:
         with (
             patch.object(
                 live_flow.live_runner,
-                "login_live_slice_browser",
+                "_probe_live_slice_browser_login",
                 return_value={"ok": True, "reason": "chatgpt_ready"},
-            ) as login,
+            ) as probe,
             patch.object(
                 live_flow.live_slice,
                 "load_prepared_live_slice",
@@ -90,26 +90,33 @@ class DevelopmentLiveFlowTests(unittest.TestCase):
             code, payload, stderr = self.invoke("login", "--login-timeout-seconds", "45")
 
         self.assertEqual(code, 0, stderr)
+        self.assertFalse(payload["result"]["manual_login_used"])
         self.assertEqual(payload["next_action"]["command"], "arm")
         argv = payload["next_action"]["argv"]
         self.assertEqual(argv[argv.index("--plan-digest") + 1], PLAN_DIGEST)
         self.assert_layout_is_pinned(argv)
-        login.assert_called_once()
+        probe.assert_called_once()
+        self.assertEqual(
+            probe.call_args.kwargs["timeout_seconds"],
+            live_flow.live_runner.DEFAULT_LOGIN_PROBE_TIMEOUT_SECONDS,
+        )
         load.assert_called_once()
 
-    def test_failed_login_does_not_offer_arm(self) -> None:
+    def test_failed_login_probe_is_non_interactive_and_does_not_offer_arm(self) -> None:
         with (
             patch.object(
                 live_flow.live_runner,
-                "login_live_slice_browser",
+                "_probe_live_slice_browser_login",
                 return_value={"ok": False, "reason": "chatgpt_login_timeout"},
-            ),
+            ) as probe,
             patch.object(live_flow.live_slice, "load_prepared_live_slice") as load,
         ):
             code, payload, _stderr = self.invoke("login")
 
         self.assertEqual(code, 3)
+        self.assertFalse(payload["result"]["manual_login_used"])
         self.assertNotIn("next_action", payload)
+        probe.assert_called_once()
         load.assert_not_called()
 
     def test_attach_requires_explicit_child_url_and_has_no_next_effect(self) -> None:
