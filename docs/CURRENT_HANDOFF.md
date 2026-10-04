@@ -1,62 +1,77 @@
-# Current handoff — Superchat live-acceptance checkpoint
+# Current handoff — browser-native Conversation Fabric
 
 Date: 2026-10-04
 
-Status: Local Agent release line `v4.20.6` / Chat Bridge `0.8.1` is the current production baseline. Queue deduplication is released and live. The final known child-browser readiness repair was merged on `main` as `e4b3da908cfac61bb11cd0e4182b7d9e7c42d5b8` after exact-head CI completed 5/5 green. The next milestone is a bounded live Superchat acceptance on real code, not another design round.
+Status: Local Agent remains on release line `v4.20.6`. The current candidate advances Chat Bridge from `0.8.1` to `0.8.2` and implements Conversation Fabric child delegation inside the operator's already authenticated primary Chrome session. The old isolated-profile/Playwright production assumption is retired.
 
 ## Source of truth
 
-Do not reconstruct state from old chats. Read fresh repository/runtime evidence in this order:
+Read fresh repository/runtime evidence in this order:
 
 1. `AGENTS.md`
 2. this file
 3. `docs/GOLDEN_STANDARD.md`
 4. `docs/OPERATIONS.md`
-5. `docs/conversation_fabric/CHECKPOINT_2026-10-04_SUPERCHAT_READY.md`
-6. `docs/conversation_fabric/CURRENT_PLAN.md`
-7. `docs/conversation_fabric/NEXT_CHAT_PROMPT.md`
+5. `docs/conversation_fabric/CURRENT_PLAN.md`
+6. `docs/conversation_fabric/NEXT_CHAT_PROMPT.md`
 
-Historical self-diagnostic, DEV-lab and research documents are evidence only; they are not the current execution plan.
+Historical isolated-profile, DEV-lab, self-diagnostic and checkpoint documents are evidence only.
 
-## Current baseline
+## Immutable baseline
 
-- immutable release tag: `v4.20.6` -> release commit `48eb9d8b6c26a9dfb317906d5099acabce8719c8`;
-- final code-readiness patch: `e4b3da908cfac61bb11cd0e4182b7d9e7c42d5b8`;
-- current `main`: always read fresh; do not equate a moving branch with the immutable release tag;
-- Local Agent version line: `4.20.6`;
-- Chat Bridge: `0.8.1`;
-- production `daemon_version` and `self_revision`: always verify from fresh daemon status before a live campaign;
-- all previously known managed conversation controls were paused at the end of the self-diagnostic;
-- `local-agent` itself remains execution-disabled as a task target.
+- Local Agent release tag: `v4.20.6` -> `48eb9d8b6c26a9dfb317906d5099acabce8719c8`;
+- Local Agent release line: `4.20.6`;
+- released Bridge at that tag: `0.8.1`;
+- current candidate Bridge: `0.8.2`;
+- `local-agent` remains execution-disabled as a Local Agent task target;
+- production `self_revision` must always be read fresh before live acceptance.
 
-## What the self-diagnostic established
-
-- parent-level scheduler/routing/process ownership is healthy;
-- repository execution remains bound to the exact target repository and exact canonical `agent_binding`;
-- production parallel workers suppress equivalent queued/recent work before expensive execution;
-- children remain reasoning-only and cannot acquire machine authority;
-- the child-browser auth probe no longer depends on composer DOM readiness;
-- there is no remaining known P0/P1 code blocker for one bounded live Superchat proof.
-
-## Accepted architecture
+## Accepted production browser model
 
 ```text
-one Superchat parent
-  -> delegates bounded reasoning to child chats
-  -> receives child evidence/results
-  -> synthesizes one parent decision
-  -> if execution is justified, emits one target-repository .agent/tasks request
-  -> Local Agent executes deterministically under exact binding/resource controls
+normal authenticated Chrome
+  -> managed parent Superchat tab
+  -> installed Chat Bridge
+  -> LOCAL_AGENT_CF control
+  -> existing worker_spawn.js primitives
+  -> ordinary reasoning-only child tabs in the same Chrome session
+  -> stable child result capture
+  -> owned-tab cleanup
+  -> parent synthesis
+  -> exact target .agent/tasks only when execution is justified
 ```
 
-Chat Bridge is transport/scheduling. Child chats are reasoning workers. Local Agent is the only machine executor. Reasoning repository context is not execution authority.
+Production Conversation Fabric must not launch a second Chrome/Chromium process, maintain a separate ChatGPT profile, copy cookies, use CDP as a second browser-control plane, require another login, or treat Cloudflare recovery as normal orchestration.
 
-## Next milestone
+Isolation is logical: exact parent conversation, tab id, child URL, spawn transaction, request/bootstrap digests and browser-session campaign state. Ambiguous ownership fails closed.
 
-Run one live acceptance using a real execution-enabled repository and real source code. The parent must visibly delegate at least two narrow, non-overlapping reasoning jobs, collect their results, make the final decision itself, and—only if justified—queue exactly one bounded executable task in the real target repository. Verify that duplicate execution does not occur.
+## Implemented candidate
 
-Conversation Operator intake is an explicit live operational setting. Do not assume it is enabled. Verify it fresh and enable only through the supported bounded path when starting the proof. Keep it disabled at rest unless an active campaign intentionally needs it.
+PR `#141` now implements the pivot in Chat Bridge itself:
 
-## Deferred, non-blocking hardening
+- `conversation_fabric_protocol.js` defines a dedicated non-LAB `LOCAL_AGENT_CF` control envelope;
+- only a managed parent tab may start or collect a campaign;
+- `worker_conversation_fabric.js` reuses the existing `worker_spawn.js` `chrome.tabs` / `chrome.scripting` primitives;
+- campaign/dedupe state is browser-session scoped in `chrome.storage.session`;
+- children receive an explicit reasoning-only contract with no machine/task authority;
+- `spawn_result_content.js` captures bounded stable assistant results from the exact owned child tab;
+- completed/failed campaigns close only their owned child tabs;
+- parent continuation uses GitHub `conversation_controls` with incremented `control_generation`; normal Conversation Fabric pacing does not use LAB schedule markers;
+- content protocol advances to `14`, Bridge manifest to `0.8.2`;
+- focused Node tests plus a real headless Chromium parent/child DOM smoke cover the new boundary.
 
-A failed task whose final result is successfully published can currently leave the same bounded recent-completion dedupe receipt as a successful task. That may transiently suppress a corrective task reusing the same explicit `dedupe_key`. Treat this as later hardening; it is not a blocker for the single bounded acceptance, where one intent key must not be reused for a materially changed corrective plan.
+No Native Messaging path, Local Agent-to-browser RPC, new scheduler or second browser is introduced.
+
+## Current milestone
+
+Do not merge or live-prove from an unverified SHA. The remaining sequence is:
+
+1. synchronize current docs/release metadata with the `0.8.2` candidate;
+2. require exact-head full CI, including `bridge-browser` DOM smoke;
+3. merge PR `#141` only if exact-head CI is green and no blocking review exists;
+4. verify the installed/current source revision and reload the unpacked Chat Bridge in the normal Chrome session;
+5. run one bounded live Superchat acceptance with at least two non-overlapping reasoning children;
+6. collect both results, confirm owned tabs are retired, and let the parent make the final decision;
+7. if execution is justified, queue at most one exact target-bound task and prove no duplicate execution.
+
+The next live proof must use the user's normal Chrome session. A dedicated `chat-bridge-cft` profile or another isolated browser does not satisfy acceptance.

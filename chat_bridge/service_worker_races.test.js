@@ -8,6 +8,12 @@ function deferred() {
   return { promise, resolve };
 }
 
+function normalContentInjections(harness) {
+  return harness.injectedScripts.filter((entry) =>
+    Array.isArray(entry.files) && entry.files.includes("content.js")
+  );
+}
+
 async function add(harness, overrides = {}) {
   const result = await harness.sendRuntimeMessage({
     type: "bridge:upsert-conversation",
@@ -109,7 +115,7 @@ async function add(harness, overrides = {}) {
     const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
     assert.equal(result.reason, "content_script_unavailable");
     assert.equal(probes, 2);
-    assert.equal(h.injectedScripts.length, 1);
+    assert.equal(normalContentInjections(h).length, 1);
     assert.equal(h.sentMessages.length, 0);
     assert.equal(h.storage.bridgeState.conversations[id].enabled, true);
   }
@@ -119,7 +125,10 @@ async function add(harness, overrides = {}) {
     let probes = 0;
     const h = createHarness({ contentScriptProbe: async ({ injectedScripts }) => {
       probes += 1;
-      if (!injectedScripts.length) {
+      const normalContentInjected = injectedScripts.some((entry) =>
+        Array.isArray(entry.files) && entry.files.includes("content.js")
+      );
+      if (!normalContentInjected) {
         return { ok: true, reason: "ready", protocolVersion: 4, assistantIdentity: "old-assistant" };
       }
       return { ok: true, reason: "ready", protocolVersion: h.CONTENT_PROTOCOL_VERSION, assistantIdentity: "old-assistant" };
@@ -128,7 +137,7 @@ async function add(harness, overrides = {}) {
     const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
     assert.equal(result.reason, "sent");
     assert.equal(probes, 2);
-    assert.equal(h.injectedScripts.length, 1);
+    assert.equal(normalContentInjections(h).length, 1);
     assert.equal(h.sentMessages.length, 1);
     assert.equal(h.storage.bridgeState.conversations[id].enabled, true);
   }

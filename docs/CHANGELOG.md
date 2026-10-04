@@ -9,7 +9,9 @@ This changelog records the current operationally relevant Local Agent release li
 - Keep short claim-aware admission/completion receipts so late duplicates cannot run immediately after the original task, while interrupted/cancelled claims stop blocking legitimate corrective work after recovery.
 - Publish terminal `duplicate_task_suppressed` evidence that points at the original task instead of leaving duplicate queue entries to execute later.
 - Reject malformed explicit dedupe keys before task execution and add focused regression coverage for queue, claim, completion and branch-scope behavior.
-- Keep Chat Bridge at 0.8.1. Repository binding, resource admission, execution authority and deterministic command semantics are unchanged.
+- Advance the current post-release Chat Bridge source patch to 0.8.2: browser-native Conversation Fabric delegation/collection now runs through the installed Bridge in the already authenticated primary Chrome session and reuses the existing `worker_spawn.js` transaction/tab primitives.
+- Keep Conversation Fabric children reasoning-only, keep pacing GitHub-managed through exact `conversation_controls`, add stable bounded child-result capture/owned-tab cleanup, and explicitly avoid a second production browser/profile, CDP control plane, Native Messaging or Local Agent-to-browser RPC.
+- Repository binding, resource admission, executable `.agent/tasks` authority and deterministic Local Agent command semantics remain unchanged.
 
 ## v4.20.5
 

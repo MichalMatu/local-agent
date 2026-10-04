@@ -153,6 +153,10 @@ def run_bridge_browser() -> None:
         "Conversation direct browser restart/recovery smoke",
         [node, "scripts/conversation_live_slice_browser_smoke.cjs"],
     )
+    _run(
+        "Conversation Fabric parent/child DOM smoke",
+        [node, "scripts/conversation_fabric_dom_smoke.cjs"],
+    )
 
 
 def parse_args() -> argparse.Namespace:

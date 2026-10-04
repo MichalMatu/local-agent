@@ -1,43 +1,32 @@
-# Next chat prompt — live Superchat acceptance
+# Next chat prompt — bounded primary-Chrome live acceptance
 
-Paste the following into one new ChatGPT window. This is the parent Superchat; do not start from a child window.
+Use this only after PR `#141` is merged/deployed and Chat Bridge `0.8.2` is loaded in the operator's normal Chrome session.
 
 ---
 
-Kontynuujemy `MichalMatu/local-agent`, ale nie korzystaj z pamięci poprzedniego czatu jako źródła prawdy. To jest **live acceptance Superchatu na realnym kodzie**, nie kolejny audyt projektu ani kolejna runda projektowania.
+Continue `MichalMatu/local-agent`, but do not use prior-chat memory as source of truth.
 
-Najpierw przeczytaj z aktualnego `main`:
+Read fresh:
 
 1. `AGENTS.md`
 2. `docs/CURRENT_HANDOFF.md`
-3. `docs/conversation_fabric/CHECKPOINT_2026-10-04_SUPERCHAT_READY.md`
-4. `docs/conversation_fabric/CURRENT_PLAN.md`
-5. `docs/GOLDEN_STANDARD.md`
-6. `docs/OPERATIONS.md`
+3. `docs/GOLDEN_STANDARD.md`
+4. `docs/OPERATIONS.md`
+5. `docs/conversation_fabric/README.md`
+6. `docs/conversation_fabric/CURRENT_PLAN.md`
 
-Następnie sprawdź świeży stan GitHub i produkcji: aktualny `main`, `daemon_version`, `self_revision`, Chat Bridge, dokładny control record tego nowego czatu oraz stan/configuration Conversation Operator. Nie zakładaj, że operator intake jest włączony. Jeśli do bounded live proof trzeba go włączyć, użyj wyłącznie istniejącej wspieranej ścieżki i zapisz dokładny stan przed/po. Nie obchodź zabezpieczeń i nie wracaj do ręcznych pętli Chrome/login/Cloudflare.
+Goal: run one bounded real Conversation Fabric acceptance in the already authenticated primary Chrome session. Do not repair or use an isolated profile, `chat-bridge-cft`, CDP, another browser process, cookie migration or manual Cloudflare/login flow.
 
-Cel tego okna: **mam zobaczyć jeden Superchat, który realnie deleguje i orkiestruje zadania.**
+Before delegating, verify fresh `main`, exact installed Local Agent `self_revision`, Chat Bridge `0.8.2`, the exact managed parent conversation/tab and its GitHub `conversation_controls` record.
 
-Wybierz jeden mały, realny cel na prawdziwym kodzie w repozytorium z `execution_enabled=true` (preferuj `growclip`, jeżeli po świeżej inspekcji ma sensowny bounded task). Rodzic ma pozostać jedynym koordynatorem.
+Delegate at least two narrow non-overlapping reasoning-only children using one exact trailing `LOCAL_AGENT_CF` delegate block. Children may inspect/reason from bounded repository evidence but may not create `.agent/tasks`, run machine commands, mutate repositories or make the final parent decision.
 
-Wykonaj acceptance w tej kolejności:
+Verify that the children open as ordinary tabs in the same existing Chrome session. When Bridge returns a collect instruction, schedule the next parent wake through the exact GitHub `conversation_controls` record and increment `control_generation`; do not use LAB scheduling markers.
 
-- utwórz co najmniej dwa reasoning-only podczaty o niepokrywających się rolach;
-- child A niech zrobi wąski audyt kodu/architektury wybranego fragmentu;
-- child B niech niezależnie przeanalizuje testy, failure modes i jakość proponowanego kierunku;
-- przypnij dzieciom konkretny repo/commit i bounded output; dzieci nie mogą wykonywać komend ani tworzyć `.agent/tasks`;
-- obserwuj ich realne wyniki i pokaż mi krótko, co każde dziecko ustaliło;
-- jako rodzic porównaj wyniki, rozstrzygnij rozbieżności i podejmij decyzję;
-- tylko jeśli zmiana w kodzie jest uzasadniona, utwórz **dokładnie jedno** zadanie Local Agent w prawdziwym repo targetowym, z jego dokładnym `agent_binding` i stabilnym branch-scoped `dedupe_key` dla tego intentu;
-- sprawdź, że wykonało się tylko jedno zadanie i nie pojawił się drugi identyczny build/test;
-- zweryfikuj wynik na realnym kodzie i pokaż trwałe evidence;
-- na końcu uporządkuj/wycofaj bounded child lifecycle oraz przywróć zamierzony paused/disabled state operatora, jeśli proof został zakończony.
+On the next wake, emit the exact `LOCAL_AGENT_CF` collect block supplied by Bridge. Require stable child results, verify the owned child tabs are retired/closed, then synthesize the final parent decision.
 
-Nie rób szerokiego fan-outu ani stress testu. Nie twórz pracy „dla demonstracji”, jeżeli inspekcja nie uzasadnia zmiany — w takim przypadku dzieci mogą zakończyć realnym audytem, ale nadal musisz udowodnić delegację/orchestration i jasno powiedzieć, że execution było niepotrzebne.
+If real execution is justified, resolve the actual target repository from the runtime catalog and queue at most one bounded `.agent/tasks` item with that repository's exact canonical `agent_binding` and a stable branch-scoped `dedupe_key`. `local-agent` itself remains execution-disabled. If execution is not needed, create no task.
 
-Stop i zgłoś konkretny blocker zamiast osłabiać kontrakty, jeśli auth/ownership dziecka jest niejednoznaczny, binding targetu jest niepewny, pojawiają się dwie autorytatywne instancje dziecka, dziecko uzyskuje machine authority albo równoważna kosztowna praca uruchamia się drugi raz.
-
-Na końcu daj jeden werdykt: `PASS`, `PARTIAL` albo `FAIL`, z dokładnymi SHA/ID/evidence oraz maksymalnie jednym następnym blockerem.
+Verify no equivalent duplicate work ran. End the managed parent in its intended paused state unless continued automation is explicitly required. Record PASS / PARTIAL / FAIL with exact evidence and one next blocker if any.
 
 ---

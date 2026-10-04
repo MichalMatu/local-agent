@@ -299,9 +299,13 @@ function fingerprint(value) {
     });
     assert.equal(response.ok, true);
     assert.equal(response.protocolVersion, protocol.CONTENT_PROTOCOL_VERSION);
-    assert.equal(h.injectedScripts.length, 2, "force refresh should dispose then inject once");
-    assert.equal(h.injectedScripts[0].hasFunction, true);
-    assert.deepEqual(h.injectedScripts[1].files, [
+    const contentReloadInjections = h.injectedScripts.filter((entry) =>
+      entry.hasFunction === true ||
+      (Array.isArray(entry.files) && entry.files.includes("content.js"))
+    );
+    assert.equal(contentReloadInjections.length, 2, "force refresh should dispose then inject once");
+    assert.equal(contentReloadInjections[0].hasFunction, true);
+    assert.deepEqual(contentReloadInjections[1].files, [
       "control_protocol.js",
       "content_retry.js",
       "content.js",
