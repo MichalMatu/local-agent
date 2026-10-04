@@ -170,31 +170,39 @@ async function conversationFabricIntent(authority, campaignId, child) {
 }
 
 async function submitConversationFabricChild(intent) {
-  const created = await createConversationSpawnTab(intent);
-  if (!created?.ok || !Number.isInteger(created.tabId)) {
-    throw new Error(`Conversation Fabric child tab creation failed: ${created?.reason || "unknown"}`);
-  }
-  const activeIntent = { ...intent, tab_id: created.tabId };
-  for (let attempt = 0; attempt <= CONVERSATION_FABRIC_SUBMIT_RETRIES; attempt += 1) {
-    const submitted = await submitConversationSpawnBootstrap(activeIntent);
-    if (submitted?.ok && submitted.childConversationUrl) {
-      return { intent: activeIntent, childConversationUrl: submitted.childConversationUrl };
+  let activeIntent = null;
+  try {
+    const created = await createConversationSpawnTab(intent);
+    if (!created?.ok || !Number.isInteger(created.tabId)) {
+      throw new Error(`Conversation Fabric child tab creation failed: ${created?.reason || "unknown"}`);
     }
-    if (submitted?.reason === "spawn_submission_ambiguous") {
-      const reconciled = await reconcileConversationSpawn(activeIntent);
-      if (reconciled?.ok && reconciled.childConversationUrl) {
-        return { intent: activeIntent, childConversationUrl: reconciled.childConversationUrl };
+    activeIntent = { ...intent, tab_id: created.tabId };
+    for (let attempt = 0; attempt <= CONVERSATION_FABRIC_SUBMIT_RETRIES; attempt += 1) {
+      const submitted = await submitConversationSpawnBootstrap(activeIntent);
+      if (submitted?.ok && submitted.childConversationUrl) {
+        return { intent: activeIntent, childConversationUrl: submitted.childConversationUrl };
       }
-      throw new Error(`Conversation Fabric child submission is ambiguous: ${reconciled?.reason || submitted.reason}`);
+      if (submitted?.reason === "spawn_submission_ambiguous") {
+        const reconciled = await reconcileConversationSpawn(activeIntent);
+        if (reconciled?.ok && reconciled.childConversationUrl) {
+          return { intent: activeIntent, childConversationUrl: reconciled.childConversationUrl };
+        }
+        throw new Error(`Conversation Fabric child submission is ambiguous: ${reconciled?.reason || submitted.reason}`);
+      }
+      if (!CONVERSATION_FABRIC_TRANSIENT_SPAWN_REASONS.has(String(submitted?.reason || ""))) {
+        throw new Error(`Conversation Fabric child submission failed: ${submitted?.reason || "unknown"}`);
+      }
+      if (attempt < CONVERSATION_FABRIC_SUBMIT_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
     }
-    if (!CONVERSATION_FABRIC_TRANSIENT_SPAWN_REASONS.has(String(submitted?.reason || ""))) {
-      throw new Error(`Conversation Fabric child submission failed: ${submitted?.reason || "unknown"}`);
+    throw new Error("Conversation Fabric child submission exceeded bounded retries");
+  } catch (error) {
+    if (activeIntent !== null) {
+      try { await closeConversationSpawnTab(activeIntent); } catch (_error) {}
     }
-    if (attempt < CONVERSATION_FABRIC_SUBMIT_RETRIES) {
-      await new Promise((resolve) => setTimeout(resolve, 350));
-    }
+    throw error;
   }
-  throw new Error("Conversation Fabric child submission exceeded bounded retries");
 }
 
 async function cleanupConversationFabricChildren(children) {
@@ -370,3 +378,29 @@ async function applyConversationFabricControl(message, sender) {
     return { ok: false, reason: "conversation_fabric_failed", error: String(error) };
   }
 }
+
+async function refreshConversationFabricContentScripts() {
+  const tabs = await chrome.tabs.query({
+    url: ["https://chatgpt.com/*", "https://chat.openai.com/*"]
+  });
+  let refreshed = 0;
+  for (const tab of tabs) {
+    if (!Number.isInteger(tab?.id)) continue;
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id, frameIds: [0] },
+        files: [
+          "control_protocol.js",
+          "conversation_fabric_protocol.js",
+          "content_retry.js",
+          "spawn_result_content.js",
+          "conversation_fabric_content.js"
+        ]
+      });
+      refreshed += 1;
+    } catch (_error) {}
+  }
+  return { refreshed };
+}
+
+refreshConversationFabricContentScripts().catch((error) => console.error(error));
