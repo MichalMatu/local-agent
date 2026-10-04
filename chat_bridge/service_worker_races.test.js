@@ -54,6 +54,20 @@ async function add(harness, overrides = {}) {
     assert.equal(Object.hasOwn(h.storage.bridgeState.conversations[id], "pendingDelivery"), false);
   }
 
+  // Chrome retains the initial document URL when a fresh chat obtains a canonical SPA route.
+  {
+    const h = createHarness({ sendMessage: async ({ tabId, message }) => {
+      const sender = { url: "https://chatgpt.com/c/local-chatgpt%3Aprovisional", tab: { id: tabId, url: message.expectedUrl } };
+      const request = { type: "bridge:authorize-delivery", conversationUrl: message.expectedUrl, deliveryId: message.deliveryId, assistantBaseline: "new-answer" };
+      assert.equal((await h.sendRuntimeMessage(request, sender)).ok, true);
+      assert.equal((await h.sendRuntimeMessage(request, { ...sender, url: "https://example.com/" })).ok, false);
+      assert.equal((await h.sendRuntimeMessage(request, { ...sender, tab: { id: tabId, url: "https://chatgpt.com/c/other" } })).ok, false);
+      return { ok: true, reason: "sent", protocolVersion: h.CONTENT_PROTOCOL_VERSION };
+    } });
+    const id = await add(h);
+    assert.equal((await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id })).ok, true);
+  }
+
   // A pause while the content script waits invalidates authorization.
   {
     const ready = deferred();

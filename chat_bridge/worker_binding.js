@@ -46,9 +46,24 @@ function bindingEnvelope(conversation) {
 }
 
 function buildBootstrapPrompt(runtime, conversation) {
-  return `${bindingEnvelope(conversation)}\n${runtime.bootstrapPrompt}`;
+  return `${bindingEnvelope(conversation)}\n${runtime.bootstrapPrompt}\n\n${conversationFabricParentInstructions()}`;
 }
 
 function buildWakePrompt(runtime, conversation) {
-  return `${bindingEnvelope(conversation)}\n${runtime.wakePrompt}`;
+  return `${bindingEnvelope(conversation)}\n${runtime.wakePrompt}\n\n${conversationFabricParentInstructions()}`;
+}
+
+function conversationFabricParentInstructions() {
+  return [
+    "For independent reasoning jobs, delegate 1-4 bounded tasks to child chats in this Chrome session. Include all source context the children need in their prompts; they do not inherit this conversation.",
+    "Children provide reasoning and evidence only. You remain responsible for synthesis and exact target-bound Local Agent execution.",
+    "To delegate, end your assistant reply with the following plain-text block, replacing the example jobs. Do not wrap it in Markdown fences or add trailing prose:",
+    "<<<LOCAL_AGENT_CF",
+    JSON.stringify({ schema_version: 1, action: "delegate", children: [
+      { id: "analysis", role: "research", prompt: "A bounded question with its relevant source context." },
+      { id: "check", role: "verification", prompt: "An independent verification question with its relevant source context." }
+    ] }),
+    "LOCAL_AGENT_CF>>>",
+    "Bridge returns the actual child results automatically through its existing control poll. Wait for that feedback before synthesizing. Never repeat a delegation merely because its children are still working."
+  ].join("\n");
 }

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Local Agent Chat Bridge",
-  "version": "0.8.1",
+  "version": "0.8.3",
   "description": "Schedules Local Agent wake-ups as transport only; repository execution authority is validated separately.",
   "permissions": [
     "alarms",
@@ -29,7 +29,10 @@
       ],
       "js": [
         "control_protocol.js",
+        "conversation_fabric_protocol.js",
         "content_retry.js",
+        "spawn_result_content.js",
+        "conversation_fabric_content.js",
         "content.js",
         "dom_contract.js",
         "exhaustion_guard.js"

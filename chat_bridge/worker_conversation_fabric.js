@@ -1,0 +1,524 @@
+const conversationFabricProtocol = globalThis.LocalAgentConversationFabricProtocol;
+if (!conversationFabricProtocol) {
+  throw new Error("Conversation Fabric protocol is unavailable in the service worker");
+}
+
+const CONVERSATION_FABRIC_CAMPAIGN_PREFIX = "conversation-fabric-campaign:";
+const CONVERSATION_FABRIC_RESULT_CHARS = 6_000;
+const CONVERSATION_FABRIC_SUBMIT_RETRIES = 5;
+const CONVERSATION_FABRIC_TIMEOUT_MS = 15 * 60 * 1000;
+const CONVERSATION_FABRIC_HISTORY_LIMIT = 32;
+const conversationFabricOperations = new Map();
+
+function serializeConversationFabric(parentUrl, operation) {
+  const previous = conversationFabricOperations.get(parentUrl) || Promise.resolve();
+  const pending = previous.catch(() => undefined).then(operation);
+  conversationFabricOperations.set(parentUrl, pending);
+  return pending.finally(() => {
+    if (conversationFabricOperations.get(parentUrl) === pending) conversationFabricOperations.delete(parentUrl);
+  });
+}
+
+async function listConversationFabricCampaigns() {
+  const stored = await chrome.storage.local.get(null);
+  return Object.entries(stored).filter(([key, value]) =>
+    key.startsWith(CONVERSATION_FABRIC_CAMPAIGN_PREFIX) && value?.schema_version === 1
+  ).map(([, value]) => value);
+}
+const CONVERSATION_FABRIC_TRANSIENT_SPAWN_REASONS = new Set([
+  "spawn_page_not_ready",
+  "spawn_composer_not_found",
+  "spawn_send_button_not_ready",
+  "spawn_content_unavailable"
+]);
+
+function conversationFabricCampaignKey(campaignId) {
+  if (!conversationFabricProtocol.CAMPAIGN_ID_RE.test(String(campaignId || ""))) {
+    throw new Error("invalid Conversation Fabric campaign id");
+  }
+  return `${CONVERSATION_FABRIC_CAMPAIGN_PREFIX}${campaignId}`;
+}
+
+async function loadConversationFabricCampaign(campaignId) {
+  const key = conversationFabricCampaignKey(campaignId);
+  const stored = await chrome.storage.local.get(key);
+  const value = stored?.[key];
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+async function saveConversationFabricCampaign(campaign) {
+  const key = conversationFabricCampaignKey(campaign.id);
+  return serializeConversationFabric(key, async () => {
+    const stored = await loadConversationFabricCampaign(campaign.id);
+    // Cleanup can finish after a concurrent delivery. Preserve its durable receipt.
+    if (stored?.state === campaign.state && stored.feedback_delivered) campaign.feedback_delivered = true;
+    await chrome.storage.local.set({ [key]: campaign });
+    return campaign;
+  });
+}
+
+function conversationFabricCollectBlock(campaignId) {
+  return [
+    "<<<LOCAL_AGENT_CF",
+    JSON.stringify({
+      schema_version: conversationFabricProtocol.SCHEMA_VERSION,
+      action: "collect",
+      campaign_id: campaignId
+    }),
+    "LOCAL_AGENT_CF>>>"
+  ].join("\n");
+}
+
+function conversationFabricNextWakeInstruction(campaignId) {
+  return [
+    "Bridge collects child results on its existing GitHub control poll while this parent is enabled.",
+    "Wait for the result feedback. Do not invent child results or create another delegation for the same work.",
+    "For an explicit status check, end a later parent reply with this exact collect block:",
+    conversationFabricCollectBlock(campaignId)
+  ].join("\n\n");
+}
+
+function conversationFabricPendingPrompt(campaign, pendingIds) {
+  return [
+    `Conversation Fabric campaign ${campaign.id} is still running in child tabs: ${pendingIds.join(", ")}.`,
+    "Do not synthesize the delegated work yet.",
+    conversationFabricNextWakeInstruction(campaign.id)
+  ].join("\n\n");
+}
+
+function conversationFabricStartedPrompt(campaign) {
+  const ids = campaign.children.map((child) => child.id).join(", ");
+  return [
+    `Conversation Fabric started ${campaign.children.length} reasoning child tab(s) in this Chrome session: ${ids}.`,
+    `Campaign id: ${campaign.id}.`,
+    "Do not synthesize the delegated work yet.",
+    conversationFabricNextWakeInstruction(campaign.id)
+  ].join("\n\n");
+}
+
+function conversationFabricCompletedPrompt(campaign) {
+  const sections = campaign.results.map((result) => [
+    `--- child ${result.id} (${result.role})${result.truncated ? " [truncated]" : ""} ---`,
+    result.assistant_text
+  ].join("\n"));
+  return [
+    `Conversation Fabric campaign ${campaign.id} completed.`,
+    campaign.cleanup_pending ? "Results are saved; some owned child tabs still require cleanup." : "Owned child tabs were closed after stable result capture.",
+    ...sections,
+    "Synthesize the final parent answer now. Do not delegate machine execution to a child."
+  ].join("\n\n");
+}
+
+function validateConversationFabricMessage(message, sender) {
+  if (
+    sender?.id !== chrome.runtime.id ||
+    sender?.frameId !== 0 ||
+    !Number.isInteger(sender?.tab?.id)
+  ) {
+    throw new Error("Conversation Fabric control requires the top-frame Bridge content script");
+  }
+  const conversationUrl = normalizeConversationUrl(String(message?.conversationUrl || ""));
+  const senderUrl = normalizeConversationUrl(String(sender.tab.url || ""));
+  if (!conversationUrl || senderUrl !== conversationUrl) {
+    throw new Error("Conversation Fabric control sender does not match the parent conversation");
+  }
+  if (message?.contentProtocolVersion !== CONTENT_PROTOCOL_VERSION) {
+    throw new Error("Conversation Fabric content protocol mismatch");
+  }
+  const assistantIdentity = String(message?.assistantIdentity || "");
+  if (!assistantIdentity || assistantIdentity.length > 256) {
+    throw new Error("Conversation Fabric assistant identity is invalid");
+  }
+  const fingerprint = String(message?.fingerprint || "");
+  if (!/^[0-9a-f]{8}$/.test(fingerprint)) {
+    throw new Error("Conversation Fabric fingerprint is invalid");
+  }
+  const marker = message?.control?.marker;
+  const candidate = marker === undefined
+    ? message?.control
+    : Object.fromEntries(Object.entries(message.control).filter(([key]) => key !== "marker"));
+  const control = conversationFabricProtocol.validateControl(candidate);
+  if (!control) throw new Error("Conversation Fabric control is invalid");
+  return {
+    conversationUrl,
+    parentTabId: sender.tab.id,
+    assistantIdentity,
+    fingerprint,
+    control
+  };
+}
+
+async function conversationFabricManagedParent(authority) {
+  const state = await getBridgeState();
+  const parent = state.conversations?.[conversationId(authority.conversationUrl)] || null;
+  if (!state.settings.masterEnabled || !parent?.enabled || parent.url !== authority.conversationUrl) return null;
+  if (
+    parent.preferredTabId !== null &&
+    parent.preferredTabId !== undefined &&
+    parent.preferredTabId !== authority.parentTabId
+  ) {
+    return null;
+  }
+  return parent;
+}
+
+async function conversationFabricCampaignId(authority) {
+  const payload = JSON.stringify([
+    authority.conversationUrl,
+    authority.assistantIdentity,
+    authority.fingerprint,
+    authority.control.children || []
+  ]);
+  const digest = await conversationSpawnSha256(payload);
+  return `cf-${digest.slice(0, 16)}`;
+}
+
+function conversationFabricBootstrapText(authority, campaignId, child) {
+  return [
+    "LOCAL AGENT BROWSER CHILD",
+    `parent_conversation=${authority.conversationUrl}`,
+    `campaign_id=${campaignId}`,
+    `child_id=${child.id}`,
+    `role=${child.role}`,
+    "",
+    "You are a reasoning-only child of one parent conversation.",
+    "Do not create Local Agent tasks, run machine commands, mutate repositories, or make the final parent decision.",
+    "Work only on the bounded task below and return a concise result with evidence useful to the parent.",
+    "",
+    "TASK",
+    child.prompt
+  ].join("\n");
+}
+
+async function conversationFabricIntent(authority, campaignId, child) {
+  const bootstrapText = conversationFabricBootstrapText(authority, campaignId, child);
+  const transactionDigest = await conversationSpawnSha256(`${campaignId}\n${child.id}`);
+  const requestDigest = await conversationSpawnSha256(JSON.stringify([
+    authority.conversationUrl,
+    campaignId,
+    child.id,
+    child.role,
+    child.prompt
+  ]));
+  const bootstrapDigest = await conversationSpawnSha256(bootstrapText);
+  return {
+    schema_version: CONVERSATION_SPAWN_BROWSER_SCHEMA_VERSION,
+    transaction_id: `spawn-${transactionDigest}`,
+    child_request_digest: `sha256:${requestDigest}`,
+    bootstrap_digest: `sha256:${bootstrapDigest}`,
+    bootstrap_text: bootstrapText,
+    tab_id: null
+  };
+}
+
+async function submitConversationFabricChild(intent, checkpoint) {
+    const created = await createConversationSpawnTab(intent);
+    if (!created?.ok || !Number.isInteger(created.tabId)) {
+      throw new Error(`Conversation Fabric child tab creation failed: ${created?.reason || "unknown"}`);
+    }
+    const activeIntent = { ...intent, tab_id: created.tabId };
+    await checkpoint(activeIntent, "tab_created");
+    for (let attempt = 0; attempt <= CONVERSATION_FABRIC_SUBMIT_RETRIES; attempt += 1) {
+      await checkpoint(activeIntent, "submitting");
+      const submitted = await submitConversationSpawnBootstrap(activeIntent);
+      if (submitted?.ok && submitted.childConversationUrl) {
+        return { intent: activeIntent, childConversationUrl: submitted.childConversationUrl };
+      }
+      if (submitted?.reason === "spawn_submission_ambiguous") {
+        const reconciled = await reconcileConversationSpawn(activeIntent);
+        if (reconciled?.ok && reconciled.childConversationUrl) {
+          return { intent: activeIntent, childConversationUrl: reconciled.childConversationUrl };
+        }
+        throw new Error(`Conversation Fabric child submission is ambiguous: ${reconciled?.reason || submitted.reason}`);
+      }
+      if (!CONVERSATION_FABRIC_TRANSIENT_SPAWN_REASONS.has(String(submitted?.reason || ""))) {
+        throw new Error(`Conversation Fabric child submission failed: ${submitted?.reason || "unknown"}`);
+      }
+      if (attempt < CONVERSATION_FABRIC_SUBMIT_RETRIES) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      }
+    }
+    throw new Error("Conversation Fabric child submission exceeded bounded retries");
+}
+
+async function cleanupConversationFabricChildren(children) {
+  let complete = true;
+  for (const child of children) {
+    if (!Number.isInteger(child?.intent?.tab_id)) continue;
+    try {
+      const result = await closeConversationSpawnTab(child.intent);
+      if (!result?.ok) complete = false;
+    } catch (_error) { complete = false; }
+  }
+  return complete;
+}
+
+async function delegateConversationFabric(authority) {
+  const campaignId = await conversationFabricCampaignId(authority);
+  const existing = await loadConversationFabricCampaign(campaignId);
+  if (existing) {
+    if (existing.parent_conversation_url !== authority.conversationUrl) {
+      throw new Error("Conversation Fabric campaign ownership conflict");
+    }
+    if (!["running", "completed"].includes(existing.state)) {
+      return { ok: false, reason: `conversation_fabric_${existing.state}`, campaignId };
+    }
+    if (existing.state === "completed" && existing.feedback_delivered) return { ok: true, reason: "conversation_fabric_already_delivered", campaignId };
+    return {
+      ok: true,
+      reason: existing.state === "completed" ? "conversation_fabric_completed" : "conversation_fabric_started",
+      campaignId,
+      feedbackPrompt: existing.state === "completed"
+        ? conversationFabricCompletedPrompt(existing)
+        : conversationFabricStartedPrompt(existing)
+    };
+  }
+
+  const campaigns = await listConversationFabricCampaigns();
+  const active = campaigns.filter((value) => ["spawning", "running"].includes(value.state));
+  if (active.some((value) => value.parent_conversation_url === authority.conversationUrl)) {
+    return { ok: false, reason: "conversation_fabric_parent_busy" };
+  }
+  const occupied = campaigns.filter(value => ["spawning", "running"].includes(value.state) || value.cleanup_pending);
+  if (occupied.reduce((count, value) => count + value.children.length, 0) + authority.control.children.length > conversationFabricProtocol.MAX_CHILDREN) {
+    return { ok: false, reason: "conversation_fabric_capacity" };
+  }
+  const history = campaigns.filter((value) => !["spawning", "running"].includes(value.state) && value.feedback_delivered)
+    .sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)));
+  for (const old of history.slice(CONVERSATION_FABRIC_HISTORY_LIMIT - 1)) {
+    await chrome.storage.local.remove(conversationFabricCampaignKey(old.id));
+  }
+  if (campaigns.length - Math.max(0, history.length - CONVERSATION_FABRIC_HISTORY_LIMIT + 1) >= CONVERSATION_FABRIC_HISTORY_LIMIT + 4) {
+    return { ok: false, reason: "conversation_fabric_history_full" };
+  }
+
+  const campaign = {
+    schema_version: conversationFabricProtocol.SCHEMA_VERSION,
+    id: campaignId,
+    state: "spawning",
+    parent_conversation_url: authority.conversationUrl,
+    parent_tab_id: authority.parentTabId,
+    assistant_identity: authority.assistantIdentity,
+    fingerprint: authority.fingerprint,
+    created_at: new Date().toISOString(),
+    children: [],
+    results: []
+  };
+  await saveConversationFabricCampaign(campaign);
+
+  try {
+    for (const child of authority.control.children) {
+      const intent = await conversationFabricIntent(authority, campaignId, child);
+      const record = {
+        id: child.id,
+        role: child.role,
+        intent,
+        state: "pending",
+        child_conversation_url: ""
+      };
+      campaign.children.push(record);
+      await saveConversationFabricCampaign(campaign);
+      const spawned = await submitConversationFabricChild(intent, async (activeIntent, state) => {
+        record.intent = activeIntent;
+        record.state = state;
+        await saveConversationFabricCampaign(campaign);
+      });
+      record.intent = spawned.intent;
+      record.state = "submitted";
+      record.child_conversation_url = spawned.childConversationUrl;
+      await saveConversationFabricCampaign(campaign);
+    }
+  } catch (error) {
+    campaign.state = "failed";
+    campaign.failure = String(error);
+    await saveConversationFabricCampaign(campaign);
+    campaign.cleanup_pending = !await cleanupConversationFabricChildren(campaign.children);
+    await saveConversationFabricCampaign(campaign);
+    throw error;
+  }
+
+  campaign.state = "running";
+  await saveConversationFabricCampaign(campaign);
+  return {
+    ok: true,
+    reason: "conversation_fabric_started",
+    campaignId,
+    children: campaign.children.map((child) => ({ id: child.id, childConversationUrl: child.child_conversation_url })),
+    feedbackPrompt: conversationFabricStartedPrompt(campaign)
+  };
+}
+
+async function stableConversationFabricResult(child) {
+  const first = await observeConversationSpawnResult(child.intent, CONVERSATION_FABRIC_RESULT_CHARS);
+  if (!first?.ok || first.reason !== "child_result_ready") return first;
+  await new Promise((resolve) => setTimeout(resolve, 700));
+  const second = await observeConversationSpawnResult(child.intent, CONVERSATION_FABRIC_RESULT_CHARS);
+  if (!second?.ok || second.reason !== "child_result_ready") return second;
+  if (
+    first.assistantIdentity !== second.assistantIdentity ||
+    first.assistantText !== second.assistantText
+  ) {
+    return { ok: true, reason: "child_result_unstable" };
+  }
+  return second;
+}
+
+async function collectConversationFabric(authority) {
+  const campaign = await loadConversationFabricCampaign(authority.control.campaign_id);
+  if (!campaign) {
+    return { ok: false, reason: "conversation_fabric_campaign_missing" };
+  }
+  if (campaign.parent_conversation_url !== authority.conversationUrl) {
+    return { ok: false, reason: "conversation_fabric_parent_mismatch" };
+  }
+  if (campaign.state === "completed") {
+    if (campaign.feedback_delivered) return { ok: true, reason: "conversation_fabric_already_delivered", campaignId: campaign.id };
+    return {
+      ok: true,
+      reason: "conversation_fabric_completed",
+      campaignId: campaign.id,
+      feedbackPrompt: conversationFabricCompletedPrompt(campaign)
+    };
+  }
+  const recoverableObservation = campaign.state === "failed" && campaign.children.length > 0 &&
+    campaign.children.every(child => child.state === "submitted" && child.child_conversation_url);
+  if (campaign.state !== "running" && !recoverableObservation) {
+    return { ok: false, reason: `conversation_fabric_${campaign.state || "invalid"}` };
+  }
+
+  const results = [];
+  const pending = [];
+  for (const child of campaign.children) {
+    const observed = await stableConversationFabricResult(child);
+    if (observed?.ok && observed.reason === "child_result_ready") {
+      results.push({
+        id: child.id,
+        role: child.role,
+        child_conversation_url: child.child_conversation_url,
+        assistant_identity: String(observed.assistantIdentity || ""),
+        assistant_text: String(observed.assistantText || "").slice(0, CONVERSATION_FABRIC_RESULT_CHARS),
+        truncated: observed.truncated === true || String(observed.assistantText || "").length > CONVERSATION_FABRIC_RESULT_CHARS
+      });
+      continue;
+    }
+    if (observed?.ok && ["child_generating", "child_result_missing", "child_result_unstable"].includes(observed.reason)) {
+      pending.push(child.id);
+      continue;
+    }
+    return {
+      ok: false,
+      reason: observed?.reason || "conversation_fabric_child_observation_failed"
+    };
+  }
+
+  if (pending.length) {
+    return {
+      ok: true,
+      reason: "conversation_fabric_pending",
+      campaignId: campaign.id,
+      pending,
+      feedbackPrompt: conversationFabricPendingPrompt(campaign, pending)
+    };
+  }
+
+  campaign.results = results;
+  campaign.feedback_delivered = false;
+  if (recoverableObservation) campaign.recovered_observation = true;
+  campaign.state = "completed";
+  campaign.completed_at = new Date().toISOString();
+  // Save captured results before closing any tab so interruption cannot destroy evidence.
+  campaign.cleanup_pending = true;
+  await saveConversationFabricCampaign(campaign);
+  campaign.cleanup_pending = !await cleanupConversationFabricChildren(campaign.children);
+  await saveConversationFabricCampaign(campaign);
+  return {
+    ok: true,
+    reason: "conversation_fabric_completed",
+    campaignId: campaign.id,
+    feedbackPrompt: conversationFabricCompletedPrompt(campaign)
+  };
+}
+
+async function applyConversationFabricControl(message, sender) {
+  let authority;
+  try {
+    authority = validateConversationFabricMessage(message, sender);
+  } catch (error) {
+    return { ok: false, reason: "conversation_fabric_control_invalid", error: String(error) };
+  }
+  try {
+    const parent = await conversationFabricManagedParent(authority);
+    if (!parent) {
+      return { ok: false, reason: "conversation_fabric_parent_not_managed" };
+    }
+    if (authority.control.action === "delegate") return await serializeConversationFabric(authority.conversationUrl, () => serializeConversationFabric("delegation-admission", () => delegateConversationFabric(authority)));
+    if (authority.control.action === "collect") return await serializeConversationFabric(authority.conversationUrl, () => collectConversationFabric(authority));
+    return { ok: false, reason: "conversation_fabric_action_unsupported" };
+  } catch (error) {
+    return { ok: false, reason: "conversation_fabric_failed", error: String(error) };
+  }
+}
+
+async function conversationFabricFeedbackForParent(parentUrl) {
+  const campaigns = await listConversationFabricCampaigns();
+  const campaign = campaigns.find((value) => value.parent_conversation_url === parentUrl &&
+    ["completed", "failed"].includes(value.state) && !value.feedback_delivered);
+  if (!campaign) return null;
+  return {
+    campaign,
+    prompt: campaign.state === "completed" ? conversationFabricCompletedPrompt(campaign) :
+      `Conversation Fabric campaign ${campaign.id} failed: ${campaign.failure || "interrupted"}. Do not invent child results or automatically replay this delegation.`
+  };
+}
+
+async function acknowledgeConversationFabricFeedback(message, sender) {
+  try {
+    const authority = validateConversationFabricMessage(message, sender);
+    if (!await conversationFabricManagedParent(authority)) return { ok: false, reason: "conversation_fabric_parent_not_managed" };
+    const campaign = await loadConversationFabricCampaign(message.campaignId);
+    if (!campaign || campaign.parent_conversation_url !== authority.conversationUrl) return { ok: false, reason: "conversation_fabric_parent_mismatch" };
+    if (authority.control.action === "collect" && ["completed", "failed"].includes(campaign.state)) {
+      campaign.feedback_delivered = true;
+      await saveConversationFabricCampaign(campaign);
+    }
+    return { ok: true, reason: "conversation_fabric_feedback_acknowledged" };
+  } catch (error) {
+    return { ok: false, reason: "conversation_fabric_feedback_invalid", error: String(error) };
+  }
+}
+
+async function pollConversationFabricCampaigns() {
+  const state = await getBridgeState();
+  if (!state.settings.masterEnabled) return;
+  const campaigns = await listConversationFabricCampaigns();
+  for (const campaign of campaigns) {
+    if (campaign.feedback_delivered || conversationFabricOperations.has(campaign.parent_conversation_url)) continue;
+    const parent = state.conversations[conversationId(campaign.parent_conversation_url)];
+    if (!parent?.enabled) continue;
+    await serializeConversationFabric(campaign.parent_conversation_url, async () => {
+      const current = await loadConversationFabricCampaign(campaign.id);
+      if (!current || current.feedback_delivered) return;
+      if (current.state === "spawning" || (current.state === "running" && Date.now() - Date.parse(current.created_at) > CONVERSATION_FABRIC_TIMEOUT_MS)) {
+        current.state = "failed";
+        current.failure = current.children.some((child) => child.state === "submitting") ? "spawn_interrupted_submission_ambiguous" : "campaign_interrupted_or_timed_out";
+        await saveConversationFabricCampaign(current);
+      }
+      const recoverableClaims = current.state === "failed" && current.failure === "spawn_tab_claim_mismatch" &&
+        current.children.every(child => child.state === "submitted" && child.child_conversation_url);
+      if (current.state === "running" || recoverableClaims) {
+        const result = await collectConversationFabric({ conversationUrl: parent.url, control: { campaign_id: current.id } });
+        if (!result.ok) {
+          current.state = "failed";
+          current.failure = result.reason;
+          await saveConversationFabricCampaign(current);
+        }
+      }
+      const finished = await loadConversationFabricCampaign(current.id);
+      if (finished?.cleanup_pending || finished?.state === "failed") {
+        finished.cleanup_pending = !await cleanupConversationFabricChildren(finished.children);
+        await saveConversationFabricCampaign(finished);
+      }
+      if (["completed", "failed"].includes(finished?.state)) await runFeedbackCycle({ conversationId: parent.id });
+    });
+  }
+}

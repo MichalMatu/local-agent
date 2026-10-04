@@ -79,9 +79,7 @@ document.addEventListener("input", (event) => {
   renderAsBlocks(current, logicalText);
   history.replaceState({}, "", "/?mweb_fallback=1" + location.hash);
   window.blockRenders++;
-  setTimeout(() => {
-    document.querySelector("#composer-submit-button").disabled = false;
-  }, 80);
+  window.renderedParagraphCount = document.querySelectorAll("#prompt-textarea > p").length;
 }, true);
 
 document.querySelector("form").onsubmit = (event) => {
@@ -167,8 +165,9 @@ async function bounded(label, promise, timeoutMs = 15_000) {
       true,
       "Chromium should exercise NBSP encoding for JSON indentation"
     );
-    assert.equal(await page.locator("#prompt-textarea > p").count(), pending.bootstrap_text.split("\n").length);
+    assert.equal(await page.evaluate(() => window.renderedParagraphCount), pending.bootstrap_text.split("\n").length);
 
+    await page.evaluate(() => { document.querySelector("#composer-submit-button").disabled = false; });
     const result = await delivered;
     assert.equal(result.ok, true, JSON.stringify(result));
     assert.equal(result.reason, "identity_discovered", JSON.stringify(result));

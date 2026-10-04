@@ -12,7 +12,7 @@ assert.ok(
   Number.isInteger(protocol.CONTENT_PROTOCOL_VERSION) && protocol.CONTENT_PROTOCOL_VERSION > 0,
   "shared CONTENT_PROTOCOL_VERSION must be a positive integer"
 );
-assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 13, "GitHub control-plane checkpoint must not change the DOM content protocol");
+assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 18, "Conversation Fabric parent controls require content protocol v18");
 for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_harness.js"]) {
   assert.doesNotMatch(
     read(name),
@@ -29,7 +29,7 @@ const contentGuardVersion = Number(guardSource.match(/const GUARD_VERSION = (\d+
 const harnessGuardVersion = Number(harness.match(/const EXHAUSTION_GUARD_VERSION = (\d+);/)?.[1]);
 assert.equal(workerGuardVersion, contentGuardVersion, "worker and content guard protocol versions must match");
 assert.equal(harnessGuardVersion, workerGuardVersion, "test harness guard protocol must match production worker");
-assert.equal(workerGuardVersion, 8, "GitHub schedule control must not change the assistant guard DOM contract");
+assert.equal(workerGuardVersion, 8, "Conversation Fabric must not change the assistant guard DOM contract");
 assert.match(
   read("content.js"),
   /const stableId = latest\.getAttribute\("data-message-id"\) \|\| turnKey \|\|/,
@@ -37,13 +37,20 @@ assert.match(
 );
 
 const manifest = JSON.parse(read("manifest.json"));
-assert.equal(manifest.version, "0.8.1", "Conversation Fabric release must have an unambiguous Bridge version");
+assert.equal(manifest.version, "0.8.3", "browser-native Conversation Fabric must have an unambiguous Bridge version");
 const scripts = manifest.content_scripts?.[0]?.js || [];
+const bridgeProtocolIndex = scripts.indexOf("control_protocol.js");
+const fabricProtocolIndex = scripts.indexOf("conversation_fabric_protocol.js");
 const retryIndex = scripts.indexOf("content_retry.js");
+const resultIndex = scripts.indexOf("spawn_result_content.js");
+const fabricContentIndex = scripts.indexOf("conversation_fabric_content.js");
 const contentIndex = scripts.indexOf("content.js");
-assert.ok(retryIndex >= 0, "manifest must load content_retry.js");
-assert.ok(contentIndex >= 0, "manifest must load content.js");
-assert.ok(retryIndex < contentIndex, "content retry policy must load before content.js");
+assert.ok(bridgeProtocolIndex >= 0, "manifest must load control_protocol.js");
+assert.ok(fabricProtocolIndex > bridgeProtocolIndex, "Conversation Fabric protocol must load after the base protocol");
+assert.ok(retryIndex > fabricProtocolIndex, "content retry policy must load after Conversation Fabric protocol");
+assert.ok(resultIndex > retryIndex, "child result content must load after retry policy");
+assert.ok(fabricContentIndex > resultIndex, "Conversation Fabric parent controller must load after child result content");
+assert.ok(contentIndex > fabricContentIndex, "normal Bridge content must remain loaded after isolated Conversation Fabric content");
 
 assert.match(
   workerBase,
@@ -55,14 +62,20 @@ assert.match(workerBase, /GITHUB_CONTROL_ALARM_NAME/, "worker base must own the 
 const transport = read("worker_transport.js");
 assert.match(
   transport,
-  /files: \["control_protocol\.js", "content_retry\.js", "content\.js"\]/,
-  "dynamic worker reinjection must include content retry policy before content.js"
+  /files: \["control_protocol\.js", "conversation_fabric_protocol\.js", "content_retry\.js", "spawn_result_content\.js", "conversation_fabric_content\.js", "content\.js"\]/,
+  "normal Bridge dynamic reinjection must preserve the existing content path"
 );
 assert.match(
   transport,
   /content_script_unavailable" \|\| content\.reason === "content_script_protocol_mismatch/,
   "stale reachable content protocols must be refreshable"
 );
+
+const fabricWorker = read("worker_conversation_fabric.js");
+assert.match(transport, /conversation_fabric_content\.js/, "shared transport must refresh Conversation Fabric in already-open tabs");
+assert.match(fabricWorker, /chrome\.storage\.local/, "campaign evidence must survive browser restart");
+assert.match(fabricWorker, /createConversationSpawnTab/, "Conversation Fabric must reuse the existing Bridge spawn primitive");
+assert.doesNotMatch(fabricWorker, /launchPersistentContext|connectOverCDP|nativeMessaging/i, "Conversation Fabric must not create a second browser control plane");
 
 const popup = read("popup.js");
 assert.doesNotMatch(popup, /older Bridge content script/i, "popup must not require a manual tab reload for protocol mismatch");
@@ -72,19 +85,28 @@ assert.doesNotMatch(popup, /chrome\.scripting\.executeScript/, "popup must not m
 const events = read("worker_events.js");
 assert.match(events, /"bridge:ensure-tab-content"/, "worker must expose centralized popup content activation");
 assert.match(events, /"bridge:operator-control"/, "worker must expose user-authored operator controls during migration");
+assert.match(events, /"bridge:conversation-fabric-control"/, "worker must expose browser-native Conversation Fabric controls");
 assert.match(events, /GITHUB_CONTROL_ALARM_NAME/, "worker events must route the durable GitHub-control poll");
 assert.match(events, /initializeGithubControlPlane/, "extension lifecycle must establish the GitHub-control poll");
 assert.match(events, /reconcileGithubConversationControls/, "worker lifecycle must reconcile GitHub desired state");
 
 const serviceWorker = read("service_worker.js");
+const fabricProtocolWorkerIndex = serviceWorker.indexOf('"conversation_fabric_protocol.js"');
+const spawnWorkerIndex = serviceWorker.indexOf('"worker_spawn.js"');
+const spawnResultIndex = serviceWorker.indexOf('"worker_spawn_result.js"');
+const fabricWorkerIndex = serviceWorker.indexOf('"worker_conversation_fabric.js"');
 const githubWorkerIndex = serviceWorker.indexOf('"worker_github_control.js"');
 const labWorkerIndex = serviceWorker.indexOf('"worker_lab_commands.js"');
 const githubGateIndex = serviceWorker.indexOf('"worker_github_legacy_gate.js"');
 const eventsIndex = serviceWorker.indexOf('"worker_events.js"');
+assert.ok(fabricProtocolWorkerIndex >= 0, "service worker must load the Conversation Fabric protocol");
 assert.ok(githubWorkerIndex >= 0, "service worker must load GitHub desired-state reconciliation");
-assert.ok(labWorkerIndex >= 0, "legacy LAB control plane remains loaded for migration compatibility");
+assert.ok(spawnWorkerIndex >= 0, "service worker must load existing spawn primitives");
+assert.ok(spawnResultIndex > spawnWorkerIndex, "child result helpers must extend already-defined spawn primitives");
+assert.ok(fabricWorkerIndex > spawnResultIndex, "Conversation Fabric campaign worker must load after spawn result helpers");
+assert.ok(labWorkerIndex > fabricWorkerIndex, "legacy LAB controls must remain separate from Conversation Fabric controls");
 assert.ok(githubGateIndex > labWorkerIndex, "GitHub legacy gate must wrap already-defined LAB handlers");
-assert.ok(eventsIndex > githubGateIndex, "worker events must bind the GitHub-aware wrapped handlers");
+assert.ok(eventsIndex > githubGateIndex, "worker events must bind all already-defined handlers");
 
 const runtimeExample = JSON.parse(read("runtime.example.json"));
 assert.equal(runtimeExample.schema_version, 3, "GitHub control plane must remain backward-compatible with runtime schema 3");
@@ -116,4 +138,4 @@ assert.doesNotMatch(
   "force content reload must not use a stale/nonexistent exhaustion guard global"
 );
 
-console.log(`Chat Bridge protocol contract tests passed (GitHub control plane, content protocol v${protocol.CONTENT_PROTOCOL_VERSION}, extension ${manifest.version}).`);
+console.log(`Chat Bridge protocol contract tests passed (browser-native Conversation Fabric, content protocol v${protocol.CONTENT_PROTOCOL_VERSION}, extension ${manifest.version}).`);

@@ -39,6 +39,22 @@
     if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
       return composer.value || "";
     }
+    const children = Array.from(composer.childNodes || []);
+    const isBlock = node => node instanceof HTMLElement && ["DIV", "P"].includes(node.tagName);
+    if (children.some(isBlock)) {
+      const read = node => node.nodeType === Node.TEXT_NODE ? node.nodeValue || "" :
+        node instanceof HTMLBRElement ? "\n" : Array.from(node.childNodes || [], read).join("");
+      const lines = [];
+      let inline = "";
+      for (const node of children) {
+        if (isBlock(node)) {
+          if (inline) { lines.push(inline); inline = ""; }
+          lines.push(node.childNodes.length === 1 && node.firstChild instanceof HTMLBRElement ? "" : read(node));
+        } else inline += read(node);
+      }
+      if (inline) lines.push(inline);
+      return lines.join("\n");
+    }
     return composer.innerText || composer.textContent || "";
   }
 
@@ -351,6 +367,7 @@
     }
 
     const previousUserMessages = messageElements("user").length;
+    const previousUserIdentity = latestUserMessage()?.identity;
     const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
     try {
       submitComposer(composer, sendButton);
@@ -363,7 +380,7 @@
       const userMessages = messageElements("user");
       const lastUser = userMessages[userMessages.length - 1];
       if (
-        userMessages.length > previousUserMessages &&
+        (userMessages.length > previousUserMessages || latestUserMessage()?.identity !== previousUserIdentity) &&
         normalizedText(lastUser?.innerText || lastUser?.textContent) === normalizedText(prompt)
       ) {
         return { ok: true, reason: "sent" };

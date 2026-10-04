@@ -76,6 +76,12 @@ That evidence is the reason normal scheduling authority moved out of assistant D
 
 Existing grouped/explicit assistant compatibility remains only for legacy diagnostics and structured assistant error/exhaustion handling. New DOM heuristics must not reintroduce assistant-text scheduling authority.
 
+## Same-browser Conversation Fabric candidate
+
+Bridge 0.8.3 / content protocol 18 adds explicit parent delegation and bounded child-result reading. Live Chrome evidence on 2026-10-04 confirmed an assistant role heading beside the answer body inside a logical `data-turn-key` group. The current answer body is scoped by an assistant `data-content-search-unit-key` or `data-chatgpt-search-unit-key` ending in `:assistant`, then `data-chatgpt-selection-message-id`. This excludes surrounding rating questions and user prompts. Explicit/grouped older renderer forms remain supported when that body scope is absent.
+
+Submitted-user confirmation accepts a new exact user-turn identity even when history virtualization keeps the visible user-message count constant. Delegation changes neither GitHub pacing authority nor repository execution bindings.
+
 ## Assistant generation state
 
 Generation is active when a visible ChatGPT Stop control is present:

@@ -2,6 +2,14 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
+## Unreleased — Chat Bridge 0.8.3 candidate
+
+- Enable same-browser Superchat delegation through the existing extension spawn primitives, without CDP or another browser profile.
+- Capture up to four reasoning children, persist campaign/results before owned-tab cleanup, and collect results through the existing GitHub-control poll.
+- Serialize duplicate delegation, retain failure evidence without automatic replay, and deliver result feedback once to the parent.
+- Refresh all parent/child controllers through the shared content lifecycle and preserve exact logical multiline composer text.
+- Local Agent remains at 4.20.6; repository execution bindings and scheduler admission are unchanged.
+
 ## v4.20.6
 
 - Add deterministic production queue deduplication for the parallel repository worker so equivalent tasks from overlapping conversations are terminally suppressed before expensive execution.

@@ -30,7 +30,7 @@ async function addConversation(harness, repositoryId, url) {
     assert.equal(h.sentMessages.length, 1);
     const prompt = h.sentMessages[0].message.prompt;
 
-    assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nBOOTSTRAP$/);
+    assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nBOOTSTRAP\n/);
     assert.doesNotMatch(prompt, /Current runtime catalog:/);
     assert.doesNotMatch(prompt, /Work only on repository/);
     assert.doesNotMatch(prompt, /agent_binding/);
@@ -45,7 +45,7 @@ async function addConversation(harness, repositoryId, url) {
     assert.equal(result.ok, true, result.reason);
     const prompt = h.sentMessages[0].message.prompt;
 
-    assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nBOOTSTRAP$/);
+    assert.match(prompt, /^\[LA_CHAT=chat-[0-9a-f]{8}\]\nBOOTSTRAP\n/);
     assert.doesNotMatch(prompt, /Current runtime catalog:/);
     assert.doesNotMatch(prompt, /Work only on repository/);
     assert.doesNotMatch(prompt, /agent_binding/);
