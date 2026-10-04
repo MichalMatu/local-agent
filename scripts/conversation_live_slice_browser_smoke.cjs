@@ -315,7 +315,7 @@ async function recoverMarker(request, pending, timeoutMs = 3000) {
       chromeExecutable: fakeChromePath,
       composerDelayMs: 6500
     });
-    const slowReady = await slowComposer.request("wait_ready", { timeout_ms: 15_000 }, 25_000);
+    const slowReady = await slowComposer.request("wait_ready", { timeout_ms: 3000 }, 15_000);
     assert.equal(slowReady.ok, true, JSON.stringify(slowReady));
     const slowPending = intent("slow-composer");
     const slowCreated = await slowComposer.request("create", { intent: slowPending });
