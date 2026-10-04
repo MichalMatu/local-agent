@@ -17,7 +17,7 @@ from local_agent.supervisor import orchestrator, serial
 
 ROOT = Path(__file__).resolve().parents[1]
 LAUNCHERS = {
-    "agentd.py": ("local_agent.daemon.service", "run"),
+    "agentd.py": ("local_agent.daemon.launcher", "run"),
     "agent_entrypoint.py": ("local_agent.entrypoint", "main"),
     "agent_parallel.py": ("local_agent.supervisor.orchestrator", "main"),
     "agent_multirepo.py": ("local_agent.supervisor.serial", "main"),
@@ -72,12 +72,12 @@ class PackageLayoutTests(unittest.TestCase):
             for filename in LAUNCHERS:
                 if filename == "agentd.py":
                     # The daemon has no help CLI; exercise its real launcher with
-                    # only the service runner patched to avoid starting a daemon.
+                    # only the fail-closed launcher patched to avoid starting a daemon.
                     code = (
                         "import runpy; from unittest.mock import patch; "
-                        "from local_agent.daemon import service; "
+                        "from local_agent.daemon import launcher, service; "
                         f"assert str(service.SELF_REPO) == {str(ROOT)!r}; "
-                        "p=patch.object(service, 'run', return_value=None); p.start(); "
+                        "p=patch.object(launcher, 'run', return_value=None); p.start(); "
                         f"runpy.run_path({str(link / filename)!r}, run_name='__main__')"
                     )
                     command = [sys.executable, "-c", code]
