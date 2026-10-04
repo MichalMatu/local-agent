@@ -3,6 +3,8 @@
 Each invocation performs exactly one existing authority step. The wrapper only adds
 machine-readable next-action guidance so the operator does not need to copy workflow
 ids, plan digests or launch nonces by hand. It never chains effects automatically.
+The ``login`` step is intentionally a bounded, non-interactive session probe; it never
+opens a browser or waits for a human login.
 """
 
 from __future__ import annotations
@@ -138,10 +140,15 @@ def _run_step(args: argparse.Namespace, layout: DevLabLayout) -> tuple[dict[str,
         )
 
     if args.command == "login":
-        result = live_runner.login_live_slice_browser(
-            layout,
-            timeout_seconds=args.login_timeout_seconds,
+        probe_timeout = min(
+            args.login_timeout_seconds,
+            live_runner.DEFAULT_LOGIN_PROBE_TIMEOUT_SECONDS,
         )
+        result = live_runner._probe_live_slice_browser_login(
+            layout,
+            timeout_seconds=probe_timeout,
+        )
+        result = {**result, "manual_login_used": False}
         next_action = None
         if result.get("ok") is True:
             prepared = live_slice.load_prepared_live_slice(layout)
