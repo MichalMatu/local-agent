@@ -1,86 +1,71 @@
-# Local Agent development plan
+# Local Agent development roadmap
 
-Status: Local Agent 4.20.5 / Chat Bridge 0.8.1 is released and live. Parent Superchat coordination is accepted. The next product milestone is to make the optional child reasoning path trustworthy with one narrowly scoped repair and one bounded live pilot.
+This roadmap contains only active forward work. Historical rollout detail belongs in release notes, self-diagnostic reports and archived evidence.
 
-## Current release line
+## Baseline — complete
 
-- `main` / `v4.20.5` = `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`;
-- production runtime has naturally advanced to Local Agent 4.20.5 at the exact release SHA;
-- Chat Bridge source = 0.8.1;
-- `chat-bridge-state` is operational schedule/runtime desired state, not a development branch;
-- `operator-control` is global safety/control state, not a development branch;
-- `local-agent` remains execution-disabled as a Local Agent task target.
+- deterministic target-bound `.agent/tasks` execution;
+- bounded parallel multi-repository scheduler and resource admission;
+- durable task/result/recovery contracts;
+- GitHub-backed Chat Bridge control;
+- transport-only Superchat conversation identity;
+- reasoning-only Conversation Fabric children;
+- isolated child-browser lifecycle path;
+- production queue deduplication (`v4.20.6`);
+- child auth readiness decoupled from composer DOM readiness (`main@e4b3da908cfac61bb11cd0e4182b7d9e7c42d5b8` code checkpoint).
 
-Temporary development/release branches should exist only while backing an active PR or unique unmerged evidence. Long-lived pre-consolidation Conversation Fabric branches are historical, not canonical development lines.
+## Milestone 1 — live single-Superchat acceptance — NEXT
 
-## Product direction
+Prove the product shape on real code:
 
-```text
-User
-  -> Parent Superchat (reasoning coordinator)
-    -> GitHub durable control/evidence
-    -> optional bounded child reasoning chats
-    -> direct GitHub work or exact target-repository .agent/tasks
-    -> verified results
-  -> Parent synthesis / next decision
-```
+- one parent Superchat owns one bounded real goal;
+- parent delegates at least two narrow, non-overlapping reasoning jobs to child chats;
+- children return bounded evidence/recommendations and have no machine authority;
+- parent synthesizes the final decision;
+- if code execution is justified, exactly one target repository task is queued with the exact binding and stable intent identity;
+- Local Agent executes once and publishes durable evidence;
+- no duplicate expensive build/test task runs;
+- child/operator state is cleanly retired or paused after the proof.
 
-Permanent boundaries:
+Do not expand scope until this passes end to end.
 
-- GitHub is the durable control/evidence plane.
-- Local Agent remains deterministic and model-free.
-- ChatGPT conversations remain the reasoning layer.
-- Chat Bridge is browser transport/scheduling, not repository authorization.
-- Repository ids in prompts/Conversation Fabric requests are reasoning context only.
-- Child chats have no independent machine execution authority.
-- `.agent/tasks` is the only executable repository-work contract and always uses the exact target repository binding.
-- No direct OpenAI API model loop and no second Conversation Fabric scheduler/control plane.
-- No local Codex/other coding-agent CLI launched through Local Agent.
+## Milestone 2 — live recovery and lifecycle proof
 
-## Accepted evidence
+After Milestone 1 passes:
 
-The 2026-10-04 parent-led self-diagnostic established:
+- restart/reconnect during an active child lifecycle;
+- recover bounded durable child state without duplicate authoritative workers;
+- exercise pause/resume and one controlled rollover;
+- prove hard conversation exhaustion remains fail-closed;
+- preserve goal continuity from durable checkpoint/evidence rather than old-chat prose.
 
-- Local Agent 4.20.5 is live on the exact release SHA;
-- scheduler/control, exact target binding/routing and process lifecycle/resource boundaries have no identified P0/P1 regression;
-- the previous parent schedule was disabled to prevent duplicate periodic wakes;
-- child delegation remains the one functional blocker;
-- current production Conversation Operator intake is not enabled/configured.
+## Milestone 3 — operator observability
 
-The child-browser failure mechanism was narrowed to authentication probing being gated by composer DOM visibility. Draft PR #135 fixes that coupling only. Exact SHA `25e817c79086f3962a4cee1b23515a11ebedffd3` has 5/5 green CI.
+Expose one concise normal status surface for:
 
-## Current milestone: child delegation acceptance
+- Conversation Operator enabled/configured/running state;
+- active parent goal and child count;
+- latest child lifecycle result;
+- queue dedupe suppression counts/reasons;
+- exact deployed Local Agent and Chat Bridge revisions.
 
-Sequence:
+This should remove the need to infer operator readiness from scattered files.
 
-1. keep PR #135 isolated from unrelated cleanup;
-2. review the two-file repair and regression test;
-3. merge only after an explicit decision;
-4. let deployment/self-update follow normal safety rules;
-5. verify exact deployed revision;
-6. run one bounded child reasoning pilot;
-7. only after the pilot passes decide whether to enable/configure Conversation Operator intake;
-8. add operator configuration state to routine diagnostics before depending on fan-out operationally.
+## Milestone 4 — dedupe hardening
 
-Do not repeat long manual Chrome login / Cloudflare / DOM experiments. Any remaining failure must be reduced from fresh bounded evidence.
+Review completion receipt semantics for failed terminal results. A materially changed corrective task must not be accidentally suppressed solely because a failed predecessor published successfully. Preserve the bounded anti-duplication guarantee while allowing explicit corrective intent.
 
-## Deferred maintenance
+## Milestone 5 — bounded multi-goal supervision
 
-Keep separate from the milestone above:
+Only after single-goal lifecycle/recovery is proven:
 
-- workspace/storage optimization for large Growclip/BloomML worktrees;
-- `hardware-lab` sparse/partial clone policy repair;
-- broader operator observability;
-- fleet-wide fan-out, automatic conversation rollover and broad autonomous scheduling.
+- deterministic active-goal limit;
+- explicit priorities and pause/resume;
+- bounded spawn rate;
+- repository-aware policy;
+- circuit breakers for repeated blocked/failed goals;
+- compact fleet snapshot for the parent.
 
-## Verification discipline
+## Not current work
 
-For every concrete repair:
-
-1. prove the failure mechanism from code/runtime evidence;
-2. make the smallest scoped change;
-3. run focused positive/negative checks;
-4. preserve exact target `.agent/tasks` binding and executor admission;
-5. avoid duplicate tasks/branches;
-6. run one final broad repository gate;
-7. leave a durable checkpoint with exact commit/result evidence.
+Do not reopen legacy repository-bound chat routing, broad manual browser debugging, a second executor/scheduler, child machine authority, or predictive autonomous fan-out. Those directions conflict with the accepted architecture or are premature before live acceptance.

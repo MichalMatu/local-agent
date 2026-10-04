@@ -1,75 +1,51 @@
-# Conversation Fabric — current execution plan
+# Conversation Fabric current plan
 
-Status: parent Superchat self-diagnostic completed. Core Local Agent 4.20.5 execution/scheduler/routing safety is healthy. The only active functional repair track is child-browser delegation readiness.
+## Goal
 
-## Baseline
+Run one bounded live Superchat acceptance on real code and prove the intended product behavior: one parent delegates reasoning, observes children, synthesizes the result and retains sole authority to request deterministic execution.
 
-- `main` / `v4.20.5` = `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`;
-- Local Agent source/runtime = 4.20.5;
-- Chat Bridge source = 0.8.1;
-- production completed natural self-update to the exact release SHA;
-- release CI was 5/5 green;
-- old parent `chat-7781d9b9` has been disabled;
-- Conversation Operator intake remains default-disabled and is not enabled by the current production LaunchAgent configuration.
+## Preconditions
 
-## Permanent architecture
+Before starting the proof, verify fresh evidence rather than assuming:
 
-```text
-Parent Superchat
-  -> decomposes/coordinates reasoning work
-  -> GitHub durable control/evidence
-  -> optional bounded child reasoning chats
-  -> direct GitHub edits or exact target .agent/tasks
-  -> verifies results and synthesizes decisions
-```
+- current `main` and installed Local Agent `self_revision`;
+- Local Agent release line `4.20.6` and Chat Bridge `0.8.1`;
+- no open code-repair PR blocking child lifecycle;
+- exact Bridge control state for the new parent conversation;
+- Conversation Operator/browser configuration and whether intake is enabled;
+- chosen target repository is execution-enabled and has a canonical binding.
 
-Rules:
+Operator intake may be enabled explicitly for the bounded proof if the supported runtime configuration requires it. Do not leave it enabled accidentally after the proof.
 
-- Chat Bridge conversation identity is transport/scheduling only.
-- Repository names in the active goal or durable request are reasoning context and may include donor + target repositories without Rebind.
-- Child chats are reasoning-only and have no independent machine execution authority.
-- `.agent/tasks` remains the only executable repository-work contract.
-- Every executable task uses the actual target repository's exact canonical `agent_binding` and normal registry/control/task admission.
-- GitHub is the durable control/evidence plane; DOM state is only browser transport evidence.
-- `local-agent` remains execution-disabled in the runtime catalog.
+## Acceptance sequence
 
-## Self-diagnostic verdict
+1. Start one fresh parent Superchat from `NEXT_CHAT_PROMPT.md`.
+2. Choose one small real-code goal in an execution-enabled repository. Prefer a task with clear evidence and bounded verification; avoid broad refactors.
+3. Parent creates at least two reasoning-only children with non-overlapping assignments, for example:
+   - child A: narrow code/architecture audit;
+   - child B: independent tests/failure-mode/review analysis.
+4. Give children pinned repository/commit context and a bounded output contract. No child may create `.agent/tasks` or run machine commands.
+5. Parent waits for/reads both child results and records exact child lifecycle evidence.
+6. Parent reconciles disagreements and decides whether a code change is justified.
+7. If execution is justified, parent creates exactly one bounded target-repository task with the exact canonical binding and a stable branch-scoped `dedupe_key` for that logical intent.
+8. Observe one Local Agent execution/result. Confirm no equivalent duplicate task/build/test runs.
+9. Verify resulting repository/CI evidence only as needed for the goal.
+10. Retire/close owned child lifecycle state and return operator/Bridge scheduling to the intended paused state when the bounded proof ends.
+11. Record PASS / PARTIAL / FAIL with exact evidence and any single next blocker.
 
-The 2026-10-04 parent-led audit found no P0/P1 regression in scheduler/control, target routing/bindings, process lifecycle/resources or transport-only parent coordination.
+## Stop conditions
 
-The detailed durable evidence is in `SELF_DIAGNOSTIC_2026-10-04.md`.
+Stop rather than weakening safety if any of these occurs:
 
-## Active child-browser repair
+- child authentication/ownership is ambiguous;
+- two authoritative child generations appear for one child slot;
+- a child obtains machine execution authority;
+- target binding/repository identity is uncertain;
+- equivalent expensive tasks execute twice;
+- the parent cannot observe durable child result evidence.
 
-The current MVP child backend still depends on the isolated browser actuator. The prior live pilot failed before child registration with `chatgpt_login_timeout`.
+Do not return to repeated manual login/Cloudflare/DOM experimentation as an acceptance strategy.
 
-Root cause isolated by the self-diagnostic: `waitForLoginReady()` only probed authenticated session state after composer DOM visibility. A valid authenticated session with delayed/changed composer DOM could therefore be mislabeled as a login timeout.
+## Success criteria
 
-Draft PR #135 fixes only that coupling and adds a delayed-composer regression test. Exact repair SHA:
-
-`25e817c79086f3962a4cee1b23515a11ebedffd3`
-
-The exact SHA has a complete 5/5 green CI run, including `bridge-browser` and `macos-smoke`.
-
-## Next acceptance sequence
-
-Do not broaden scope before this sequence is complete:
-
-1. finish documentation/branch housekeeping without Local Agent execution;
-2. review PR #135 as the only code repair candidate;
-3. make an explicit merge/deploy decision;
-4. after deployment, verify exact installed revision from fresh status;
-5. run one bounded child pilot;
-6. if and only if that pilot succeeds, decide whether to configure Conversation Operator intake for real parent fan-out;
-7. add normal diagnostics for Conversation Operator enabled/configured state before relying on it operationally.
-
-Do not repeat the historical manual Chrome login / Cloudflare / DOM-proof loop. If the bounded pilot still fails, capture the exact new failure and continue from that evidence.
-
-## Deferred maintenance
-
-Keep these separate from the child repair:
-
-- large Growclip/BloomML worktrees and storage hygiene;
-- `hardware-lab` sparse/partial-clone policy drift;
-- operator observability improvements;
-- broad fleet scheduling, automatic rollover and large fan-out.
+The milestone passes only when the user can visibly see one Superchat parent orchestrating real child work and, when needed, exactly one deterministic Local Agent execution on real code.

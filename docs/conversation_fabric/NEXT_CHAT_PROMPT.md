@@ -1,47 +1,43 @@
-# Conversation Fabric continuation prompt
+# Next chat prompt — live Superchat acceptance
 
-Use the text below for the next conversation after the 2026-10-04 self-diagnostic/documentation cleanup. Repository state, durable docs and fresh runtime evidence are authoritative; do not rely on previous chat memory.
+Paste the following into one new ChatGPT window. This is the parent Superchat; do not start from a child window.
 
 ---
 
-Continue `MichalMatu/local-agent` from the post-self-diagnostic Superchat baseline.
+Kontynuujemy `MichalMatu/local-agent`, ale nie korzystaj z pamięci poprzedniego czatu jako źródła prawdy. To jest **live acceptance Superchatu na realnym kodzie**, nie kolejny audyt projektu ani kolejna runda projektowania.
 
-Do not rely on memory from the previous chat. Read first:
+Najpierw przeczytaj z aktualnego `main`:
 
 1. `AGENTS.md`
 2. `docs/CURRENT_HANDOFF.md`
-3. `docs/GOLDEN_STANDARD.md`
-4. `docs/OPERATIONS.md`
-5. `docs/conversation_fabric/CURRENT_PLAN.md`
-6. `docs/DEVELOPMENT_PLAN.md`
-7. `docs/conversation_fabric/SELF_DIAGNOSTIC_2026-10-04.md`
+3. `docs/conversation_fabric/CHECKPOINT_2026-10-04_SUPERCHAT_READY.md`
+4. `docs/conversation_fabric/CURRENT_PLAN.md`
+5. `docs/GOLDEN_STANDARD.md`
+6. `docs/OPERATIONS.md`
 
-Then establish exact current `main`, open PRs, installed daemon version/revision, `chat-bridge-state`, `operator-control` and active task state from fresh evidence.
+Następnie sprawdź świeży stan GitHub i produkcji: aktualny `main`, `daemon_version`, `self_revision`, Chat Bridge, dokładny control record tego nowego czatu oraz stan/configuration Conversation Operator. Nie zakładaj, że operator intake jest włączony. Jeśli do bounded live proof trzeba go włączyć, użyj wyłącznie istniejącej wspieranej ścieżki i zapisz dokładny stan przed/po. Nie obchodź zabezpieczeń i nie wracaj do ręcznych pętli Chrome/login/Cloudflare.
 
-Current expected baseline to verify, not assume:
+Cel tego okna: **mam zobaczyć jeden Superchat, który realnie deleguje i orkiestruje zadania.**
 
-- released source/tag: Local Agent 4.20.5 / Chat Bridge 0.8.1;
-- release SHA: `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`;
-- parent-level Superchat architecture is healthy;
-- `local-agent` remains execution-disabled as a Local Agent task target;
-- child delegation remains optional and not yet production-trustworthy;
-- current production Conversation Operator intake is not enabled/configured;
-- previous parent `chat-7781d9b9` should remain disabled.
+Wybierz jeden mały, realny cel na prawdziwym kodzie w repozytorium z `execution_enabled=true` (preferuj `growclip`, jeżeli po świeżej inspekcji ma sensowny bounded task). Rodzic ma pozostać jedynym koordynatorem.
 
-Architecture is fixed:
+Wykonaj acceptance w tej kolejności:
 
-- this parent chat is the reasoning/coordinating Superchat;
-- Chat Bridge is transport/scheduling only, never repository authorization;
-- repository names / `repository_id(s)` are reasoning context and donor/target repositories may differ without `LAB:REBIND`;
-- child chats are bounded reasoning workers only;
-- machine execution remains direct GitHub work when sufficient or exact target-repository `.agent/tasks` with the actual target's canonical `agent_binding`;
-- `.agent/tasks` is the only executable repository-work contract;
-- do not create a second scheduler/control plane and do not launch local Codex/another coding-agent CLI.
+- utwórz co najmniej dwa reasoning-only podczaty o niepokrywających się rolach;
+- child A niech zrobi wąski audyt kodu/architektury wybranego fragmentu;
+- child B niech niezależnie przeanalizuje testy, failure modes i jakość proponowanego kierunku;
+- przypnij dzieciom konkretny repo/commit i bounded output; dzieci nie mogą wykonywać komend ani tworzyć `.agent/tasks`;
+- obserwuj ich realne wyniki i pokaż mi krótko, co każde dziecko ustaliło;
+- jako rodzic porównaj wyniki, rozstrzygnij rozbieżności i podejmij decyzję;
+- tylko jeśli zmiana w kodzie jest uzasadniona, utwórz **dokładnie jedno** zadanie Local Agent w prawdziwym repo targetowym, z jego dokładnym `agent_binding` i stabilnym branch-scoped `dedupe_key` dla tego intentu;
+- sprawdź, że wykonało się tylko jedno zadanie i nie pojawił się drugi identyczny build/test;
+- zweryfikuj wynik na realnym kodzie i pokaż trwałe evidence;
+- na końcu uporządkuj/wycofaj bounded child lifecycle oraz przywróć zamierzony paused/disabled state operatora, jeśli proof został zakończony.
 
-The immediate code candidate is draft PR #135, `Decouple child browser auth readiness from composer DOM`, exact head SHA `25e817c79086f3962a4cee1b23515a11ebedffd3`. The 2026-10-04 audit found that `waitForLoginReady()` gated authentication probing on composer DOM visibility. The PR decouples session authentication from composer readiness and adds a delayed-composer regression; an exact-SHA CI run completed 5/5 green.
+Nie rób szerokiego fan-outu ani stress testu. Nie twórz pracy „dla demonstracji”, jeżeli inspekcja nie uzasadnia zmiany — w takim przypadku dzieci mogą zakończyć realnym audytem, ale nadal musisz udowodnić delegację/orchestration i jasno powiedzieć, że execution było niepotrzebne.
 
-First inspect PR #135 and current CI/diff. Do not mix unrelated cleanup into it. If it is still the correct minimal repair, make the explicit merge/deploy decision. After deployment, verify the exact installed revision and run **one bounded child pilot**. Do not return to the historical long Chrome login / Cloudflare / DOM debugging loop.
+Stop i zgłoś konkretny blocker zamiast osłabiać kontrakty, jeśli auth/ownership dziecka jest niejednoznaczny, binding targetu jest niepewny, pojawiają się dwie autorytatywne instancje dziecka, dziecko uzyskuje machine authority albo równoważna kosztowna praca uruchamia się drugi raz.
 
-If the bounded pilot passes, then decide whether to configure Conversation Operator intake and add normal observability for its enabled/configured state. If it fails, capture the exact new failure and continue from that evidence instead of broadening architecture.
+Na końcu daj jeden werdykt: `PASS`, `PARTIAL` albo `FAIL`, z dokładnymi SHA/ID/evidence oraz maksymalnie jednym następnym blockerem.
 
-Keep storage/worktree optimization, `hardware-lab` clone-policy maintenance, broad fan-out and automatic rollover as separate later work.
+---

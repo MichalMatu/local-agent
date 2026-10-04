@@ -1,61 +1,32 @@
 # Superchat supervisor
 
-This directory is the working design area for the higher-level ChatGPT supervisor that sits above Chat Bridge.
-
-Superchat is not a replacement for Local Agent and must not become another executor. Its purpose is to supervise long-running planner conversations, preserve goal continuity across ChatGPT conversation boundaries, start and retire worker chats, and coordinate progress using deterministic lifecycle rules.
+Superchat is the parent reasoning/orchestration layer above Chat Bridge and Conversation Fabric children. It is not an executor and it is not a second scheduler.
 
 ```text
-Superchat planner / manager
-        |
-        v
-Deterministic Chat Supervisor
-        |
-        v
-Chat Bridge
-        |
-        v
-Bound ChatGPT worker conversations
-        |
-        v
-Git-backed control state
-        |
-        v
-Deterministic Local Agent executor
+Superchat parent
+  -> bounded child reasoning
+  -> child evidence/results
+  -> parent synthesis
+  -> target .agent/tasks when execution is justified
+  -> deterministic Local Agent executor
 ```
-
-## Documents
-
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — target boundaries, state model, protocols and safety invariants.
-- [`ROADMAP.md`](ROADMAP.md) — staged delivery plan from documentation and fixtures to automatic rollover and multi-goal supervision.
-- [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — concrete expected code changes, tests and migration order.
-- [`RESEARCH_LOG.md`](RESEARCH_LOG.md) — observed facts, unknowns, experiments and decisions that still need evidence.
-- [`EVIDENCE.md`](EVIDENCE.md) — concrete browser/DOM artifacts already captured and evidence still needed for automatic rollover.
-- [`../CHATGPT_DOM_CONTRACT.md`](../CHATGPT_DOM_CONTRACT.md) — canonical observed ChatGPT DOM contract for conversation exhaustion.
-- [`../AUTONOMOUS_CHAT_LOOP.md`](../AUTONOMOUS_CHAT_LOOP.md) — current child planner / deterministic executor contract.
 
 ## Current status
 
-The detailed executable milestone ledger is maintained on the canonical develop/conversation-fabric branch in docs/conversation_fabric/CURRENT_PLAN.md. This directory contains the higher-level Superchat lifecycle design and research roadmap; it is not a second execution plan.
+The deterministic foundation is implemented: transport-only chat identity, GitHub-backed controls/evidence, reasoning-only children, isolated child-browser lifecycle, bounded parallel execution, exact target binding and production queue deduplication. The child-browser auth readiness repair is merged.
 
-The repository already has a deterministic terminal exhaustion detector:
+The next product milestone is not more design work. It is one bounded live acceptance in which a real parent visibly delegates to real child chats on real source code and retains sole execution authority.
 
-- `chat_bridge/dom_contract.js` recognizes the observed maximum-length DOM;
-- `chat_bridge/exhaustion_guard.js` reports exhaustion to the extension service worker;
-- `chat_bridge/worker_transport.js` records `conversation_exhausted`, disables that conversation and clears its alarm;
-- the old conversation remains immutable and hard-bound to its repository.
+## Current documents
 
-What does not exist yet:
+- [`../CURRENT_HANDOFF.md`](../CURRENT_HANDOFF.md) — current production/checkpoint state.
+- [`../conversation_fabric/CHECKPOINT_2026-10-04_SUPERCHAT_READY.md`](../conversation_fabric/CHECKPOINT_2026-10-04_SUPERCHAT_READY.md) — readiness checkpoint.
+- [`../conversation_fabric/CURRENT_PLAN.md`](../conversation_fabric/CURRENT_PLAN.md) — live acceptance sequence.
+- [`ROADMAP.md`](ROADMAP.md) — forward roadmap after the self-diagnostic.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — longer-lived architecture boundaries.
 
-- durable goal identity independent from one chat;
-- a privileged but bounded Superchat control protocol;
-- automatic creation and binding of a replacement ChatGPT conversation;
-- durable rollover operation journaling and restart reconciliation;
-- periodic goal checkpoints usable when the old chat reaches a hard terminal limit;
-- fleet/goal summaries for a supervisor conversation;
-- multi-goal scheduling policy above Chat Bridge.
+Older implementation plans, research logs and evidence captures are historical support material. They do not override the current handoff/plan.
 
-## Design principle
+## Product rule
 
-The LLM decides **what** should happen. Deterministic infrastructure decides **how lifecycle transitions happen safely**.
-
-Superchat may request that a child planner continue, pause, rotate or start a new goal. It must never infer repository identity from prose, rewrite an existing chat binding, bypass Local Agent task admission, or treat an LLM summary as execution evidence.
+The model decides what should happen. Deterministic infrastructure decides whether and how an external effect is allowed to happen. One parent may coordinate many reasoning workers; machine execution remains target-bound and singular.

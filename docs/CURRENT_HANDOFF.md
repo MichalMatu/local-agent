@@ -1,125 +1,62 @@
-# Current handoff — post-self-diagnostic Superchat baseline
+# Current handoff — Superchat live-acceptance checkpoint
 
 Date: 2026-10-04
 
-Status: Local Agent 4.20.5 / Chat Bridge 0.8.1 is released and live. Parent-level Superchat coordination is healthy. The remaining functional blocker is optional child-browser delegation; the executor, scheduler, target-repository routing and process-lifecycle boundaries passed the 2026-10-04 self-diagnostic.
+Status: Local Agent release line `v4.20.6` / Chat Bridge `0.8.1` is the current production baseline. Queue deduplication is released and live. The final known child-browser readiness repair was merged on `main` as `e4b3da908cfac61bb11cd0e4182b7d9e7c42d5b8` after exact-head CI completed 5/5 green. The next milestone is a bounded live Superchat acceptance on real code, not another design round.
 
-## Read this first
+## Source of truth
 
-Repository state, durable docs and fresh runtime evidence outrank chat memory.
-
-Read in this order:
+Do not reconstruct state from old chats. Read fresh repository/runtime evidence in this order:
 
 1. `AGENTS.md`
 2. this file
 3. `docs/GOLDEN_STANDARD.md`
 4. `docs/OPERATIONS.md`
-5. `docs/conversation_fabric/CURRENT_PLAN.md`
-6. `docs/DEVELOPMENT_PLAN.md`
+5. `docs/conversation_fabric/CHECKPOINT_2026-10-04_SUPERCHAT_READY.md`
+6. `docs/conversation_fabric/CURRENT_PLAN.md`
 7. `docs/conversation_fabric/NEXT_CHAT_PROMPT.md`
-8. `docs/conversation_fabric/SELF_DIAGNOSTIC_2026-10-04.md`
 
-## Current release state
+Historical self-diagnostic, DEV-lab and research documents are evidence only; they are not the current execution plan.
 
-- `main` = `bd793d60c3bce4b247deb80a7e2bfc88e8bf4373`
-- tag `v4.20.5` = same commit
-- Local Agent source/runtime = 4.20.5
-- Chat Bridge source = 0.8.1
-- exact release CI = 5/5 green
-- production completed the natural self-update to the exact release SHA
-- no forced restart was used to obtain that state
+## Current baseline
 
-The previous parent conversation control `chat-7781d9b9` was disabled during the self-diagnostic so it cannot continue periodic wakes in parallel with later Superchat work.
+- immutable release tag: `v4.20.6` -> release commit `48eb9d8b6c26a9dfb317906d5099acabce8719c8`;
+- final code-readiness patch: `e4b3da908cfac61bb11cd0e4182b7d9e7c42d5b8`;
+- current `main`: always read fresh; do not equate a moving branch with the immutable release tag;
+- Local Agent version line: `4.20.6`;
+- Chat Bridge: `0.8.1`;
+- production `daemon_version` and `self_revision`: always verify from fresh daemon status before a live campaign;
+- all previously known managed conversation controls were paused at the end of the self-diagnostic;
+- `local-agent` itself remains execution-disabled as a task target.
+
+## What the self-diagnostic established
+
+- parent-level scheduler/routing/process ownership is healthy;
+- repository execution remains bound to the exact target repository and exact canonical `agent_binding`;
+- production parallel workers suppress equivalent queued/recent work before expensive execution;
+- children remain reasoning-only and cannot acquire machine authority;
+- the child-browser auth probe no longer depends on composer DOM readiness;
+- there is no remaining known P0/P1 code blocker for one bounded live Superchat proof.
 
 ## Accepted architecture
 
 ```text
-Parent Superchat
-  -> reasoning / decomposition / coordination
-  -> GitHub durable control/evidence
-  -> optional bounded child reasoning chats
-  -> direct GitHub edits or exact target .agent/tasks
-  -> verified results
-  -> parent synthesis / next decision
+one Superchat parent
+  -> delegates bounded reasoning to child chats
+  -> receives child evidence/results
+  -> synthesizes one parent decision
+  -> if execution is justified, emits one target-repository .agent/tasks request
+  -> Local Agent executes deterministically under exact binding/resource controls
 ```
 
-Chat identity is transport/scheduling identity only. Repository names and `repository_id(s)` in reasoning are context, not machine authority. Donor and target repositories may differ without `LAB:REBIND`.
+Chat Bridge is transport/scheduling. Child chats are reasoning workers. Local Agent is the only machine executor. Reasoning repository context is not execution authority.
 
-The only executable repository-work boundary remains:
+## Next milestone
 
-```text
-registry binding == target .agent/binding.json binding == task.agent_binding
-```
+Run one live acceptance using a real execution-enabled repository and real source code. The parent must visibly delegate at least two narrow, non-overlapping reasoning jobs, collect their results, make the final decision itself, and—only if justified—queue exactly one bounded executable task in the real target repository. Verify that duplicate execution does not occur.
 
-`.agent/tasks` is the only executable repository-work contract. `local-agent` remains `execution_enabled: false` and must not receive Local Agent tasks.
+Conversation Operator intake is an explicit live operational setting. Do not assume it is enabled. Verify it fresh and enable only through the supported bounded path when starting the proof. Keep it disabled at rest unless an active campaign intentionally needs it.
 
-## 2026-10-04 self-diagnostic result
+## Deferred, non-blocking hardening
 
-No P0/P1 regression was found in:
-
-- scheduler/control and bounded parallel admission;
-- exact target-repository routing/binding;
-- process registration, process groups, termination and resource leases;
-- parent Superchat transport-only architecture.
-
-Maintenance findings remain for storage/worktree size and operator observability, but they are not release blockers.
-
-The detailed checkpoint is `docs/conversation_fabric/SELF_DIAGNOSTIC_2026-10-04.md`.
-
-## Child reasoning path
-
-Child delegation is not yet production-trustworthy.
-
-Current facts:
-
-- Conversation Operator intake remains default-disabled unless explicitly configured;
-- current production LaunchAgent configuration does not enable that intake;
-- the implemented MVP child-spawn backend still uses the isolated browser actuator;
-- the earlier live pilot stopped at `chatgpt_login_timeout` before child registration.
-
-The self-diagnostic isolated a concrete defect: login/session probing was gated on composer DOM visibility. Draft PR #135 (`work/selfdiag-child-auth-decouple-20261004`) decouples session authentication from composer readiness and adds a delayed-composer regression test. Exact SHA `25e817c79086f3962a4cee1b23515a11ebedffd3` has a complete 5/5 green CI run.
-
-Do not return to long manual Chrome login / Cloudflare / DOM debugging. The next child-path action, after an explicit merge/deploy decision for PR #135, is one bounded pilot.
-
-## Branch policy
-
-Permanent operational branches are:
-
-- `main`
-- `chat-bridge-state`
-- `operator-control`
-
-Temporary branches are retained only while they back an active PR or contain unique unmerged evidence.
-
-At this checkpoint:
-
-- `work/selfdiag-child-auth-decouple-20261004` is retained for draft PR #135;
-- `work/selfdiag-report-20261004` is retained only until the documentation cleanup is merged;
-- `work/superchat-final-cleanup-v4.20.5-20261003` contains no commits beyond released `main` and is safe to delete;
-- `develop/conversation-fabric` and `archive/conversation-fabric-pre-rebase` are historical pre-consolidation lines and are no longer canonical development branches;
-- `work/conversation-fabric-simplify-binding-v4.20.4-20261003` is an obsolete pre-4.20.5 work line and is not the source of truth.
-
-## Next step
-
-The next code step is deliberately narrow:
-
-1. review PR #135 only against the child-auth failure mechanism;
-2. merge only after an explicit decision;
-3. allow normal deployment/self-update behavior rather than forcing an active task to drain;
-4. confirm the exact deployed revision;
-5. run one bounded child pilot;
-6. only after that pilot passes consider enabling Conversation Operator intake for real parent fan-out.
-
-Do not start a new release, broad architectural expansion or branch cleanup that could obscure that evidence chain.
-
-## Non-negotiable invariants
-
-- GitHub is the durable control/evidence plane.
-- Local Agent remains deterministic/model-free.
-- Chat Bridge remains browser transport/scheduling, not repository authorization.
-- Child chats never receive independent machine execution authority.
-- `.agent/tasks` remains the exact target execution boundary.
-- No second Conversation Fabric scheduler/control plane.
-- No local Codex/other coding-agent CLI through Local Agent.
-- No production/daily Chrome profile mutation.
-- `chat-bridge-state` and `operator-control` are operational state branches, not development branches.
+A failed task whose final result is successfully published can currently leave the same bounded recent-completion dedupe receipt as a successful task. That may transiently suppress a corrective task reusing the same explicit `dedupe_key`. Treat this as later hardening; it is not a blocker for the single bounded acceptance, where one intent key must not be reused for a materially changed corrective plan.
