@@ -42,12 +42,11 @@ from local_agent.foundation.process import (
 from local_agent.runtime.task_contract import (
     DEFAULT_MEMORY_LIMIT_MB,
     MAX_TASK_FILE_BYTES,
+    InvalidDedupeMetadata,
     task_digest,
     validate_task,
 )
-from local_agent.runtime.executor import (
-    RuntimeExecutor,
-)
+from local_agent.runtime.executor import RuntimeExecutor
 from local_agent.version import RELEASE_VERSION
 from local_agent.paths import repository_root
 
@@ -102,10 +101,7 @@ def log(message: str) -> None:
 
 
 def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
-    atomic_write_text(
-        path,
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n",
-    )
+    atomic_write_text(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
 
 
 class CoalescingRemotePublisher:
@@ -123,12 +119,7 @@ class CoalescingRemotePublisher:
         )
         self._thread.start()
 
-    def submit(
-        self,
-        relative: str,
-        payload: dict[str, Any],
-        commit_message: str,
-    ) -> None:
+    def submit(self, relative: str, payload: dict[str, Any], commit_message: str) -> None:
         with self._condition:
             if self._stopping:
                 return
@@ -206,9 +197,7 @@ def flush_remote_progress() -> bool:
     return True if publisher is None else publisher.flush()
 
 
-def quiesce_remote_progress(
-    timeout: float = REMOTE_PROGRESS_SHUTDOWN_SECONDS,
-) -> bool:
+def quiesce_remote_progress(timeout: float = REMOTE_PROGRESS_SHUTDOWN_SECONDS) -> bool:
     publisher = _remote_progress_publisher
     return True if publisher is None else publisher.quiesce(timeout)
 
@@ -242,9 +231,7 @@ def publish_control_json(
         with termination_critical_section():
             atomic_write_json(target, payload)
             add = core.process(
-                ["git", "add", "--", relative],
-                core.CONTROL,
-                log_commands=log_commands,
+                ["git", "add", "--", relative], core.CONTROL, log_commands=log_commands
             )
             if add["exit_code"] != 0:
                 raise RuntimeError(storage.git_failure_diagnostic(add))
@@ -318,10 +305,7 @@ def safe_control_directory(relative: str) -> Path:
 
 def self_revision() -> str | None:
     result = core.process(
-        ["git", "rev-parse", "HEAD"],
-        SELF_REPO,
-        timeout=10,
-        log_commands=False,
+        ["git", "rev-parse", "HEAD"], SELF_REPO, timeout=10, log_commands=False
     )
     return str(result["output"]).strip() if result["exit_code"] == 0 else None
 
@@ -498,10 +482,13 @@ def clear_current_task(task_id: str) -> None:
 
 
 def invalid_task_result(task_id: str, error: Exception) -> dict[str, Any]:
+    failure_reason = (
+        "invalid_dedupe_key" if isinstance(error, InvalidDedupeMetadata) else "invalid_task_file"
+    )
     return {
         "id": task_id,
         "status": "failed",
-        "failure_reason": "invalid_task_file",
+        "failure_reason": failure_reason,
         "started_at": None,
         "finished_at": now_iso(),
         "daemon_version": DAEMON_VERSION,
@@ -514,9 +501,6 @@ def recover_invalid_task_files() -> None:
     results_dir = safe_control_directory(".agent/results")
 
     for path in sorted(tasks_dir.glob("*.json")):
-        # A malformed file cannot reliably provide task.id, so its filename stem is
-        # the durable rejection key. Valid historical task files are allowed to use
-        # a filename alias/prefix that differs from task.id.
         rejection_id = path.stem
         rejection_result = results_dir / f"{rejection_id}.json"
         if rejection_result.exists():
@@ -536,7 +520,7 @@ def recover_invalid_task_files() -> None:
                 {
                     "event": "invalid_task_rejected",
                     "status": "failed",
-                    "failure_reason": "invalid_task_file",
+                    "failure_reason": result["failure_reason"],
                     "updated_at": now_iso(),
                 },
                 force_remote=True,
@@ -549,7 +533,6 @@ def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
     pending: list[tuple[Path, dict[str, Any]]] = []
 
     for path in sorted(tasks_dir.glob("*.json")):
-        # First skip a terminal malformed-file rejection keyed by filename.
         task_id_hint = path.stem
         if (results_dir / f"{task_id_hint}.json").exists():
             continue
@@ -560,8 +543,6 @@ def pending_tasks() -> list[tuple[Path, dict[str, Any]]]:
             log(f"invalid task file {path.name}: {type(exc).__name__}: {exc}")
             continue
 
-        # Valid historical files may use a filename prefix/alias. Results and claims
-        # are keyed by the immutable payload id, not by the queue filename.
         result_path = results_dir / f"{task_id}.json"
         if result_path.exists():
             try:
@@ -697,8 +678,7 @@ def recover_stale_claims() -> None:
             spooled_result = read_result_spool(task_id)
         except Exception as exc:
             log(
-                f"invalid result spool retained for {task_id}: "
-                f"{type(exc).__name__}: {exc}"
+                f"invalid result spool retained for {task_id}: {type(exc).__name__}: {exc}"
             )
             continue
         if spooled_result is not None:
@@ -775,11 +755,7 @@ def acquire_daemon_lock() -> Any:
 
 def _git(args: list[str], timeout: int = 60) -> subprocess.CompletedProcess[str]:
     result = storage.run_git_with_network_retry(
-        core,
-        args,
-        SELF_REPO,
-        timeout=timeout,
-        log_commands=False,
+        core, args, SELF_REPO, timeout=timeout, log_commands=False
     )
     return subprocess.CompletedProcess(
         args=args,
@@ -912,10 +888,7 @@ def _self_update_transaction(*, force: bool) -> bool:
     log(f"self-update available {local_sha[:9]} -> {remote_sha[:9]}")
     begin_installation(STATE_DIR, local_sha, remote_sha)
     try:
-        install = _git(
-            ["git", "merge", "--ff-only", "--quiet", remote_sha],
-            timeout=120,
-        )
+        install = _git(["git", "merge", "--ff-only", "--quiet", remote_sha], timeout=120)
         if install.returncode != 0:
             valid, error = False, str(install.stdout).strip()
         else:
@@ -945,11 +918,7 @@ def _self_update_transaction(*, force: bool) -> bool:
 
 
 def valid_control_id(control_id: str) -> bool:
-    return (
-        bool(control_id)
-        and len(control_id) <= 120
-        and CONTROL_ID_RE.fullmatch(control_id) is not None
-    )
+    return bool(control_id) and len(control_id) <= 120 and CONTROL_ID_RE.fullmatch(control_id) is not None
 
 
 def control_ack_relative_path(control_id: str) -> str:
@@ -968,17 +937,9 @@ def _control_ack_path(control_id: str) -> Path:
 
 
 def control_ack_published(control_id: str) -> bool:
-    """Return True only when the ACK is visible on the fetched remote control branch."""
     relative = control_ack_relative_path(control_id)
     result = core.process(
-        [
-            "git",
-            "ls-tree",
-            "--name-only",
-            f"origin/{core.CONTROL_BRANCH}",
-            "--",
-            relative,
-        ],
+        ["git", "ls-tree", "--name-only", f"origin/{core.CONTROL_BRANCH}", "--", relative],
         core.CONTROL,
         timeout=30,
         log_commands=False,
@@ -988,12 +949,7 @@ def control_ack_published(control_id: str) -> bool:
     return relative in str(result.get("output", "")).splitlines()
 
 
-def publish_control_ack(
-    control_id: str,
-    action: str,
-    status: str,
-    **extra: Any,
-) -> None:
+def publish_control_ack(control_id: str, action: str, status: str, **extra: Any) -> None:
     relative = control_ack_relative_path(control_id)
     payload = {
         "id": control_id,
@@ -1040,11 +996,7 @@ def handle_control_request(*, status_extra: dict[str, Any] | None = None) -> Non
         if not maybe_self_update(force=True):
             publish_control_ack(control_id, action, "completed", result="no_update")
     elif action == "status":
-        publish_daemon_status(
-            "idle",
-            force_remote=True,
-            **(status_extra or {}),
-        )
+        publish_daemon_status("idle", force_remote=True, **(status_extra or {}))
         publish_control_ack(control_id, action, "completed")
     else:
         publish_control_ack(control_id, action, "rejected", error="unsupported_action")
@@ -1141,9 +1093,6 @@ def make_progress_callback(
             if stage_name:
                 last_remote_stage = stage_name
 
-        # Local status tracks every transition. Remote daemon status is health/state
-        # telemetry, not a duplicate per-command stream. Detailed execution belongs
-        # in .agent/runs/<task-id>.json.
         status_extra: dict[str, Any] = {"progress": enriched}
         if enriched.get("last_progress_at") is not None:
             status_extra["last_progress_at"] = enriched["last_progress_at"]
