@@ -8,7 +8,7 @@
     throw new Error("Conversation Fabric content dependencies are unavailable");
   }
   const { CONTENT_PROTOCOL_VERSION, normalizeConversationUrl, controlFingerprint, fnv1a32 } = bridgeProtocol;
-  const { parseConversationFabricControl } = fabricProtocol;
+  const { parseConversationFabricControl, MAX_PROMPT_CHARS } = fabricProtocol;
 
   const existing = globalThis.__localAgentConversationFabricContent;
   if (existing?.protocolVersion === CONTENT_PROTOCOL_VERSION) return;
@@ -40,6 +40,29 @@
         return true;
       }
     });
+  }
+
+  function childCompletionMarker(fingerprint, childId) {
+    const checksum = fnv1a32(`${fingerprint}\n${childId}`);
+    return `<<<LOCAL_AGENT_CF_CHILD_COMPLETE:${fingerprint}:${childId}:${checksum}>>>`;
+  }
+
+  function decorateDelegateControl(control, fingerprint) {
+    if (control?.action !== "delegate") return control;
+    const children = control.children.map((child) => {
+      const completionMarker = childCompletionMarker(fingerprint, child.id);
+      const suffix = [
+        "When the bounded task is fully complete, append the exact marker below as the final non-whitespace text of your final answer.",
+        "Never emit this marker in progress, commentary, tool-use, or any intermediate response.",
+        completionMarker
+      ].join("\n");
+      const prompt = `${child.prompt.trimEnd()}\n\n${suffix}`;
+      if (prompt.length > MAX_PROMPT_CHARS) {
+        throw new Error("Conversation Fabric child prompt exceeds the bounded limit after completion guard");
+      }
+      return { ...child, prompt };
+    });
+    return { ...control, children };
   }
 
   function cleanTurnText(turn) {
@@ -232,6 +255,18 @@
     if (fingerprint === lastSubmittedFingerprint) return;
     if (!retryGate.canAttempt(signature)) return;
 
+    let requestControl;
+    try {
+      requestControl = decorateDelegateControl(control, fingerprint);
+    } catch (error) {
+      // Prompt length is deterministic for this assistant turn. Retrying cannot
+      // make the completion guard fit, so fail closed until a new turn arrives.
+      lastScannedSignature = signature;
+      retryGate.reset(signature);
+      console.warn("Local Agent Conversation Fabric completion guard failed:", error);
+      return;
+    }
+
     scanInFlight = true;
     try {
       const response = await chrome.runtime.sendMessage({
@@ -240,7 +275,7 @@
         fingerprint,
         assistantIdentity: latest.identity,
         contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
-        control
+        control: requestControl
       });
       if (!response?.ok) {
         retryGate.defer(signature);
@@ -258,7 +293,7 @@
           fingerprint,
           assistantIdentity: latest.identity,
           contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
-          control,
+          control: requestControl,
           campaignId: response.campaignId
         });
         if (!receipt?.ok) {

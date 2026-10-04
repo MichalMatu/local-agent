@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, "..");
 const bridge = path.join(root, "chat_bridge");
 const parentUrl = "https://chatgpt.com/c/cf-parent-smoke";
 const childUrl = "https://chatgpt.com/c/cf-child-smoke";
+const completionMarkerRe = /<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>/;
 
 const parentFixture = `<!doctype html><html><body>
 <form id="composer-form">
@@ -36,15 +37,7 @@ document.querySelector("#composer-form").addEventListener("submit", (event) => {
 </script>
 </body></html>`;
 
-const childFixture = `<!doctype html><html><body>
-<div data-turn-key="assistant-child-result">
-  <div data-message-author-role="user">USER SECRET MUST NOT LEAK</div>
-  <div data-message-author-role="assistant">
-    <div class="markdown">CHILD RESULT ALPHA</div>
-    <button type="button">Copy</button>
-  </div>
-</div>
-</body></html>`;
+const childFixture = `<!doctype html><html><body><div id="turns"></div></body></html>`;
 
 async function installParentChromeStub(page) {
   await page.addInitScript(() => {
@@ -140,12 +133,56 @@ async function runParentSmoke(context) {
   assert.equal(runtimeMessage.control.children.length, 2);
   assert.equal(runtimeMessage.contentProtocolVersion, require(path.join(bridge, "control_protocol.js")).CONTENT_PROTOCOL_VERSION);
 
+  const markers = runtimeMessage.control.children.map((child) => {
+    const match = String(child.prompt || "").match(completionMarkerRe);
+    assert.ok(match, `missing completion marker for child ${child.id}`);
+    assert.match(child.prompt, /Never emit this marker in progress/);
+    return match[0];
+  });
+  assert.notEqual(markers[0], markers[1], "each child must have a unique completion marker");
+
   await page.waitForFunction(() => window.__submitted.includes("FABRIC FEEDBACK"));
   assert.deepEqual(await page.evaluate(() => window.__submitted), ["FABRIC FEEDBACK"]);
   await page.close();
+  return markers[0];
 }
 
-async function runChildSmoke(context) {
+async function setChildAssistant(page, text, { generating = false } = {}) {
+  await page.evaluate(({ text, generating }) => {
+    const turns = document.querySelector("#turns");
+    turns.textContent = "";
+    const turn = document.createElement("div");
+    turn.dataset.turnKey = "assistant-child-result";
+
+    const user = document.createElement("div");
+    user.dataset.messageAuthorRole = "user";
+    user.textContent = "USER SECRET MUST NOT LEAK";
+    turn.appendChild(user);
+
+    const assistant = document.createElement("div");
+    assistant.dataset.messageAuthorRole = "assistant";
+    const body = document.createElement("div");
+    body.className = "markdown";
+    body.textContent = text;
+    assistant.appendChild(body);
+    const copy = document.createElement("button");
+    copy.type = "button";
+    copy.textContent = "Copy";
+    assistant.appendChild(copy);
+    turn.appendChild(assistant);
+    turns.appendChild(turn);
+
+    document.querySelectorAll('[data-testid="stop-button"], [data-testid="composer-stop-button"]').forEach((node) => node.remove());
+    if (generating) {
+      const stop = document.createElement("button");
+      stop.dataset.testid = "stop-button";
+      stop.textContent = "Stop";
+      document.body.appendChild(stop);
+    }
+  }, { text, generating });
+}
+
+async function runChildSmoke(context, completionMarker) {
   const page = await context.newPage();
   await installChildChromeStub(page);
   await page.goto(childUrl, { waitUntil: "domcontentloaded" });
@@ -167,11 +204,37 @@ async function runChildSmoke(context) {
   }
   const message = {
     type: "bridge:spawn-result",
-    protocolVersion: 1,
+    protocolVersion: 2,
     transactionId,
     childRequestDigest,
-    bootstrapDigest
+    bootstrapDigest,
+    completionMarker
   };
+
+  await setChildAssistant(page, "INTERMEDIATE AUDIT PROGRESS");
+  await page.waitForTimeout(850);
+  const pausedIntermediate = await page.evaluate(
+    (payload) => window.__dispatchExtensionMessage(payload),
+    message
+  );
+  assert.equal(pausedIntermediate.ok, true, JSON.stringify(pausedIntermediate));
+  assert.equal(
+    pausedIntermediate.reason,
+    "child_generating",
+    "stable intermediate output without a Stop button must remain pending after >700 ms"
+  );
+
+  await setChildAssistant(page, "INTERMEDIATE AUDIT PROGRESS\nTOOL WORK CONTINUES", { generating: true });
+  const activeToolUse = await page.evaluate(
+    (payload) => window.__dispatchExtensionMessage(payload),
+    message
+  );
+  assert.equal(activeToolUse.ok, true, JSON.stringify(activeToolUse));
+  assert.equal(activeToolUse.reason, "child_generating");
+
+  // Reinstall the result listener to exercise extension/content-script reload recovery.
+  await page.addScriptTag({ path: path.join(bridge, "spawn_result_content.js") });
+  await setChildAssistant(page, `CHILD RESULT ALPHA\n${completionMarker}`);
   const result = await page.evaluate(
     (payload) => window.__dispatchExtensionMessage(payload),
     message
@@ -181,7 +244,7 @@ async function runChildSmoke(context) {
   assert.equal(result.childConversationUrl, childUrl);
   assert.equal(result.assistantIdentity, "assistant-child-result");
   assert.equal(result.assistantText, "CHILD RESULT ALPHA");
-  assert.doesNotMatch(result.assistantText, /USER SECRET|Copy/);
+  assert.doesNotMatch(result.assistantText, /LOCAL_AGENT_CF_CHILD_COMPLETE|USER SECRET|Copy/);
 
   const rejected = await page.evaluate(
     (payload) => window.__dispatchExtensionMessage(payload),
@@ -201,8 +264,8 @@ async function runChildSmoke(context) {
     await route.fulfill({ status: 200, contentType: "text/html", body });
   });
   try {
-    await runParentSmoke(context);
-    await runChildSmoke(context);
+    const completionMarker = await runParentSmoke(context);
+    await runChildSmoke(context, completionMarker);
     console.log("Conversation Fabric DOM smoke passed.");
   } finally {
     await context.close();

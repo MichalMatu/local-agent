@@ -35,13 +35,12 @@ class TaskDedupeTests(unittest.TestCase):
     def test_execution_fingerprint_ignores_identity_and_cosmetic_stage_metadata(self) -> None:
         first = self.task("task-a")
         second = self.task("task-b")
-        second["command_timeout"] = 900
         second["output_policy"] = "stream"
         second["steps"] = [
             {
                 "name": "renamed-stage",
                 "command": "true",
-                "timeout": 30,
+                "timeout": 120,
                 "output_policy": "stream",
             }
         ]
@@ -50,6 +49,44 @@ class TaskDedupeTests(unittest.TestCase):
             task_dedupe.execution_fingerprint(first),
             task_dedupe.execution_fingerprint(second),
         )
+
+    def test_execution_fingerprint_changes_when_completion_limits_change(self) -> None:
+        baseline = self.task("task-a")
+        variants = []
+
+        command_timeout = self.task("task-b")
+        command_timeout["command_timeout"] = 600
+        variants.append(command_timeout)
+
+        stage_timeout = self.task("task-c")
+        stage_timeout["steps"] = [
+            {
+                "name": "stage-task-c",
+                "command": "true",
+                "timeout": 30,
+                "output_policy": "summary",
+            }
+        ]
+        variants.append(stage_timeout)
+
+        task_timeout = self.task("task-d")
+        task_timeout["task_timeout"] = 2400
+        variants.append(task_timeout)
+
+        idle_timeout = self.task("task-e")
+        idle_timeout["idle_timeout"] = 60
+        variants.append(idle_timeout)
+
+        memory_limit = self.task("task-f")
+        memory_limit["memory_limit_mb"] = 1024
+        variants.append(memory_limit)
+
+        for variant in variants:
+            with self.subTest(task_id=variant["id"]):
+                self.assertNotEqual(
+                    task_dedupe.execution_fingerprint(baseline),
+                    task_dedupe.execution_fingerprint(variant),
+                )
 
     def test_execution_fingerprint_changes_when_effect_changes(self) -> None:
         self.assertNotEqual(
@@ -84,6 +121,41 @@ class TaskDedupeTests(unittest.TestCase):
         self.assertEqual(len(plan.suppressed), 1)
         self.assertEqual(plan.suppressed[0].duplicate_of, "task-a")
         self.assertEqual(plan.suppressed[0].reason, "queued_duplicate")
+        self.assertEqual(plan.invalid, ())
+
+    def test_published_timeout_failure_does_not_suppress_corrected_retry(self) -> None:
+        first = self.task("task-a", "long-running-command")
+        first["steps"] = [
+            {
+                "name": "attempt",
+                "command": "long-running-command",
+                "timeout": 1,
+                "output_policy": "summary",
+            }
+        ]
+        correction = self.task("task-b", "long-running-command")
+        correction["steps"] = [
+            {
+                "name": "attempt",
+                "command": "long-running-command",
+                "timeout": 120,
+                "output_policy": "summary",
+            }
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp)
+            # record_completion receives the transport publication outcome even when
+            # the authoritative task result being published is a timeout failure.
+            task_dedupe.record_completion(state, first, "published", now_epoch=100)
+            plan = task_dedupe.plan_pending(
+                state,
+                [(Path("b.json"), correction)],
+                now_epoch=101,
+            )
+
+        self.assertEqual([item[1]["id"] for item in plan.candidates], ["task-b"])
+        self.assertEqual(plan.suppressed, ())
         self.assertEqual(plan.invalid, ())
 
     def test_explicit_intent_key_reports_conflicting_plans_for_same_goal(self) -> None:

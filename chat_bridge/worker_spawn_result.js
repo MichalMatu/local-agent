@@ -1,3 +1,14 @@
+const CONVERSATION_SPAWN_RESULT_PROTOCOL_VERSION = 2;
+const CONVERSATION_SPAWN_COMPLETION_MARKER_RE = /^<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>$/gm;
+
+function conversationSpawnCompletionMarker(intent) {
+  const matches = Array.from(
+    String(intent?.bootstrap_text || "").matchAll(CONVERSATION_SPAWN_COMPLETION_MARKER_RE),
+    (match) => match[0]
+  );
+  return matches.length === 1 ? matches[0] : "";
+}
+
 async function sendConversationSpawnResultMessage(intent) {
   validateConversationSpawnBrowserIntent(intent, { requireTab: true });
   await requireConversationSpawnBootstrapDigest(intent);
@@ -12,12 +23,25 @@ async function sendConversationSpawnResultMessage(intent) {
   const childUrl = normalizeConversationUrl(tab.url || "");
   if (!childUrl) return { ok: false, reason: "child_route_not_ready" };
 
+  const completionMarker = conversationSpawnCompletionMarker(intent);
+  if (!completionMarker) {
+    // Campaigns created by an older Bridge did not carry an explicit completion
+    // proof. Fail closed by leaving the child pending until the bounded campaign
+    // timeout rather than reintroducing heuristic terminal detection.
+    return {
+      ok: true,
+      reason: "child_generating",
+      childConversationUrl: childUrl
+    };
+  }
+
   const message = {
     type: "bridge:spawn-result",
-    protocolVersion: CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION,
+    protocolVersion: CONVERSATION_SPAWN_RESULT_PROTOCOL_VERSION,
     transactionId: intent.transaction_id,
     childRequestDigest: intent.child_request_digest,
-    bootstrapDigest: intent.bootstrap_digest
+    bootstrapDigest: intent.bootstrap_digest,
+    completionMarker
   };
   const deliver = async () => chrome.tabs.sendMessage(tab.id, message, { frameId: 0 });
 
@@ -25,7 +49,7 @@ async function sendConversationSpawnResultMessage(intent) {
   try {
     response = await deliver();
   } catch (_error) { response = null; }
-  if (response?.protocolVersion !== CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION) {
+  if (response?.protocolVersion !== CONVERSATION_SPAWN_RESULT_PROTOCOL_VERSION) {
     try {
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, frameIds: [0] },
@@ -36,7 +60,7 @@ async function sendConversationSpawnResultMessage(intent) {
       return { ok: false, reason: "child_result_unavailable", error: String(error) };
     }
   }
-  if (response?.protocolVersion !== CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION) {
+  if (response?.protocolVersion !== CONVERSATION_SPAWN_RESULT_PROTOCOL_VERSION) {
     return { ok: false, reason: "spawn_content_protocol_mismatch" };
   }
   if (response?.ok) {
