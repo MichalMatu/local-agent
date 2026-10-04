@@ -9,6 +9,46 @@ async function runFeedbackCycle({ conversationId: chatId, manual = false } = {})
   }
 }
 
+async function conversationFabricTerminalFeedbackAlreadySubmitted(tabId, expectedUrl, prompt) {
+  try {
+    const executions = await chrome.scripting.executeScript({
+      target: { tabId, frameIds: [0] },
+      args: [String(expectedUrl || ""), String(prompt || "")],
+      func: (expectedUrlValue, expectedPrompt) => {
+        const normalizeUrl = (value) => {
+          try {
+            const parsed = new URL(String(value || ""), location.href);
+            if (!["https://chatgpt.com", "https://chat.openai.com"].includes(parsed.origin)) return "";
+            const match = parsed.pathname.match(/^\/c\/([^/?#]+)/);
+            return match ? `${parsed.origin}/c/${match[1]}` : "";
+          } catch (_error) {
+            return "";
+          }
+        };
+        const expectedConversation = normalizeUrl(expectedUrlValue);
+        if (!expectedConversation || normalizeUrl(location.href) !== expectedConversation) return false;
+
+        const seenTurns = new Set();
+        const userMessages = [];
+        const selectors = '[data-message-author-role="user"], [data-user-message-bubble]';
+        for (const message of document.querySelectorAll(selectors)) {
+          const turn = message.closest?.('[data-turn-key]') || message;
+          if (seenTurns.has(turn)) continue;
+          seenTurns.add(turn);
+          userMessages.push(message);
+        }
+        const latest = userMessages[userMessages.length - 1];
+        if (!latest) return false;
+        const normalizeText = (text) => String(text || "").trim().replace(/\s+/g, " ");
+        return normalizeText(latest.innerText || latest.textContent) === normalizeText(expectedPrompt);
+      }
+    });
+    return executions?.[0]?.result === true;
+  } catch (_error) {
+    return false;
+  }
+}
+
 async function deliverConversation(chatId, manual) {
   const state = await getBridgeState();
   const conversation = state.conversations[chatId];
@@ -116,37 +156,50 @@ async function deliverConversation(chatId, manual) {
     manual,
     assistantBaseline: ""
   };
-  activeDeliveries.set(chatId, active);
   const recoverBridgePrompt = ["delivery_unconfirmed", "send_button_not_ready"].includes(
     conversation.lastStatus
   );
 
   let response;
   let deliveryTimeout;
-  try {
-    response = await Promise.race([
-      chrome.tabs.sendMessage(tab.id, {
-        type: "bridge:feedback",
-        prompt,
-        expectedUrl: conversation.url,
-        deliveryId,
-        recoverBridgePrompt,
-        bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
-      }, { frameId: 0 }),
-      new Promise((resolve) => {
-        deliveryTimeout = setTimeout(
-          () => resolve({ ok: false, reason: "delivery_unconfirmed", protocolVersion: CONTENT_PROTOCOL_VERSION }),
-          DELIVERY_TIMEOUT_MS
-        );
-      })
-    ]);
-  } catch (error) {
-    response = definitelyNoContentReceiver(error)
-      ? { ok: false, reason: "content_script_unavailable", protocolVersion: CONTENT_PROTOCOL_VERSION, error: String(error) }
-      : { ok: false, reason: "delivery_unconfirmed", protocolVersion: CONTENT_PROTOCOL_VERSION, error: String(error) };
-  } finally {
-    clearTimeout(deliveryTimeout);
-    if (activeDeliveries.get(chatId)?.id === deliveryId) activeDeliveries.delete(chatId);
+  const recoveredTerminalFeedback = Boolean(
+    fabricFeedback &&
+    conversation.lastStatus === "delivery_unconfirmed" &&
+    await conversationFabricTerminalFeedbackAlreadySubmitted(tab.id, conversation.url, prompt)
+  );
+  if (recoveredTerminalFeedback) {
+    response = {
+      ok: true,
+      reason: "already_sent",
+      protocolVersion: CONTENT_PROTOCOL_VERSION
+    };
+  } else {
+    activeDeliveries.set(chatId, active);
+    try {
+      response = await Promise.race([
+        chrome.tabs.sendMessage(tab.id, {
+          type: "bridge:feedback",
+          prompt,
+          expectedUrl: conversation.url,
+          deliveryId,
+          recoverBridgePrompt,
+          bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
+        }, { frameId: 0 }),
+        new Promise((resolve) => {
+          deliveryTimeout = setTimeout(
+            () => resolve({ ok: false, reason: "delivery_unconfirmed", protocolVersion: CONTENT_PROTOCOL_VERSION }),
+            DELIVERY_TIMEOUT_MS
+          );
+        })
+      ]);
+    } catch (error) {
+      response = definitelyNoContentReceiver(error)
+        ? { ok: false, reason: "content_script_unavailable", protocolVersion: CONTENT_PROTOCOL_VERSION, error: String(error) }
+        : { ok: false, reason: "delivery_unconfirmed", protocolVersion: CONTENT_PROTOCOL_VERSION, error: String(error) };
+    } finally {
+      clearTimeout(deliveryTimeout);
+      if (activeDeliveries.get(chatId)?.id === deliveryId) activeDeliveries.delete(chatId);
+    }
   }
 
   if (response?.protocolVersion !== CONTENT_PROTOCOL_VERSION) {
@@ -155,8 +208,11 @@ async function deliverConversation(chatId, manual) {
   const status = response?.ok ? "sent" : String(response?.reason || "delivery_unconfirmed");
   if (response?.ok && fabricFeedback) {
     const campaign = await loadConversationFabricCampaign(fabricFeedback.campaign.id);
-    campaign.feedback_delivered = true;
-    await saveConversationFabricCampaign(campaign);
+    if (campaign) {
+      campaign.feedback_delivered = true;
+      campaign.feedback_delivered_at = campaign.feedback_delivered_at || new Date().toISOString();
+      await saveConversationFabricCampaign(campaign);
+    }
   }
   await mutateState((current) => {
     const latest = current.conversations[chatId];
