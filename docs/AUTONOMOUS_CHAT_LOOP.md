@@ -22,9 +22,17 @@ Every executable Local Agent task still uses the exact canonical `agent_binding`
 
 ## GitHub-only pacing
 
-For a managed conversation with an exact `conversation_controls` record, GitHub is authoritative for `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL` semantics. Every schedule mutation increments `control_generation`; status reads do not.
+For a managed conversation with an exact `conversation_controls` record, GitHub is authoritative for:
 
-Do not emit assistant LAB schedule markers for normal managed-chat pacing or Conversation Fabric continuation. They remain compatibility-only.
+- `STATUS` reads;
+- `PAUSE`;
+- `RESUME`;
+- `NEXT`;
+- `INTERVAL`.
+
+Every schedule mutation increments `control_generation`; status reads do not.
+
+Do **not** emit assistant LAB schedule markers for normal managed-chat pacing or Conversation Fabric continuation. They remain compatibility-only.
 
 A bounded one-shot continuation uses:
 
@@ -33,6 +41,8 @@ control_generation += 1
 enabled = true
 next_wake_at = exact offset-aware future timestamp
 ```
+
+For ordinary Local Agent task progress, a justified early re-check should be scheduled no sooner than about two minutes; normal multi-minute build/test work should usually be checked at 5-10 minutes rather than at 30-second cadence. Conversation Fabric child-result collection is a separate bounded browser-reasoning lifecycle and may use its explicitly defined shorter collection interval without changing machine-task polling policy.
 
 Completion/pause uses:
 
