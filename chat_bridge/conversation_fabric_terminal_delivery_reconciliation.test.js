@@ -88,8 +88,9 @@ function makeHarness({ latestUserText = PROMPT, fabric = true, lastStatus = "del
         executeScript: async (options) => {
           scriptCalls += 1;
           assert.equal(options.target.tabId, 42);
-          assert.deepEqual(options.target.frameIds, [0]);
-          assert.deepEqual(options.args, [URL, PROMPT]);
+          assert.deepEqual(Array.from(options.target.frameIds), [0]);
+          assert.equal(options.args[0], URL);
+          assert.equal(options.args[1], PROMPT);
           return [{ result: options.func(...options.args) }];
         }
       },
