@@ -182,7 +182,6 @@ async function restartServiceWorker(context, worker, { clearSession = true } = {
       return null;
     }, 5000);
 
-    const replacementWorker = context.waitForEvent("serviceworker", { timeout: 15000 });
     await cdp.send("ServiceWorker.stopAllWorkers");
 
     // Wake the stopped MV3 worker through the already-injected extension content world,
@@ -195,18 +194,24 @@ async function restartServiceWorker(context, worker, { clearSession = true } = {
       returnByValue: true
     });
 
-    const nextWorker = await replacementWorker;
-    await waitFor("fresh service-worker execution context", async () => {
-      try {
-        const status = await nextWorker.evaluate(() => ({
-          runtimeId: chrome.runtime.id,
-          restartToken: globalThis.__localAgentFabricRestartToken || null
-        }));
-        return status.runtimeId === extensionId && status.restartToken !== restartToken;
-      } catch (_error) {
-        return false;
+    // Chromium/Playwright may reuse the same Worker handle when a stopped MV3 worker is
+    // awakened, so do not require a new "serviceworker" event. The vanished in-memory
+    // token is the authoritative proof that the old worker execution context died.
+    const nextWorker = await waitFor("fresh service-worker execution context", async () => {
+      const candidates = Array.from(new Set([worker, ...context.serviceWorkers()]));
+      for (const candidate of candidates) {
+        try {
+          const status = await candidate.evaluate(() => ({
+            runtimeId: chrome.runtime.id,
+            restartToken: globalThis.__localAgentFabricRestartToken || null
+          }));
+          if (status.runtimeId === extensionId && status.restartToken !== restartToken) {
+            return candidate;
+          }
+        } catch (_error) {}
       }
-    }, 10000);
+      return null;
+    }, 15000);
 
     await installRuntimeFetch(nextWorker);
     return nextWorker;
