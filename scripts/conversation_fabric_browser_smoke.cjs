@@ -1,8 +1,8 @@
 "use strict";
 
 // Offline real-extension proof: parent control -> three same-browser children ->
-// partial durable capture -> real extension reload -> recovery -> terminal feedback ->
-// second reload -> no replay.
+// partial durable capture -> real MV3 service-worker restart -> recovery -> terminal feedback ->
+// second restart -> no replay.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -143,69 +143,50 @@ async function triggerProductionFabricPoll(worker) {
   });
 }
 
-async function reloadExtension(context, worker, { clearSession = true } = {}) {
+async function restartServiceWorker(context, worker, { clearSession = true } = {}) {
   const workerUrl = worker.url();
   const extensionId = new URL(workerUrl).hostname;
-  const reloadToken = `fabric-reload-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const restartToken = `fabric-restart-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const browser = context.browser();
+  if (!browser) throw new Error("Chromium browser handle unavailable for MV3 restart proof");
 
   await worker.evaluate(async ({ shouldClear, token }) => {
     if (shouldClear) await chrome.storage.session.clear();
-    globalThis.__localAgentFabricReloadToken = token;
-    setTimeout(() => chrome.runtime.reload(), 0);
-    return true;
-  }, { shouldClear: clearSession, token: reloadToken });
+    globalThis.__localAgentFabricRestartToken = token;
+  }, { shouldClear: clearSession, token: restartToken });
 
-  // MV3 reload does not guarantee a fresh Playwright "serviceworker" event. Wake the
-  // reloaded extension explicitly, then accept either a new Worker object or the old
-  // Playwright Worker handle attached to a fresh execution context. The per-reload token
-  // proves we crossed the extension reload boundary instead of reusing the old context.
-  const wakePage = await context.newPage();
+  // Harness-only CDP stops the actual Chromium MV3 worker. CDP is not a production
+  // Conversation Fabric control plane: after this interruption, all recovery, polling,
+  // ownership checks and delivery still run through the installed extension itself.
+  const cdp = await browser.newBrowserCDPSession();
   try {
-    await waitFor("reloaded extension popup", async () => {
-      try {
-        await wakePage.goto(`chrome-extension://${extensionId}/popup.html`, {
-          waitUntil: "domcontentloaded",
-          timeout: 3000
-        });
-        return true;
-      } catch (_error) {
-        return false;
-      }
-    }, 15000);
-
-    try {
-      await wakePage.evaluate(async () => {
-        try {
-          await chrome.runtime.sendMessage({
-            type: "bridge:ensure-tab-content",
-            tabId: -1,
-            expectedUrl: ""
-          });
-        } catch (_error) {}
-      });
-    } catch (_error) {}
-
-    const nextWorker = await waitFor("reloaded service worker", async () => {
-      const candidates = Array.from(new Set([worker, ...context.serviceWorkers()]));
-      for (const candidate of candidates) {
-        try {
-          const status = await candidate.evaluate(() => ({
-            runtimeId: chrome.runtime.id,
-            reloadToken: globalThis.__localAgentFabricReloadToken || null
-          }));
-          if (status.runtimeId === extensionId && status.reloadToken !== reloadToken) {
-            return candidate;
-          }
-        } catch (_error) {}
-      }
-      return null;
-    }, 15000);
-
-    await installRuntimeFetch(nextWorker);
-    return nextWorker;
+    await cdp.send("ServiceWorker.enable");
+    await cdp.send("ServiceWorker.stopAllWorkers");
   } finally {
-    await wakePage.close();
+    await cdp.detach();
   }
+
+  // Playwright may retain the same Worker object across MV3 suspension/restart. An
+  // evaluate call wakes the worker; the vanished in-memory token proves that a fresh
+  // service-worker execution context actually started.
+  const nextWorker = await waitFor("restarted service worker", async () => {
+    const candidates = Array.from(new Set([worker, ...context.serviceWorkers()]));
+    for (const candidate of candidates) {
+      try {
+        const status = await candidate.evaluate(() => ({
+          runtimeId: chrome.runtime.id,
+          restartToken: globalThis.__localAgentFabricRestartToken || null
+        }));
+        if (status.runtimeId === extensionId && status.restartToken !== restartToken) {
+          return candidate;
+        }
+      } catch (_error) {}
+    }
+    return null;
+  }, 15000);
+
+  await installRuntimeFetch(nextWorker);
+  return nextWorker;
 }
 
 async function contentControllerPresent(worker, expectedUrl) {
@@ -322,9 +303,9 @@ async function campaignSnapshot(worker, campaignId) {
     const slowPage = await pageForChild(context, "slow");
     const transientPage = await pageForChild(context, "transient");
 
-    // Real MV3 extension reload while the campaign is active. Clear storage.session first
-    // so recovery cannot depend on transient tab ownership left by the old worker.
-    worker = await reloadExtension(context, worker, { clearSession: true });
+    // Real MV3 service-worker stop/restart while the campaign is active. Clear
+    // storage.session first so recovery cannot depend on transient tab ownership.
+    worker = await restartServiceWorker(context, worker, { clearSession: true });
     await waitFor(
       "parent content reinjection in extension isolated world",
       () => contentControllerPresent(worker, parentUrl)
@@ -334,7 +315,7 @@ async function campaignSnapshot(worker, campaignId) {
     assert.deepEqual(afterReload.results.map(value => value.assistant_text), ["RESULT_FAST"]);
 
     // Poll once while both remaining children are still incomplete. This exercises
-    // transient observation recovery after the real reload without replaying bootstrap.
+    // transient observation recovery after the real worker restart without replaying bootstrap.
     const submissionsBeforeRecovery = await Promise.all(
       fabricChildren(context).map(page => page.evaluate(() => window.submitted.length))
     );
@@ -349,7 +330,7 @@ async function campaignSnapshot(worker, campaignId) {
     assert.deepEqual(
       await Promise.all(fabricChildren(context).map(page => page.evaluate(() => window.submitted.length))),
       submissionsBeforeRecovery,
-      "restart recovery must not replay child bootstraps"
+      "worker-restart recovery must not replay child bootstraps"
     );
 
     await slowPage.evaluate(() => window.completeChild());
@@ -378,9 +359,9 @@ async function campaignSnapshot(worker, campaignId) {
     ), campaignId);
     assert.equal(terminalPrompts.length, 1, "terminal feedback must be submitted exactly once");
 
-    // Reload a second time and trigger the same production alarm route. A completed,
-    // durably delivered campaign must not reach the parent again.
-    worker = await reloadExtension(context, worker, { clearSession: true });
+    // Restart the worker a second time and trigger the same production alarm route.
+    // A completed, durably delivered campaign must not reach the parent again.
+    worker = await restartServiceWorker(context, worker, { clearSession: true });
     const secondPoll = await triggerProductionFabricPoll(worker);
     assert.equal(
       secondPoll?.ok,
@@ -393,12 +374,12 @@ async function campaignSnapshot(worker, campaignId) {
     const terminalPromptsAfterReload = await parent.evaluate(id => window.submitted.filter(text =>
       text.includes(`Conversation Fabric campaign ${id} completed.`)
     ), campaignId);
-    assert.equal(terminalPromptsAfterReload.length, 1, "terminal campaign must not replay after reload/poll");
-    assert.equal(parent.isClosed(), false, "parent must survive child cleanup and extension reloads");
+    assert.equal(terminalPromptsAfterReload.length, 1, "terminal campaign must not replay after restart/poll");
+    assert.equal(parent.isClosed(), false, "parent must survive child cleanup and worker restarts");
 
     console.log(
       "PASS: real Bridge delegates three children, durably captures a fast result, " +
-      "recovers an active campaign through chrome.runtime.reload(), recovers transient " +
+      "recovers an active campaign through a real MV3 worker restart, recovers transient " +
       "observations without bootstrap replay, closes owned tabs, delivers terminal feedback " +
       "once, and does not replay it after a second reload/poll."
     );
