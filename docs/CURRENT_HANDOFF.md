@@ -1,8 +1,10 @@
 # Current handoff — browser-native Conversation Fabric
 
-Date: 2026-10-04
+Date: 2026-10-06
 
 Status: Local Agent remains on release line `v4.20.6`. The current post-release source uses Chat Bridge `0.8.3` and browser-native Conversation Fabric inside the operator's already authenticated primary Chrome session. The old isolated-profile/Playwright production assumption is retired.
+
+Stable rollback anchor: `main@2d99fad80ab6e455301354dc53ee894a852b0bd6`. The exact verification and branch-hygiene record is `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md`.
 
 ## Source of truth
 
@@ -10,13 +12,14 @@ Read fresh repository/runtime evidence in this order:
 
 1. `AGENTS.md`
 2. this file
-3. `docs/GOLDEN_STANDARD.md`
-4. `docs/OPERATIONS.md`
-5. `docs/AUTONOMOUS_CHAT_LOOP.md`
-6. `docs/GITHUB_BRIDGE_CONTROL.md`
-7. `docs/conversation_fabric/CURRENT_PLAN.md`
+3. `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md`
+4. `docs/GOLDEN_STANDARD.md`
+5. `docs/OPERATIONS.md`
+6. `docs/AUTONOMOUS_CHAT_LOOP.md`
+7. `docs/GITHUB_BRIDGE_CONTROL.md`
+8. `docs/conversation_fabric/CURRENT_PLAN.md`
 
-Historical isolated-profile, DEV-lab, self-diagnostic, checkpoint and release-note documents are evidence only.
+Historical isolated-profile, DEV-lab, self-diagnostic, older checkpoint and release-note documents are evidence only.
 
 ## Current authority model
 
