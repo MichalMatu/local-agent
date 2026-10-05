@@ -144,24 +144,27 @@ async function triggerProductionFabricPoll(worker) {
 }
 
 async function restartServiceWorker(context, worker, { clearSession = true } = {}) {
-  const workerUrl = worker.url();
-  const extensionId = new URL(workerUrl).hostname;
-  const restartToken = `fabric-restart-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const extensionId = new URL(worker.url()).hostname;
   const page = context.pages().find(candidate => candidate.url().startsWith("https://chatgpt.com/"));
   if (!page) throw new Error("ChatGPT page unavailable for MV3 restart proof");
 
-  await worker.evaluate(async ({ shouldClear, token }) => {
+  await worker.evaluate(async shouldClear => {
     if (shouldClear) await chrome.storage.session.clear();
-    globalThis.__localAgentFabricRestartToken = token;
-  }, { shouldClear: clearSession, token: restartToken });
+  }, clearSession);
 
-  // Capture the extension's existing isolated content-script execution world before the
-  // worker is stopped. A message from that world is the real extension event used to wake
-  // a fresh MV3 service-worker context after the interruption.
+  // Capture both the extension content-script world and Chromium's actual service-worker
+  // lifecycle. CDP is harness-only observation/interruption; recovery itself remains the
+  // installed extension's normal message/alarm/durable-state path.
   const cdp = await context.newCDPSession(page);
   const executionContexts = new Set();
+  const workerVersions = new Map();
   cdp.on("Runtime.executionContextCreated", event => {
     if (Number.isInteger(event?.context?.id)) executionContexts.add(event.context.id);
+  });
+  cdp.on("ServiceWorker.workerVersionUpdated", event => {
+    for (const version of event?.versions || []) {
+      if (version?.versionId) workerVersions.set(version.versionId, version);
+    }
   });
 
   try {
@@ -182,36 +185,46 @@ async function restartServiceWorker(context, worker, { clearSession = true } = {
       return null;
     }, 5000);
 
-    await cdp.send("ServiceWorker.stopAllWorkers");
+    const runningVersion = await waitFor("running extension service worker", () => {
+      return Array.from(workerVersions.values()).find(version =>
+        String(version.scriptURL || "").startsWith(`chrome-extension://${extensionId}/`) &&
+        version.runningStatus === "running"
+      ) || null;
+    }, 5000);
 
-    // Wake the stopped MV3 worker through the already-injected extension content world,
-    // not through a direct worker helper. The message type is intentionally unsupported;
-    // only the runtime event boundary matters for the restart proof.
-    await cdp.send("Runtime.evaluate", {
-      expression: `chrome.runtime.sendMessage({type:"bridge:test-worker-wake"}).catch(() => null)`,
+    await cdp.send("ServiceWorker.stopAllWorkers");
+    await waitFor("stopped extension service worker", () => {
+      return workerVersions.get(runningVersion.versionId)?.runningStatus === "stopped";
+    }, 5000);
+
+    // Wake the stopped worker through the extension's already-injected isolated content
+    // world using a real, side-effect-free production message handler.
+    const wake = await cdp.send("Runtime.evaluate", {
+      expression: `chrome.runtime.sendMessage({type:"bridge:control-context",conversationUrl:${JSON.stringify(parentUrl)}})`,
       contextId: contentContextId,
       awaitPromise: true,
       returnByValue: true
     });
+    assert.equal(wake?.result?.value?.ok, true, "content-script runtime message must wake the stopped worker");
 
-    // Chromium/Playwright may reuse the same Worker handle when a stopped MV3 worker is
-    // awakened, so do not require a new "serviceworker" event. The vanished in-memory
-    // token is the authoritative proof that the old worker execution context died.
-    const nextWorker = await waitFor("fresh service-worker execution context", async () => {
+    await waitFor("running extension service worker after wake", () => {
+      return Array.from(workerVersions.values()).find(version =>
+        String(version.scriptURL || "").startsWith(`chrome-extension://${extensionId}/`) &&
+        version.runningStatus === "running"
+      ) || null;
+    }, 10000);
+
+    // Playwright may reuse the same Worker handle after the real MV3 restart. Reacquire
+    // whichever handle is currently evaluable instead of requiring a new event/object.
+    const nextWorker = await waitFor("evaluable restarted service worker", async () => {
       const candidates = Array.from(new Set([worker, ...context.serviceWorkers()]));
       for (const candidate of candidates) {
         try {
-          const status = await candidate.evaluate(() => ({
-            runtimeId: chrome.runtime.id,
-            restartToken: globalThis.__localAgentFabricRestartToken || null
-          }));
-          if (status.runtimeId === extensionId && status.restartToken !== restartToken) {
-            return candidate;
-          }
+          if (await candidate.evaluate(id => chrome.runtime.id === id, extensionId)) return candidate;
         } catch (_error) {}
       }
       return null;
-    }, 15000);
+    }, 10000);
 
     await installRuntimeFetch(nextWorker);
     return nextWorker;
