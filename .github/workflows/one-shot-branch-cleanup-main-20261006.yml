@@ -17,34 +17,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Fail closed unless checkpoint is an ancestor and only this workflow was added
+      - name: Fail closed unless only this workflow changed since cleanup merge
         shell: bash
         run: |
           set -euo pipefail
-          git merge-base --is-ancestor ae4319bb1a0e9a6013316631ec3c46f0dab48054 HEAD
-          changed="$(git diff --name-only ae4319bb1a0e9a6013316631ec3c46f0dab48054..HEAD)"
+          git merge-base --is-ancestor b47343a652dc6502f906d0b5f94199de732ca432 HEAD
+          changed="$(git diff --name-only b47343a652dc6502f906d0b5f94199de732ca432..HEAD)"
           test "$changed" = ".github/workflows/one-shot-branch-cleanup-main-20261006.yml"
 
-      - name: Delete only verified merged and temporary branches
+      - name: Delete final temporary cleanup branch
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          git push origin --delete \
-            docs/current-architecture-20261004 \
-            docs/stable-checkpoint-20261006 \
-            fix/cf-terminal-at-most-once-p0-20261004 \
-            fix/cf-terminal-delivery-replay-p0-20261004 \
-            fix/cf-terminal-history-replay-p0-20261004 \
-            fix/conversation-fabric-partial-failure \
-            fix/dedupe-crash-recovery-20261004 \
-            fix/legacy-agentd-admission-20261004 \
-            fix/preflight-repository-id-casefold-20261004 \
-            fix/runtime-admission-hardening-20261004 \
-            fix/runtime-low-cleanup-20261004 \
-            fix/serial-parallel-admission-parity-20261004 \
-            work/cf-ordering-retry-20261004 \
-            work/fix-cf-lifecycle-recovery-20261004 \
-            work/fix-cf-terminal-and-dedupe-retry-20261004 \
-            work/runtime-audit-repair-20261004 \
-            ops/branch-cleanup-20261006 \
-            ops/run-branch-cleanup-20261006
+          gh api --method DELETE \
+            "repos/${GITHUB_REPOSITORY}/git/refs/heads/ops/run-branch-cleanup-20261006"
