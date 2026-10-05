@@ -1,0 +1,50 @@
+name: one-shot verified branch cleanup 2026-10-06
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Fail closed unless checkpoint is an ancestor and only this workflow was added
+        shell: bash
+        run: |
+          set -euo pipefail
+          git merge-base --is-ancestor ae4319bb1a0e9a6013316631ec3c46f0dab48054 HEAD
+          changed="$(git diff --name-only ae4319bb1a0e9a6013316631ec3c46f0dab48054..HEAD)"
+          test "$changed" = ".github/workflows/one-shot-branch-cleanup-main-20261006.yml"
+
+      - name: Delete only verified merged and temporary branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin --delete \
+            docs/current-architecture-20261004 \
+            docs/stable-checkpoint-20261006 \
+            fix/cf-terminal-at-most-once-p0-20261004 \
+            fix/cf-terminal-delivery-replay-p0-20261004 \
+            fix/cf-terminal-history-replay-p0-20261004 \
+            fix/conversation-fabric-partial-failure \
+            fix/dedupe-crash-recovery-20261004 \
+            fix/legacy-agentd-admission-20261004 \
+            fix/preflight-repository-id-casefold-20261004 \
+            fix/runtime-admission-hardening-20261004 \
+            fix/runtime-low-cleanup-20261004 \
+            fix/serial-parallel-admission-parity-20261004 \
+            work/cf-ordering-retry-20261004 \
+            work/fix-cf-lifecycle-recovery-20261004 \
+            work/fix-cf-terminal-and-dedupe-retry-20261004 \
+            work/runtime-audit-repair-20261004 \
+            ops/branch-cleanup-20261006 \
+            ops/run-branch-cleanup-20261006
