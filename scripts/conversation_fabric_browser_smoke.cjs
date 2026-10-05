@@ -143,6 +143,89 @@ async function triggerProductionFabricPoll(worker) {
   });
 }
 
+async function attachServiceWorkerController(context, version) {
+  if (!version?.targetId || !version?.scriptURL) {
+    throw new Error("restarted service worker is missing a CDP target");
+  }
+  const browser = context.browser();
+  if (!browser) throw new Error("Chromium browser handle unavailable for service-worker controller");
+
+  const cdp = await browser.newBrowserCDPSession();
+  const attached = await cdp.send("Target.attachToTarget", {
+    targetId: version.targetId,
+    flatten: false
+  });
+  const sessionId = attached.sessionId;
+  let sequence = 0;
+  const pending = new Map();
+
+  const onMessage = event => {
+    if (event.sessionId !== sessionId) return;
+    let message;
+    try {
+      message = JSON.parse(event.message);
+    } catch (_error) {
+      return;
+    }
+    if (!Number.isInteger(message.id) || !pending.has(message.id)) return;
+    const entry = pending.get(message.id);
+    pending.delete(message.id);
+    clearTimeout(entry.timeout);
+    if (message.error) {
+      entry.reject(new Error(`${message.error.message || "CDP command failed"} (${message.error.code || "unknown"})`));
+    } else {
+      entry.resolve(message.result || {});
+    }
+  };
+  cdp.on("Target.receivedMessageFromTarget", onMessage);
+
+  async function send(method, params = {}) {
+    const id = ++sequence;
+    const response = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error(`nested CDP command timed out: ${method}`));
+      }, 10000);
+      pending.set(id, { resolve, reject, timeout });
+    });
+    await cdp.send("Target.sendMessageToTarget", {
+      sessionId,
+      message: JSON.stringify({ id, method, params })
+    });
+    return response;
+  }
+
+  await send("Runtime.enable");
+
+  return {
+    url: () => version.scriptURL,
+    async evaluate(pageFunction, arg) {
+      const serialized = arg === undefined ? "undefined" : JSON.stringify(arg);
+      const response = await send("Runtime.evaluate", {
+        expression: `(${pageFunction.toString()})(${serialized})`,
+        awaitPromise: true,
+        returnByValue: true
+      });
+      if (response.exceptionDetails) {
+        throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text || "service-worker evaluation failed");
+      }
+      return response.result?.value;
+    },
+    async dispose() {
+      for (const entry of pending.values()) {
+        clearTimeout(entry.timeout);
+        entry.reject(new Error("service-worker controller disposed"));
+      }
+      pending.clear();
+      cdp.off("Target.receivedMessageFromTarget", onMessage);
+      try {
+        await cdp.send("Target.detachFromTarget", { sessionId });
+      } catch (_error) {}
+      await cdp.detach();
+    }
+  };
+}
+
 async function restartServiceWorker(context, worker, { clearSession = true } = {}) {
   const extensionId = new URL(worker.url()).hostname;
   const page = context.pages().find(candidate => candidate.url().startsWith("https://chatgpt.com/"));
@@ -151,6 +234,7 @@ async function restartServiceWorker(context, worker, { clearSession = true } = {
   await worker.evaluate(async shouldClear => {
     if (shouldClear) await chrome.storage.session.clear();
   }, clearSession);
+  if (typeof worker.dispose === "function") await worker.dispose();
 
   // Capture both the extension content-script world and Chromium's actual service-worker
   // lifecycle. CDP is harness-only observation/interruption; recovery itself remains the
@@ -207,25 +291,23 @@ async function restartServiceWorker(context, worker, { clearSession = true } = {
     });
     assert.equal(wake?.result?.value?.ok, true, "content-script runtime message must wake the stopped worker");
 
-    await waitFor("running extension service worker after wake", () => {
+    const restartedVersion = await waitFor("running extension service worker after wake", () => {
       return Array.from(workerVersions.values()).find(version =>
         String(version.scriptURL || "").startsWith(`chrome-extension://${extensionId}/`) &&
-        version.runningStatus === "running"
+        version.runningStatus === "running" &&
+        version.targetId
       ) || null;
     }, 10000);
 
-    // Playwright may reuse the same Worker handle after the real MV3 restart. Reacquire
-    // whichever handle is currently evaluable instead of requiring a new event/object.
-    const nextWorker = await waitFor("evaluable restarted service worker", async () => {
-      const candidates = Array.from(new Set([worker, ...context.serviceWorkers()]));
-      for (const candidate of candidates) {
-        try {
-          if (await candidate.evaluate(id => chrome.runtime.id === id, extensionId)) return candidate;
-        } catch (_error) {}
-      }
-      return null;
-    }, 10000);
-
+    // Playwright does not reliably publish a Worker object for a restarted MV3 worker.
+    // Attach a harness-only CDP controller to Chromium's real restarted worker target so
+    // the remainder of the test can keep exercising the same production worker globals.
+    const nextWorker = await attachServiceWorkerController(context, restartedVersion);
+    assert.equal(
+      await nextWorker.evaluate(id => chrome.runtime.id === id, extensionId),
+      true,
+      "CDP controller must be attached to the restarted Bridge service worker"
+    );
     await installRuntimeFetch(nextWorker);
     return nextWorker;
   } finally {
