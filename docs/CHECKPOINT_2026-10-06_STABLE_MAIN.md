@@ -24,7 +24,7 @@ git switch -c recovery/stable-main-20261006 2d99fad80ab6e455301354dc53ee894a852b
 
 Operator acceptance has confirmed the currently deployed Conversation Fabric path can delegate child chats and close owned child tabs after result capture. This checkpoint preserves that working baseline before the two still-open follow-up PRs are considered.
 
-The current `main` tree is byte-for-byte the same Git tree as the tested head of PR #155 (`e6334b8adc5848919ae3995c70c08a4dae1e6616`). GitHub Actions run `37219374334` completed successfully on that exact tree with all five jobs green:
+The current `main` tree at the rollback anchor is byte-for-byte the same Git tree as the tested head of PR #155 (`e6334b8adc5848919ae3995c70c08a4dae1e6616`). GitHub Actions run `37219374334` completed successfully on that exact tree with all five jobs green:
 
 - `test` — compile, lint, Chat Bridge validation, unit and integration tests;
 - `coverage`;
@@ -32,7 +32,7 @@ The current `main` tree is byte-for-byte the same Git tree as the tested head of
 - `macos-smoke` — process, checkpoint, multi-repository, binding, emergency-control and MCP smoke coverage;
 - `bridge-browser` — real extension delivery and restart smoke.
 
-No runtime source change is part of this checkpoint documentation.
+No runtime source change is part of this checkpoint documentation or its branch-hygiene cleanup.
 
 ## Included state
 
@@ -69,7 +69,7 @@ Active short-lived branches retained intentionally:
 - `fix/idle-output-activity-20261004` (#157);
 - `test/fabric-restart-e2e-20261004` (#158).
 
-The following historical branches have associated merged PRs and can be removed after this checkpoint is recorded:
+Historical branch cleanup was completed on 2026-10-06 after this checkpoint was recorded. The following merged branches were removed:
 
 - `docs/current-architecture-20261004` — PR #155;
 - `fix/cf-terminal-at-most-once-p0-20261004` — PR #147;
@@ -86,6 +86,8 @@ The following historical branches have associated merged PRs and can be removed 
 - `work/fix-cf-lifecycle-recovery-20261004` — PR #144;
 - `work/fix-cf-terminal-and-dedupe-retry-20261004` — PR #143;
 - `work/runtime-audit-repair-20261004` — PR #151.
+
+The temporary checkpoint/cleanup branches used to record and perform this cleanup were also removed. The post-cleanup branch set is therefore exactly the three permanent branches plus the two intentionally active PR branches listed above.
 
 Do not delete the permanent state/control branches or either currently open PR branch as part of historical cleanup.
 
