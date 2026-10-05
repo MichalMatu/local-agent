@@ -147,18 +147,18 @@ async function restartServiceWorker(context, worker, { clearSession = true } = {
   const workerUrl = worker.url();
   const extensionId = new URL(workerUrl).hostname;
   const restartToken = `fabric-restart-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const browser = context.browser();
-  if (!browser) throw new Error("Chromium browser handle unavailable for MV3 restart proof");
+  const page = context.pages().find(candidate => candidate.url().startsWith("https://chatgpt.com/"));
+  if (!page) throw new Error("ChatGPT page unavailable for MV3 restart proof");
 
   await worker.evaluate(async ({ shouldClear, token }) => {
     if (shouldClear) await chrome.storage.session.clear();
     globalThis.__localAgentFabricRestartToken = token;
   }, { shouldClear: clearSession, token: restartToken });
 
-  // Harness-only CDP stops the actual Chromium MV3 worker. CDP is not a production
-  // Conversation Fabric control plane: after this interruption, all recovery, polling,
-  // ownership checks and delivery still run through the installed extension itself.
-  const cdp = await browser.newBrowserCDPSession();
+  // Harness-only page-target CDP stops the actual Chromium MV3 worker. CDP is not a
+  // production Conversation Fabric control plane: after this interruption, all recovery,
+  // polling, ownership checks and delivery still run through the installed extension.
+  const cdp = await context.newCDPSession(page);
   try {
     await cdp.send("ServiceWorker.enable");
     await cdp.send("ServiceWorker.stopAllWorkers");
