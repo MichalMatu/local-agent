@@ -155,38 +155,64 @@ async function restartServiceWorker(context, worker, { clearSession = true } = {
     globalThis.__localAgentFabricRestartToken = token;
   }, { shouldClear: clearSession, token: restartToken });
 
-  // Harness-only page-target CDP stops the actual Chromium MV3 worker. CDP is not a
-  // production Conversation Fabric control plane: after this interruption, all recovery,
-  // polling, ownership checks and delivery still run through the installed extension.
+  // Capture the extension's existing isolated content-script execution world before the
+  // worker is stopped. A message from that world is the real extension event used to wake
+  // a fresh MV3 service-worker context after the interruption.
   const cdp = await context.newCDPSession(page);
-  try {
-    await cdp.send("ServiceWorker.enable");
-    await cdp.send("ServiceWorker.stopAllWorkers");
-  } finally {
-    await cdp.detach();
-  }
+  const executionContexts = new Set();
+  cdp.on("Runtime.executionContextCreated", event => {
+    if (Number.isInteger(event?.context?.id)) executionContexts.add(event.context.id);
+  });
 
-  // Playwright may retain the same Worker object across MV3 suspension/restart. An
-  // evaluate call wakes the worker; the vanished in-memory token proves that a fresh
-  // service-worker execution context actually started.
-  const nextWorker = await waitFor("restarted service worker", async () => {
-    const candidates = Array.from(new Set([worker, ...context.serviceWorkers()]));
-    for (const candidate of candidates) {
+  try {
+    await cdp.send("Runtime.enable");
+    await cdp.send("ServiceWorker.enable");
+
+    const contentContextId = await waitFor("extension isolated content world", async () => {
+      for (const contextId of executionContexts) {
+        try {
+          const probe = await cdp.send("Runtime.evaluate", {
+            expression: "globalThis.chrome?.runtime?.id || ''",
+            contextId,
+            returnByValue: true
+          });
+          if (probe?.result?.value === extensionId) return contextId;
+        } catch (_error) {}
+      }
+      return null;
+    }, 5000);
+
+    const replacementWorker = context.waitForEvent("serviceworker", { timeout: 15000 });
+    await cdp.send("ServiceWorker.stopAllWorkers");
+
+    // Wake the stopped MV3 worker through the already-injected extension content world,
+    // not through a direct worker helper. The message type is intentionally unsupported;
+    // only the runtime event boundary matters for the restart proof.
+    await cdp.send("Runtime.evaluate", {
+      expression: `chrome.runtime.sendMessage({type:"bridge:test-worker-wake"}).catch(() => null)`,
+      contextId: contentContextId,
+      awaitPromise: true,
+      returnByValue: true
+    });
+
+    const nextWorker = await replacementWorker;
+    await waitFor("fresh service-worker execution context", async () => {
       try {
-        const status = await candidate.evaluate(() => ({
+        const status = await nextWorker.evaluate(() => ({
           runtimeId: chrome.runtime.id,
           restartToken: globalThis.__localAgentFabricRestartToken || null
         }));
-        if (status.runtimeId === extensionId && status.restartToken !== restartToken) {
-          return candidate;
-        }
-      } catch (_error) {}
-    }
-    return null;
-  }, 15000);
+        return status.runtimeId === extensionId && status.restartToken !== restartToken;
+      } catch (_error) {
+        return false;
+      }
+    }, 10000);
 
-  await installRuntimeFetch(nextWorker);
-  return nextWorker;
+    await installRuntimeFetch(nextWorker);
+    return nextWorker;
+  } finally {
+    await cdp.detach();
+  }
 }
 
 async function contentControllerPresent(worker, expectedUrl) {
