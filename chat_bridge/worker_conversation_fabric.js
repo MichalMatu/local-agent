@@ -769,8 +769,11 @@ async function delegateConversationFabric(authority) {
   ) {
     return { ok: false, reason: "conversation_fabric_capacity" };
   }
-  const history = campaigns.filter((value) => !["spawning", "running"].includes(value.state) && value.feedback_delivered)
-    .sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)));
+  const history = campaigns.filter((value) =>
+    !["spawning", "running"].includes(value.state) &&
+    value.feedback_delivered &&
+    !value.cleanup_pending
+  ).sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)));
   for (const old of history.slice(CONVERSATION_FABRIC_HISTORY_LIMIT - 1)) {
     // Upgrade-safe migration: never prune a legacy campaign result until its
     // independently retained vault copy exists.
