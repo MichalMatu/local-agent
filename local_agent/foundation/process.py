@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import codecs
 import contextlib
 import fcntl
+import io
 import hashlib
 import json
 import os
@@ -338,6 +340,16 @@ class OutputPump:
     queue: queue.Queue[str | None]
     stop_event: threading.Event
     thread: threading.Thread
+    activity_lock: threading.Lock
+    last_activity_at: float
+
+    def note_activity(self) -> None:
+        with self.activity_lock:
+            self.last_activity_at = time.monotonic()
+
+    def activity_at(self) -> float:
+        with self.activity_lock:
+            return self.last_activity_at
 
     def stop(self, timeout: float = 1.0) -> None:
         self.stop_event.set()
@@ -429,12 +441,14 @@ def start_output_pump(
     capacity: int = OUTPUT_QUEUE_CAPACITY,
     read_size: int = OUTPUT_READ_SIZE,
 ) -> OutputPump:
-    """Read stdout with bounded handoff so producers cannot grow daemon memory."""
+    """Read stdout in raw bounded chunks while preserving text line semantics."""
     if capacity < 1 or read_size < 1:
         raise ValueError("output pump bounds must be positive")
 
     lines: queue.Queue[str | None] = queue.Queue(maxsize=capacity)
     stop_event = threading.Event()
+    activity_lock = threading.Lock()
+    pump: OutputPump
 
     def put(item: str | None) -> bool:
         while not stop_event.is_set():
@@ -447,21 +461,50 @@ def start_output_pump(
 
     def reader() -> None:
         assert proc.stdout is not None
+        encoding = proc.stdout.encoding or "utf-8"
+        errors = proc.stdout.errors or "replace"
+        decoder = codecs.getincrementaldecoder(encoding)(errors=errors)
+        newline_decoder = io.IncrementalNewlineDecoder(decoder, translate=True)
+        pending = ""
         try:
+            descriptor = proc.stdout.fileno()
             while not stop_event.is_set():
-                chunk = proc.stdout.readline(read_size)
-                if chunk == "":
+                raw = os.read(descriptor, read_size)
+                if not raw:
                     break
-                if not put(chunk):
-                    return
-        except (OSError, ValueError):
+                pump.note_activity()
+                pending += newline_decoder.decode(raw)
+                while pending:
+                    newline = pending.find("\n")
+                    if newline >= 0:
+                        boundary = newline + 1
+                    elif len(pending) >= read_size:
+                        boundary = read_size
+                    else:
+                        break
+                    chunk = pending[:boundary]
+                    pending = pending[boundary:]
+                    if not put(chunk):
+                        return
+            pending += newline_decoder.decode(b"", final=True)
+            if pending:
+                put(pending)
+        except (OSError, ValueError, UnicodeError):
             return
         finally:
             put(None)
 
     thread = threading.Thread(target=reader, daemon=True, name="local-agent-output")
+    pump = OutputPump(
+        proc,
+        lines,
+        stop_event,
+        thread,
+        activity_lock,
+        time.monotonic(),
+    )
     thread.start()
-    return OutputPump(proc, lines, stop_event, thread)
+    return pump
 
 
 def process_group_for(proc: subprocess.Popen[str]) -> int | None:

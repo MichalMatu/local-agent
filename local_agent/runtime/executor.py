@@ -299,6 +299,7 @@ class RuntimeExecutor:
         try:
             while True:
                 now = time.monotonic()
+                last_output = max(last_output, pump.activity_at())
                 elapsed = now - started
                 if proc.poll() is None:
                     if elapsed >= timeout and not timed_out:
