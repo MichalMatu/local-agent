@@ -50,13 +50,6 @@
       "execution_enabled": true
     },
     {
-      "id": "host-ops",
-      "repository": "MichalMatu/host-ops",
-      "agent_binding": "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
-      "execution_enabled": true,
-      "planner_scope": "multirepo"
-    },
-    {
       "id": "hardware-lab",
       "repository": "MichalMatu/hardware-lab",
       "agent_binding": "fa3dc1d7-5ee2-4b59-841c-e41918610df1",
