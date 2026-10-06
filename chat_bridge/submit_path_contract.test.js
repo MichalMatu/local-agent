@@ -43,9 +43,15 @@ for (const [name, source] of [
   assert.doesNotMatch(
     source,
     /formFallbackAt|formFallbackAttempted|submitBoundaryCrossed/,
-    `${name} must never cross a second submit mechanism after a live-button click`
+    `${name} must never cross a delayed second submit mechanism`
   );
 }
+
+assert.match(
+  fabricContent,
+  /const form = composer\?\.closest\?\.\("form"\);[\s\S]*form\.requestSubmit\(\);[\s\S]*sendButton\.click\(\);/,
+  "Conversation Fabric must prefer one native form submit boundary and use button click only when no form submit path exists"
+);
 
 assert.match(
   fabricContent,
@@ -69,8 +75,8 @@ assert.match(
 );
 assert.match(
   fabricContent,
-  /ownership\.submissionAttempted = true;/,
-  "Fabric must mark its exact owned prompt before crossing the live-button boundary"
+  /submitComposer\(composer, button\);[\s\S]*ownership\.submissionAttempted = true;/,
+  "Fabric must mark its exact owned prompt only after a submit attempt was actually issued"
 );
 assert.match(
   fabricContent,
