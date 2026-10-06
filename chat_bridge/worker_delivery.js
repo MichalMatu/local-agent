@@ -167,7 +167,7 @@ async function deliverConversation(chatId, manual) {
   let deliveryTimeout;
   const recoveredTerminalFeedback = Boolean(
     fabricFeedback &&
-    conversation.lastStatus === "delivery_unconfirmed" &&
+    ["delivery_unconfirmed", "send_button_not_ready"].includes(conversation.lastStatus) &&
     await conversationFabricTerminalFeedbackAlreadySubmitted(tab.id, conversation.url, prompt)
   );
   if (recoveredTerminalFeedback) {
