@@ -279,6 +279,39 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
     assert.match(h.context.conversationFabricCompletedPrompt(stored), /Retryable missing child coverage: closed/);
   }
 
+  // A crash after the independent vault write but before the campaign copy must
+  // restore the result without re-observing a now-unavailable child tab.
+  {
+    const h = createHarness(campaign([child("vaulted", "submitted", 101)]), {
+      vaulted: ["spawn_tab_unavailable"]
+    });
+    h.storage[`conversation-fabric-result:${campaignId}:vaulted`] = {
+      schema_version: 1,
+      campaign_id: campaignId,
+      child_id: "vaulted",
+      role: "verification",
+      parent_conversation_url: parentUrl,
+      child_conversation_url: "https://chatgpt.com/c/vaulted",
+      assistant_identity: "assistant-vaulted",
+      captured_at: "2026-10-06T03:00:00.000Z",
+      assistant_text: "final-vaulted-from-checkpoint",
+      truncated: false,
+      campaign_text_truncated: false,
+      text_sha256: "a".repeat(64)
+    };
+    await h.context.pollConversationFabricCampaigns();
+    const stored = h.stored();
+    assert.equal(stored.state, "completed");
+    assert.equal(stored.results.length, 1);
+    assert.equal(stored.results[0].id, "vaulted");
+    assert.equal(stored.results[0].assistant_text, "final-vaulted-from-checkpoint");
+    assert.equal(stored.results[0].vault_sha256, "a".repeat(64));
+    assert.ok(
+      !h.observed.includes("vaulted"),
+      "vault checkpoint must be hydrated before any attempt to observe the closed child"
+    );
+  }
+
   // child_result_unavailable is transient and recovers to final.
   {
     const h = createHarness(campaign([child("a", "submitted", 101)]), {
