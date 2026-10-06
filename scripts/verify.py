@@ -29,6 +29,7 @@ MACOS_SMOKE_TESTS = (
     "tests.test_agent_process",
     "tests.test_agent_core",
     "tests.test_agent_runtime",
+    "tests.test_operator_observability",
     "tests.test_agent_storage",
     "tests.test_agent_binding",
     "tests.test_serial_agent_binding",

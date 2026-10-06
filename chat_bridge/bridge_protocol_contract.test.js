@@ -37,7 +37,7 @@ assert.match(
 );
 
 const manifest = JSON.parse(read("manifest.json"));
-assert.equal(manifest.version, "0.8.3", "browser-native Conversation Fabric must have an unambiguous Bridge version");
+assert.equal(manifest.version, "0.8.4", "browser-native Conversation Fabric must have an unambiguous Bridge version");
 const scripts = manifest.content_scripts?.[0]?.js || [];
 const bridgeProtocolIndex = scripts.indexOf("control_protocol.js");
 const fabricProtocolIndex = scripts.indexOf("conversation_fabric_protocol.js");

@@ -1,6 +1,6 @@
 # ChatGPT DOM contract for Chat Bridge
 
-This document records the current **browser compatibility boundary** used by Chat Bridge `0.8.3` / content protocol `18`. Selectors are evidence, not ChatGPT product guarantees. Unsupported page shapes fail closed.
+This document records the current **browser compatibility boundary** used by Chat Bridge `0.8.4` / content protocol `18`. Selectors are evidence, not ChatGPT product guarantees. Unsupported page shapes fail closed.
 
 Normal pacing/status for a GitHub-managed conversation does **not** depend on assistant DOM parsing. GitHub desired state is authoritative for `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL`.
 
@@ -10,7 +10,7 @@ Historical release notes describe earlier renderer assumptions and assistant-sid
 
 ```text
 Local Agent release line: 4.20.6
-Chat Bridge:              0.8.3
+Chat Bridge:              0.8.4
 content protocol:         18
 assistant guard:          8
 runtime schema:           3 + optional conversation_controls
@@ -77,7 +77,7 @@ That evidence is the reason normal scheduling authority moved out of assistant D
 
 ## Same-browser Conversation Fabric
 
-Bridge `0.8.3` / content protocol `18` uses explicit parent delegation and bounded child-result reading in ordinary tabs of the same authenticated Chrome session.
+Bridge `0.8.4` / content protocol `18` uses explicit parent delegation and bounded child-result reading in ordinary tabs of the same authenticated Chrome session.
 
 The current answer body is scoped by an assistant `data-content-search-unit-key` or `data-chatgpt-search-unit-key` ending in `:assistant`, then `data-chatgpt-selection-message-id`. This excludes surrounding rating questions and user prompts. Explicit/grouped older renderer forms remain supported when that body scope is absent.
 

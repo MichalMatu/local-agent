@@ -1,6 +1,6 @@
 # Next chat prompt — bounded primary-Chrome live acceptance
 
-Use this for a fresh bounded acceptance when Chat Bridge `0.8.3` is loaded in the operator's normal Chrome session.
+Use this for a fresh bounded acceptance when Chat Bridge `0.8.4` is loaded in the operator's normal Chrome session.
 
 ---
 
@@ -17,7 +17,7 @@ Read fresh:
 
 Goal: run one bounded real Conversation Fabric acceptance in the already authenticated primary Chrome session. Do not repair or use an isolated profile, `chat-bridge-cft`, CDP, another production browser process, cookie migration or manual Cloudflare/login flow.
 
-Before delegating, verify fresh `main`, exact installed Local Agent `self_revision`, Chat Bridge `0.8.3`, the exact managed parent conversation/tab and its GitHub `conversation_controls` record.
+Before delegating, verify fresh `main`, exact installed Local Agent `self_revision`, Chat Bridge `0.8.4`, the exact managed parent conversation/tab and its GitHub `conversation_controls` record.
 
 Delegate 3–4 narrow non-overlapping reasoning-only children using one exact trailing `LOCAL_AGENT_CF` delegate block. Include all source context each child needs. Children may inspect/reason from bounded repository evidence but may not create `.agent/tasks`, run machine commands, mutate repositories or make the final parent decision.
 

@@ -20,6 +20,7 @@ from local_agent.paths import repository_root
 
 from local_agent.supervisor import control as supervisor_control
 from local_agent.supervisor import conversation as conversation_supervisor
+from local_agent.supervisor import observability as operator_observability
 from local_agent.supervisor import policy as supervisor_policy
 from local_agent.supervisor import scheduling
 import local_agent.operator.local as agent_operator
@@ -472,6 +473,10 @@ def pending_control_request_from_bound_checkout() -> ControlProbeResult:
 
 def probe_control_request(
     repository: RepositoryContext,
+    *,
+    repositories: list[RepositoryContext] | None = None,
+    operator_campaign: conversation_supervisor.RunningOperatorCampaign | None = None,
+    max_workers: int | None = None,
 ) -> ControlProbeResult:
     """Probe control while other repositories run without invoking global actions."""
     try:
@@ -484,7 +489,22 @@ def probe_control_request(
             if handle_bound_disable_control(repository):
                 return ControlProbeResult.CLEAR
             conversation_supervisor.service_control_plane()
-            return pending_control_request_from_bound_checkout()
+            probe_result = pending_control_request_from_bound_checkout()
+            if probe_result is not ControlProbeResult.CLEAR:
+                return probe_result
+            if repositories is not None and max_workers is not None:
+                try:
+                    operator_observability.publish_operator_status(
+                        repositories,
+                        operator_campaign,
+                        max_workers=max_workers,
+                    )
+                except Exception as exc:
+                    log(
+                        "operator observability publish degraded: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+            return ControlProbeResult.CLEAR
     except ExecutionLeaseBusy:
         return ControlProbeResult.LEASE_BUSY
     except Exception as exc:
@@ -501,6 +521,7 @@ def service_control(
     registry_path: Path | None,
     max_workers: int,
     once: bool,
+    operator_campaign: conversation_supervisor.RunningOperatorCampaign | None = None,
 ) -> bool:
     if not repositories:
         return False
@@ -544,6 +565,17 @@ def service_control(
                 if request is None or str(request.get("action", "")) != "cancel_task":
                     agentd.handle_control_request(status_extra=status_fields)
                 agentd.maybe_self_update()
+            try:
+                operator_observability.publish_operator_status(
+                    repositories,
+                    operator_campaign,
+                    max_workers=max_workers,
+                )
+            except Exception as exc:
+                log(
+                    "operator observability publish degraded: "
+                    f"{type(exc).__name__}: {exc}"
+                )
             agentd.publish_daemon_status(
                 "idle",
                 force_remote=False,
@@ -591,6 +623,18 @@ def service_operator_result_publication(
             agentd.DAEMON_VERSION = PARALLEL_DAEMON_VERSION
             supervisor_control.sync_control_quietly()
             conversation_supervisor.publish_pending_result_only()
+            try:
+                operator_observability.publish_operator_status(
+                    repositories,
+                    None,
+                    max_workers=max_workers,
+                    force=True,
+                )
+            except Exception as exc:
+                log(
+                    "operator observability publication-closeout degraded: "
+                    f"{type(exc).__name__}: {exc}"
+                )
         return True
     except ExecutionLeaseBusy:
         return False
@@ -867,7 +911,12 @@ def main() -> int:
 
             if control_pending:
                 if operator_campaign is not None:
-                    probe_control_request(repositories[0])
+                    probe_control_request(
+                        repositories[0],
+                        repositories=repositories,
+                        operator_campaign=operator_campaign,
+                        max_workers=max_workers,
+                    )
                     if agent_operator.is_disabled():
                         time.sleep(REAP_INTERVAL_SECONDS)
                         continue
@@ -881,6 +930,7 @@ def main() -> int:
                     registry_path=args.registry,
                     max_workers=max_workers,
                     once=args.once,
+                    operator_campaign=operator_campaign,
                 ):
                     last_control_at = time.monotonic()
                     scheduling.reset_control_deferral_state(
@@ -906,7 +956,12 @@ def main() -> int:
                 )
             ):
                 if running or operator_campaign is not None:
-                    probe_result = probe_control_request(repositories[0])
+                    probe_result = probe_control_request(
+                        repositories[0],
+                        repositories=repositories,
+                        operator_campaign=operator_campaign,
+                        max_workers=max_workers,
+                    )
                     if agent_operator.is_disabled():
                         time.sleep(REAP_INTERVAL_SECONDS)
                         continue
@@ -968,6 +1023,7 @@ def main() -> int:
                         registry_path=args.registry,
                         max_workers=max_workers,
                         once=args.once,
+                        operator_campaign=operator_campaign,
                     ):
                         last_control_at = time.monotonic()
                         scheduling.reset_control_deferral_state(
@@ -1090,6 +1146,7 @@ def main() -> int:
                             registry_path=args.registry,
                             max_workers=max_workers,
                             once=args.once,
+                            operator_campaign=operator_campaign,
                         ):
                             last_control_at = time.monotonic()
                             scheduling.reset_control_deferral_state(

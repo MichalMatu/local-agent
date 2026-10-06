@@ -1,6 +1,6 @@
 # Autonomous Chat Planner Loop
 
-This document defines the current autonomous loop connecting a managed parent Superchat, Chat Bridge `0.8.3`, GitHub desired state, browser-native Conversation Fabric child reasoning and deterministic Local Agent execution.
+This document defines the current autonomous loop connecting a managed parent Superchat, Chat Bridge `0.8.4`, GitHub desired state, browser-native Conversation Fabric child reasoning and deterministic Local Agent execution.
 
 ## Ownership
 

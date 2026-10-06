@@ -95,18 +95,19 @@ The production contracts are now explicit and regression-protected:
 
 Future parity or timeout-contract expansion requires a concrete production consequence plus a dedicated regression; it must not be introduced merely for symmetry.
 
-## Milestone 3 — operator observability
+## Milestone 3 — operator observability — complete
 
-Expose one concise normal status surface for:
+One normal read-only status surface now combines the existing Local Agent and browser state domains without creating a second authority path:
 
-- Conversation Operator enabled/configured/running state;
-- active parent goal and child count;
-- current campaign id/state and captured-result count;
-- terminal feedback delivery state;
-- queue dedupe suppression/reconciliation counts and reasons;
-- exact deployed Local Agent and Chat Bridge revisions.
+- the Local Agent supervisor publishes bounded `.agent/status/operator.json` telemetry under the existing control-repository lease on semantic change or heartbeat;
+- Local Agent telemetry reports exact `daemon_version` + deployed `self_revision`, Conversation Operator enabled/configured/running state, active `workflow_id`/parent identity/child count, and bounded durable dedupe suppression/rejection/reconciliation counts with reasons;
+- crash completion reconciliation marks the existing durable dedupe receipt, so reconciliation is observable without changing admission or replay semantics;
+- Chat Bridge runtime schema 3 accepts an optional read-only `operator_status_url`, restricted to `https://raw.githubusercontent.com`, with bounded fetch timeout/cache and no write authority;
+- `bridge:get-state` combines that Local Agent snapshot with the installed Bridge manifest version and current Fabric/Vault campaign/result/cleanup/terminal-feedback state;
+- the normal Bridge popup renders the combined snapshot as one compact Operator status card;
+- Chat Bridge `0.8.4` carries this surface while content protocol `18` and repository execution authority remain unchanged.
 
-This should remove the need to infer operator readiness from scattered files.
+Telemetry failure is fail-soft and must never block control reconciliation, scheduling or task execution.
 
 ## Milestone 4 — test architecture hardening
 

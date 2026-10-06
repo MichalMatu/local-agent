@@ -5,6 +5,13 @@ const elements = {
   currentTitle: document.querySelector("#currentTitle"),
   currentUrl: document.querySelector("#currentUrl"),
   addCurrent: document.querySelector("#addCurrent"),
+  operatorOverall: document.querySelector("#operatorOverall"),
+  operatorVersions: document.querySelector("#operatorVersions"),
+  operatorRuntime: document.querySelector("#operatorRuntime"),
+  operatorGoal: document.querySelector("#operatorGoal"),
+  operatorCampaign: document.querySelector("#operatorCampaign"),
+  operatorFeedback: document.querySelector("#operatorFeedback"),
+  operatorDedupe: document.querySelector("#operatorDedupe"),
   conversationList: document.querySelector("#conversationList"),
   conversationCount: document.querySelector("#conversationCount"),
   runtimeUrl: document.querySelector("#runtimeUrl"),
@@ -300,6 +307,138 @@ function renderConversations(state, schedules = {}, runtime = null, githubOwners
   }
 }
 
+function shortRevision(value) {
+  const text = String(value || "").trim();
+  return /^[0-9a-f]{40}$/.test(text) ? text.slice(0, 8) : "-";
+}
+
+function formatReasonCounts(value) {
+  if (!value || typeof value !== "object") return "";
+  return Object.entries(value)
+    .filter(([, count]) => Number(count) > 0)
+    .map(([reason, count]) => `${reason}×${count}`)
+    .join(", ");
+}
+
+function setOperatorLine(element, text, title = "") {
+  if (!element) return;
+  element.textContent = text;
+  element.title = title || text;
+}
+
+function renderOperatorStatus(response) {
+  const state = response?.state || {};
+  const bridge = response?.bridgeInfo || {};
+  const envelope = response?.operatorStatus || { available: false, source: "not_configured" };
+  const remote = envelope.status || {};
+  const daemon = remote.daemon || {};
+  const operator = remote.operator || {};
+  const dedupe = remote.dedupe || {};
+  const currentId = currentTab?.normalizedUrl
+    ? protocol.conversationId(currentTab.normalizedUrl)
+    : null;
+  const fabric = currentId ? response?.fabricStatus?.[currentId] || null : null;
+  const campaign = fabric?.currentCampaign || null;
+
+  const bridgeVersion = String(bridge.extensionVersion || "?");
+  const daemonVersion = String(daemon.daemon_version || "?");
+  const revision = shortRevision(daemon.self_revision);
+  setOperatorLine(
+    elements.operatorVersions,
+    `Bridge ${bridgeVersion} · Agent ${daemonVersion} · ${revision}`,
+    `Bridge ${bridgeVersion}; Local Agent ${daemonVersion}; deployed revision ${daemon.self_revision || "unavailable"}`
+  );
+
+  const master = state.settings?.masterEnabled ? "Master on" : "Master off";
+  if (!envelope.available) {
+    const reason = envelope.source === "not_configured"
+      ? "Agent status not configured"
+      : envelope.source === "misconfigured"
+        ? "Agent status configuration invalid"
+        : envelope.source === "stale"
+          ? "Agent status stale"
+          : "Agent status unavailable";
+    const unavailableOverall = envelope.source === "stale"
+      ? "Stale"
+      : envelope.source === "misconfigured"
+        ? "Config error"
+        : master;
+    setOperatorLine(elements.operatorOverall, unavailableOverall);
+    setOperatorLine(
+      elements.operatorRuntime,
+      reason,
+      envelope.source === "stale"
+        ? `last update ${remote.updated_at || "unknown"}`
+        : (envelope.error || reason)
+    );
+  } else {
+    const configured = operator.configured ? "configured" : "misconfigured";
+    const enabled = operator.enabled ? "enabled" : "disabled";
+    const activity = operator.running ? "running" : "idle";
+    const overall = !operator.configured
+      ? "Misconfigured"
+      : !operator.enabled
+        ? "Disabled"
+        : operator.running
+          ? "Running"
+          : "Ready";
+    setOperatorLine(elements.operatorOverall, overall);
+    setOperatorLine(
+      elements.operatorRuntime,
+      `${master} · ${enabled}/${configured} · ${activity}`,
+      operator.configuration_error || ""
+    );
+  }
+
+  const active = operator.active_request;
+  if (active) {
+    setOperatorLine(
+      elements.operatorGoal,
+      `${active.workflow_id} · ${active.children_total} child${active.children_total === 1 ? "" : "ren"}`
+    );
+  } else {
+    setOperatorLine(elements.operatorGoal, operator.running ? "Running request unavailable" : "No active operator workflow");
+  }
+
+  if (campaign) {
+    setOperatorLine(
+      elements.operatorCampaign,
+      `${campaign.campaignId} · ${campaign.state} · ${campaign.capturedResultCount}/${campaign.childCount} results`,
+      [
+        campaign.pendingChildIds?.length ? `pending: ${campaign.pendingChildIds.join(", ")}` : "",
+        campaign.failedChildIds?.length ? `failed: ${campaign.failedChildIds.join(", ")}` : "",
+        campaign.ambiguousChildIds?.length ? `ambiguous: ${campaign.ambiguousChildIds.join(", ")}` : ""
+      ].filter(Boolean).join("; ")
+    );
+    setOperatorLine(
+      elements.operatorFeedback,
+      `${campaign.feedbackState}${campaign.cleanupPending ? " · cleanup pending" : ""}`,
+      campaign.partialFailure ? "Campaign has partial child failure." : ""
+    );
+  } else {
+    setOperatorLine(
+      elements.operatorCampaign,
+      currentId ? "No Fabric campaign for current chat" : "Open a ChatGPT conversation"
+    );
+    setOperatorLine(elements.operatorFeedback, "No terminal feedback pending");
+  }
+
+  if (envelope.available) {
+    const reasonSummary = [
+      formatReasonCounts(dedupe.suppression_reasons),
+      formatReasonCounts(dedupe.reconciliation_reasons),
+      formatReasonCounts(dedupe.rejection_reasons)
+    ].filter(Boolean).join("; ");
+    setOperatorLine(
+      elements.operatorDedupe,
+      `${dedupe.suppressed_count || 0} suppressed · ${dedupe.reconciled_count || 0} reconciled · ${dedupe.rejected_count || 0} rejected${dedupe.scan_truncated ? " · bounded" : ""}`,
+      reasonSummary || "No durable dedupe events in the current bounded evidence set."
+    );
+  } else {
+    setOperatorLine(elements.operatorDedupe, "Agent telemetry unavailable");
+  }
+}
+
 async function refreshCurrentTabForm(state) {
   currentTab = await getCurrentChatTab();
   if (!currentTab) {
@@ -336,6 +475,7 @@ async function refresh() {
   renderSettings(latestState, latestRuntime);
   renderConversations(latestState, response.schedules || {}, latestRuntime, response.githubOwnership || {});
   await refreshCurrentTabForm(latestState);
+  renderOperatorStatus(response);
   restartCountdownTimer();
 }
 

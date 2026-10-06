@@ -2,7 +2,7 @@
 
 Date: 2026-10-06
 
-Status: Local Agent remains on release line `v4.20.6`. The current post-release source uses Chat Bridge `0.8.3` and browser-native Conversation Fabric inside the operator's already authenticated primary Chrome session. The old isolated-profile/Playwright production assumption is retired.
+Status: Local Agent remains on release line `v4.20.6`. The current post-release source candidate uses Chat Bridge `0.8.4` and browser-native Conversation Fabric inside the operator's already authenticated primary Chrome session. The old isolated-profile/Playwright production assumption is retired.
 
 Stable rollback anchor: `main@2d99fad80ab6e455301354dc53ee894a852b0bd6`. The exact verification and branch-hygiene record is `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md`.
 

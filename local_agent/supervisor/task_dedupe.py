@@ -183,6 +183,9 @@ def _read_receipt(
             if _published_run_matches_receipt(state_dir, payload):
                 payload["state"] = "completed"
                 payload["outcome"] = "published"
+                payload["reconciled_from_published_run"] = True
+                payload["reconciliation_reason"] = "published_run_after_claim_release"
+                payload["reconciled_at_epoch"] = now_epoch
                 payload["updated_at_epoch"] = now_epoch
                 payload["expires_at_epoch"] = now_epoch + RECENT_COMPLETION_TTL_SECONDS
                 atomic_write_text(

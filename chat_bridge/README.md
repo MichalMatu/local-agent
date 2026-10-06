@@ -6,10 +6,10 @@ Chrome Manifest V3 extension for managed ChatGPT conversation transport, GitHub-
 
 ```text
 Local Agent release line: 4.20.6
-Chat Bridge:             0.8.3
+Chat Bridge:             0.8.4
 content protocol:        18
 assistant guard:         8
-runtime schema:          3 + optional conversation_controls
+runtime schema:          3 + optional conversation_controls / operator_status_url
 ```
 
 Chat Bridge is a transport/scheduling component. It does **not** grant repository execution authority.
@@ -75,6 +75,14 @@ Every schedule mutation increments `control_generation`. Status is a read. The g
 The extension polls remote state with a dedicated one-minute MV3 alarm. Worker activation ensures that alarm exists, including after extension/service-worker reload. The extension contains no GitHub token and does not write GitHub desired state.
 
 See `docs/GITHUB_BRIDGE_CONTROL.md`.
+
+## Unified operator status
+
+The popup's **Operator status** card is read-only and combines browser-owned state with one optional Local Agent telemetry document.
+
+Bridge-owned fields come from the installed extension and durable Fabric storage: manifest version, Master state, current-parent campaign id/state, child/result counts, cleanup state and terminal-feedback state.
+
+Local Agent-owned fields come from runtime `operator_status_url`, which must be an HTTPS `raw.githubusercontent.com` URL. The expected document is `.agent/status/operator.json` schema v1 with daemon version/self revision, Conversation Operator enabled/configured/running state, active workflow identity/child count, and bounded dedupe counts/reasons. Fetch failure is displayed as unavailable telemetry and never changes pacing, Fabric ownership or repository execution admission.
 
 ## Wake submission
 

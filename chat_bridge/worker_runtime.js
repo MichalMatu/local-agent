@@ -1,5 +1,39 @@
 let runtimeFetchSequence = 0;
 let runtimeCacheSequence = 0;
+let operatorStatusCache = null;
+const OPERATOR_STATUS_STALE_MS = 15 * 60 * 1000;
+const OPERATOR_STATUS_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const OPERATOR_STATUS_MAX_BYTES = 64_000;
+
+function sanitizeOperatorStatusUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  if (text.length > 2048) throw new Error("operator_status_url exceeds 2048 characters");
+  let parsed;
+  try {
+    parsed = new URL(text);
+  } catch (_error) {
+    throw new Error("operator_status_url must be a valid URL");
+  }
+  if (parsed.protocol !== "https:" || parsed.hostname !== "raw.githubusercontent.com") {
+    throw new Error("operator_status_url must use https://raw.githubusercontent.com");
+  }
+  return parsed.toString();
+}
+
+function operatorStatusRuntimeConfig(value) {
+  try {
+    return {
+      operatorStatusUrl: sanitizeOperatorStatusUrl(value),
+      operatorStatusConfigError: ""
+    };
+  } catch (error) {
+    return {
+      operatorStatusUrl: "",
+      operatorStatusConfigError: String(error)
+    };
+  }
+}
 
 function validatePrompt(value, fallback, maximum, label) {
   const prompt = String(value || fallback || "").trim();
@@ -61,6 +95,7 @@ function validateRuntimeConfig(raw, settings) {
     throw new Error("runtime config must use schema_version=3");
   }
   const agents = validateRuntimeAgents(raw.agents);
+  const operatorStatus = operatorStatusRuntimeConfig(raw.operator_status_url);
   return {
     intervalMinutes: clampNumber(
       raw.interval_minutes,
@@ -82,6 +117,7 @@ function validateRuntimeConfig(raw, settings) {
       "runtime wake prompt"
     ),
     agents,
+    ...operatorStatus,
     conversationControls: githubControlModel.validateConversationControls(raw.conversation_controls, agents)
   };
 }
@@ -108,6 +144,8 @@ function fallbackRuntime(settings) {
       "fallback wake prompt"
     ),
     agents: [],
+    operatorStatusUrl: "",
+    operatorStatusConfigError: "",
     conversationControls: []
   };
 }
@@ -179,3 +217,171 @@ async function fetchRuntimeUncached(settings, key, sequence) {
 async function loadRuntimeConfig(state, conversation = null) {
   return applyConversationInterval(await fetchRuntime(state.settings), conversation);
 }
+
+function utf8ByteLength(value) {
+  let bytes = 0;
+  for (const character of String(value || "")) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint <= 0x7f) bytes += 1;
+    else if (codePoint <= 0x7ff) bytes += 2;
+    else if (codePoint <= 0xffff) bytes += 3;
+    else bytes += 4;
+  }
+  return bytes;
+}
+
+async function readBoundedOperatorStatusJson(response) {
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = value instanceof Uint8Array ? value : new Uint8Array(value || []);
+        total += chunk.byteLength;
+        if (total > OPERATOR_STATUS_MAX_BYTES) {
+          try { await reader.cancel(); } catch (_error) {}
+          throw new Error(`operator status exceeds ${OPERATOR_STATUS_MAX_BYTES} bytes`);
+        }
+        chunks.push(chunk);
+      }
+    } finally {
+      try { reader.releaseLock?.(); } catch (_error) {}
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }
+
+  let text;
+  if (typeof response.text === "function") {
+    text = await response.text();
+  } else {
+    text = JSON.stringify(await response.json());
+  }
+  if (utf8ByteLength(text) > OPERATOR_STATUS_MAX_BYTES) {
+    throw new Error(`operator status exceeds ${OPERATOR_STATUS_MAX_BYTES} bytes`);
+  }
+  return JSON.parse(text);
+}
+
+function validateOperatorReasonCounts(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  const entries = Object.entries(value);
+  if (entries.length > 32) throw new Error(`${label} exceeds 32 reasons`);
+  for (const [reason, count] of entries) {
+    if (!reason || reason.length > 100 || !/^[A-Za-z0-9._:-]+$/.test(reason)) {
+      throw new Error(`${label} reason is invalid`);
+    }
+    if (!Number.isInteger(count) || count < 0) {
+      throw new Error(`${label} count must be a non-negative integer`);
+    }
+  }
+}
+
+function validateOperatorStatus(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.schema_version !== 1) {
+    throw new Error("operator status must use schema_version=1");
+  }
+  if (JSON.stringify(raw).length > OPERATOR_STATUS_MAX_BYTES) {
+    throw new Error(`operator status exceeds ${OPERATOR_STATUS_MAX_BYTES} characters`);
+  }
+
+  const updatedAt = Date.parse(String(raw.updated_at || ""));
+  if (!Number.isFinite(updatedAt)) throw new Error("operator status updated_at is invalid");
+
+  const daemon = raw.daemon;
+  const operator = raw.operator;
+  const dedupe = raw.dedupe;
+  if (!daemon || typeof daemon !== "object" || Array.isArray(daemon)) {
+    throw new Error("operator status daemon section is invalid");
+  }
+  if (!operator || typeof operator !== "object" || Array.isArray(operator)) {
+    throw new Error("operator status operator section is invalid");
+  }
+  if (!dedupe || typeof dedupe !== "object" || Array.isArray(dedupe)) {
+    throw new Error("operator status dedupe section is invalid");
+  }
+
+  const daemonVersion = String(daemon.daemon_version || "").trim();
+  const selfRevision = daemon.self_revision === null ? "" : String(daemon.self_revision || "").trim();
+  if (!daemonVersion || daemonVersion.length > 64) throw new Error("operator daemon version is invalid");
+  if (selfRevision && !/^[0-9a-f]{40}$/.test(selfRevision)) {
+    throw new Error("operator self revision is invalid");
+  }
+  for (const field of ["enabled", "configured", "running", "result_publish_pending"]) {
+    if (typeof operator[field] !== "boolean") throw new Error(`operator status ${field} must be boolean`);
+  }
+  if (operator.active_request !== null && operator.active_request !== undefined) {
+    const active = operator.active_request;
+    if (!active || typeof active !== "object" || Array.isArray(active)) {
+      throw new Error("operator active_request is invalid");
+    }
+    const workflowId = String(active.workflow_id || "");
+    if (!workflowId || workflowId.length > 200) {
+      throw new Error("operator workflow_id is invalid");
+    }
+    if (!Number.isInteger(active.children_total) || active.children_total < 0 || active.children_total > 64) {
+      throw new Error("operator children_total is invalid");
+    }
+  }
+  for (const field of ["suppressed_count", "rejected_count", "reconciled_count"]) {
+    if (!Number.isInteger(dedupe[field]) || dedupe[field] < 0) {
+      throw new Error(`operator dedupe ${field} must be a non-negative integer`);
+    }
+  }
+  validateOperatorReasonCounts(dedupe.suppression_reasons || {}, "operator suppression reasons");
+  validateOperatorReasonCounts(dedupe.rejection_reasons || {}, "operator rejection reasons");
+  validateOperatorReasonCounts(dedupe.reconciliation_reasons || {}, "operator reconciliation reasons");
+
+  return raw;
+}
+
+async function loadOperatorStatus(runtime) {
+  const configError = String(runtime?.operatorStatusConfigError || "").trim();
+  if (configError) {
+    return { available: false, source: "misconfigured", error: configError };
+  }
+  const url = String(runtime?.operatorStatusUrl || "").trim();
+  if (!url) return { available: false, source: "not_configured" };
+  if (operatorStatusCache?.url === url && operatorStatusCache.expiresAt > Date.now()) {
+    return operatorStatusCache.value;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const separator = url.includes("?") ? "&" : "?";
+    const response = await fetch(`${url}${separator}ts=${Date.now()}`, {
+      cache: "no-store",
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`operator status fetch returned HTTP ${response.status}`);
+    const status = validateOperatorStatus(await readBoundedOperatorStatusJson(response));
+    const updatedAt = Date.parse(String(status.updated_at || ""));
+    const age = Date.now() - updatedAt;
+    if (age > OPERATOR_STATUS_STALE_MS || age < -OPERATOR_STATUS_FUTURE_SKEW_MS) {
+      const value = { available: false, source: "stale", status };
+      operatorStatusCache = { url, expiresAt: Date.now() + 5_000, value };
+      return value;
+    }
+    const value = { available: true, source: "remote", status };
+    operatorStatusCache = { url, expiresAt: Date.now() + 15_000, value };
+    return value;
+  } catch (error) {
+    const value = { available: false, source: "unavailable", error: String(error) };
+    operatorStatusCache = { url, expiresAt: Date.now() + 5_000, value };
+    return value;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+

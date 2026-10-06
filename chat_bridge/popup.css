@@ -185,6 +185,53 @@ summary:focus-visible {
   box-shadow: var(--panel-shadow);
 }
 .current-chat-panel { margin: 0; }
+.operator-status-panel { margin: 0; }
+.status-pill {
+  flex: 0 0 auto;
+  max-width: 104px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--control);
+  font-size: 7px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.operator-version-line {
+  margin: 5px 0 8px;
+  color: var(--subtle);
+  font-size: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.operator-grid {
+  display: grid;
+  gap: 4px;
+}
+.operator-row {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 7px;
+  align-items: baseline;
+  min-width: 0;
+}
+.operator-key {
+  color: var(--subtle);
+  font-size: 7px;
+  font-weight: 660;
+  letter-spacing: .025em;
+  text-transform: uppercase;
+}
+.operator-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .section-heading,
 .section-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .eyebrow {
@@ -353,6 +400,7 @@ button:not(:disabled):active { transform: scale(.985); background: var(--control
 .runtime-status { display: flex; gap: 8px; color: var(--subtle); font-size: 7px; }
 
 .content-scroll:has(.settings-panel[open]) > .current-chat-panel,
+.content-scroll:has(.settings-panel[open]) > .operator-status-panel,
 .content-scroll:has(.settings-panel[open]) > .conversation-section {
   display: none;
 }

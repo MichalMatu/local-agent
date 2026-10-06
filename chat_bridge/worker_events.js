@@ -78,11 +78,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       await reconcileGithubConversationControls();
       const state = await getBridgeState();
-      const [runtime, schedules] = await Promise.all([
+      const [runtime, schedules, fabricStatus] = await Promise.all([
         loadRuntimeConfig(state),
-        getScheduleSnapshot(state)
+        getScheduleSnapshot(state),
+        conversationFabricOperatorSnapshot()
       ]);
-      const githubOwnership = await githubOwnershipSnapshot(state, runtime);
+      const [githubOwnership, operatorStatus] = await Promise.all([
+        githubOwnershipSnapshot(state, runtime),
+        loadOperatorStatus(runtime)
+      ]);
       const popupRuntime = {
         ...runtime,
         conversationControls: (runtime.conversationControls || []).filter((control) => {
@@ -94,7 +98,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           );
         })
       };
-      sendResponse({ state, runtime: popupRuntime, schedules, githubOwnership });
+      sendResponse({
+        state,
+        runtime: popupRuntime,
+        schedules,
+        githubOwnership,
+        fabricStatus,
+        operatorStatus,
+        bridgeInfo: {
+          extensionVersion: chrome.runtime.getManifest().version,
+          contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
+          fabricSchemaVersion: conversationFabricProtocol.SCHEMA_VERSION
+        }
+      });
     })().catch((error) => sendResponse({ error: String(error) }));
     return true;
   }
