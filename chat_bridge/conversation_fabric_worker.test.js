@@ -23,6 +23,8 @@ function createHarness({
   failReason = "spawn_unexpected_route",
   ambiguousChildId = "",
   reconcilePlan = {},
+  resultTextByChild = {},
+  allowActiveClose = false,
   managed = true,
   storage = {}
 } = {}) {
@@ -32,6 +34,7 @@ function createHarness({
   const childrenAtSubmit = [];
   const observed = [];
   const closed = [];
+  const closedTabIds = new Set();
   const injected = [];
   const reconcileQueues = Object.fromEntries(
     Object.entries(reconcilePlan).map(([id, values]) => [id, [...values]])
@@ -159,20 +162,27 @@ function createHarness({
     },
     async observeConversationSpawnResult(intent) {
       observed.push(clone(intent));
+      const childId = childIdForIntent(intent);
       return {
         ok: true,
         reason: "child_result_ready",
         childConversationUrl: `https://chatgpt.com/c/child-${intent.tab_id}`,
         assistantIdentity: `assistant-${intent.tab_id}`,
-        assistantText: `Result for tab ${intent.tab_id}.`,
+        assistantText: String(resultTextByChild[childId] || `Result for tab ${intent.tab_id}.`),
         truncated: false
       };
     },
     async closeConversationSpawnTab(intent) {
-      assert.ok(
-        Object.values(session).some(campaign => ["completed", "failed"].includes(campaign.state)),
-        "terminal evidence must be saved before tabs close"
-      );
+      if (!allowActiveClose) {
+        assert.ok(
+          Object.values(session).some(value =>
+            String(value?.id || "").startsWith("cf-") && ["completed", "failed"].includes(value.state)
+          ),
+          "terminal evidence must be saved before tabs close"
+        );
+      }
+      if (closedTabIds.has(intent.tab_id)) return { ok: true, reason: "child_already_closed" };
+      closedTabIds.add(intent.tab_id);
       closed.push(clone(intent));
       return { ok: true, reason: "child_closed" };
     }
@@ -275,6 +285,51 @@ function createHarness({
       "late cleanup must not erase the receipt of concurrent terminal feedback delivery"
     );
 
+    const vaultRecords = Object.entries(h.session)
+      .filter(([key]) => key.startsWith("conversation-fabric-result:"))
+      .map(([, value]) => value);
+    assert.equal(vaultRecords.length, 2, "every stable child result must have an independent vault record");
+    assert.ok(vaultRecords.every(value => /^[0-9a-f]{64}$/.test(value.text_sha256)));
+
+    const inspectCampaign = await h.context.applyConversationFabricControl({
+      ...h.delegateMessage,
+      fingerprint: "inspect-campaign",
+      assistantIdentity: "assistant-inspect-campaign",
+      control: {
+        schema_version: 1,
+        action: "inspect",
+        campaign_id: started.campaignId,
+        marker: "synthetic-inspect"
+      }
+    }, h.sender);
+    assert.equal(inspectCampaign.ok, true, JSON.stringify(inspectCampaign));
+    assert.equal(inspectCampaign.reason, "conversation_fabric_inspect");
+    assert.match(inspectCampaign.feedbackPrompt, /Vault records:/);
+    assert.match(inspectCampaign.feedbackPrompt, /child=audit/);
+
+    const auditVaultKey = Object.keys(h.session).find(key =>
+      key.startsWith(`conversation-fabric-result:${started.campaignId}:audit`)
+    );
+    assert.ok(auditVaultKey);
+    const campaignKey = `conversation-fabric-campaign:${started.campaignId}`;
+    delete h.session[campaignKey];
+    const inspectArchivedChild = await h.context.applyConversationFabricControl({
+      ...h.delegateMessage,
+      fingerprint: "inspect-vault-only",
+      assistantIdentity: "assistant-inspect-vault-only",
+      control: {
+        schema_version: 1,
+        action: "inspect",
+        campaign_id: started.campaignId,
+        child_id: "audit",
+        marker: "synthetic-inspect-child"
+      }
+    }, h.sender);
+    assert.equal(inspectArchivedChild.ok, true, JSON.stringify(inspectArchivedChild));
+    assert.match(inspectArchivedChild.feedbackPrompt, /state=vault-only/);
+    assert.match(inspectArchivedChild.feedbackPrompt, /Result for tab 101\./);
+    assert.ok(h.session[auditVaultKey], "campaign pruning/removal must not remove the independent result vault");
+
     const wrongSender = await h.context.applyConversationFabricControl(
       h.delegateMessage,
       { ...h.sender, url: "https://chatgpt.com/c/other", tab: { id: 11, url: "https://chatgpt.com/c/other" } }
@@ -289,6 +344,44 @@ function createHarness({
     assert.equal(result.ok, false, JSON.stringify(result));
     assert.equal(result.reason, "conversation_fabric_parent_not_managed");
     assert.equal(h.created.length, 0, "unmanaged ChatGPT tabs must not create Conversation Fabric children");
+  }
+
+  {
+    const h = createHarness({ allowActiveClose: true });
+    const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
+    assert.equal(started.ok, true, JSON.stringify(started));
+    const createdBefore = h.created.length;
+    const submittedBefore = h.submitted.length;
+
+    const retired = await h.context.applyConversationFabricControl({
+      ...h.delegateMessage,
+      fingerprint: "retire-verify",
+      assistantIdentity: "assistant-retire-verify",
+      control: {
+        schema_version: 1,
+        action: "retire",
+        campaign_id: started.campaignId,
+        child_id: "verify",
+        marker: "synthetic-retire"
+      }
+    }, h.sender);
+    assert.equal(retired.ok, true, JSON.stringify(retired));
+    assert.equal(retired.reason, "conversation_fabric_child_retired");
+    assert.equal(retired.hadCapturedResult, false);
+    assert.equal(h.created.length, createdBefore, "retire must not create a replacement tab");
+    assert.equal(h.submitted.length, submittedBefore, "retire must not replay any bootstrap");
+    assert.deepEqual(
+      h.closed.map(intent => intent.tab_id).sort(),
+      [101, 102],
+      "explicit retire plus terminal cleanup closes only the original exact owned tabs"
+    );
+    const terminal = await h.context.loadConversationFabricCampaign(started.campaignId);
+    const verify = terminal.children.find(child => child.id === "verify");
+    assert.equal(verify.state, "failed");
+    assert.equal(verify.failure.reason, "operator_retired");
+    assert.equal(verify.failure.retryable, true);
+    assert.equal(terminal.results.length, 1, "non-retired sibling result is still captured");
+    assert.match(retired.feedbackPrompt, /retryable missing coverage/);
   }
 
   {
