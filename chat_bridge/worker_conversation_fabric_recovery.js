@@ -230,12 +230,18 @@ collectConversationFabric = async function collectConversationFabricRecovered(au
   campaign.failed_children = failedChildren;
   if (pending.length) {
     await saveConversationFabricCampaign(campaign);
+    const feedbackPrompt = await conversationFabricNonterminalFeedbackPrompt(
+      campaign.id,
+      authority,
+      "pending",
+      conversationFabricPendingPrompt(campaign, pending)
+    );
     return {
       ok: true,
       reason: "conversation_fabric_pending",
       campaignId: campaign.id,
       pending,
-      feedbackPrompt: conversationFabricPendingPrompt(campaign, pending)
+      ...(feedbackPrompt ? { feedbackPrompt } : {})
     };
   }
 

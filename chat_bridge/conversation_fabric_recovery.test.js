@@ -323,6 +323,37 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
     assert.equal(h.stored().state, "completed");
   }
 
+  // Reprocessing the same explicit collect after a restart/retry may observe the
+  // same pending child, but its nonterminal feedback is claimed durably only once.
+  {
+    const h = createHarness(campaign([child("a", "submitted", 101)]), {
+      a: ["child_generating", "child_generating"]
+    });
+    const authority = {
+      conversationUrl: parentUrl,
+      fingerprint: "1a2b3c4d",
+      control: {
+        schema_version: 1,
+        action: "collect",
+        campaign_id: campaignId
+      }
+    };
+    const first = await h.context.collectConversationFabric(authority);
+    assert.equal(first.reason, "conversation_fabric_pending");
+    assert.match(first.feedbackPrompt, /still running/);
+
+    const restarted = createHarness(h.stored(), {
+      a: ["child_generating"]
+    });
+    const repeated = await restarted.context.collectConversationFabric(authority);
+    assert.equal(repeated.reason, "conversation_fabric_pending");
+    assert.equal(
+      repeated.feedbackPrompt,
+      undefined,
+      "recovery collect retry must not re-surface the same nonterminal feedback"
+    );
+  }
+
   // Terminal feedback has one durable delivery authority and is delivered at most once.
   {
     const h = createHarness(campaign([child("a", "submitted", 101)]));
