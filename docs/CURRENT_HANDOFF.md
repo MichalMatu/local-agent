@@ -1,6 +1,6 @@
 # Current handoff — browser-native Conversation Fabric
 
-Date: 2026-10-06
+Date: 2026-10-07
 
 Status: Local Agent remains on release line `v4.20.6`. The current post-release source candidate uses Chat Bridge `0.8.11` and browser-native Conversation Fabric inside the operator's already authenticated primary Chrome session. The old isolated-profile/Playwright production assumption is retired.
 
@@ -10,7 +10,7 @@ Stable source rollback anchor: `main@59c5d699bc32283ebb98fc026f76128ec9db6d2a`. 
 
 Single-goal Superchat acceptance, lifecycle/recovery, operator observability, corrective-intent dedupe and production-path test-architecture hardening are complete in current source. The sequential delegation-cycle source closeout now includes a production-shaped second-campaign proof in the same parent, covering fresh campaign identity, no inherited results/terminal receipt, exact child cleanup and no replay/mutation of the first campaign.
 
-Host Ops absorption and live cutover are complete. The Mac now provisions `local-agent` as an execution target with binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; absorbed `local_agent.host_ops` smokes passed both before and after disabling the standalone `host-ops` machine target. The canonical source catalog no longer contains `host-ops`; host-maintenance targets `local-agent`. The standalone donor repository is frozen/history-only, with `work/cpu-gpu-routing` preserved. See `docs/HOST_OPS_ABSORPTION_PLAN.md`.
+Host Ops source absorption and live cutover are complete. The Mac provisions `local-agent` as an execution target with binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; absorbed `local_agent.host_ops` smokes passed both before and after disabling the standalone `host-ops` machine target. PR #177 removed the standalone `host-ops` identity from the canonical source catalog, and current `main@1571ac6458d58243f00960aa9777cf46272524e0` passed CI #2329. The remaining retirement step is narrow: after this handoff commit self-updates live, run one final absorbed smoke through `local-agent`, remove the already-disabled `host-ops` record from the machine registry, restart/verify healthy runtime, then decide whether to archive the frozen donor repository. Preserve `work/cpu-gpu-routing`. See `docs/CHECKPOINT_2026-10-07_HOST_OPS_RETIREMENT_HANDOFF.md` and `docs/HOST_OPS_ABSORPTION_PLAN.md`.
 
 The operator later disabled the live normal-Chrome Bridge after a field regression repeatedly inserted Conversation Fabric feedback without reliably submitting it and retries began to spam the composer. The source submit path has since been repaired and strengthened, but the post-fix source has not been reloaded or live-accepted. Keep the live Bridge disabled until an explicit operator validation step. Activation of the optional live `operator_status_url` has not been verified and must not be inferred.
 
@@ -20,14 +20,15 @@ Read fresh repository/runtime evidence in this order:
 
 1. `AGENTS.md`
 2. this file
-3. `docs/HOST_OPS_ABSORPTION_PLAN.md`
-4. `docs/CHECKPOINT_2026-10-06_SEQUENTIAL_HARDENING_BASELINE.md` (historical source/branch snapshot, not the current branch inventory)
-5. `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md` (historical rollback evidence)
-6. `docs/GOLDEN_STANDARD.md`
-7. `docs/OPERATIONS.md`
-8. `docs/AUTONOMOUS_CHAT_LOOP.md`
-9. `docs/GITHUB_BRIDGE_CONTROL.md`
-10. `docs/conversation_fabric/CURRENT_PLAN.md`
+3. `docs/CHECKPOINT_2026-10-07_HOST_OPS_RETIREMENT_HANDOFF.md`
+4. `docs/HOST_OPS_ABSORPTION_PLAN.md`
+5. `docs/CHECKPOINT_2026-10-06_SEQUENTIAL_HARDENING_BASELINE.md` (historical source/branch snapshot, not the current branch inventory)
+6. `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md` (historical rollback evidence)
+7. `docs/GOLDEN_STANDARD.md`
+8. `docs/OPERATIONS.md`
+9. `docs/AUTONOMOUS_CHAT_LOOP.md`
+10. `docs/GITHUB_BRIDGE_CONTROL.md`
+11. `docs/conversation_fabric/CURRENT_PLAN.md`
 
 Historical isolated-profile, DEV-lab, self-diagnostic, older checkpoint and release-note documents are evidence only.
 
@@ -36,8 +37,8 @@ Historical isolated-profile, DEV-lab, self-diagnostic, older checkpoint and rele
 - Chat Bridge conversation identity is transport/scheduling identity only. It never grants repository execution authority.
 - Every executable Local Agent task resolves its actual target through the canonical runtime catalog, requires `execution_enabled=true`, and uses the target repository's exact canonical `agent_binding`.
 - Registry/control agreement without a matching canonical catalog record fails closed.
-- The current canonical catalog enables `local-agent`; self-execution therefore follows the same binding, lease, resource and emergency-control gates as every other target. There is no permanent special-case self-execution ban.
-- The source catalog alone does not prove machine-local provisioning. Current GitHub branch evidence has no visible `local-agent/agent-control`; inspect the Mac registry/control workspace before authoring any self-targeted executable task.
+- The current canonical catalog enables only `local-agent` for this absorbed Host Ops ownership boundary; self-execution follows the same binding, lease, resource and emergency-control gates as every other target. There is no permanent special-case self-execution ban.
+- `local-agent` is now provisioned live on the Mac with binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; `local-agent/agent-control` exists and publishes healthy idle status. The standalone `host-ops` registry record is disabled and absent from the canonical source catalog, but may still remain as a disabled machine-local record until the final retirement cleanup.
 - The supported `agentd.py` launcher requires the machine repository registry and fails closed when it is absent; it does not fall back to the legacy single-repository executor loop.
 - Use direct GitHub edits when an exact repository diff plus CI is sufficient. Use Local Agent only for work that genuinely requires machine-local commands, local builds/tests, devices or host state.
 - Conversation Fabric children are reasoning-only. They do not create `.agent/tasks`, run machine commands, mutate repositories or make the final parent execution decision.

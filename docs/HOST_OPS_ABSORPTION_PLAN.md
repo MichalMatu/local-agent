@@ -110,7 +110,7 @@ Evidence:
 - the current source retirement removes the standalone `host-ops` identity from the canonical binding catalog and Bridge runtime example while retaining the internal `local_agent.host_ops` subsystem;
 - the donor repository remains frozen/history-only and `work/cpu-gpu-routing` remains preserved.
 
-The machine-local `host-ops` registry record may be removed completely only after this source retirement is merged, self-updated live, and one final `local-agent` smoke succeeds on that source.
+PR #177 has merged the source retirement and `main@1571ac6458d58243f00960aa9777cf46272524e0` passed CI #2329. The standalone `host-ops` machine record is already disabled. Final retirement cleanup is now limited to: let the live daemon self-update to this handoff commit or later, run one final `local-agent` absorbed-tooling smoke on that exact-or-later source, remove the disabled `host-ops` record from the machine registry without reordering the remaining entries, restart/verify healthy runtime, and only then consider archiving the donor repository.
 
 ## Non-goals
 
