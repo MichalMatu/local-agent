@@ -1,6 +1,6 @@
-# Chat Bridge browser operations through Host Ops
+# Chat Bridge browser operations with absorbed Host Ops tooling
 
-This is the canonical runbook for the dedicated Chat Bridge browser. Host Ops owns browser lifecycle and bounded CDP effects; Local Agent scripts add only Chat Bridge-specific policy.
+This is the canonical runbook for the dedicated Chat Bridge browser. Deterministic browser lifecycle/CDP capabilities live under `local_agent.host_ops`; Local Agent scripts add Chat Bridge-specific policy. The standalone `host-ops` repository is not an execution target.
 
 ## Production boundary
 
@@ -110,15 +110,15 @@ python scripts/bridge_hostops_recovery.py \
   --recover
 ```
 
-Host Ops may then perform at most one guarded page reload followed by one readiness re-check. Never reload for `ready`, `worker_inactive`, `dom_not_ready` or `extension_ambiguous`, and never loop recovery.
+The absorbed `local_agent.host_ops` tooling may then perform at most one guarded page reload followed by one readiness re-check. Never reload for `ready`, `worker_inactive`, `dom_not_ready` or `extension_ambiguous`, and never loop recovery.
 
 ## Operational rules
 
 - Prefer Bridge-native maintenance (`LAB:DEBUG`, `LAB:RELOAD=CONTENT`, `LAB:RELOAD=BRIDGE`) while Bridge still responds.
-- External Host Ops recovery is a fallback, not a second Bridge runtime.
+- External recovery through `local_agent.host_ops` is a fallback, not a second Bridge runtime.
 - No arbitrary JavaScript, click/fill/press, general navigation, worker mutation, broad process kill or implicit daily-Chrome attachment is authorized by this flow.
 - Re-check repository drift, daemon state and concurrent tasks before writes or browser mutation.
-- `local-agent` is execution-disabled in the multirepo catalog; schedule machine execution through execution-enabled `host-ops` with its exact binding.
+- Machine execution for this runbook targets execution-enabled `local-agent` with its exact canonical binding; there is no standalone Host Ops execution binding.
 - `chat-bridge-state` is an operational runtime-state branch and must not be removed as development-branch cleanup.
 
 ## Expected healthy evidence

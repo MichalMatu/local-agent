@@ -1,63 +1,51 @@
-# Superchat multirepo reasoning and Host Ops transport workspace
+# Multirepo reasoning after Host Ops absorption
 
-A parent Superchat may coordinate work across multiple repositories without rebinding the Chat Bridge conversation. The current deployment still carries `host-ops` as a transitional execution-enabled compatibility workspace for Mac-local operations, but the accepted target architecture absorbs its deterministic tooling into Local Agent. Local Agent remains the sole brain/orchestrator; Host Ops never grants repository execution authority.
+A parent Superchat may coordinate reasoning across multiple repositories without rebinding the Chat Bridge conversation. Chat identity is transport/scheduling identity only; repository scope comes from the active user goal or a durable Conversation Fabric request.
+
+The former standalone `MichalMatu/host-ops` repository is **not** a canonical execution target. Its maintained production capabilities live under `local_agent.host_ops` and host-maintenance work targets `local-agent` with the normal Local Agent binding.
 
 ## Repository scope
 
-Repository scope comes from the active user goal or a durable Conversation Fabric request. It may include donor and target repositories, for example:
+Reasoning may include donor and target repositories, for example:
 
 ```text
 parent Superchat
   reasoning context: local-agent + growclip
-  donor: local-agent
+  donor/reference: local-agent
   execution target: growclip
 ```
 
-`repository_id` / `repository_ids` are reasoning context only. Legacy `planner_scope`, `repositoryId`, `agentBinding` and binding-revision values may remain in Bridge/runtime state for compatibility or transport-workspace selection; they are not security boundaries and normal work must not use `LAB:REBIND` to switch targets.
+Repository names in the goal or child request are reasoning context only. Legacy `planner_scope`, `repositoryId`, `agentBinding` and binding-revision fields may still be parsed from historical Bridge state, but they are not execution authority and no current runtime agent is privileged as a special `multirepo` workspace.
 
 ## Executable target identity
 
-For every Local Agent task, resolve the actual target through the canonical runtime catalog before queueing work. The catalog record must exist, `execution_enabled` must be true, and the exact canonical target binding must agree end-to-end:
+For every executable task, resolve the actual target through the canonical runtime catalog. The catalog record must exist, `execution_enabled` must be true, and the same canonical binding must agree end-to-end:
 
 ```text
 canonical catalog binding == registry binding == .agent/binding.json binding == task.agent_binding
 ```
 
-Registry/control agreement without the canonical catalog record is not sufficient execution authority and fails closed.
+Registry/control agreement without the canonical catalog record is insufficient and fails closed. Donor context, chat identity and absorbed host tooling never substitute for target authorization.
 
-The task never inherits the `host-ops` binding merely because the parent Superchat uses Host Ops for orchestration. Executor validation, repository leases, resource admission, watchdogs, cancellation ownership and durable evidence remain repository-scoped.
-
-## Donor repositories
-
-A donor repository can be inspected, compared or edited through permitted GitHub operations while another repository is the executable target. Donor context never grants machine authority over the target.
-
-The current canonical `local-agent` catalog entry is execution-enabled. Local Agent may queue executable work against its own repository only with the exact canonical `local-agent` binding; self-execution does not relax catalog admission, registry/control/task binding equality, leases, resource admission or emergency controls.
+The canonical `local-agent` record is execution-enabled. Host-maintenance tasks use that target and the internal `local_agent.host_ops` capability layer. Self-execution does not relax catalog admission, registry/control/task binding equality, repository leases, resource admission, watchdogs or emergency controls.
 
 ## Chat Bridge behavior
 
-A normal wake uses only the stable chat envelope plus the runtime prompt:
+Normal bootstrap/wake messages use the stable chat envelope:
 
 ```text
 [LA_CHAT=<conversation id>]
 ```
 
-GitHub `conversation_controls` owns pacing for managed chats. Repository/binding fields are not schedule authority. Legacy ADD/REBIND controls remain migration compatibility only.
+GitHub `conversation_controls` owns pacing for managed chats. Repository/binding metadata is not schedule authority. Legacy ADD/REBIND and planner-scope behavior are compatibility parsing only and must not be used to create a second execution identity.
 
-## Host Ops transition
-
-The standalone `host-ops` repository is now a donor/compatibility boundary, not a second product architecture. Until absorption is complete, it may still be used for bounded existing Mac-local operations such as inspecting worktrees/process state, running local release gates, managing host services or other machine-level operations. Do not add planning, scheduling, repository routing, Conversation Fabric policy or another daemon/control plane there.
-
-The next product stage is defined in `docs/HOST_OPS_ABSORPTION_PLAN.md`: migrate the deterministic capability/workflow implementation into Local Agent, preserve its safety/JSON contracts, then retire the standalone execution identity once supported workflows no longer depend on it. Project work still belongs to the actual project repository and uses that project's exact task binding.
-
-Use direct GitHub edits when an exact source/docs diff plus CI is sufficient. Use Local Agent only when the task genuinely requires machine-local commands, local builds/tests, devices or host state.
+Use direct GitHub edits when an exact source/docs diff plus CI is sufficient. Use Local Agent only when work genuinely requires machine-local commands, local builds/tests, devices or host state.
 
 ## Child reasoning
 
-Conversation Fabric children are reasoning-only. They may audit, debug, compare donor/target code and propose fixes, but they do not create `.agent/tasks`, run machine commands, mutate repositories or make the final execution decision.
+Conversation Fabric children are reasoning-only. They may audit, compare donor/target code and propose fixes, but they do not create `.agent/tasks`, execute machine commands, mutate repositories or make the final execution decision.
 
-Production child delegation uses ordinary tabs in the operator's already authenticated primary Chrome session. The retired isolated-profile/login path is historical development tooling only and is not a production acceptance or recovery mechanism.
-
-Campaign/result recovery is durable in Bridge local storage. Child ownership after worker/session restart must be proven by exact transaction/request/bootstrap/current-URL evidence, not a reused tab id. Explicit collect may inspect/recover already-submitted children but must never replay their prompts.
+Production child delegation uses ordinary tabs in the operator's authenticated primary Chrome session. Campaign/result recovery remains durable in Bridge local storage, and ambiguous ownership fails closed.
 
 ## Security properties
 
@@ -65,8 +53,8 @@ Campaign/result recovery is durable in Bridge local storage. Child ownership aft
 - repository reasoning context does not grant execution authority;
 - the canonical runtime catalog is mandatory final admission authority;
 - every executable task uses the target repository's exact canonical binding;
-- execution-disabled targets never receive executable tasks;
-- self-execution for `local-agent` uses the same hard binding and repository isolation rules as every other execution-enabled target;
+- execution-disabled or absent targets never receive executable tasks;
+- host/remote capability code lives under `local_agent.host_ops`, not a separate Host Ops executor;
 - global emergency controls, repository leases and task/resource limits remain unchanged;
 - GitHub remains the durable control/evidence plane;
-- Conversation Fabric children remain reasoning-only and cannot upgrade browser transport into machine execution authority.
+- Conversation Fabric children remain reasoning-only.

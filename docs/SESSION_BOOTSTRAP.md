@@ -13,10 +13,11 @@ When the established Local Agent flow is requested, derive the target repository
 - `shelly-link` -> `MichalMatu/shelly-link`;
 - `photomap` -> `MichalMatu/photomap`;
 - `ai-calls` -> `MichalMatu/ai-calls`;
-- `host-ops` -> `MichalMatu/host-ops` (transitional compatibility target during absorption);
 - `hardware-lab` -> `MichalMatu/hardware-lab`;
 - `local-agent` -> `MichalMatu/local-agent`;
 - `wolf-ue5` -> `MichalMatu/wolf-ue5`.
+
+The former standalone `MichalMatu/host-ops` identity is retired from the canonical execution catalog. Generic host/remote operations now use the `local-agent` target and the absorbed `local_agent.host_ops` tooling.
 
 The machine-local registry remains the authority for which of those identities are provisioned on a particular Mac and for their exact workspace paths. Inspect it rather than inferring local provisioning from the source catalog.
 

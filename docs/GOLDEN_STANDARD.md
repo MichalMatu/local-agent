@@ -9,7 +9,7 @@ The current source and production release is `v4.20.6`. The immutable Local Agen
 - Chat Bridge identity is transport/scheduling identity only. It never grants repository execution authority.
 - Every executable task resolves its actual target through the canonical runtime catalog, requires `execution_enabled=true`, and requires the exact canonical target `agent_binding` to agree across catalog, registry/control identity, and task payload.
 - Registry/control agreement without a matching canonical catalog record is not sufficient authority and fails closed.
-- Repository reasoning context, donor repositories, host-ops scope and chat identity never substitute for target authorization.
+- Repository reasoning context, donor repositories, absorbed `local_agent.host_ops` tooling and chat identity never substitute for target authorization.
 - `local-agent` is not a permanently special-cased disabled target. Its current canonical catalog record is execution-enabled, so self-execution is legal only through the same catalog, binding, lease, resource and emergency-control gates as any other target. If the catalog disables it later, execution must stop accordingly.
 - The supported `agentd.py` operational launcher requires the machine repository registry and fails closed when it is absent; the legacy single-repository loop is not an executable fallback.
 - Child chats are reasoning-only and must never execute machine commands, create `.agent/tasks`, mutate repositories, or make the parent execution decision.
@@ -20,7 +20,7 @@ The current source and production release is `v4.20.6`. The immutable Local Agen
 ## Repository and scheduler invariants
 
 - Production uses the bounded parallel multirepo supervisor with scheduler hard cap four; default effective concurrency remains conservative and resource-gated.
-- `host-ops` is the explicit `multirepo` planner/host-operation scope. It does not erase target-repository execution boundaries.
+- Host/remote operations use the `local-agent` target and internal `local_agent.host_ops` capability layer. There is no standalone Host Ops execution binding or privileged multirepo transport workspace.
 - Repository leases prevent two workers from executing the same repository concurrently.
 - Named hardware/external resources and the `machine` resource are admitted before execution.
 - Emergency disable/cancel controls remain authoritative over new and active work according to their existing contracts.

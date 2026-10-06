@@ -61,9 +61,9 @@ For a corrective plan or deliberate rerun after completion, publish a **new task
 
 ## Multi-repository / host operations
 
-New host-maintenance work uses the `local-agent` target and the absorbed `local_agent.host_ops` capability layer. The standalone `host-ops` target is transitional compatibility only during migration and must not be selected for new host-maintenance plans. A repository edit/build/test still belongs to its actual target repository and requires that target repository's own execution-enabled binding.
+Host-maintenance work uses the `local-agent` target and the absorbed `local_agent.host_ops` capability layer. The standalone `host-ops` repository is not a canonical execution target. A repository edit/build/test still belongs to its actual target repository and requires that target repository's own execution-enabled binding.
 
-Never use `host-ops` to tunnel around a disabled target repository.
+Never use absorbed host tooling to tunnel around a disabled target repository.
 
 ## Superchat browser model
 

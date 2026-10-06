@@ -136,21 +136,21 @@ Keep one parent conversation bound to exactly one project/main goal and harden r
 
 Exit: one parent can execute repeated task A -> synthesize/close -> task B -> synthesize/close cycles reliably for one project, including bounded recovery interruptions, without cross-campaign leakage or replay.
 
-## Milestone 6 — next: absorb Host Ops into Local Agent
+## Milestone 6 — Host Ops absorption — complete
 
-After the sequential-cycle source gate is green, the next implementation stage is the controlled absorption of the standalone `MichalMatu/host-ops` production capability layer.
+The standalone Host Ops production capability layer has been absorbed into Local Agent.
 
-The architectural decision is fixed:
+Completed state:
 
-- Local Agent remains the sole brain/orchestrator and owns repository identity, canonical admission, scheduling, resource arbitration, watchdogs and durable task/run/result evidence;
-- Host Ops contributes deterministic host/remote capability execution only;
-- no planner, queue, scheduler, repository binding authority, Conversation Fabric policy or second daemon/control plane moves from the donor;
-- preserve the donor's `core -> capabilities -> workflows -> cli` ownership and its JSON contract before attempting redesign;
-- migrate production code/tests/docs separately from isolated prototypes;
-- preserve `work/cpu-gpu-routing` (or export its research history) before donor retirement;
-- retire the standalone `host-ops` execution identity only after supported workflows no longer depend on it.
+- `local_agent.host_ops` owns deterministic host/remote capability execution;
+- Local Agent remains the sole owner of repository identity, canonical admission, scheduling, resource arbitration, watchdogs and durable task/run/result evidence;
+- donor regression/architecture/design coverage is integrated into Local Agent CI;
+- `host-maintenance` targets `local-agent`;
+- the Mac self-target is provisioned and its control plane has live acceptance;
+- the standalone `host-ops` canonical binding and Bridge runtime identity are retired;
+- `work/cpu-gpu-routing` remains preserved as donor research history.
 
-The detailed migration and exit criteria are in `docs/HOST_OPS_ABSORPTION_PLAN.md`.
+There is no further Host Ops migration milestone. The next product task should start from clean `main` and be selected explicitly by the operator.
 
 ## Not current work
 
