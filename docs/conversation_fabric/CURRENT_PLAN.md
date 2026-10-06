@@ -111,7 +111,7 @@ Keep one parent conversation responsible for exactly one project/main goal. For 
 
 The production-shaped browser smoke now exercises two consecutive campaigns in one parent and checks fresh campaign identity, empty initial result state, no inherited terminal receipt, exact child cleanup, no mutation of the first campaign and no terminal replay. Existing restart, timeout, ambiguous-submission and manual/retained-composer protections remain part of the gate. Automatic child replacement, re-delegation and multi-goal parent supervision remain out of scope.
 
-Once the source gate is green, product work moves to `docs/HOST_OPS_ABSORPTION_PLAN.md`. Live normal-Chrome reload/acceptance remains an explicit operational validation and must not be inferred from CI.
+Host Ops absorption and standalone-donor retirement are complete; do not reopen that migration as the next Conversation Fabric step. Live normal-Chrome reload/acceptance remains an explicit operational validation and must not be inferred from CI.
 
 ## Execution authority
 

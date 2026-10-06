@@ -176,7 +176,7 @@ local-agent/
 
 There is intentionally no `integrations/openai` or MCP server required by the target product architecture.
 
-The separate `MichalMatu/host-ops` repository may remain as a migration source until import history, tests and release behavior are proven in the monorepo. Archival is a final migration step, not the first one.
+The separate `MichalMatu/host-ops` repository is archived and retained only as donor/history and preserved research evidence. Maintained Host Ops runtime ownership is exclusively `local_agent.host_ops` inside Local Agent; the donor is not an execution target.
 
 ## 9. Chat Bridge target role: narrow ChatGPT Browser Driver
 
@@ -356,12 +356,12 @@ MCP or direct OpenAI API model execution may be discussed historically, but must
 
 Define stable typed Local Agent-facing capability contracts around the useful host-ops surface before moving source trees.
 
-### Phase C — monorepo host-ops migration
+### Phase C — monorepo host-ops migration — complete
 
-- import host-ops source/history into Local Agent with preserved tests where practical;
-- preserve capability ownership and security invariants;
-- make Local Agent the only product/release owner;
-- do not archive the old repository until exact parity and live device/host smoke are proven.
+- maintained Host Ops source, tests and documentation live under Local Agent;
+- capability ownership and security invariants remain preserved;
+- Local Agent is the only product/release owner and host-maintenance execution target;
+- the standalone donor is archived after parity/cutover smoke, with `work/cpu-gpu-routing` preserved as research history.
 
 ### Phase D — GitHub control-plane consolidation
 

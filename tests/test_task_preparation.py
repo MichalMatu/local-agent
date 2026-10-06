@@ -211,6 +211,14 @@ class TaskPreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must be declared alone"):
             prepare_task(
                 {**self.draft(), "resources": ["machine", "usb:esp32"]},
+                repository="local-agent",
+                profile="host-maintenance",
+                catalog_path=self.catalog,
+            )
+
+        with self.assertRaisesRegex(ValueError, "local-agent"):
+            prepare_task(
+                self.draft(),
                 repository="host-ops",
                 profile="host-maintenance",
                 catalog_path=self.catalog,

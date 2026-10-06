@@ -136,9 +136,9 @@ Keep one parent conversation bound to exactly one project/main goal and harden r
 
 Exit: one parent can execute repeated task A -> synthesize/close -> task B -> synthesize/close cycles reliably for one project, including bounded recovery interruptions, without cross-campaign leakage or replay.
 
-## Milestone 6 — next: absorb Host Ops into Local Agent
+## Milestone 6 — complete: Host Ops absorbed into Local Agent
 
-Host Ops absorption is complete: the deterministic capability layer lives under `local_agent.host_ops`, host-maintenance targets `local-agent`, and the standalone execution identity is retired from the canonical catalog.
+This milestone is closed; no further donor migration is active work. Host Ops absorption is complete: the deterministic capability layer lives under `local_agent.host_ops`, host-maintenance targets `local-agent`, and the standalone execution identity is retired from the canonical catalog.
 
 The architectural decision is fixed:
 

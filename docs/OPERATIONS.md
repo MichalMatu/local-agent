@@ -8,7 +8,7 @@ This is the canonical operational workflow for `MichalMatu/local-agent`.
 Local Agent release line: 4.20.6
 immutable tag v4.20.6: 48eb9d8b6c26a9dfb317906d5099acabce8719c8
 released Bridge at tag: 0.8.1
-current source candidate Bridge: 0.8.4
+current source candidate Bridge: 0.8.11
 ```
 
 `main` is a moving production source branch and may contain later verified post-release patches. Before any live operation, read fresh daemon status and verify `daemon_version`, `self_revision`, repository registry identity, execution variant and installed Bridge version.
@@ -64,6 +64,20 @@ For a corrective plan or deliberate rerun after completion, publish a **new task
 Host-maintenance work uses the `local-agent` target and the absorbed `local_agent.host_ops` capability layer. The standalone `host-ops` repository is not in the canonical execution catalog and must not receive executable tasks. A repository edit/build/test still belongs to its actual target repository and requires that target repository's own execution-enabled binding.
 
 Never use `host-ops` to tunnel around a disabled target repository.
+
+### Host Ops rollback contract
+
+Rollback the maintained implementation only through `local-agent`. Never restore the standalone `MichalMatu/host-ops` repository to the canonical catalog or machine registry, never unarchive it as part of runtime recovery, and never reintroduce a second Host Ops scheduler/control plane.
+
+Before rollback, record the exact source/deployed revision and current repository registry. Restore only to a previously verified **post-absorption** Local Agent revision. After the supported supervisor restart, require all of these checks before resuming host maintenance:
+
+- `python -m local_agent.host_ops --json-contract-version` prints exactly `1`;
+- `python -m local_agent.host_ops host profile --json` returns a valid bounded host profile;
+- the canonical catalog and machine registry contain neither `host-ops` nor `MichalMatu/host-ops`;
+- `local-agent` remains execution-enabled under binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`;
+- fresh daemon status reports the expected `local-agent` repository identity and the restored exact revision.
+
+Use `docs/CURRENT_HANDOFF.md` and the latest green post-absorption checkpoint as the rollback anchor. Do not roll back across the Host Ops absorption/retirement boundary.
 
 ## Superchat browser model
 
@@ -127,7 +141,7 @@ Runtime schema 3 may provide an optional `operator_status_url`. Chat Bridge acce
 
 The bounded arithmetic acceptance is recorded in `conversation_fabric/SAME_BROWSER_PROOF_2026-10-04.md`. For a fresh acceptance after verified code is loaded into the normal Chrome session:
 
-1. verify exact source/deployed revision, Bridge `0.8.4`, parent URL/tab and GitHub control state;
+1. verify exact source/deployed revision, Bridge `0.8.11`, parent URL/tab and GitHub control state;
 2. delegate at least two narrow non-overlapping reasoning jobs from one managed parent;
 3. visibly confirm both children open as normal tabs in the same Chrome session without another login/profile;
 4. wait for automatic result collection on the existing control alarm;
@@ -144,5 +158,5 @@ Stop rather than weakening checks if parent ownership, child ownership, result i
 - Verify behavior-changing code on the exact candidate SHA before merge.
 - Tags remain immutable anchors.
 - After merge, allow guarded self-update/deployment to advance naturally and verify exact installed revision.
-- Keep only `main`, `chat-bridge-state`, `operator-control` and genuinely active short-lived work branches.
+- Keep only `main`, `agent-control`, `chat-bridge-state`, `operator-control` and genuinely active short-lived work branches.
 - Historical isolated-browser plans remain evidence only, not normal operating instructions.

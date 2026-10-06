@@ -4,7 +4,8 @@ import json
 import unittest
 from pathlib import Path
 
-from local_agent.repository.binding import load_binding_catalog
+from local_agent.repository.binding import load_binding_catalog, resolve_execution_target
+from local_agent.runtime.task_preparation import prepare_task
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LOCAL_AGENT_BINDING = "2180d453-1357-4fbc-be1a-e1e5b8fbb10a"
@@ -22,6 +23,30 @@ class HostOpsRetirementTests(unittest.TestCase):
         self.assertEqual(record.repository, "MichalMatu/local-agent")
         self.assertEqual(record.agent_binding, LOCAL_AGENT_BINDING)
         self.assertTrue(record.execution_enabled)
+
+    def test_retired_donor_cannot_resolve_or_prepare_host_maintenance(self) -> None:
+        for target in ("host-ops", "MichalMatu/host-ops"):
+            with self.subTest(target=target):
+                with self.assertRaisesRegex(ValueError, "unknown or ambiguous"):
+                    resolve_execution_target(target)
+                with self.assertRaisesRegex(ValueError, "unknown or ambiguous"):
+                    prepare_task(
+                        {"id": "retired-host-ops", "commands": ["true"]},
+                        repository=target,
+                        profile="host-maintenance",
+                    )
+
+    def test_canonical_host_maintenance_prepares_for_local_agent_only(self) -> None:
+        task = prepare_task(
+            {
+                "id": "canonical-host-maintenance",
+                "commands": ["python -m local_agent.host_ops --json-contract-version"],
+            },
+            repository="local-agent",
+            profile="host-maintenance",
+        )
+        self.assertEqual(task["agent_binding"], LOCAL_AGENT_BINDING)
+        self.assertEqual(task["resources"], [])
 
     def test_bridge_runtime_example_has_no_standalone_host_ops_identity(self) -> None:
         runtime = json.loads(
