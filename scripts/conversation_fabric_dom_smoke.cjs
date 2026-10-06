@@ -24,7 +24,7 @@ window.__editorInputEvents = 0;
 window.__beforeInputEvents = 0;
 window.__editorState = "";
 window.__silentAcceptedClickDelay = 0;
-window.__blockButtonSubmit = false;
+window.__blockButtonSubmit = true;
 document.execCommand = (command, _showUi, value) => {
   if (command !== "insertText") return false;
   const composer = document.querySelector("#prompt-textarea");
@@ -307,63 +307,27 @@ async function runParentSmoke(context) {
     formSubmits: window.__formSubmits,
     editorInputEvents: window.__editorInputEvents
   }));
-  assert.ok(submitPath.buttonClicks >= 2, "primary live-button path must still be attempted");
+  assert.equal(
+    submitPath.buttonClicks,
+    0,
+    "Fabric feedback must not depend on a synthetic Send-button click when a form submit boundary exists"
+  );
   assert.ok(
     submitPath.editorInputEvents >= 2,
     "visible composer DOM writes must synchronize ChatGPT-like editor state through input events"
   );
-  assert.equal(submitPath.formSubmits, 2, "normal live-button activation must submit each prompt exactly once");
+  assert.equal(submitPath.formSubmits, 2, "each Fabric feedback prompt must cross exactly one form submit boundary");
 
-  const beforeDelayed = await page.evaluate(() => ({
+  const beforeBlockedButton = await page.evaluate(() => ({
     submitted: window.__submitted.length,
     buttonClicks: window.__buttonClicks,
     formSubmits: window.__formSubmits
   }));
   await page.evaluate(() => {
-    window.__nextFabricFeedbackPrompt = "FABRIC DELAYED FEEDBACK";
-    window.__silentAcceptedClickDelay = 1500;
-    const turn = document.createElement("div");
-    turn.dataset.turnKey = "assistant-parent-delayed-onclick";
-    const message = document.createElement("div");
-    message.dataset.messageAuthorRole = "assistant";
-    message.textContent = [
-      "<<<LOCAL_AGENT_CF",
-      JSON.stringify({
-        schema_version: 1,
-        action: "inspect",
-        campaign_id: "cf-1234567890abcdef"
-      }),
-      "LOCAL_AGENT_CF>>>"
-    ].join("\n");
-    turn.appendChild(message);
-    document.querySelector("#turns").appendChild(turn);
-  });
-  await page.waitForFunction(() => window.__submitted.includes("FABRIC DELAYED FEEDBACK"), null, { timeout: 5000 });
-  const delayed = await page.evaluate(() => ({
-    submitted: window.__submitted.length,
-    buttonClicks: window.__buttonClicks,
-    formSubmits: window.__formSubmits
-  }));
-  assert.equal(delayed.submitted, beforeDelayed.submitted + 1, "delayed application acceptance must create one user turn");
-  assert.equal(delayed.buttonClicks, beforeDelayed.buttonClicks + 1, "delayed acceptance uses one live-button click");
-  assert.equal(
-    delayed.formSubmits,
-    beforeDelayed.formSubmits,
-    "Bridge must not call requestSubmit after a click whose application acceptance is merely delayed"
-  );
-
-  const beforeManual = await page.evaluate(() => ({
-    submitted: window.__submitted.length,
-    buttonClicks: window.__buttonClicks,
-    formSubmits: window.__formSubmits,
-    beforeInputEvents: window.__beforeInputEvents
-  }));
-  await page.evaluate(() => {
-    window.__silentAcceptedClickDelay = 0;
+    window.__nextFabricFeedbackPrompt = "FABRIC BLOCKED BUTTON REGRESSION";
     window.__blockButtonSubmit = true;
-    window.__nextFabricFeedbackPrompt = "FABRIC MANUAL ENTER";
     const turn = document.createElement("div");
-    turn.dataset.turnKey = "assistant-parent-manual-enter";
+    turn.dataset.turnKey = "assistant-parent-blocked-button";
     const message = document.createElement("div");
     message.dataset.messageAuthorRole = "assistant";
     message.textContent = [
@@ -378,28 +342,30 @@ async function runParentSmoke(context) {
     turn.appendChild(message);
     document.querySelector("#turns").appendChild(turn);
   });
-  await page.waitForFunction(() =>
-    document.querySelector("#prompt-textarea").textContent === "FABRIC MANUAL ENTER"
-  );
-  await page.locator("#prompt-textarea").press("Enter");
-  await page.waitForFunction(() => window.__submitted.includes("FABRIC MANUAL ENTER"));
-  const manual = await page.evaluate(() => ({
+  await page.waitForFunction(() => window.__submitted.includes("FABRIC BLOCKED BUTTON REGRESSION"));
+  const blockedButton = await page.evaluate(() => ({
     submitted: window.__submitted.length,
     buttonClicks: window.__buttonClicks,
-    formSubmits: window.__formSubmits,
-    beforeInputEvents: window.__beforeInputEvents
+    formSubmits: window.__formSubmits
   }));
-  assert.equal(manual.submitted, beforeManual.submitted + 1, "manual Enter must submit Bridge-written editor state");
-  assert.equal(manual.buttonClicks, beforeManual.buttonClicks + 1, "Bridge still attempts the live Send button once");
-  assert.equal(manual.formSubmits, beforeManual.formSubmits, "blocked live button must not create a hidden form fallback");
-  assert.ok(
-    manual.beforeInputEvents > beforeManual.beforeInputEvents,
-    "Bridge contenteditable writes must emit beforeinput before the explicit input synchronization event"
+  assert.equal(
+    blockedButton.submitted,
+    beforeBlockedButton.submitted + 1,
+    "Fabric feedback must still send when ChatGPT's synthetic Send-button click path is blocked"
+  );
+  assert.equal(
+    blockedButton.buttonClicks,
+    beforeBlockedButton.buttonClicks,
+    "Fabric must bypass the blocked synthetic button path"
+  );
+  assert.equal(
+    blockedButton.formSubmits,
+    beforeBlockedButton.formSubmits + 1,
+    "blocked-button recovery must still use exactly one native form submit"
   );
 
   await page.evaluate(() => {
-    window.__blockButtonSubmit = false;
-    window.__silentAcceptedClickDelay = 0;
+    window.__blockButtonSubmit = true;
     window.__nextFabricFeedbackPrompt = "FABRIC EXACT OPERATOR DRAFT";
     const composer = document.querySelector("#prompt-textarea");
     composer.textContent = "FABRIC EXACT OPERATOR DRAFT";
@@ -435,7 +401,7 @@ async function runParentSmoke(context) {
   );
   assert.equal(
     (await page.evaluate(() => window.__submitted)).length,
-    manual.submitted,
+    blockedButton.submitted,
     "exact operator draft collision must not create another submit"
   );
 

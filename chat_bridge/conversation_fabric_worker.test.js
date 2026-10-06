@@ -268,9 +268,10 @@ function createHarness({
     assert.equal(h.created.length, 2);
     assert.equal(h.submitted.length, 2);
     assert.ok(h.submitted.every((intent) => intent.bootstrap_text.includes("Do not create Local Agent tasks")));
-    assert.match(started.feedbackPrompt, /existing GitHub control poll/);
+    assert.match(started.feedbackPrompt, /collects child results automatically/);
+    assert.match(started.feedbackPrompt, /No parent action is required/);
     assert.doesNotMatch(started.feedbackPrompt, /\[LAB:/);
-    assert.match(started.feedbackPrompt, /<<<LOCAL_AGENT_CF/);
+    assert.doesNotMatch(started.feedbackPrompt, /<<<LOCAL_AGENT_CF/);
 
     const duplicate = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
     assert.equal(duplicate.ok, true);

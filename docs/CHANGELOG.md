@@ -2,8 +2,12 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
-## Unreleased — Chat Bridge 0.8.4 candidate
+## Unreleased — Chat Bridge 0.8.11 candidate
 
+- Fix Conversation Fabric parent feedback delivery to use one native form-submit boundary when available, avoiding the current ChatGPT synthetic Send-click stall without reintroducing delayed double-submit fallback.
+- Remove executable `LOCAL_AGENT_CF` inspect/collect/retire blocks from Bridge-generated running/completed status feedback so status messages cannot self-trigger a control-feedback loop.
+- Add regression coverage for a blocked synthetic Send button and for passive status prompts that contain no executable Fabric control envelope.
+- Advance Chat Bridge to 0.8.11 and content protocol to v24; Local Agent remains at 4.20.6.
 - Add one compact read-only Operator status card combining installed Bridge/Fabric state with bounded Local Agent supervisor telemetry.
 - Publish `.agent/status/operator.json` only through the existing supervisor control lease, on semantic change or bounded heartbeat; telemetry failure remains fail-soft.
 - Expose Conversation Operator enabled/configured/running + active workflow/child count, exact deployed Local Agent `self_revision`, and bounded dedupe suppression/rejection/reconciliation counts with reasons without publishing child prompts or paths.
