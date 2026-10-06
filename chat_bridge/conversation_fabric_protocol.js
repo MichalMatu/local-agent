@@ -91,12 +91,20 @@
     };
   }
 
+  function normalizeControl(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    if (value.control_close !== true) return value;
+    const { control_close: _ignoredControlClose, ...canonical } = value;
+    return canonical;
+  }
+
   function validateControl(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-    if (value.action === "delegate") return validateDelegate(value);
-    if (value.action === "collect") return validateCollect(value);
-    if (value.action === "inspect") return validateInspect(value);
-    if (value.action === "retire") return validateRetire(value);
+    const canonical = normalizeControl(value);
+    if (!canonical || typeof canonical !== "object" || Array.isArray(canonical)) return null;
+    if (canonical.action === "delegate") return validateDelegate(canonical);
+    if (canonical.action === "collect") return validateCollect(canonical);
+    if (canonical.action === "inspect") return validateInspect(canonical);
+    if (canonical.action === "retire") return validateRetire(canonical);
     return null;
   }
 
@@ -183,6 +191,7 @@
     OPEN,
     CLOSE,
     validateControl,
+    normalizeControl,
     validateInspect,
     validateRetire,
     diagnoseConversationFabricControl,
