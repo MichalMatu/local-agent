@@ -11,7 +11,7 @@ The separate-profile production approach is retired. Same-browser multi-child re
 Production Conversation Fabric uses:
 
 - one managed parent Superchat in the operator's normal Chrome;
-- the operator has explicitly reloaded deployed Chat Bridge `0.8.4` in the normal authenticated Chrome session; optional `operator_status_url` activation remains unverified;
+- source manifest remains Chat Bridge `0.8.4`; after a field submit/retry spam regression the operator disabled the live Bridge. PR #171 fixes the source path at `main@59c5d699bc32283ebb98fc026f76128ec9db6d2a`, but that post-fix source has not yet been reloaded/live-accepted; optional `operator_status_url` activation remains unverified;
 - a dedicated trailing `LOCAL_AGENT_CF` control envelope, separate from legacy LAB controls;
 - the existing `worker_spawn.js` `chrome.tabs` / `chrome.scripting` ownership primitives;
 - ordinary child tabs in the same authenticated Chrome session;
