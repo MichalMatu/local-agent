@@ -22,8 +22,8 @@ async function addConversation(harness, repositoryId, url) {
 (async () => {
   {
     const h = createHarness();
-    const { id, agent } = await addConversation(h, "host-ops", "https://chatgpt.com/c/a");
-    assert.equal(agent.planner_scope, "multirepo");
+    const { id, agent } = await addConversation(h, "local-agent", "https://chatgpt.com/c/a");
+    assert.equal(agent.planner_scope, undefined);
 
     const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
     assert.equal(result.ok, true, result.reason);
@@ -82,7 +82,7 @@ async function addConversation(harness, repositoryId, url) {
     );
   }
 
-  console.log("Chat Bridge minimal-envelope multirepo tests passed.");
+  console.log("Chat Bridge repository-agnostic minimal-envelope and planner-scope compatibility tests passed.");
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;
