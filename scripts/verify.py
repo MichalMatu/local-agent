@@ -38,6 +38,7 @@ MACOS_SMOKE_TESTS = (
     "tests.test_agent_repo_worker",
     "tests.test_agent_parallel",
     "tests.test_agent_parallel_worker",
+    "tests.test_parallel_ingestion_dedupe",
     "tests.test_parallel_control",
     "tests.test_parallel_process",
     "tests.test_multirepo_integration",
