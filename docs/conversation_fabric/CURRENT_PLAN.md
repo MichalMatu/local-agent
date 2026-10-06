@@ -4,14 +4,14 @@
 
 Keep the accepted browser-native Conversation Fabric path reliable for repeated bounded delegation cycles inside one parent/project: finish one task campaign cleanly, then start the next without ownership, result or terminal-delivery leakage.
 
-The separate-profile production approach is retired. Same-browser multi-child reasoning/transport, lifecycle/recovery and production-path E2E coverage are complete; current work is the final sequential-cycle hardening stage.
+The separate-profile production approach is retired. Same-browser multi-child reasoning/transport, lifecycle/recovery and production-path E2E coverage are complete. The source closeout now includes the required fresh second-campaign proof; live normal-Chrome acceptance remains a separate operator validation step.
 
 ## Implemented production model
 
 Production Conversation Fabric uses:
 
 - one managed parent Superchat in the operator's normal Chrome;
-- source manifest remains Chat Bridge `0.8.4`; after a field submit/retry spam regression the operator disabled the live Bridge. PR #171 fixes the source path at `main@59c5d699bc32283ebb98fc026f76128ec9db6d2a`, but that post-fix source has not yet been reloaded/live-accepted; optional `operator_status_url` activation remains unverified;
+- current source candidate uses Chat Bridge `0.8.11`; after field submit/retry regressions the operator disabled the live Bridge. Source fixes are merged, but the post-fix source has not yet been reloaded/live-accepted; optional `operator_status_url` activation remains unverified;
 - a dedicated trailing `LOCAL_AGENT_CF` control envelope, separate from legacy LAB controls;
 - the existing `worker_spawn.js` `chrome.tabs` / `chrome.scripting` ownership primitives;
 - ordinary child tabs in the same authenticated Chrome session;
@@ -77,7 +77,7 @@ Current coverage includes:
 
 - positive/negative protocol tests;
 - worker lifecycle tests for multi-child delegation, dedupe, managed-parent admission, stable collection, recovery and terminal delivery guards;
-- content protocol `18` / source-candidate manifest `0.8.4` contract tests;
+- current content-protocol / Chat Bridge `0.8.11` contract tests;
 - real headless Chromium DOM/browser smoke for parent control, child result capture and ownership checks;
 - full repository CI through `bridge-browser`, test, coverage, Python 3.14 and macOS smoke jobs.
 
@@ -100,15 +100,18 @@ The deterministic real-extension browser smoke now traverses the production rout
 11. the worker is restarted a second time and the same production poll route proves no completed-campaign replay;
 12. read-only Result Vault inspection still works after child cleanup without resetting terminal delivery;
 13. explicit retire plus deliberate fresh-id re-delegation proves bounded operator-controlled rollover without automatic replay;
-14. an unresolved post-submit ambiguity is forced past the bounded deadline and fails closed with no second submit, replacement tab or orphaned owned tab.
+14. an unresolved post-submit ambiguity is forced past the bounded deadline and fails closed with no second submit, replacement tab or orphaned owned tab;
+15. after campaign A is terminally delivered and cleaned, the same parent starts and completes a fresh campaign B with a new campaign id, empty initial result state, no inherited delivery receipt, exact child cleanup, no mutation of campaign A and no replay of campaign A terminal feedback.
 
 The test uses CDP only as a harness mechanism to stop/reattach to Chromium's real MV3 worker target; delegation, recovery, polling, ownership, durable state and terminal delivery remain the installed extension's production paths.
 
-## Final work — sequential delegation-cycle hardening
+## Sequential delegation-cycle source closeout
 
 Keep one parent conversation responsible for exactly one project/main goal. For each bounded task, the parent may delegate 1–4 reasoning-only children, durably collect and synthesize their work, report missing coverage explicitly, and close only exact owned tabs. A later task must use a fresh campaign only after the earlier campaign is terminally settled.
 
-The final proof must exercise at least two consecutive campaigns in one parent and show no zombie tabs, stale terminal feedback, bootstrap replay, duplicate child creation or campaign-state leakage. Restart, timeout and manual/retained-composer submission paths must settle deterministically or fail closed with a bounded diagnostic. Delayed automatic submission is a reliability target: it must eventually submit exactly once or report why it did not. Automatic child replacement, re-delegation and multi-goal parent supervision remain out of scope.
+The production-shaped browser smoke now exercises two consecutive campaigns in one parent and checks fresh campaign identity, empty initial result state, no inherited terminal receipt, exact child cleanup, no mutation of the first campaign and no terminal replay. Existing restart, timeout, ambiguous-submission and manual/retained-composer protections remain part of the gate. Automatic child replacement, re-delegation and multi-goal parent supervision remain out of scope.
+
+Once the source gate is green, product work moves to `docs/HOST_OPS_ABSORPTION_PLAN.md`. Live normal-Chrome reload/acceptance remains an explicit operational validation and must not be inferred from CI.
 
 ## Execution authority
 
