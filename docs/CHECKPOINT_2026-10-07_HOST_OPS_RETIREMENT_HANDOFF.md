@@ -4,7 +4,7 @@ Date: 2026-10-07
 
 ## Status
 
-Host Ops absorption and final donor machine-target retirement are complete in source and live runtime. **No standalone `host-ops` runtime cleanup remains.** The only remaining step is the repository-lifecycle decision for the frozen donor.
+Host Ops absorption, final donor machine-target retirement, and donor repository archival are complete. **No standalone `host-ops` runtime or repository-lifecycle cleanup remains.**
 
 Current source baseline before this checkpoint commit:
 
@@ -46,13 +46,13 @@ This proves that maintained host-maintenance execution no longer depends on the 
 
 ## Donor state
 
-`MichalMatu/host-ops` is frozen/history-only:
+`MichalMatu/host-ops` is archived/history-only:
 
 - `main@fb55448752a36f3dbf12d14e07b4884956d3201b`;
 - maintained runtime ownership is in `local-agent`;
 - preserve `work/cpu-gpu-routing`;
 - do not add new runtime/product behavior to the donor;
-- `agent-control` remains historical/compatibility evidence until final machine-registry retirement is complete.
+- `agent-control` remains historical/compatibility evidence only; the repository is archived and cannot resume maintained runtime ownership without an explicit future reversal.
 
 ## Terminal retirement evidence
 
@@ -76,11 +76,14 @@ The final cleanup completed on 2026-10-07:
   - registry contains no `host-ops`;
   - Local Agent binding remains `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`;
 - fresh Local Agent status returned to `idle` on checkpoint source with the new post-restart worker;
-- `host-ops/work/cpu-gpu-routing` remains preserved at `901c9c0844beadb8cbe545103b70ba23c7720f7e`.
+- `host-ops/work/cpu-gpu-routing` remains preserved at `901c9c0844beadb8cbe545103b70ba23c7720f7e`;
+- docs-only closeout `main@2a015feaba708cc40ddf28cd40b753d51f744280` passed exact-head CI #2331 and the live daemon self-updated to that source;
+- archival draft `local-agent-archive-host-ops-donor-20261007-v1` failed in its first precheck because of a Python syntax error and performed no archival mutation;
+- authoritative `local-agent-archive-host-ops-donor-20261007-v2` PASS verified donor `main@fb55448752a36f3dbf12d14e07b4884956d3201b`, zero open PRs and preserved `work/cpu-gpu-routing@901c9c0844beadb8cbe545103b70ba23c7720f7e`, then archived the repository and re-verified `archived=true` plus the preserved branch SHA.
 
 ## Exact next task
 
-Do **not** re-run absorption, provisioning, disable or registry cleanup. Evaluate archiving `MichalMatu/host-ops` only as a history-preserving lifecycle action. Preserve `work/cpu-gpu-routing` and all research history; donor runtime ownership must never be restored.
+There is no remaining Host Ops retirement task. Do **not** re-run absorption, provisioning, disable, registry cleanup or donor archival. Future Host Ops work belongs in `local_agent.host_ops`; the archived donor is historical/research evidence only. Preserve `work/cpu-gpu-routing` and all research history; donor runtime ownership must never be restored.
 
 ## Safety boundaries
 
