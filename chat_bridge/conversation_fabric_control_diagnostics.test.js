@@ -102,8 +102,10 @@ function createHarness({ assistantText, workerResponse, managed = true }) {
     chrome: {
       runtime: {
         async sendMessage(message) {
-          if (message.type === "bridge:control-context") {
-            return managed ? { ok: true } : { ok: false, reason: "control_not_ready" };
+          if (message.type === "bridge:conversation-fabric-diagnostic-context") {
+            return managed
+              ? { ok: true, reason: "conversation_fabric_diagnostic_ready" }
+              : { ok: false, reason: "conversation_fabric_parent_not_managed" };
           }
           if (message.type !== "bridge:conversation-fabric-control") {
             throw new Error(`unexpected message type: ${message.type}`);
