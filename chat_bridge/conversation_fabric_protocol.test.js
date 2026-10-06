@@ -91,6 +91,8 @@ assert.equal(protocol.parseConversationFabricControl("ordinary assistant reply")
     `${protocol.OPEN}${JSON.stringify(delegate)}`
   );
   assert.equal(missingClose.reason, "control_close_missing");
+  assert.match(missingClose.detail, /literal closing delimiter LOCAL_AGENT_CF>>>/);
+  assert.match(missingClose.detail, /Do not add a control_close field/);
 
   const invalidJson = protocol.diagnoseConversationFabricControl(
     `${protocol.OPEN}{not-json}${protocol.CLOSE}`
@@ -102,6 +104,19 @@ assert.equal(protocol.parseConversationFabricControl("ordinary assistant reply")
   );
   assert.equal(invalidSchema.reason, "control_schema_invalid");
 
+  const redundantCloseField = protocol.diagnoseConversationFabricControl(
+    block({ ...delegate, control_close: true })
+  );
+  assert.equal(redundantCloseField.ok, true);
+  assert.equal(redundantCloseField.control.action, "delegate");
+  assert.equal(Object.hasOwn(redundantCloseField.control, "control_close"), false);
+
+  const invalidCloseField = protocol.diagnoseConversationFabricControl(
+    block({ ...delegate, control_close: false })
+  );
+  assert.equal(invalidCloseField.reason, "control_schema_invalid");
+  assert.match(invalidCloseField.detail, /unexpected keys: control_close/);
+
   const valid = protocol.diagnoseConversationFabricControl(block(delegate));
   assert.equal(valid.ok, true);
   assert.equal(valid.reason, "control_valid");
@@ -109,6 +124,8 @@ assert.equal(protocol.parseConversationFabricControl("ordinary assistant reply")
 }
 
 assert.equal(protocol.parseConversationFabricControl(block({ ...delegate, extra: true })), null);
+assert.ok(protocol.parseConversationFabricControl(block({ ...delegate, control_close: true })));
+assert.equal(protocol.parseConversationFabricControl(block({ ...delegate, control_close: false })), null);
 assert.equal(protocol.parseConversationFabricControl(block({
   ...delegate,
   children: [...delegate.children, delegate.children[0]]
