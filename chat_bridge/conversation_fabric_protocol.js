@@ -50,10 +50,44 @@
     return { schema_version: SCHEMA_VERSION, action: "collect", campaign_id: campaignId };
   }
 
+  function validateInspect(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const keys = Object.keys(value).sort();
+    const recentOnly = keys.length === 2 &&
+      keys[0] === "action" && keys[1] === "schema_version";
+    const campaignScoped = exactKeys(value, ["schema_version", "action", "campaign_id"]);
+    if (!recentOnly && !campaignScoped) return null;
+    if (value.schema_version !== SCHEMA_VERSION || value.action !== "inspect") return null;
+    if (recentOnly) return { schema_version: SCHEMA_VERSION, action: "inspect" };
+    const campaignId = String(value.campaign_id || "");
+    if (!CAMPAIGN_ID_RE.test(campaignId)) return null;
+    return { schema_version: SCHEMA_VERSION, action: "inspect", campaign_id: campaignId };
+  }
+
+  function validateRetire(value) {
+    if (!exactKeys(value, ["schema_version", "action", "campaign_id", "child_id"])) return null;
+    const campaignId = String(value.campaign_id || "");
+    const childId = String(value.child_id || "");
+    if (
+      value.schema_version !== SCHEMA_VERSION ||
+      value.action !== "retire" ||
+      !CAMPAIGN_ID_RE.test(campaignId) ||
+      !CHILD_ID_RE.test(childId)
+    ) return null;
+    return {
+      schema_version: SCHEMA_VERSION,
+      action: "retire",
+      campaign_id: campaignId,
+      child_id: childId
+    };
+  }
+
   function validateControl(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     if (value.action === "delegate") return validateDelegate(value);
     if (value.action === "collect") return validateCollect(value);
+    if (value.action === "inspect") return validateInspect(value);
+    if (value.action === "retire") return validateRetire(value);
     return null;
   }
 
@@ -87,6 +121,8 @@
     OPEN,
     CLOSE,
     validateControl,
+    validateInspect,
+    validateRetire,
     parseConversationFabricControl
   });
 });
