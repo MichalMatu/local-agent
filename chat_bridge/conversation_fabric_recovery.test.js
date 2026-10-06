@@ -270,6 +270,22 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
     assert.equal(h.stored().feedback_delivered, true);
   }
 
+  // Terminal delivery must not suppress later cleanup retries. A campaign whose
+  // feedback is already delivered remains eligible while cleanup_pending is true.
+  {
+    const h = createHarness(campaign([child("a", "submitted", 101)], {
+      state: "completed",
+      cleanup_pending: true,
+      feedback_delivered: true,
+      completed_at: new Date().toISOString()
+    }));
+    await h.context.pollConversationFabricCampaigns();
+    assert.deepEqual(h.closed, [101]);
+    assert.equal(h.stored().cleanup_pending, false);
+    assert.equal(h.stored().feedback_delivered, true);
+    assert.equal(h.feedbackDeliveries(), 0, "cleanup retry must not replay terminal feedback");
+  }
+
   // Fast sibling is durably captured before slow sibling finishes; restart keeps it.
   {
     const first = createHarness(campaign([

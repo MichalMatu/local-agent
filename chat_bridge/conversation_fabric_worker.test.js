@@ -29,6 +29,7 @@ function createHarness({
   const session = storage;
   const created = [];
   const submitted = [];
+  const childrenAtSubmit = [];
   const observed = [];
   const closed = [];
   const injected = [];
@@ -116,6 +117,10 @@ function createHarness({
       return { ok: true, reason: "tab_created", tabId };
     },
     async submitConversationSpawnBootstrap(intent) {
+      const activeCampaign = Object.entries(session).find(([key]) =>
+        key.startsWith("conversation-fabric-campaign:")
+      )?.[1];
+      childrenAtSubmit.push(Number(activeCampaign?.children?.length || 0));
       submitted.push(clone(intent));
       const childId = childIdForIntent(intent);
       if (ambiguousChildId && childId === ambiguousChildId) {
@@ -208,6 +213,7 @@ function createHarness({
     session,
     created,
     submitted,
+    childrenAtSubmit,
     observed,
     closed,
     injected,
@@ -356,6 +362,10 @@ function createHarness({
     assert.equal(started.ok, true, JSON.stringify(started));
     assert.equal(started.reason, "conversation_fabric_started");
     assert.equal(h.created.length, 4, "one failed child must not prevent later children from starting");
+    assert.ok(
+      h.childrenAtSubmit.every(count => count === 4),
+      "all requested child records must be durable before the first submit side effect"
+    );
 
     const campaign = await h.context.loadConversationFabricCampaign(started.campaignId);
     assert.deepEqual(
