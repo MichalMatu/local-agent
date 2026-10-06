@@ -13,7 +13,7 @@ const completionMarkerRe = /<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z
 const parentFixture = `<!doctype html><html><body>
 <form id="composer-form">
   <div id="prompt-textarea" contenteditable="true" role="textbox"></div>
-  <button id="composer-submit-button" type="submit">Send</button>
+  <button data-testid="composer-submit-button" type="submit">Send</button>
 </form>
 <div id="turns"></div>
 <script>
