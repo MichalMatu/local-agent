@@ -198,7 +198,8 @@
     try {
       const context = await chrome.runtime.sendMessage({
         type: "bridge:conversation-fabric-diagnostic-context",
-        conversationUrl: expectedUrl
+        conversationUrl: expectedUrl,
+        contentProtocolVersion: CONTENT_PROTOCOL_VERSION
       });
       return context?.ok === true;
     } catch (_error) {

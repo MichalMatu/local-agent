@@ -1267,6 +1267,9 @@ async function conversationFabricDiagnosticContext(message, sender) {
     ) {
       return { ok: false, reason: "conversation_fabric_diagnostic_sender_invalid" };
     }
+    if (message?.contentProtocolVersion !== CONTENT_PROTOCOL_VERSION) {
+      return { ok: false, reason: "conversation_fabric_diagnostic_protocol_mismatch" };
+    }
     const conversationUrl = normalizeConversationUrl(String(message?.conversationUrl || ""));
     const senderUrl = normalizeConversationUrl(String(sender.tab.url || sender.url || ""));
     if (!conversationUrl || senderUrl !== conversationUrl) {
