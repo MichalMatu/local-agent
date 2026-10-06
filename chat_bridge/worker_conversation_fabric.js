@@ -38,8 +38,7 @@ const CONVERSATION_FABRIC_AMBIGUOUS_CHILD_STATE = "submission_ambiguous";
 const CONVERSATION_FABRIC_AMBIGUOUS_HARD_FAILURE_REASONS = new Set([
   "spawn_claim_conflict",
   "spawn_child_identity_invalid",
-  "spawn_intent_invalid",
-  "spawn_tab_unavailable"
+  "spawn_intent_invalid"
 ]);
 
 function conversationFabricCampaignKey(campaignId) {
