@@ -12,7 +12,7 @@ assert.ok(
   Number.isInteger(protocol.CONTENT_PROTOCOL_VERSION) && protocol.CONTENT_PROTOCOL_VERSION > 0,
   "shared CONTENT_PROTOCOL_VERSION must be a positive integer"
 );
-assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 21, "strict Fabric draft ownership and exact-owned cleanup require content protocol v21");
+assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 22, "single-shot submission and strict Fabric prompt provenance require content protocol v22");
 for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_harness.js"]) {
   assert.doesNotMatch(
     read(name),
@@ -37,7 +37,7 @@ assert.match(
 );
 
 const manifest = JSON.parse(read("manifest.json"));
-assert.equal(manifest.version, "0.8.7", "browser-native Conversation Fabric must have an unambiguous Bridge version");
+assert.equal(manifest.version, "0.8.8", "browser-native Conversation Fabric must have an unambiguous Bridge version");
 const scripts = manifest.content_scripts?.[0]?.js || [];
 const bridgeProtocolIndex = scripts.indexOf("control_protocol.js");
 const fabricProtocolIndex = scripts.indexOf("conversation_fabric_protocol.js");

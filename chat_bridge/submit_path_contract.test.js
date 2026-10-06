@@ -25,11 +25,6 @@ assert.doesNotMatch(
   /form\.requestSubmit\(sendButton\)/,
   "Bridge must not prefer requestSubmit(button) over the live button click path"
 );
-assert.match(
-  content,
-  /form\.requestSubmit\(\);/,
-  "requestSubmit without a stale button may remain as a last-resort fallback"
-);
 
 for (const [name, source] of [
   ["normal Bridge", content],
@@ -45,36 +40,32 @@ for (const [name, source] of [
     /if \(!inputObserved\) dispatchComposerInput\(composer, text\);/,
     `${name} must synchronize editor state when visible DOM mutation emitted no input event`
   );
-  assert.match(
+  assert.doesNotMatch(
     source,
-    /const formFallbackAt = Date\.now\(\) \+ 1200;/,
-    `${name} must bound the post-click fallback delay`
-  );
-  assert.match(
-    source,
-    /let formFallbackAttempted = false;/,
-    `${name} must permit at most one post-click fallback attempt`
-  );
-  assert.match(
-    source,
-    /composerText\(composer\) === /,
-    `${name} fallback must require the exact unchanged Bridge-owned composer text`
-  );
-  assert.match(
-    source,
-    /!submitBoundaryCrossed/,
-    `${name} fallback must never cross the submit boundary twice`
-  );
-  assert.match(
-    source,
-    /addEventListener\("submit", markSubmitBoundary, true\)/,
-    `${name} must observe whether the primary click already crossed form submission`
-  );
-  assert.match(
-    source,
-    /form\.requestSubmit\(\);/,
-    `${name} must use native form submission only after the guarded click path stalls`
+    /formFallbackAt|formFallbackAttempted|submitBoundaryCrossed/,
+    `${name} must never cross a second submit mechanism after a live-button click`
   );
 }
+
+assert.match(
+  fabricContent,
+  /const composerInputVersions = new WeakMap\(\);/,
+  "Fabric must track composer input generations for prompt provenance"
+);
+assert.match(
+  fabricContent,
+  /const ownedComposerPrompts = new WeakMap\(\);/,
+  "Fabric must retain only same-content-script prompt ownership"
+);
+assert.match(
+  fabricContent,
+  /existingComposerText && composerOwnedPromptMatches\(composer, prompt\)/,
+  "Fabric may reuse pre-existing text only when this content-script instance owns it"
+);
+assert.match(
+  fabricContent,
+  /document\.removeEventListener\("input", trackComposerInput, true\)/,
+  "Fabric must release its composer provenance listener on reinjection"
+);
 
 console.log("Chat Bridge live Send submission contract tests passed.");

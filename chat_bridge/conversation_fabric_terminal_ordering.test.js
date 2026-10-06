@@ -95,6 +95,22 @@ function clone(value) {
   assert.equal(blocked.campaignId, oldCampaignId);
   assert.deepEqual(Object.keys(storage), [oldCampaignKey], "blocked delegation must not create a newer campaign");
 
+  storage[oldCampaignKey].feedback_delivered = true;
+  storage[oldCampaignKey].cleanup_pending = true;
+  digest = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+  const cleanupBlocked = await context.delegateConversationFabric(authority);
+  assert.equal(cleanupBlocked.ok, false);
+  assert.equal(cleanupBlocked.reason, "conversation_fabric_cleanup_pending");
+  assert.equal(cleanupBlocked.campaignId, oldCampaignId);
+  assert.deepEqual(
+    Object.keys(storage),
+    [oldCampaignKey],
+    "delivered-but-unsettled cleanup must block a newer same-parent campaign"
+  );
+
+  storage[oldCampaignKey].feedback_delivered = false;
+  storage[oldCampaignKey].cleanup_pending = false;
+
   // Re-processing the exact originating delegate remains idempotent: it may surface the
   // existing campaign instead of being mistaken for a different newer delegation.
   digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

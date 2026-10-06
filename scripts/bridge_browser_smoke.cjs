@@ -184,6 +184,34 @@ document.querySelector('form').onsubmit = (event) => {
     assert.match(await page.locator('[data-message-author-role="user"]').innerText(), /LA_CHAT=chat-[0-9a-f]{8}/);
     console.log("PASS: composer DOM replacement after submit still confirms exact user delivery");
 
+    id = await add("delayed-onclick");
+    await page.evaluate(() => {
+      const button = document.querySelector("#composer-submit-button");
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        const input = document.querySelector("#prompt-textarea");
+        const text = input.innerText || input.textContent || "";
+        setTimeout(() => {
+          const message = document.createElement("div");
+          message.dataset.messageAuthorRole = "user";
+          message.dataset.messageId = "silent-app-accepted";
+          message.textContent = text;
+          document.body.append(message);
+          input.textContent = "";
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }, 1500);
+      }, { capture: true, once: true });
+    });
+    assert.equal((await run(id)).reason, "sent");
+    await page.waitForTimeout(1700);
+    assert.equal(
+      await page.evaluate(() => window.submits),
+      0,
+      "delayed application onClick acceptance must not be followed by form.requestSubmit"
+    );
+    assert.equal(await page.locator('[data-message-id="silent-app-accepted"]').count(), 1);
+    console.log("PASS: delayed application click acceptance remains single-shot without form fallback");
+
     id = await add("draft");
     await prepare();
     let delivery = run(id);

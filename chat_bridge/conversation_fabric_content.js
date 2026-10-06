@@ -23,6 +23,30 @@
   let scanInFlight = false;
   let lastScannedSignature = "";
   let lastSubmittedFingerprint = "";
+  const composerInputVersions = new WeakMap();
+  const ownedComposerPrompts = new WeakMap();
+
+  function composerInputVersion(composer) {
+    return composerInputVersions.get(composer) || 0;
+  }
+
+  function trackComposerInput(event) {
+    const target = event?.target;
+    if (!target || (typeof target !== "object" && typeof target !== "function")) return;
+    composerInputVersions.set(target, composerInputVersion(target) + 1);
+  }
+
+  function composerOwnedPromptMatches(composer, prompt) {
+    const ownership = ownedComposerPrompts.get(composer);
+    return Boolean(
+      ownership &&
+      ownership.text === prompt &&
+      ownership.inputVersion === composerInputVersion(composer) &&
+      composerText(composer) === prompt
+    );
+  }
+
+  document.addEventListener("input", trackComposerInput, true);
 
   const ASSISTANT_SELECTORS = [
     '[data-message-author-role="assistant"]',
@@ -263,17 +287,25 @@
     const composer = findComposer();
     if (!composer) return { ok: false, reason: "composer_not_found" };
     const existingComposerText = composerText(composer);
-    const reuseExactPrompt = Boolean(existingComposerText && existingComposerText === prompt);
-    if (existingComposerText.trim() && !reuseExactPrompt) {
+    const reuseOwnedPrompt = Boolean(
+      existingComposerText && composerOwnedPromptMatches(composer, prompt)
+    );
+    if (existingComposerText.trim() && !reuseOwnedPrompt) {
       return { ok: false, reason: "composer_not_empty" };
     }
 
-    if (!reuseExactPrompt) {
+    if (!reuseOwnedPrompt) {
       try {
         setComposerText(composer, prompt);
       } catch (error) {
         return { ok: false, reason: "composer_write_failed", error: String(error) };
       }
+      const written = composerText(composer);
+      if (!written.trim()) return { ok: false, reason: "composer_write_failed" };
+      ownedComposerPrompts.set(composer, {
+        text: written,
+        inputVersion: composerInputVersion(composer)
+      });
     }
     const inserted = composerText(composer);
     if (!inserted.trim()) return { ok: false, reason: "composer_write_failed" };
@@ -296,56 +328,21 @@
     if (!button) return { ok: false, reason: "send_button_not_ready" };
 
     const previousUser = latestUserText();
-    const submissionForm = composer?.closest?.("form");
-    let submitBoundaryCrossed = false;
-    const markSubmitBoundary = () => { submitBoundaryCrossed = true; };
-    const canObserveSubmitBoundary =
-      typeof HTMLFormElement !== "undefined" && submissionForm instanceof HTMLFormElement;
-    if (canObserveSubmitBoundary) {
-      submissionForm.addEventListener("submit", markSubmitBoundary, true);
-    }
     try {
-      try {
-        submitComposer(composer, button);
-      } catch (error) {
-        return { ok: false, reason: "send_button_not_ready", error: String(error) };
-      }
-      const formFallbackAt = Date.now() + 1200;
-      let formFallbackAttempted = false;
-      const confirmDeadline = Date.now() + 5000;
-      while (Date.now() < confirmDeadline) {
-        const current = latestUserText();
-        if (current !== previousUser && normalized(current) === normalized(prompt)) {
-          return { ok: true, reason: "sent" };
-        }
-        if (!formFallbackAttempted && Date.now() >= formFallbackAt) {
-          formFallbackAttempted = true;
-          if (
-            !submitBoundaryCrossed &&
-            normalizeConversationUrl(location.href) === normalizedUrl &&
-            findComposer() === composer &&
-            composerText(composer) === inserted &&
-            !assistantIsGenerating() &&
-            current === previousUser
-          ) {
-            const form = composer?.closest?.("form");
-            if (form instanceof HTMLFormElement && typeof form.requestSubmit === "function") {
-              try {
-                form.requestSubmit();
-              } catch (_error) {
-                // Keep the exact prompt for bounded retry/reconciliation.
-              }
-            }
-          }
-        }
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      return { ok: false, reason: "delivery_unconfirmed" };
-    } finally {
-      if (canObserveSubmitBoundary) {
-        submissionForm.removeEventListener("submit", markSubmitBoundary, true);
-      }
+      submitComposer(composer, button);
+    } catch (error) {
+      return { ok: false, reason: "send_button_not_ready", error: String(error) };
     }
+    const confirmDeadline = Date.now() + 5000;
+    while (Date.now() < confirmDeadline) {
+      const current = latestUserText();
+      if (current !== previousUser && normalized(current) === normalized(prompt)) {
+        ownedComposerPrompts.delete(composer);
+        return { ok: true, reason: "sent" };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return { ok: false, reason: "delivery_unconfirmed" };
   }
 
   async function scanLatestConversationFabricControl() {
@@ -550,6 +547,7 @@
     protocolVersion: CONTENT_PROTOCOL_VERSION,
     dispose() {
       try { observer?.disconnect(); } catch (_error) {}
+      try { document.removeEventListener("input", trackComposerInput, true); } catch (_error) {}
       if (scanTimer !== null) clearTimeout(scanTimer);
       clearInterval(retryInterval);
     }

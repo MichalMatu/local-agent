@@ -29,12 +29,14 @@ if (baseDelegateConversationFabric) {
     const pendingTerminal = campaigns.find((campaign) =>
       campaign.parent_conversation_url === authority.conversationUrl &&
       ["completed", "failed"].includes(campaign.state) &&
-      !campaign.feedback_delivered
+      (!campaign.feedback_delivered || campaign.cleanup_pending)
     );
     if (pendingTerminal) {
       return {
         ok: false,
-        reason: "conversation_fabric_terminal_feedback_pending",
+        reason: pendingTerminal.feedback_delivered
+          ? "conversation_fabric_cleanup_pending"
+          : "conversation_fabric_terminal_feedback_pending",
         campaignId: pendingTerminal.id
       };
     }

@@ -22,6 +22,7 @@ window.__buttonClicks = 0;
 window.__formSubmits = 0;
 window.__editorInputEvents = 0;
 window.__editorState = "";
+window.__silentAcceptedClickDelay = 0;
 document.execCommand = (command, _showUi, value) => {
   if (command !== "insertText") return false;
   const composer = document.querySelector("#prompt-textarea");
@@ -33,15 +34,7 @@ document.addEventListener("input", (event) => {
   window.__editorInputEvents += 1;
   window.__editorState = String(event.target.innerText || event.target.textContent || "");
 }, true);
-document.querySelector('[data-testid="composer-submit-button"]').addEventListener("click", (event) => {
-  window.__buttonClicks += 1;
-  event.preventDefault();
-});
-document.querySelector("#composer-form").addEventListener("submit", (event) => {
-  window.__formSubmits += 1;
-  event.preventDefault();
-  const composer = document.querySelector("#prompt-textarea");
-  const text = String(window.__editorState || "").trim();
+window.__appendUserTurn = (text) => {
   if (!text) return;
   window.__submitted.push(text);
   const turn = document.createElement("div");
@@ -51,8 +44,23 @@ document.querySelector("#composer-form").addEventListener("submit", (event) => {
   message.textContent = text;
   turn.appendChild(message);
   document.querySelector("#turns").appendChild(turn);
+  const composer = document.querySelector("#prompt-textarea");
   composer.textContent = "";
   composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContent" }));
+};
+document.querySelector('[data-testid="composer-submit-button"]').addEventListener("click", (event) => {
+  window.__buttonClicks += 1;
+  const delay = Number(window.__silentAcceptedClickDelay || 0);
+  if (!delay) return;
+  event.preventDefault();
+  const text = String(window.__editorState || "").trim();
+  setTimeout(() => window.__appendUserTurn(text), delay);
+});
+document.querySelector("#composer-form").addEventListener("submit", (event) => {
+  window.__formSubmits += 1;
+  event.preventDefault();
+  const text = String(window.__editorState || "").trim();
+  window.__appendUserTurn(text);
 });
 </script>
 </body></html>`;
@@ -66,7 +74,12 @@ async function installParentChromeStub(page) {
       async sendMessage(message) {
         window.__cfRuntimeMessages.push(JSON.parse(JSON.stringify(message)));
         return message.type === "bridge:conversation-fabric-feedback" ? { ok: true } :
-          { ok: true, reason: "conversation_fabric_started", campaignId: "cf-1234567890abcdef", feedbackPrompt: "FABRIC FEEDBACK" };
+          {
+            ok: true,
+            reason: "conversation_fabric_started",
+            campaignId: "cf-1234567890abcdef",
+            feedbackPrompt: String(globalThis.__nextFabricFeedbackPrompt || "FABRIC FEEDBACK")
+          };
       },
       onMessage: { addListener() {}, removeListener() {} }
     };
@@ -212,22 +225,58 @@ async function runParentSmoke(context) {
     submitPath.editorInputEvents >= 2,
     "visible composer DOM writes must synchronize ChatGPT-like editor state through input events"
   );
+  assert.equal(submitPath.formSubmits, 2, "normal live-button activation must submit each prompt exactly once");
+
+  const beforeDelayed = await page.evaluate(() => ({
+    submitted: window.__submitted.length,
+    buttonClicks: window.__buttonClicks,
+    formSubmits: window.__formSubmits
+  }));
+  await page.evaluate(() => {
+    window.__nextFabricFeedbackPrompt = "FABRIC DELAYED FEEDBACK";
+    window.__silentAcceptedClickDelay = 1500;
+    const turn = document.createElement("div");
+    turn.dataset.turnKey = "assistant-parent-delayed-onclick";
+    const message = document.createElement("div");
+    message.dataset.messageAuthorRole = "assistant";
+    message.textContent = [
+      "<<<LOCAL_AGENT_CF",
+      JSON.stringify({
+        schema_version: 1,
+        action: "inspect",
+        campaign_id: "cf-1234567890abcdef"
+      }),
+      "LOCAL_AGENT_CF>>>"
+    ].join("\n");
+    turn.appendChild(message);
+    document.querySelector("#turns").appendChild(turn);
+  });
+  await page.waitForFunction(() => window.__submitted.includes("FABRIC DELAYED FEEDBACK"), null, { timeout: 5000 });
+  const delayed = await page.evaluate(() => ({
+    submitted: window.__submitted.length,
+    buttonClicks: window.__buttonClicks,
+    formSubmits: window.__formSubmits
+  }));
+  assert.equal(delayed.submitted, beforeDelayed.submitted + 1, "delayed application acceptance must create one user turn");
+  assert.equal(delayed.buttonClicks, beforeDelayed.buttonClicks + 1, "delayed acceptance uses one live-button click");
   assert.equal(
-    submitPath.formSubmits,
-    2,
-    "guarded post-click form fallback must submit each unchanged Bridge-owned prompt exactly once"
+    delayed.formSubmits,
+    beforeDelayed.formSubmits,
+    "Bridge must not call requestSubmit after a click whose application acceptance is merely delayed"
   );
 
   await page.evaluate(() => {
+    window.__silentAcceptedClickDelay = 0;
+    window.__nextFabricFeedbackPrompt = "FABRIC EXACT OPERATOR DRAFT";
     const composer = document.querySelector("#prompt-textarea");
-    composer.textContent = "  FABRIC   FEEDBACK  ";
+    composer.textContent = "FABRIC EXACT OPERATOR DRAFT";
     composer.dispatchEvent(new InputEvent("input", {
       bubbles: true,
       inputType: "insertText",
-      data: "  FABRIC   FEEDBACK  "
+      data: "FABRIC EXACT OPERATOR DRAFT"
     }));
     const turn = document.createElement("div");
-    turn.dataset.turnKey = "assistant-parent-inspect-draft-collision";
+    turn.dataset.turnKey = "assistant-parent-exact-draft-collision";
     const message = document.createElement("div");
     message.dataset.messageAuthorRole = "assistant";
     message.textContent = [
@@ -244,17 +293,17 @@ async function runParentSmoke(context) {
   });
   await page.waitForFunction(() => window.__cfRuntimeMessages.filter(message =>
     message.type === "bridge:conversation-fabric-control"
-  ).length >= 2);
+  ).length >= 3);
   await page.waitForTimeout(250);
   assert.equal(
     await page.locator("#prompt-textarea").textContent(),
-    "  FABRIC   FEEDBACK  ",
-    "Fabric must preserve a whitespace-equivalent operator draft instead of treating it as Bridge-owned"
+    "FABRIC EXACT OPERATOR DRAFT",
+    "Fabric must preserve an exact byte-for-byte operator draft without same-instance ownership"
   );
   assert.equal(
     (await page.evaluate(() => window.__submitted)).length,
-    2,
-    "operator draft collision must not create another submit"
+    delayed.submitted,
+    "exact operator draft collision must not create another submit"
   );
 
   await page.close();
