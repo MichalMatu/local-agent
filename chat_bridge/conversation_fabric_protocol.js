@@ -100,23 +100,45 @@
     return null;
   }
 
-  function parseConversationFabricControl(text) {
+  function diagnoseConversationFabricControl(text) {
     const source = String(text || "");
     const start = source.lastIndexOf(OPEN);
-    if (start < 0) return null;
+    if (start < 0) return { present: false, ok: false, reason: "control_absent" };
+
     const end = source.indexOf(CLOSE, start + OPEN.length);
-    if (end < 0) return null;
-    if (source.slice(end + CLOSE.length).trim()) return null;
+    if (end < 0) {
+      return { present: true, ok: false, reason: "control_close_missing" };
+    }
+    if (source.slice(end + CLOSE.length).trim()) {
+      return { present: true, ok: false, reason: "control_not_terminal" };
+    }
+
     const raw = source.slice(start + OPEN.length, end);
-    if (!raw.trim() || raw.length > MAX_CONTROL_CHARS) return null;
+    if (!raw.trim()) return { present: true, ok: false, reason: "control_empty" };
+    if (raw.length > MAX_CONTROL_CHARS) {
+      return { present: true, ok: false, reason: "control_too_large" };
+    }
+
     let decoded;
     try {
       decoded = JSON.parse(raw);
     } catch (_error) {
-      return null;
+      return { present: true, ok: false, reason: "control_json_invalid" };
     }
+
     const control = validateControl(decoded);
-    return control ? { ...control, marker: source.slice(start, end + CLOSE.length) } : null;
+    if (!control) return { present: true, ok: false, reason: "control_schema_invalid" };
+    return {
+      present: true,
+      ok: true,
+      reason: "control_valid",
+      control: { ...control, marker: source.slice(start, end + CLOSE.length) }
+    };
+  }
+
+  function parseConversationFabricControl(text) {
+    const diagnostic = diagnoseConversationFabricControl(text);
+    return diagnostic.ok ? diagnostic.control : null;
   }
 
   return Object.freeze({
@@ -132,6 +154,7 @@
     validateControl,
     validateInspect,
     validateRetire,
+    diagnoseConversationFabricControl,
     parseConversationFabricControl
   });
 });

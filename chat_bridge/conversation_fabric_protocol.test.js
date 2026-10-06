@@ -76,6 +76,38 @@ const delegate = {
 
 assert.equal(protocol.parseConversationFabricControl(block(delegate, " trailing text")), null);
 assert.equal(protocol.parseConversationFabricControl("ordinary assistant reply"), null);
+
+{
+  const absent = protocol.diagnoseConversationFabricControl("ordinary assistant reply");
+  assert.equal(absent.present, false);
+  assert.equal(absent.reason, "control_absent");
+
+  const trailing = protocol.diagnoseConversationFabricControl(block(delegate, " trailing text"));
+  assert.equal(trailing.present, true);
+  assert.equal(trailing.ok, false);
+  assert.equal(trailing.reason, "control_not_terminal");
+
+  const missingClose = protocol.diagnoseConversationFabricControl(
+    `${protocol.OPEN}${JSON.stringify(delegate)}`
+  );
+  assert.equal(missingClose.reason, "control_close_missing");
+
+  const invalidJson = protocol.diagnoseConversationFabricControl(
+    `${protocol.OPEN}{not-json}${protocol.CLOSE}`
+  );
+  assert.equal(invalidJson.reason, "control_json_invalid");
+
+  const invalidSchema = protocol.diagnoseConversationFabricControl(
+    block({ schema_version: 1, action: "collect", campaign_id: "wrong" })
+  );
+  assert.equal(invalidSchema.reason, "control_schema_invalid");
+
+  const valid = protocol.diagnoseConversationFabricControl(block(delegate));
+  assert.equal(valid.ok, true);
+  assert.equal(valid.reason, "control_valid");
+  assert.equal(valid.control.action, "delegate");
+}
+
 assert.equal(protocol.parseConversationFabricControl(block({ ...delegate, extra: true })), null);
 assert.equal(protocol.parseConversationFabricControl(block({
   ...delegate,

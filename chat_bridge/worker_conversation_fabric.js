@@ -1258,6 +1258,39 @@ async function retireConversationFabricChild(authority) {
   };
 }
 
+async function conversationFabricDiagnosticContext(message, sender) {
+  try {
+    if (
+      sender?.id !== chrome.runtime.id ||
+      sender?.frameId !== 0 ||
+      !Number.isInteger(sender?.tab?.id)
+    ) {
+      return { ok: false, reason: "conversation_fabric_diagnostic_sender_invalid" };
+    }
+    if (message?.contentProtocolVersion !== CONTENT_PROTOCOL_VERSION) {
+      return { ok: false, reason: "conversation_fabric_diagnostic_protocol_mismatch" };
+    }
+    const conversationUrl = normalizeConversationUrl(String(message?.conversationUrl || ""));
+    const senderUrl = normalizeConversationUrl(String(sender.tab.url || sender.url || ""));
+    if (!conversationUrl || senderUrl !== conversationUrl) {
+      return { ok: false, reason: "conversation_fabric_diagnostic_conversation_mismatch" };
+    }
+    const parent = await conversationFabricManagedParent({
+      conversationUrl,
+      parentTabId: sender.tab.id
+    });
+    return parent
+      ? { ok: true, reason: "conversation_fabric_diagnostic_ready" }
+      : { ok: false, reason: "conversation_fabric_parent_not_managed" };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "conversation_fabric_diagnostic_context_failed",
+      error: String(error)
+    };
+  }
+}
+
 async function applyConversationFabricControl(message, sender) {
   let authority;
   try {

@@ -141,6 +141,16 @@ LOCAL_AGENT_CF>>>
 
 If the bounded work is still needed, the parent may intentionally delegate it again only as a new delegation with a new child id. The Bridge never performs that reassignment automatically.
 
+### Control-surface diagnostics
+
+A `LOCAL_AGENT_CF` control is supported only when it is visible in the parser-owned terminal assistant turn and the control block is the final non-whitespace content of that turn.
+
+- A visible malformed, incomplete or non-terminal control in a managed parent is rejected with a stable diagnostic reason instead of being silently ignored.
+- An explicit worker `ok: false` response is surfaced as one rejected-control diagnostic rather than entering an opaque retry loop.
+- Transport exceptions and unavailable worker responses remain retryable; an explicit rejection does not.
+- Diagnostic feedback is gated by the same exact managed-parent authority as Fabric delegation, so markers in unmanaged/disabled chats are inert.
+- If a model channel is not represented in the page DOM visible to the extension, the Bridge cannot diagnose that hidden channel. The runtime/model contract therefore requires the control block to be emitted in the final assistant response and as its final content.
+
 ### Terminal feedback
 
 Terminal parent feedback has durable at-most-once semantics:
