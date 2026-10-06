@@ -34,6 +34,12 @@ const CONVERSATION_FABRIC_TRANSIENT_SPAWN_REASONS = new Set([
   "spawn_send_button_not_ready",
   "spawn_content_unavailable"
 ]);
+const CONVERSATION_FABRIC_AMBIGUOUS_CHILD_STATE = "submission_ambiguous";
+const CONVERSATION_FABRIC_AMBIGUOUS_HARD_FAILURE_REASONS = new Set([
+  "spawn_claim_conflict",
+  "spawn_child_identity_invalid",
+  "spawn_intent_invalid"
+]);
 
 function conversationFabricCampaignKey(campaignId) {
   if (!conversationFabricProtocol.CAMPAIGN_ID_RE.test(String(campaignId || ""))) {
@@ -122,11 +128,18 @@ function conversationFabricPendingPrompt(campaign, pendingIds) {
 
 function conversationFabricStartedPrompt(campaign) {
   const submitted = campaign.children.filter((child) => child.state === "submitted");
+  const ambiguous = campaign.children.filter(
+    (child) => child.state === CONVERSATION_FABRIC_AMBIGUOUS_CHILD_STATE
+  );
+  const admitted = [...submitted, ...ambiguous];
   const failures = conversationFabricFailedChildren(campaign);
-  const ids = submitted.map((child) => child.id).join(", ");
+  const ids = admitted.map((child) => child.id).join(", ");
   return [
-    `Conversation Fabric started ${submitted.length}/${campaign.children.length} reasoning child tab(s) in this Chrome session${ids ? `: ${ids}` : "."}`,
+    `Conversation Fabric started ${admitted.length}/${campaign.children.length} reasoning child tab(s) in this Chrome session${ids ? `: ${ids}` : "."}`,
     `Campaign id: ${campaign.id}.`,
+    ambiguous.length
+      ? `Route/identity confirmation is still pending for: ${ambiguous.map((child) => child.id).join(", ")}. Bridge will reconcile these existing tabs without replaying their bootstrap.`
+      : "",
     failures.length
       ? `Child startup failures: ${failures.map(conversationFabricFailureSummary).join("; ")}. Continue with the children that started; failed children will be reported as missing coverage and will not be replayed automatically.`
       : "",
@@ -339,12 +352,14 @@ async function submitConversationFabricChild(intent, checkpoint) {
       try {
         reconciled = await reconcileConversationSpawn(activeIntent);
       } catch (error) {
-        throw conversationFabricSpawnError(
-          `Conversation Fabric child reconciliation threw: ${String(error)}`,
-          "spawn_reconcile_exception",
-          attempt,
-          String(error)
-        );
+        return {
+          intent: activeIntent,
+          childConversationUrl: "",
+          attempts: attempt,
+          ambiguous: true,
+          reason: "spawn_reconcile_exception",
+          error: String(error)
+        };
       }
       if (reconciled?.ok && reconciled.childConversationUrl) {
         return {
@@ -353,12 +368,14 @@ async function submitConversationFabricChild(intent, checkpoint) {
           attempts: attempt
         };
       }
-      throw conversationFabricSpawnError(
-        `Conversation Fabric child submission is ambiguous: ${reconciled?.reason || submitted.reason}`,
-        reconciled?.reason || submitted.reason,
-        attempt,
-        reconciled?.error || submitted?.error || ""
-      );
+      return {
+        intent: activeIntent,
+        childConversationUrl: "",
+        attempts: attempt,
+        ambiguous: true,
+        reason: String(reconciled?.reason || submitted.reason),
+        error: String(reconciled?.error || submitted?.error || "")
+      };
     }
 
     lastReason = String(submitted?.reason || "unknown");
@@ -465,11 +482,12 @@ async function delegateConversationFabric(authority) {
     results: [],
     failed_children: []
   };
-  await saveConversationFabricCampaign(campaign);
-
+  // Persist the complete requested child set before any tab creation or submit side
+  // effect. If the worker restarts during an early child, later requested children
+  // remain represented and can fail closed explicitly instead of disappearing.
   for (const child of authority.control.children) {
     const intent = await conversationFabricIntent(authority, campaignId, child);
-    const record = {
+    campaign.children.push({
       id: child.id,
       role: child.role,
       intent,
@@ -478,10 +496,12 @@ async function delegateConversationFabric(authority) {
       attempts: 0,
       last_reason: "",
       last_error: ""
-    };
-    campaign.children.push(record);
-    await saveConversationFabricCampaign(campaign);
+    });
+  }
+  await saveConversationFabricCampaign(campaign);
 
+  for (const record of campaign.children) {
+    const intent = record.intent;
     try {
       const spawned = await submitConversationFabricChild(intent, async (activeIntent, state, diagnostic = {}) => {
         record.intent = activeIntent;
@@ -492,11 +512,18 @@ async function delegateConversationFabric(authority) {
         await saveConversationFabricCampaign(campaign);
       });
       record.intent = spawned.intent;
-      record.state = "submitted";
-      record.child_conversation_url = spawned.childConversationUrl;
+      record.state = spawned.ambiguous
+        ? CONVERSATION_FABRIC_AMBIGUOUS_CHILD_STATE
+        : "submitted";
+      record.child_conversation_url = spawned.ambiguous ? "" : spawned.childConversationUrl;
       record.attempts = spawned.attempts;
-      record.last_reason = "";
-      record.last_error = "";
+      record.last_reason = spawned.ambiguous ? String(spawned.reason || "spawn_submission_ambiguous") : "";
+      record.last_error = spawned.ambiguous ? String(spawned.error || "") : "";
+      if (spawned.ambiguous) {
+        record.ambiguity_started_at = new Date().toISOString();
+      } else {
+        delete record.ambiguity_started_at;
+      }
       delete record.failure;
     } catch (error) {
       record.state = "failed";
@@ -517,11 +544,14 @@ async function delegateConversationFabric(authority) {
   const submittedChildren = campaign.children.filter(
     (child) => child.state === "submitted" && child.child_conversation_url
   );
+  const ambiguousChildren = campaign.children.filter(
+    (child) => child.state === CONVERSATION_FABRIC_AMBIGUOUS_CHILD_STATE
+  );
   campaign.failed_children = campaign.children
     .filter((child) => child.state === "failed")
     .map(conversationFabricChildFailure);
 
-  if (!submittedChildren.length) {
+  if (!submittedChildren.length && !ambiguousChildren.length) {
     campaign.state = "failed";
     campaign.failure = campaign.failed_children.length
       ? `all_children_failed: ${campaign.failed_children.map(conversationFabricFailureSummary).join("; ")}`
@@ -570,6 +600,66 @@ async function stableConversationFabricResult(child) {
   return second;
 }
 
+async function reconcileConversationFabricAmbiguousChild(child) {
+  let reconciled;
+  try {
+    reconciled = await reconcileConversationSpawn(child.intent);
+  } catch (error) {
+    reconciled = {
+      ok: false,
+      reason: "spawn_reconcile_exception",
+      error: String(error)
+    };
+  }
+
+  if (reconciled?.ok && reconciled.childConversationUrl) {
+    child.state = "submitted";
+    child.child_conversation_url = reconciled.childConversationUrl;
+    child.last_reason = "";
+    child.last_error = "";
+    child.recovered_submission_ambiguity = true;
+    child.submission_recovered_at = new Date().toISOString();
+    delete child.failure;
+    return { ok: true, reason: "identity_discovered" };
+  }
+
+  // Result observation validates the child page's exact transaction/request/bootstrap
+  // claim and canonical current child URL. It is therefore also the safe recovery path
+  // when a worker restart cleared storage.session after the bootstrap was actually sent.
+  let observed;
+  try {
+    observed = await observeConversationSpawnResult(child.intent, CONVERSATION_FABRIC_RESULT_CHARS);
+  } catch (error) {
+    observed = {
+      ok: false,
+      reason: "child_result_unavailable",
+      error: String(error)
+    };
+  }
+  if (observed?.ok && observed.childConversationUrl) {
+    child.state = "submitted";
+    child.child_conversation_url = observed.childConversationUrl;
+    child.last_reason = "";
+    child.last_error = "";
+    child.recovered_submission_ambiguity = true;
+    child.submission_recovered_at = new Date().toISOString();
+    delete child.failure;
+    return { ok: true, reason: "identity_discovered", observedReason: observed.reason };
+  }
+
+  const reason = String(observed?.reason || reconciled?.reason || "spawn_submission_ambiguous");
+  const error = String(observed?.error || reconciled?.error || "");
+  child.reconciliation_attempts = Number(child.reconciliation_attempts || 0) + 1;
+  child.last_reason = reason;
+  child.last_error = error;
+  return {
+    ok: false,
+    pending: !CONVERSATION_FABRIC_AMBIGUOUS_HARD_FAILURE_REASONS.has(reason),
+    reason,
+    error
+  };
+}
+
 async function collectConversationFabric(authority) {
   const campaign = await loadConversationFabricCampaign(authority.control.campaign_id);
   if (!campaign) {
@@ -601,6 +691,26 @@ async function collectConversationFabric(authority) {
   const failedChildren = conversationFabricFailedChildren(campaign);
   for (const child of campaign.children) {
     if (child.state === "failed") continue;
+    if (child.state === CONVERSATION_FABRIC_AMBIGUOUS_CHILD_STATE) {
+      const recovered = await reconcileConversationFabricAmbiguousChild(child);
+      if (!recovered.ok) {
+        if (recovered.pending) {
+          pending.push(child.id);
+          continue;
+        }
+        const failure = {
+          id: child.id,
+          role: child.role,
+          attempt: Number(child.attempts || 0),
+          reason: recovered.reason,
+          error: recovered.error
+        };
+        failedChildren.push(failure);
+        child.state = "failed";
+        child.failure = failure;
+        continue;
+      }
+    }
     if (child.state !== "submitted" || !child.child_conversation_url) {
       const failure = {
         id: child.id,

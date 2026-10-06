@@ -45,13 +45,16 @@ function campaign(children, overrides = {}) {
   };
 }
 
-function createHarness(initialCampaign, observationPlan = {}) {
+function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}) {
   const storage = { [campaignKey]: clone(initialCampaign) };
   const observed = [];
   const closed = [];
   let feedbackDeliveries = 0;
   const plan = Object.fromEntries(
     Object.entries(observationPlan).map(([id, values]) => [id, [...values]])
+  );
+  const reconcileQueues = Object.fromEntries(
+    Object.entries(reconcilePlan).map(([id, values]) => [id, [...values]])
   );
 
   const context = vm.createContext({
@@ -101,6 +104,21 @@ function createHarness(initialCampaign, observationPlan = {}) {
         }
       };
     },
+    async reconcileConversationSpawn(intent) {
+      const current = Object.values(storage[campaignKey].children)
+        .find(item => item.intent.tab_id === intent.tab_id);
+      const id = current?.id || "unknown";
+      const queue = reconcileQueues[id] || [];
+      const reason = queue.length ? queue.shift() : "spawn_submission_ambiguous";
+      if (reason === "identity_discovered") {
+        return {
+          ok: true,
+          reason,
+          childConversationUrl: `https://chatgpt.com/c/${id}`
+        };
+      }
+      return { ok: false, reason };
+    },
     async observeConversationSpawnResult(intent) {
       const current = Object.values(storage[campaignKey].children)
         .find(item => item.intent.tab_id === intent.tab_id);
@@ -108,16 +126,25 @@ function createHarness(initialCampaign, observationPlan = {}) {
       observed.push(id);
       const queue = plan[id] || [];
       const reason = queue.length ? queue.shift() : "child_result_ready";
+      const childConversationUrl = `https://chatgpt.com/c/${id}`;
       if (reason === "child_result_ready") {
         return {
           ok: true,
           reason,
+          childConversationUrl,
           assistantIdentity: `assistant-${id}`,
           assistantText: `final-${id}`,
           truncated: false
         };
       }
-      return { ok: reason !== "child_route_not_ready" && reason !== "child_result_unavailable", reason };
+      const ok = reason !== "child_route_not_ready" &&
+        reason !== "child_result_unavailable" &&
+        reason !== "spawn_claim_conflict";
+      return {
+        ok,
+        reason,
+        ...(ok ? { childConversationUrl } : {})
+      };
     },
     async closeConversationSpawnTab(intent) {
       closed.push(intent.tab_id);
@@ -183,6 +210,33 @@ function createHarness(initialCampaign, observationPlan = {}) {
     assert.deepEqual(stored.results.map(item => item.id), ["a", "b"]);
   }
 
+  // Restart during a post-click submitting checkpoint keeps the original child recoverable.
+  // Lost storage.session ownership is rebuilt only after the child page proves the exact
+  // transaction/request/bootstrap claim through the result observer.
+  {
+    const h = createHarness(campaign([
+      child("a", "submitted", 101),
+      child("b", "submitting", 102)
+    ], { state: "spawning" }), {
+      b: ["child_generating", "child_result_ready", "child_result_ready"]
+    }, {
+      b: ["spawn_tab_claim_mismatch"]
+    });
+    await h.context.pollConversationFabricCampaigns();
+    const stored = h.stored();
+    assert.equal(stored.state, "completed");
+    assert.equal(stored.failed_children.length, 0);
+    assert.deepEqual(stored.results.map(item => item.id), ["a", "b"]);
+    const recovered = stored.children.find(item => item.id === "b");
+    assert.equal(recovered.state, "submitted");
+    assert.equal(recovered.recovered_submission_ambiguity, true);
+    assert.equal(
+      h.observed.filter(id => id === "b").length,
+      3,
+      "ambiguous child uses one identity recovery observation plus stable double result observation"
+    );
+  }
+
   // child_route_not_ready is transient and recovers without delegation replay.
   {
     const h = createHarness(campaign([child("a", "submitted", 101)]), {
@@ -216,6 +270,22 @@ function createHarness(initialCampaign, observationPlan = {}) {
     assert.equal(h.stored().feedback_delivered, true);
   }
 
+  // Terminal delivery must not suppress later cleanup retries. A campaign whose
+  // feedback is already delivered remains eligible while cleanup_pending is true.
+  {
+    const h = createHarness(campaign([child("a", "submitted", 101)], {
+      state: "completed",
+      cleanup_pending: true,
+      feedback_delivered: true,
+      completed_at: new Date().toISOString()
+    }));
+    await h.context.pollConversationFabricCampaigns();
+    assert.deepEqual(h.closed, [101]);
+    assert.equal(h.stored().cleanup_pending, false);
+    assert.equal(h.stored().feedback_delivered, true);
+    assert.equal(h.feedbackDeliveries(), 0, "cleanup retry must not replay terminal feedback");
+  }
+
   // Fast sibling is durably captured before slow sibling finishes; restart keeps it.
   {
     const first = createHarness(campaign([
@@ -247,7 +317,27 @@ function createHarness(initialCampaign, observationPlan = {}) {
     await h.context.pollConversationFabricCampaigns();
     assert.equal(h.stored().state, "completed");
     assert.equal(h.stored().results[0].id, "a");
-    assert.notEqual(h.stored().failure, "campaign_timed_out_after_final_collect");
+    assert.notEqual(h.stored().failure, "campaign_timed_out_with_pending_children");
+  }
+
+  // A truly ambiguous child that never proves ownership remains pending until the
+  // bounded campaign deadline, then fails closed without being promoted or replayed.
+  {
+    const old = new Date(Date.now() - (16 * 60 * 1000)).toISOString();
+    const ambiguous = child("a", "submission_ambiguous", 101);
+    ambiguous.ambiguity_started_at = old;
+    const h = createHarness(campaign([ambiguous], { created_at: old }), {
+      a: ["child_route_not_ready"]
+    }, {
+      a: ["spawn_submission_ambiguous"]
+    });
+    await h.context.pollConversationFabricCampaigns();
+    const stored = h.stored();
+    assert.equal(stored.state, "failed");
+    assert.equal(stored.failure, "campaign_timed_out_with_pending_children");
+    assert.equal(stored.children[0].state, "failed");
+    assert.equal(stored.children[0].failure.reason, "spawn_submission_ambiguous_timeout");
+    assert.equal(stored.results.length, 0);
   }
 
   console.log("Conversation Fabric recovery tests passed.");

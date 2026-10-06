@@ -21,15 +21,21 @@ function childIdForIntent(intent) {
 function createHarness({
   failChildId = "",
   failReason = "spawn_unexpected_route",
+  ambiguousChildId = "",
+  reconcilePlan = {},
   managed = true,
   storage = {}
 } = {}) {
   const session = storage;
   const created = [];
   const submitted = [];
+  const childrenAtSubmit = [];
   const observed = [];
   const closed = [];
   const injected = [];
+  const reconcileQueues = Object.fromEntries(
+    Object.entries(reconcilePlan).map(([id, values]) => [id, [...values]])
+  );
   let nextTabId = 100;
 
   const context = vm.createContext({
@@ -111,8 +117,20 @@ function createHarness({
       return { ok: true, reason: "tab_created", tabId };
     },
     async submitConversationSpawnBootstrap(intent) {
+      const activeCampaign = Object.entries(session).find(([key]) =>
+        key.startsWith("conversation-fabric-campaign:")
+      )?.[1];
+      childrenAtSubmit.push(Number(activeCampaign?.children?.length || 0));
       submitted.push(clone(intent));
-      if (failChildId && childIdForIntent(intent) === failChildId) {
+      const childId = childIdForIntent(intent);
+      if (ambiguousChildId && childId === ambiguousChildId) {
+        return {
+          ok: false,
+          reason: "spawn_submission_ambiguous",
+          route: "provisional_timeout"
+        };
+      }
+      if (failChildId && childId === failChildId) {
         return {
           ok: false,
           reason: failReason,
@@ -125,8 +143,19 @@ function createHarness({
         childConversationUrl: `https://chatgpt.com/c/child-${intent.tab_id}`
       };
     },
-    async reconcileConversationSpawn() {
-      throw new Error("unexpected reconcile");
+    async reconcileConversationSpawn(intent) {
+      const childId = childIdForIntent(intent);
+      const queue = reconcileQueues[childId] || [];
+      if (!queue.length) throw new Error(`unexpected reconcile for ${childId}`);
+      const reason = queue.shift();
+      if (reason === "identity_discovered") {
+        return {
+          ok: true,
+          reason,
+          childConversationUrl: `https://chatgpt.com/c/child-${intent.tab_id}`
+        };
+      }
+      return { ok: false, reason };
     },
     async observeConversationSpawnResult(intent) {
       observed.push(clone(intent));
@@ -184,6 +213,7 @@ function createHarness({
     session,
     created,
     submitted,
+    childrenAtSubmit,
     observed,
     closed,
     injected,
@@ -263,6 +293,52 @@ function createHarness({
 
   {
     const h = createHarness({
+      ambiguousChildId: "verify",
+      reconcilePlan: {
+        verify: ["spawn_submission_ambiguous", "identity_discovered"]
+      }
+    });
+    const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
+    assert.equal(started.ok, true, JSON.stringify(started));
+    assert.equal(started.reason, "conversation_fabric_started");
+    assert.equal(h.created.length, 2, "ambiguous submission must keep the original child tab");
+    assert.equal(h.submitted.length, 2, "each child bootstrap must be submitted exactly once");
+
+    const running = await h.context.loadConversationFabricCampaign(started.campaignId);
+    assert.deepEqual(
+      Array.from(running.children, child => child.state),
+      ["submitted", "submission_ambiguous"]
+    );
+    assert.equal(running.failed_children.length, 0, "ambiguous routing is not a startup failure");
+    assert.match(started.feedbackPrompt, /Route\/identity confirmation is still pending for: verify/);
+
+    const collected = await h.context.applyConversationFabricControl({
+      type: "bridge:conversation-fabric-control",
+      conversationUrl: parentUrl,
+      fingerprint: "a2b3c4d5",
+      assistantIdentity: "assistant-ambiguous-collect",
+      contentProtocolVersion: h.context.CONTENT_PROTOCOL_VERSION,
+      control: {
+        schema_version: 1,
+        action: "collect",
+        campaign_id: started.campaignId,
+        marker: "synthetic-ambiguous-collect"
+      }
+    }, h.sender);
+    assert.equal(collected.ok, true, JSON.stringify(collected));
+    assert.equal(collected.reason, "conversation_fabric_completed");
+    assert.equal(h.created.length, 2, "recovery must not create a replacement child");
+    assert.equal(h.submitted.length, 2, "recovery must never replay the ambiguous bootstrap");
+    const completed = await h.context.loadConversationFabricCampaign(started.campaignId);
+    assert.equal(completed.results.length, 2);
+    assert.equal(completed.failed_children.length, 0);
+    const recovered = completed.children.find(child => child.id === "verify");
+    assert.equal(recovered.state, "submitted");
+    assert.equal(recovered.recovered_submission_ambiguity, true);
+  }
+
+  {
+    const h = createHarness({
       failChildId: "tests",
       failReason: "spawn_page_not_ready"
     });
@@ -286,6 +362,10 @@ function createHarness({
     assert.equal(started.ok, true, JSON.stringify(started));
     assert.equal(started.reason, "conversation_fabric_started");
     assert.equal(h.created.length, 4, "one failed child must not prevent later children from starting");
+    assert.ok(
+      h.childrenAtSubmit.every(count => count === 4),
+      "all requested child records must be durable before the first submit side effect"
+    );
 
     const campaign = await h.context.loadConversationFabricCampaign(started.campaignId);
     assert.deepEqual(
