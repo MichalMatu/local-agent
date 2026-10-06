@@ -54,6 +54,66 @@ def run_contender(state_dir: Path, task: dict[str, object]) -> subprocess.Comple
 
 
 class ParallelResourceProcessTests(unittest.TestCase):
+    def test_distinct_named_resources_run_concurrently_but_same_or_machine_conflicts(self) -> None:
+        holder_code = textwrap.dedent(
+            """
+            import sys
+            import time
+            from pathlib import Path
+
+            import local_agent.supervisor.worker as worker
+            import local_agent.daemon.service as agentd
+
+            agentd.STATE_DIR = Path(sys.argv[1])
+            task = {"id": "holder", "resources": ["browser:chrome"]}
+            with worker.machine_resource_lease(task):
+                print("READY", flush=True)
+                time.sleep(30)
+            """
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "state"
+            holder = subprocess.Popen(
+                [sys.executable, "-c", holder_code, str(state_dir)],
+                cwd=REPO_ROOT,
+                env=test_env(),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            try:
+                assert holder.stdout is not None
+                self.assertEqual(holder.stdout.readline().strip(), "READY")
+
+                different = run_contender(
+                    state_dir,
+                    {"id": "different", "resources": ["usb:esp32"]},
+                )
+                self.assertEqual(different.returncode, 0, different.stdout)
+                self.assertIn("ACQUIRED", different.stdout)
+
+                same = run_contender(
+                    state_dir,
+                    {"id": "same", "resources": ["browser:chrome"]},
+                )
+                self.assertEqual(same.returncode, 23, same.stdout)
+                self.assertIn("BUSY:browser:chrome", same.stdout)
+
+                machine = run_contender(
+                    state_dir,
+                    {"id": "machine", "resources": ["machine"]},
+                )
+                self.assertEqual(machine.returncode, 23, machine.stdout)
+                self.assertIn("BUSY:machine", machine.stdout)
+            finally:
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(holder.pid, signal.SIGKILL)
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    holder.wait(timeout=5)
+                if holder.stdout is not None:
+                    holder.stdout.close()
+
     def test_full_machine_lock_excludes_software_only_holder(self) -> None:
         holder_code = textwrap.dedent(
             """
