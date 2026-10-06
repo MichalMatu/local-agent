@@ -856,12 +856,19 @@ async function cleanupConversationFabricChildren(children) {
   for (const child of children) {
     if (!Number.isInteger(child?.intent?.tab_id)) continue;
     try {
+      let tab = null;
+      try {
+        tab = await chrome.tabs.get(child.intent.tab_id);
+      } catch (_error) {
+        tab = null;
+      }
+      if (!tab?.id) {
+        await forgetConversationSpawnTab(child.intent);
+        continue;
+      }
+
       if (child.child_conversation_url) {
         const ownership = await observeConversationSpawnResult(child.intent);
-        if (ownership?.reason === "spawn_tab_unavailable") {
-          await forgetConversationSpawnTab(child.intent);
-          continue;
-        }
         if (
           !ownership?.ok ||
           ownership.childConversationUrl !== child.child_conversation_url

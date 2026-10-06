@@ -84,6 +84,16 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
           async set(patch) { Object.assign(storage, clone(patch)); },
           async remove(key) { delete storage[key]; }
         }
+      },
+      tabs: {
+        async get(tabId) {
+          const child = Object.values(storage[campaignKey].children)
+            .find(item => item.intent.tab_id === tabId);
+          const id = child?.id || "unknown";
+          const queue = plan[id] || [];
+          if (queue[0] === "spawn_tab_unavailable") return null;
+          return { id: tabId, url: child?.child_conversation_url || `https://chatgpt.com/c/${id}` };
+        }
       }
     }
   });
@@ -151,6 +161,9 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
         reason,
         ...(ok ? { childConversationUrl } : {})
       };
+    },
+    async forgetConversationSpawnTab(_intent) {
+      return undefined;
     },
     async closeConversationSpawnTab(intent) {
       closed.push(intent.tab_id);

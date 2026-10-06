@@ -76,6 +76,10 @@ function createHarness({
       tabs: {
         async query() {
           return [{ id: 11, url: parentUrl }];
+        },
+        async get(tabId) {
+          if (closedTabIds.has(tabId)) return null;
+          return { id: tabId, url: `https://chatgpt.com/c/child-${tabId}` };
         }
       },
       scripting: {
@@ -187,6 +191,9 @@ function createHarness({
         assistantText: String(resultTextByChild[childId] || `Result for tab ${intent.tab_id}.`),
         truncated: false
       };
+    },
+    async forgetConversationSpawnTab(_intent) {
+      return undefined;
     },
     async closeConversationSpawnTab(intent) {
       if (!allowActiveClose) {
