@@ -895,9 +895,9 @@ async function collectConversationFabric(authority) {
           reason: recovered.reason,
           error: recovered.error
         };
-        failedChildren.push(failure);
         child.state = "failed";
         child.failure = failure;
+        failedChildren.push(conversationFabricChildFailure(child));
         continue;
       }
     }
@@ -909,9 +909,9 @@ async function collectConversationFabric(authority) {
         reason: `invalid_child_state_${child.state || "unknown"}`,
         error: ""
       };
-      failedChildren.push(failure);
       child.state = "failed";
       child.failure = failure;
+      failedChildren.push(conversationFabricChildFailure(child));
       continue;
     }
 
@@ -948,9 +948,9 @@ async function collectConversationFabric(authority) {
       reason: String(observed?.reason || "conversation_fabric_child_observation_failed"),
       error: String(observed?.error || "")
     };
-    failedChildren.push(failure);
     child.state = "failed";
     child.failure = failure;
+    failedChildren.push(conversationFabricChildFailure(child));
   }
 
   campaign.failed_children = failedChildren;
