@@ -81,7 +81,7 @@ Current coverage includes:
 - real headless Chromium DOM/browser smoke for parent control, child result capture and ownership checks;
 - full repository CI through `bridge-browser`, test, coverage, Python 3.14 and macOS smoke jobs.
 
-The deterministic real-extension browser smoke now traverses the production routing for the lifecycle/recovery contract; direct helper calls are retained only for bounded test-state inspection/awaiting and harness-only MV3 interruption.
+The deterministic real-extension browser smoke now traverses the production routing for the lifecycle/recovery contract; direct helper calls are limited to harness setup, forced time advancement, bounded test-state inspection/awaiting and harness-only MV3 interruption, and do not replace production delegation/recovery/polling/ownership/terminal-delivery transitions.
 
 ## Restart/reload E2E — complete
 
