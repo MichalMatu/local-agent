@@ -170,9 +170,9 @@ collectConversationFabric = async function collectConversationFabricRecovered(au
           reason: recovered.reason,
           error: recovered.error
         };
-        failedChildren.push(failure);
         child.state = "failed";
         child.failure = failure;
+        failedChildren.push(conversationFabricChildFailure(child));
         await saveConversationFabricCampaign(campaign);
         continue;
       }
@@ -186,9 +186,9 @@ collectConversationFabric = async function collectConversationFabricRecovered(au
         reason: `invalid_child_state_${child.state || "unknown"}`,
         error: ""
       };
-      failedChildren.push(failure);
       child.state = "failed";
       child.failure = failure;
+      failedChildren.push(conversationFabricChildFailure(child));
       await saveConversationFabricCampaign(campaign);
       continue;
     }
@@ -218,9 +218,9 @@ collectConversationFabric = async function collectConversationFabricRecovered(au
       reason: String(observed?.reason || "conversation_fabric_child_observation_failed"),
       error: String(observed?.error || "")
     };
-    failedChildren.push(failure);
     child.state = "failed";
     child.failure = failure;
+    failedChildren.push(conversationFabricChildFailure(child));
     await saveConversationFabricCampaign(campaign);
   }
 
