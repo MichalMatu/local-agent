@@ -46,7 +46,12 @@
     );
   }
 
-  document.addEventListener("input", trackComposerInput, true);
+  const canTrackComposerInput =
+    typeof document?.addEventListener === "function" &&
+    typeof document?.removeEventListener === "function";
+  if (canTrackComposerInput) {
+    document.addEventListener("input", trackComposerInput, true);
+  }
 
   const ASSISTANT_SELECTORS = [
     '[data-message-author-role="assistant"]',
@@ -547,7 +552,9 @@
     protocolVersion: CONTENT_PROTOCOL_VERSION,
     dispose() {
       try { observer?.disconnect(); } catch (_error) {}
-      try { document.removeEventListener("input", trackComposerInput, true); } catch (_error) {}
+      if (canTrackComposerInput) {
+        try { document.removeEventListener("input", trackComposerInput, true); } catch (_error) {}
+      }
       if (scanTimer !== null) clearTimeout(scanTimer);
       clearInterval(retryInterval);
     }
