@@ -1,6 +1,7 @@
 let runtimeFetchSequence = 0;
 let runtimeCacheSequence = 0;
 let operatorStatusCache = null;
+const OPERATOR_STATUS_STALE_MS = 15 * 60 * 1000;
 
 function sanitizeOperatorStatusUrl(value) {
   const text = String(value || "").trim();
@@ -205,6 +206,9 @@ function validateOperatorStatus(raw) {
   }
   if (JSON.stringify(raw).length > 64_000) throw new Error("operator status exceeds 64000 characters");
 
+  const updatedAt = Date.parse(String(raw.updated_at || ""));
+  if (!Number.isFinite(updatedAt)) throw new Error("operator status updated_at is invalid");
+
   const daemon = raw.daemon;
   const operator = raw.operator;
   const dedupe = raw.dedupe;
@@ -253,6 +257,12 @@ async function loadOperatorStatus(runtime) {
     });
     if (!response.ok) throw new Error(`operator status fetch returned HTTP ${response.status}`);
     const status = validateOperatorStatus(await response.json());
+    const updatedAt = Date.parse(String(status.updated_at || ""));
+    if (Date.now() - updatedAt > OPERATOR_STATUS_STALE_MS) {
+      const value = { available: false, source: "stale", status };
+      operatorStatusCache = { url, expiresAt: Date.now() + 5_000, value };
+      return value;
+    }
     const value = { available: true, source: "remote", status };
     operatorStatusCache = { url, expiresAt: Date.now() + 15_000, value };
     return value;
