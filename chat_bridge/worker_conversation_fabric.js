@@ -1020,10 +1020,10 @@ async function retireConversationFabricChild(authority) {
     child.result_captured = true;
     child.result_captured_at = String(campaignResult?.captured_at || vaulted?.captured_at || child.result_captured_at || "");
     child.retired_after_result = true;
-    if (child.state === "failed" && child.failure?.reason === "operator_retired") {
-      child.state = "submitted";
-      delete child.failure;
-    }
+    child.state = "submitted";
+    child.last_reason = "";
+    child.last_error = "";
+    delete child.failure;
   } else {
     child.state = "failed";
     child.failure = {
