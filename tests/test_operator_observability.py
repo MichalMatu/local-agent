@@ -168,9 +168,15 @@ class OperatorObservabilityTests(unittest.TestCase):
         self.assertTrue(snapshot["running"])
         self.assertEqual(snapshot["active_request"]["workflow_id"], "workflow-42")
         self.assertEqual(snapshot["active_request"]["children_total"], 2)
+        self.assertEqual(
+            set(snapshot["active_request"]),
+            {"workflow_id", "children_total"},
+        )
         encoded = json.dumps(snapshot)
         self.assertNotIn("private bounded reasoning summary", encoded)
         self.assertNotIn("sensitive/path", encoded)
+        self.assertNotIn("https://chatgpt.com/c/parent-observability", encoded)
+        self.assertNotIn("host-ops", encoded)
 
     def test_publication_is_change_driven_with_bounded_heartbeat(self) -> None:
         existing = {
