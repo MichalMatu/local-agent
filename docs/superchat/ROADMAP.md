@@ -50,24 +50,26 @@ Corrective intent is explicit and anti-duplication safety remains fail-closed:
 - a higher revision never bypasses an active claim;
 - crash-safe completion reconciliation uses durable `result_published` evidence so claim loss cannot reopen equivalent work.
 
-## Stage E — bounded multi-goal supervision — next
+## Stage E — sequential delegation-cycle hardening — final
 
-Only now that Stages A-D and the production-path test-architecture milestone are complete:
+One parent remains responsible for exactly one project/main goal. Harden the normal repeated workflow rather than adding multi-goal supervision:
 
-- define a deterministic active-goal limit;
-- add explicit priority and pause/resume policy across goals;
-- bound aggregate child spawn rate;
-- keep repository-aware execution decisions at the parent/canonical target boundary;
-- add circuit breakers for repeatedly blocked/failed goals;
-- expose a compact multi-goal fleet snapshot without creating a second scheduler or execution authority.
+- delegate 1–4 reasoning-only children for bounded task A;
+- durably capture results, surface missing coverage and synthesize in the parent;
+- close only exact owned child tabs and settle terminal feedback before another campaign starts;
+- start task B as a fresh campaign with no ownership/result/terminal state inherited from task A;
+- prove repeated cycles across restart, timeout and manual/retained-composer submission recovery with no prompt replay, duplicate child creation or zombie tabs;
+- keep delayed automatic submission bounded: it must settle exactly once or return an explicit diagnostic;
+- never auto-replace or auto-redelegate a failed child; the parent intentionally decides whether to issue a new delegation with a new child id.
 
-Exit: one parent can coordinate several bounded goals without becoming an unsafe autonomous scheduler.
+Exit: the same parent completes at least two successive bounded delegation cycles for one project with clean campaign boundaries and deterministic recovery.
 
 ## Explicit non-goals
 
+- multi-goal or multi-project supervision by one parent;
 - child machine authority;
 - a second executor/scheduler;
-- uncontrolled child fan-out;
+- uncontrolled child fan-out or automatic replacement;
 - broad manual Chrome automation loops;
 - predictive rotation as a correctness dependency;
 - copying entire historical chats into supervisor prompts.

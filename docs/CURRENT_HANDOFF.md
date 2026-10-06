@@ -8,9 +8,9 @@ Stable rollback anchor: `main@2d99fad80ab6e455301354dc53ee894a852b0bd6`. The exa
 
 ## Current focus
 
-Single-goal Superchat acceptance, lifecycle/recovery, operator observability, corrective-intent dedupe and production-path test-architecture hardening are complete in current source. The next planned product milestone is **bounded multi-goal supervision**: define the active-goal limit, priority/pause policy, aggregate spawn bound, repository-aware parent policy and circuit breakers without adding child machine authority or a second scheduler.
+Single-goal Superchat acceptance, lifecycle/recovery, operator observability, corrective-intent dedupe and production-path test-architecture hardening are complete in current source. The final planned product milestone is **sequential delegation-cycle hardening**: one parent remains responsible for exactly one project/main goal while repeatedly delegating bounded task-specific reasoning children, synthesizing and closing each campaign before starting the next.
 
-The installed normal-Chrome Bridge remains an explicit deployment fact, not something inferred from source. Loading/reloading Bridge 0.8.4 and enabling its optional live `operator_status_url` remain separate operator actions after verified source/deployed Local Agent status exists.
+The operator explicitly reloaded the normal-Chrome unpacked Bridge after the current 0.8.4 source reached `main`, so deployed Bridge 0.8.4 is now an accepted deployment fact. Activation of the optional live `operator_status_url` has not been verified and must not be inferred from the reload.
 
 ## Source of truth
 

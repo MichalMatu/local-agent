@@ -2,16 +2,16 @@
 
 ## Goal
 
-Keep the accepted browser-native Conversation Fabric path correct under real service-worker/reload recovery and prove terminal no-replay end to end in the operator's already authenticated primary Chrome model.
+Keep the accepted browser-native Conversation Fabric path reliable for repeated bounded delegation cycles inside one parent/project: finish one task campaign cleanly, then start the next without ownership, result or terminal-delivery leakage.
 
-The separate-profile production approach is retired. Same-browser multi-child reasoning/transport has already passed live acceptance; current work is lifecycle/recovery hardening and production-path E2E coverage.
+The separate-profile production approach is retired. Same-browser multi-child reasoning/transport, lifecycle/recovery and production-path E2E coverage are complete; current work is the final sequential-cycle hardening stage.
 
 ## Implemented production model
 
 Production Conversation Fabric uses:
 
 - one managed parent Superchat in the operator's normal Chrome;
-- accepted deployed Chat Bridge remains `0.8.3` until the verified `0.8.4` observability candidate is explicitly loaded;
+- the operator has explicitly reloaded deployed Chat Bridge `0.8.4` in the normal authenticated Chrome session; optional `operator_status_url` activation remains unverified;
 - a dedicated trailing `LOCAL_AGENT_CF` control envelope, separate from legacy LAB controls;
 - the existing `worker_spawn.js` `chrome.tabs` / `chrome.scripting` ownership primitives;
 - ordinary child tabs in the same authenticated Chrome session;
@@ -104,9 +104,11 @@ The deterministic real-extension browser smoke now traverses the production rout
 
 The test uses CDP only as a harness mechanism to stop/reattach to Chromium's real MV3 worker target; delegation, recovery, polling, ownership, durable state and terminal delivery remain the installed extension's production paths.
 
-## Next work — bounded multi-goal supervision
+## Final work — sequential delegation-cycle hardening
 
-The single-goal transport/recovery/test architecture is now sufficiently closed for the bounded multi-goal policy work in `docs/DEVELOPMENT_PLAN.md`. Preserve the same reasoning-only child boundary, exact target execution admission, deterministic active-goal limit and fail-closed recovery model.
+Keep one parent conversation responsible for exactly one project/main goal. For each bounded task, the parent may delegate 1–4 reasoning-only children, durably collect and synthesize their work, report missing coverage explicitly, and close only exact owned tabs. A later task must use a fresh campaign only after the earlier campaign is terminally settled.
+
+The final proof must exercise at least two consecutive campaigns in one parent and show no zombie tabs, stale terminal feedback, bootstrap replay, duplicate child creation or campaign-state leakage. Restart, timeout and manual/retained-composer submission paths must settle deterministically or fail closed with a bounded diagnostic. Delayed automatic submission is a reliability target: it must eventually submit exactly once or report why it did not. Automatic child replacement, re-delegation and multi-goal parent supervision remain out of scope.
 
 ## Execution authority
 
@@ -129,4 +131,4 @@ A missing isolated profile, isolated-profile login failure or Cloudflare challen
 
 ## Success criteria
 
-The current milestone passes only when a managed parent can delegate multiple reasoning-only child tabs inside the already-running normal Chrome session, preserve stable results across worker/reload interruption, recover transient observation, clean exact owned tabs, deliver terminal feedback at most once, survive another reload/poll without replay, and—only if justified—cause no more than one deterministic target-bound Local Agent execution.
+The final milestone passes when one managed parent can complete at least two successive bounded delegation campaigns for the same project: each campaign captures stable child work, reports any missing coverage, closes exact owned tabs and terminally settles before the next begins. Recovery from restart, timeout and manual/retained-composer submission must not replay prompts or leak campaign state, and any justified machine execution remains a separate parent decision through canonical target admission.

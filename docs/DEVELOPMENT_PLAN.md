@@ -122,17 +122,20 @@ The remaining helper-to-production gaps are now covered by focused production-pa
 
 Do not add another browser harness merely to duplicate this path. A new test layer is justified only by a concrete uncovered production boundary.
 
-## Milestone 5 — bounded multi-goal supervision — next
+## Milestone 5 — sequential delegation-cycle hardening — final
 
-Only after the complete restart/reload E2E remains stable:
+Keep one parent conversation bound to exactly one project/main goal and harden repeated bounded reasoning cycles inside that project:
 
-- deterministic active-goal limit;
-- explicit priorities and pause/resume;
-- bounded spawn rate;
-- repository-aware policy;
-- circuit breakers for repeated blocked/failed goals;
-- compact fleet snapshot for the parent.
+- delegate 1–4 reasoning-only children for one bounded task, durably capture their results, synthesize them in the parent and close only exact owned tabs before starting the next task;
+- require a fresh campaign for each successive task so ownership, result and terminal-delivery state cannot leak from task A into task B;
+- prove at least two consecutive delegation cycles in the same parent with no zombie tabs, stale terminal feedback, bootstrap replay or duplicate child creation;
+- preserve explicit missing-coverage reporting and fail closed when ownership/result identity cannot be proven;
+- make restart, timeout and manual/retained-composer submission recovery deterministic; an exact prompt submitted by the operator must be reconciled rather than inserted again, while delayed automatic submission must either settle exactly once or surface a bounded diagnostic;
+- never auto-replace, auto-redelegate or fan out children; a new delegation is always an explicit parent decision;
+- keep children reasoning-only and keep all repository/machine execution authority at the parent plus canonical target admission boundary.
+
+Exit: one parent can execute repeated task A -> synthesize/close -> task B -> synthesize/close cycles reliably for one project, including bounded recovery interruptions, without cross-campaign leakage or replay.
 
 ## Not current work
 
-Do not reopen legacy repository-bound chat routing, isolated-profile production control, a second executor/scheduler, child machine authority, cookie migration, direct OpenAI API reasoning loops or predictive autonomous fan-out. Those directions conflict with the accepted architecture or add authority outside the current safety model.
+Do not reopen legacy repository-bound chat routing, isolated-profile production control, bounded multi-goal parent supervision, a second executor/scheduler, child machine authority, cookie migration, direct OpenAI API reasoning loops or predictive autonomous fan-out. Those directions conflict with the accepted architecture or add authority outside the current safety model.
