@@ -274,7 +274,7 @@ document.querySelector('form').onsubmit = (event) => {
     await page.evaluate(() => { window.dropDelivery = true; });
     assert.equal((await run(removeUnconfirmedId)).reason, "delivery_unconfirmed");
     await popup.reload();
-    await popup.waitForFunction(() => document.querySelectorAll(".conversation-card").length === 10);
+    await popup.waitForFunction(() => document.querySelectorAll(".conversation-card").length === 11);
     await popup.waitForFunction(
       (height) => document.body.getBoundingClientRect().height > height,
       compactPopup.height
@@ -288,10 +288,10 @@ document.querySelector('form').onsubmit = (event) => {
     assert.equal(await popup.locator(".brand-orb").count(), 0);
     assert.equal((await popup.locator(".brand-title").innerText()).replace(/\s+/g, " "), "Local Agent · Chat Bridge");
     assert.equal(await popup.locator(".card-editor").count(), 0);
-    assert.equal(await popup.getByRole("button", { name: "Run now", exact: true }).count(), 10);
-    assert.equal(await popup.locator(".wake-input-wrap input").count(), 10);
-    assert.equal(await popup.locator(".enable-switch input").count(), 10);
-    assert.equal(await popup.locator(".switch-control .switch-track").count(), 11);
+    assert.equal(await popup.getByRole("button", { name: "Run now", exact: true }).count(), 11);
+    assert.equal(await popup.locator(".wake-input-wrap input").count(), 11);
+    assert.equal(await popup.locator(".enable-switch input").count(), 11);
+    assert.equal(await popup.locator(".switch-control .switch-track").count(), 12);
     assert.equal(await popup.locator(".delivery-resolution").count(), 0);
     assert.equal(
       await popup.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--accent").trim()),
