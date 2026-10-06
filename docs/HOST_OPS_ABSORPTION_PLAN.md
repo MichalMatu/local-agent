@@ -1,6 +1,6 @@
 # Host Ops absorption plan
 
-Status: **in progress on PR #176**. Runtime, donor regression tests and reusable architecture/operations documentation are being absorbed into Local Agent.
+Status: **source absorption merged in PR #176** at `main@4c0ea4c975e772ce7da776b8fe1f6508cf690c7f`; post-merge CI #2318 is 6/6 PASS. Live cutover is still pending.
 
 ## Architectural decision
 
@@ -70,15 +70,16 @@ The isolated CPU/GPU routing experiment on `work/cpu-gpu-routing` is not part of
    - the existing `core -> capabilities -> workflows -> cli` dependency direction is enforced by migrated architecture/design gates;
    - the complete donor pytest regression suite is retained under `host_ops_tests/`.
 
-3. **Add the Local Agent integration seam — active in PR #176**
+3. **Add the Local Agent integration seam — implemented in PR #176**
    - the compatibility CLI is `python -m local_agent.host_ops` and preserves JSON contract version 1;
    - new `host-maintenance` task preparation targets `local-agent`, not the standalone donor repository;
    - existing Local Agent task admission/scheduling remains the only orchestration authority; no new queue, planner or daemon is introduced.
 
-4. **Migrate verification**
-   - move the donor architecture/design/security/unit/integration tests;
-   - integrate them into Local Agent's canonical verification flow;
-   - keep macOS/live-device claims separate from hermetic CI evidence.
+4. **Migrate verification — implemented in PR #176**
+   - the complete donor regression suite is preserved under `host_ops_tests/`;
+   - architecture/design contracts run in the canonical Local Agent CI;
+   - Host Ops keeps a separate coverage floor of at least 85%, while Local Agent core keeps its existing 70% floor;
+   - macOS/live-machine claims remain separate from hermetic CI evidence.
 
 5. **Switch operational ownership**
    - update Local Agent docs and runtime usage to the absorbed tooling;
@@ -89,6 +90,21 @@ The isolated CPU/GPU routing experiment on `work/cpu-gpu-routing` is not part of
    - preserve required research branches/history;
    - mark the standalone repository archived/deprecated rather than leaving two writable implementations;
    - ensure all maintained host-operation documentation points to Local Agent.
+
+
+## Live cutover prerequisite
+
+Source ownership has moved, but the standalone donor binding must remain available until the installed Mac deployment proves the absorbed path end to end.
+
+Current repository evidence shows that the canonical catalog marks `local-agent` execution-enabled with binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`, while the GitHub repository currently has no visible `agent-control` branch. The machine-local registry is authoritative for provisioning, so do not fabricate a task queue or infer self-execution readiness from the source catalog alone.
+
+Before removing the standalone `host-ops` binding:
+
+1. verify the Mac daemon has self-updated to `main@4c0ea4c975e772ce7da776b8fe1f6508cf690c7f` or later;
+2. inspect the machine-local registry and confirm whether `local-agent` is provisioned as an execution target;
+3. if missing, provision its repository-scoped control/work/checkpoint state using the normal Local Agent repository-admin path, including exact binding and `agent-control` branch;
+4. run a bounded host-maintenance smoke through target `local-agent`, for example `python -m local_agent.host_ops --json-contract-version` and `python -m local_agent.host_ops host profile --json`;
+5. confirm no maintained workflow still requires the standalone `host-ops` checkout/binding before catalog removal or donor archival.
 
 ## Non-goals
 
