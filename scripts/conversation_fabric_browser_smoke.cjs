@@ -91,7 +91,7 @@ document.querySelector("form").onsubmit = (event) => {
     history.pushState({}, "", "/uc/fabric-" + child[1]);
     window.__delayedChildUrl = "/c/fabric-child-" + child[1];
     setTimeout(() => {
-      if (window.__delayedChildUrl) history.pushState({}, "", "/routing-pending-" + child[1]);
+      if (window.__delayedChildUrl) history.pushState({}, "", "/routing-pending/c/fabric-child-" + child[1] + "/hold");
     }, 50);
     return;
   }
@@ -548,6 +548,53 @@ async function campaignSnapshot(worker, campaignId) {
     ), campaignId);
     assert.equal(terminalPromptsAfterReload.length, 1, "terminal campaign must not replay after restart/poll");
     assert.equal(parent.isClosed(), false, "parent must survive child cleanup and worker restarts");
+
+    // Negative regression: Send succeeds once, but the child never reaches a canonical
+    // route. Force the durable campaign age beyond the bounded deadline and prove that
+    // recovery fails closed without a second submit or replacement tab.
+    const negativeControl = {
+      schema_version: 1,
+      action: "delegate",
+      children: [
+        { id: "never", role: "verification", prompt: "Remain on the unresolved route." }
+      ]
+    };
+    await parent.evaluate(controlValue => {
+      window.turn("assistant", "<<<LOCAL_AGENT_CF\n" + JSON.stringify(controlValue) + "\nLOCAL_AGENT_CF>>>");
+    }, negativeControl);
+    const negativeCampaign = await waitFor("negative ambiguous campaign", () => worker.evaluate(async previousId => {
+      const campaigns = await listConversationFabricCampaigns();
+      return campaigns.find(value =>
+        value.id !== previousId &&
+        value.state === "running" &&
+        value.children?.length === 1 &&
+        value.children[0].state === "submission_ambiguous"
+      ) || null;
+    }, campaignId), 30000);
+    const neverPage = await pageForChild(context, "never");
+    assert.equal(await neverPage.evaluate(() => window.submitted.length), 1);
+    const childTabsBeforeTimeout = fabricChildren(context).length;
+    await worker.evaluate(async id => {
+      const value = await loadConversationFabricCampaign(id);
+      value.created_at = new Date(Date.now() - (16 * 60 * 1000)).toISOString();
+      await saveConversationFabricCampaign(value);
+    }, negativeCampaign.id);
+
+    await triggerProductionFabricPoll(worker);
+    const negativeFailed = await waitFor("bounded ambiguous failure", async () => {
+      const value = await campaignSnapshot(worker, negativeCampaign.id);
+      return value?.state === "failed" ? value : null;
+    }, 20000);
+    assert.equal(negativeFailed.failure, "campaign_timed_out_with_pending_children");
+    assert.equal(negativeFailed.children[0].state, "failed");
+    assert.equal(negativeFailed.children[0].failure.reason, "spawn_submission_ambiguous_timeout");
+    assert.equal(negativeFailed.results.length, 0);
+    assert.equal(childTabsBeforeTimeout, 1, "negative case starts exactly one owned child tab");
+    assert.equal(
+      context.pages().filter(page => page.url().includes("/c/fabric-child-never")).length,
+      0,
+      "terminal cleanup must not leave the exactly-owned failed tab orphaned"
+    );
 
     console.log(
       "PASS: real Bridge delegates four children, keeps three successful-but-ambiguous " +
