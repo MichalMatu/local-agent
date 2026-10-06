@@ -26,6 +26,7 @@ function createHarness({ assistantText, workerResponse, managed = true }) {
   class FakeButton {
     constructor(onClick) {
       this.disabled = false;
+      this.isConnected = true;
       this._onClick = onClick;
     }
     click() { this._onClick(); }
