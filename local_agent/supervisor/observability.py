@@ -231,8 +231,9 @@ def publish_operator_status(
         return False
 
     payload["updated_at"] = agentd.now_iso()
-    return agentd.publish_control_json(
+    agentd.publish_control_json(
         REMOTE_OPERATOR_STATUS,
         payload,
         commit_message="Agent operator status",
     )
+    return True

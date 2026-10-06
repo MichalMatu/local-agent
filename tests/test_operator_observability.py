@@ -24,6 +24,9 @@ class OperatorObservabilityTests(unittest.TestCase):
         self.addCleanup(self.state_patch.stop)
         self.control = self.root / "control"
         self.control.mkdir()
+        self.control_patch = mock.patch.object(agentd.core, "CONTROL", self.control)
+        self.control_patch.start()
+        self.addCleanup(self.control_patch.stop)
         self.repository = RepositoryContext(
             repository_id="host-ops",
             repository="owner/host-ops",
@@ -100,6 +103,26 @@ class OperatorObservabilityTests(unittest.TestCase):
             {"published_run_after_claim_release": 1},
         )
         self.assertFalse(snapshot["scan_truncated"])
+
+    def test_bad_operator_config_remains_observable(self) -> None:
+        env = {
+            conversation.OPERATOR_ENABLED_ENV: "1",
+            conversation.OPERATOR_ROOT_ENV: str(self.root / "operator-root"),
+        }
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(
+            conversation,
+            "result_publish_pending",
+            side_effect=ValueError("operator checkout is unavailable"),
+        ):
+            snapshot = observability.operator_observability(None)
+
+        self.assertTrue(snapshot["enabled"])
+        self.assertFalse(snapshot["configured"])
+        self.assertFalse(snapshot["running"])
+        self.assertFalse(snapshot["result_publish_pending"])
+        self.assertIsNone(snapshot["active_request"])
+        self.assertIsInstance(snapshot["configuration_error"], str)
+        self.assertTrue(snapshot["configuration_error"])
 
     def test_operator_snapshot_exposes_identity_not_child_prompt_content(self) -> None:
         request_path = self.root / "request.json"

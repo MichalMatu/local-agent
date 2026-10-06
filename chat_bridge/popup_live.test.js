@@ -51,6 +51,7 @@ function makeCard() {
   let latestRuntime = null;
   let renderCount = 0;
   let refreshCurrentCount = 0;
+  let operatorRenderCount = 0;
   let restartCountdownCount = 0;
   let nextWakeUpdates = 0;
   let intervalCallback = null;
@@ -83,6 +84,7 @@ function makeCard() {
       if (!cards.length) cards.push(card);
     },
     refreshCurrentTabForm: async () => { refreshCurrentCount += 1; },
+    renderOperatorStatus: () => { operatorRenderCount += 1; },
     restartCountdownTimer: () => { restartCountdownCount += 1; },
     updateNextWakeElement: () => { nextWakeUpdates += 1; },
     setLatestState: (value) => { latestState = value; },
@@ -102,6 +104,7 @@ function makeCard() {
   await controller.syncNow();
   assert.equal(renderCount, 1);
   assert.equal(refreshCurrentCount, 1);
+  assert.equal(operatorRenderCount, 1);
   assert.equal(restartCountdownCount, 1);
   assert.equal(card.dataset.conversationId, "chat1");
   assert.equal(card.nodes.enabled.checked, false);
@@ -142,6 +145,7 @@ function makeCard() {
   assert.equal(card.nodes.next.dataset.masterEnabled, "false");
   assert.equal(card.nodes.next.dataset.conversationEnabled, "true");
   assert.equal(elements.masterEnabled.checked, false);
+  assert.equal(operatorRenderCount, 2);
 
   document.activeElement = null;
   await controller.syncNow();
