@@ -1,6 +1,6 @@
 # Host Ops absorption plan
 
-Status: **complete**. Source absorption merged in PR #176, live Mac provisioning of `local-agent` succeeded, absorbed CLI smokes passed, the standalone `host-ops` machine target was disabled successfully, and the current source catalog no longer contains the standalone identity.
+Status: **runtime retirement complete**. Source absorption merged in PR #176, live Mac provisioning of `local-agent` succeeded, absorbed CLI smokes passed, the standalone `host-ops` target was disabled and then removed from the machine registry, and the canonical source catalog no longer contains the standalone identity. Donor archival is the only remaining repository-lifecycle decision.
 
 ## Architectural decision
 
@@ -110,7 +110,7 @@ Evidence:
 - the current source retirement removes the standalone `host-ops` identity from the canonical binding catalog and Bridge runtime example while retaining the internal `local_agent.host_ops` subsystem;
 - the donor repository remains frozen/history-only and `work/cpu-gpu-routing` remains preserved.
 
-PR #177 has merged the source retirement and `main@1571ac6458d58243f00960aa9777cf46272524e0` passed CI #2329. The standalone `host-ops` machine record is already disabled. Final retirement cleanup is now limited to: let the live daemon self-update to this handoff commit or later, run one final `local-agent` absorbed-tooling smoke on that exact-or-later source, remove the disabled `host-ops` record from the machine registry without reordering the remaining entries, restart/verify healthy runtime, and only then consider archiving the donor repository.
+PR #177 merged the source retirement. Checkpoint `main@41e653110a4e8d6c88884ff58f34787c774cb0de` passed exact-head CI #2330 and the live daemon self-updated to that exact source before final cleanup. `local-agent-final-host-ops-retirement-preflight-20261007-v3` passed the absorbed JSON-contract/host-profile smoke and verified exact bindings plus zero donor claims/result-spool state. One historical donor task lacking a terminal result was closed without execution as `cancelled_by_operator`, preserving its task history; the authoritative donor queue then had zero pending tasks. `local-agent-remove-host-ops-machine-record-20261007-v1` removed only the disabled donor registry record and preserved the order of all remaining entries. Restart request `restart-after-host-ops-registry-retirement-20261007-v1` was accepted through canonical first-registry control `growclip`, and `local-agent-post-host-ops-registry-removal-smoke-20261007-v1` passed afterward with JSON contract `1`, valid bounded host-profile JSON, exact Local Agent binding and a nine-entry registry containing no `host-ops` record. The runtime retirement is therefore terminal; only donor archival/deprecation remains to evaluate.
 
 ## Non-goals
 

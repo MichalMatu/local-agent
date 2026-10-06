@@ -4,7 +4,7 @@ Date: 2026-10-07
 
 ## Status
 
-Host Ops absorption is complete in source and live runtime. The remaining work is **final donor retirement cleanup**, not another integration stage.
+Host Ops absorption and final donor machine-target retirement are complete in source and live runtime. **No standalone `host-ops` runtime cleanup remains.** The only remaining step is the repository-lifecycle decision for the frozen donor.
 
 Current source baseline before this checkpoint commit:
 
@@ -54,25 +54,33 @@ This proves that maintained host-maintenance execution no longer depends on the 
 - do not add new runtime/product behavior to the donor;
 - `agent-control` remains historical/compatibility evidence until final machine-registry retirement is complete.
 
+## Terminal retirement evidence
+
+The final cleanup completed on 2026-10-07:
+
+- checkpoint `41e653110a4e8d6c88884ff58f34787c774cb0de` passed exact-head CI #2330 with no open PRs;
+- fresh `local-agent/agent-control` showed `idle`, exact `self_revision=41e653110a4e8d6c88884ff58f34787c774cb0de`, and binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`;
+- `local-agent-final-host-ops-retirement-preflight-20261007-v3` PASS:
+  - JSON contract output exactly `1`;
+  - bounded host-profile JSON valid;
+  - donor registry record exact-bound to `16d688b6-b0ef-4905-a5bd-24e59c99cfb4` and disabled;
+  - Local Agent binding exact;
+  - no donor claims, unpublished result spool or dirty control checkout;
+- preflight drafts v1/v2 were read-only audit-script failures caused by incorrect assumptions about the disabled registry/control checkout; neither performed a mutation, and v3 is the authoritative PASS;
+- the donor `agent-control` queue had one historical task without a terminal result, `inspect-machine-resource-holder-20261006-v1`; it was not executed on the disabled target and was closed as `cancelled_by_operator`, while equivalent diagnostics already had a completed `local-agent` result; the donor queue then had zero pending tasks;
+- `local-agent-remove-host-ops-machine-record-20261007-v1` PASS removed only `host-ops`; remaining registry order is `growclip, bloomml, matrixhub, tracker, shelly-link, photomap, ai-calls, hardware-lab, local-agent`;
+- supported restart request `restart-after-host-ops-registry-retirement-20261007-v1` was accepted through canonical first-registry control `growclip`;
+- `local-agent-post-host-ops-registry-removal-smoke-20261007-v1` PASS after restart:
+  - JSON contract output exactly `1`;
+  - bounded host-profile JSON valid;
+  - registry contains no `host-ops`;
+  - Local Agent binding remains `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`;
+- fresh Local Agent status returned to `idle` on checkpoint source with the new post-restart worker;
+- `host-ops/work/cpu-gpu-routing` remains preserved at `901c9c0844beadb8cbe545103b70ba23c7720f7e`.
+
 ## Exact next task
 
-Do **not** re-run the absorption or re-provision `local-agent`.
-
-1. Read fresh `local-agent/main`, CI and `local-agent/agent-control` status.
-2. Require the live daemon to self-update to this checkpoint commit or a later descendant and be idle/healthy.
-3. Run one final bounded host-maintenance smoke through target `local-agent`:
-   - `python -m local_agent.host_ops --json-contract-version` -> exactly `1`;
-   - `python -m local_agent.host_ops host profile --json` -> valid bounded JSON.
-4. Inspect the machine registry. The `host-ops` record should be disabled; `local-agent` must remain exact-bound.
-5. With no pending/claimed donor work, remove only the disabled `host-ops` registry record. Preserve the order of every remaining record.
-6. Restart through the supported supervisor/control path and verify:
-   - healthy/idle Local Agent;
-   - `local-agent` status still publishes on its own `agent-control`;
-   - no binding/catalog errors;
-   - no maintained workflow requires the donor checkout.
-7. Run one final post-removal `local-agent` smoke.
-8. Update this handoff/absorption plan with terminal evidence.
-9. Only then decide whether to archive the donor repository. Preserve `work/cpu-gpu-routing` or export its research history first.
+Do **not** re-run absorption, provisioning, disable or registry cleanup. Evaluate archiving `MichalMatu/host-ops` only as a history-preserving lifecycle action. Preserve `work/cpu-gpu-routing` and all research history; donor runtime ownership must never be restored.
 
 ## Safety boundaries
 
