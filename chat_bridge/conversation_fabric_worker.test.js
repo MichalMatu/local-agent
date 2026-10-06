@@ -444,7 +444,31 @@ function createHarness({
   }
 
   {
+    const h = createHarness();
+    const ready = await h.context.conversationFabricDiagnosticContext(
+      { conversationUrl: parentUrl },
+      h.sender
+    );
+    assert.equal(ready.ok, true, JSON.stringify(ready));
+    assert.equal(ready.reason, "conversation_fabric_diagnostic_ready");
+
+    const wrongTab = await h.context.conversationFabricDiagnosticContext(
+      { conversationUrl: parentUrl },
+      { ...h.sender, tab: { id: 12, url: parentUrl } }
+    );
+    assert.equal(wrongTab.ok, false);
+    assert.equal(wrongTab.reason, "conversation_fabric_parent_not_managed");
+  }
+
+  {
     const h = createHarness({ managed: false });
+    const diagnostic = await h.context.conversationFabricDiagnosticContext(
+      { conversationUrl: parentUrl },
+      h.sender
+    );
+    assert.equal(diagnostic.ok, false);
+    assert.equal(diagnostic.reason, "conversation_fabric_parent_not_managed");
+
     const result = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
     assert.equal(result.ok, false, JSON.stringify(result));
     assert.equal(result.reason, "conversation_fabric_parent_not_managed");
