@@ -26,7 +26,9 @@ from local_agent.config import TIMEOUTS
 from local_agent.daemon.installation import (
     begin_installation,
     finish_installation,
+    installation_pending,
     installation_transaction,
+    read_pending_installation,
     require_completed_installation,
 )
 from local_agent.foundation.process import (
@@ -821,6 +823,54 @@ def _validate_installed_update() -> tuple[bool, str]:
             if result["exit_code"] != 0:
                 return False, str(result.get("output", "")).strip()
     return True, ""
+
+
+def recover_interrupted_self_update() -> tuple[bool, str]:
+    """Revalidate an interrupted installed checkout before clearing its journal."""
+    with installation_transaction(STATE_DIR) as acquired:
+        if not acquired:
+            return False, "installation_lock_busy"
+        if not installation_pending(STATE_DIR):
+            return True, "not_pending"
+
+        try:
+            journal = read_pending_installation(STATE_DIR)
+        except RuntimeError as exc:
+            return False, str(exc)
+
+        if not self_repo_on_main_branch():
+            return False, "installed checkout is not on main"
+        if not tracked_self_repo_clean():
+            return False, "installed checkout is not clean"
+
+        current = self_revision()
+        if current is None:
+            return False, "cannot resolve installed checkout revision"
+        current = current.lower()
+        original = journal["original_revision"]
+        candidate = journal["candidate_revision"]
+
+        if current != original:
+            try:
+                ancestor = _git(
+                    ["git", "merge-base", "--is-ancestor", candidate, current],
+                    timeout=10,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                return False, f"cannot verify interrupted candidate ancestry: {exc}"
+            if ancestor.returncode != 0:
+                return False, (
+                    "installed checkout is neither the recorded original revision "
+                    "nor a descendant of the interrupted candidate"
+                )
+
+        valid, error = _validate_installed_update()
+        if not valid:
+            return False, "installed checkout validation failed: " + core.bounded(error, 2000)
+
+        finish_installation(STATE_DIR)
+        REJECTED_UPDATE_PATH.unlink(missing_ok=True)
+        return True, "validated"
 
 
 def restart_self(reason: str) -> None:

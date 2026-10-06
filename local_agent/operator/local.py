@@ -80,6 +80,26 @@ def enable_agent() -> bool:
     return True
 
 
+def clear_interrupted_self_update_disable() -> bool:
+    """Clear only the automatic fail-closed marker created for interrupted update."""
+    require_completed_installation(STATE_DIR)
+    state = disabled_state()
+    if (
+        state.get("version") != 1
+        or state.get("disabled") is not True
+        or state.get("reason") != "interrupted_self_update"
+        or "control_id" in state
+        or "repository_id" in state
+    ):
+        return False
+    try:
+        DISABLED_PATH.unlink()
+    except FileNotFoundError:
+        return False
+    fsync_directory(DISABLED_PATH.parent)
+    return True
+
+
 def _print_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 

@@ -254,6 +254,19 @@ def _recover_before_supervisor_start(repositories: list[RepositoryContext]) -> N
         log(f"recovered orphaned repository leases before supervisor start pids={list(recovered)}")
 
 
+def recover_interrupted_installation() -> tuple[bool, str]:
+    """Recover a valid interrupted self-update without clearing operator disables."""
+    recovered, detail = agentd.recover_interrupted_self_update()
+    if not recovered:
+        return False, detail
+    cleared = agent_operator.clear_interrupted_self_update_disable()
+    log(
+        "interrupted self-update recovery completed "
+        f"detail={detail} automatic_disable_cleared={cleared}"
+    )
+    return True, detail
+
+
 def main() -> int:
     global _stop_requested
 
@@ -287,19 +300,29 @@ def main() -> int:
 
             current_revision = agentd.self_revision()
             pending_installation = installation_pending(agentd.STATE_DIR)
-            if pending_installation or (
+            if pending_installation:
+                recovered, detail = recover_interrupted_installation()
+                if recovered:
+                    pending_installation = False
+                    current_revision = agentd.self_revision()
+                else:
+                    if detail != "installation_lock_busy":
+                        if not agent_operator.is_disabled():
+                            agent_operator.disable_agent(reason="interrupted_self_update")
+                        log(f"interrupted self-update recovery deferred: {detail}")
+                    stop_supervisor(child)
+                    child = None
+                    quiescent_lease_busy_since = None
+                    time.sleep(LOOP_SECONDS)
+                    continue
+
+            if (
                 initial_revision is not None
                 and current_revision is not None
                 and current_revision != initial_revision
             ):
                 with installation_transaction(agentd.STATE_DIR) as acquired:
                     if acquired:
-                        if installation_pending(agentd.STATE_DIR):
-                            if not agent_operator.is_disabled():
-                                agent_operator.disable_agent(reason="interrupted_self_update")
-                            stop_supervisor(child)
-                            child = None
-                            quiescent_lease_busy_since = None
                         # The updater may have rolled back while the guard was
                         # waiting. Re-read only after validation releases its lock.
                         current_revision = agentd.self_revision()

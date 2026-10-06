@@ -203,7 +203,7 @@ class InstalledUpdateIntegrationTests(unittest.TestCase):
             self.assertTrue(service.maybe_self_update(force=True))
         self.assertEqual(git(["rev-parse", "HEAD"], cwd=self.checkout).strip(), target)
 
-    def test_killed_update_remains_recoverable_and_cannot_start_execution(self) -> None:
+    def test_killed_update_is_revalidated_and_recovers_on_guard_restart(self) -> None:
         target = self.advance("VERSION = 'unvalidated'\n")
         ready = self.root / "validation-started"
         code = (
@@ -230,6 +230,7 @@ class InstalledUpdateIntegrationTests(unittest.TestCase):
             if proc.poll() is None:
                 proc.kill()
             proc.wait(timeout=5)
+
         self.assertEqual(
             json.loads(pending_path(self.state).read_text()),
             {
@@ -238,33 +239,38 @@ class InstalledUpdateIntegrationTests(unittest.TestCase):
             },
         )
         with self.assertRaisesRegex(RuntimeError, "operator recovery"):
-            service.acquire_daemon_lock()
-        with self.assertRaisesRegex(RuntimeError, "operator recovery"):
             local.enable_agent()
 
-        self.enterContext(mock.patch.object(entrypoint, "_stop_requested", False))
+        local.disable_agent(reason="interrupted_self_update")
+        with mock.patch.object(
+            service, "_validate_installed_update", return_value=(True, "")
+        ) as validate:
+            recovered, detail = entrypoint.recover_interrupted_installation()
+        self.assertTrue(recovered)
+        self.assertEqual(detail, "validated")
+        validate.assert_called_once_with()
+        self.assertFalse(installation_pending(self.state))
+        self.assertFalse(local.is_disabled())
+        self.assertEqual(git(["rev-parse", "HEAD"], cwd=self.checkout).strip(), target)
 
-        def finish(_seconds):
-            entrypoint._stop_requested = True
+    def test_interrupted_update_recovery_never_clears_operator_disable(self) -> None:
+        target = self.advance("VERSION = 'candidate'\n")
+        from local_agent.daemon.installation import begin_installation
 
-        with (
-            mock.patch.object(
-                entrypoint,
-                "parse_args",
-                return_value=argparse.Namespace(registry=None, max_workers=2),
-            ),
-            mock.patch.object(entrypoint, "install_signal_handlers"),
-            mock.patch.object(remote, "poll_remote_operator"),
-            mock.patch.object(entrypoint, "publish_guard_status"),
-            mock.patch.object(entrypoint.time, "sleep", side_effect=finish),
-            mock.patch.object(entrypoint, "start_supervisor") as start,
-            mock.patch.object(entrypoint.os, "execv") as reexec,
+        begin_installation(self.state, self.original, target)
+        git(["merge", "--ff-only", "--quiet", target], cwd=self.checkout)
+        local.disable_agent(reason="operator_cli")
+
+        with mock.patch.object(
+            service, "_validate_installed_update", return_value=(True, "")
         ):
-            self.assertEqual(entrypoint.main(), 0)
-        start.assert_not_called()
-        reexec.assert_not_called()
+            recovered, detail = entrypoint.recover_interrupted_installation()
+
+        self.assertTrue(recovered)
+        self.assertEqual(detail, "validated")
+        self.assertFalse(installation_pending(self.state))
         self.assertTrue(local.is_disabled())
-        self.assertEqual(local.disabled_state()["reason"], "interrupted_self_update")
+        self.assertEqual(local.disabled_state()["reason"], "operator_cli")
 
     def test_valid_update_holds_installation_lock_until_validation_finishes(self) -> None:
         target = self.advance("VERSION = 'new'\n")

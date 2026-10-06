@@ -25,6 +25,29 @@ def installation_pending(state_dir: Path) -> bool:
     return True
 
 
+def read_pending_installation(state_dir: Path) -> dict[str, str]:
+    path = pending_path(state_dir)
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError) as exc:
+        raise RuntimeError(f"invalid unfinished self-update journal: {path}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"invalid unfinished self-update journal: {path}")
+    original = payload.get("original_revision")
+    candidate = payload.get("candidate_revision")
+    for name, value in (("original_revision", original), ("candidate_revision", candidate)):
+        if (
+            not isinstance(value, str)
+            or len(value) != 40
+            or any(ch not in "0123456789abcdefABCDEF" for ch in value)
+        ):
+            raise RuntimeError(f"invalid {name} in unfinished self-update journal: {path}")
+    return {
+        "original_revision": original.lower(),
+        "candidate_revision": candidate.lower(),
+    }
+
+
 def begin_installation(state_dir: Path, original: str, candidate: str) -> None:
     atomic_write_text(
         pending_path(state_dir),
