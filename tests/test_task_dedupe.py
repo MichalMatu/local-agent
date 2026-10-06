@@ -309,6 +309,12 @@ class TaskDedupeTests(unittest.TestCase):
         self.assertEqual(plan.suppressed[0].reason, "recent_duplicate")
         self.assertEqual(receipt["state"], "completed")
         self.assertEqual(receipt["outcome"], "published")
+        self.assertTrue(receipt["reconciled_from_published_run"])
+        self.assertEqual(
+            receipt["reconciliation_reason"],
+            "published_run_after_claim_release",
+        )
+        self.assertEqual(receipt["reconciled_at_epoch"], 101.0)
 
     def test_receipt_for_same_task_does_not_suppress_resource_retry(self) -> None:
         task = self.task("task-a")
