@@ -158,6 +158,9 @@ The next development phase is deliberately ordered. Do not skip ahead to capabil
 
 ### Phase A — inventory and normalize what already exists
 
+Canonical inventory: `docs/host_ops/TOOL_INVENTORY.md`.
+
+
 - build one canonical inventory of every maintained Host Ops capability/workflow/CLI surface plus the deterministic browser/chat-UI primitives that may belong in the tool layer;
 - record for each operation its owner, inputs, structured result, external dependency, side-effect/risk class, timeout/output bounds, resource needs and current test/live-smoke coverage;
 - identify duplicate concepts, CLI-only glue, hidden cross-capability coupling and capabilities whose current boundary is artificially narrow;
