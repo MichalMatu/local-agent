@@ -105,6 +105,36 @@ async function runParentSmoke(context) {
       { id: "verify", role: "verification", prompt: "Verify one independent topic." }
     ]
   };
+  const malformedAssistantText = [
+    "I am delegating two bounded reasoning jobs.",
+    "<<<LOCAL_AGENT_CF",
+    JSON.stringify(control),
+    "LOCAL_AGENT_CF>>>",
+    "This trailing prose makes the control unsupported."
+  ].join("\n");
+  await page.evaluate((text) => {
+    const turn = document.createElement("div");
+    turn.dataset.turnKey = "assistant-parent-control-invalid";
+    const message = document.createElement("div");
+    message.dataset.messageAuthorRole = "assistant";
+    for (const line of text.split("\n")) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = line;
+      message.appendChild(paragraph);
+    }
+    turn.appendChild(message);
+    document.querySelector("#turns").appendChild(turn);
+  }, malformedAssistantText);
+
+  await page.waitForFunction(() => window.__submitted.some(text =>
+    text.includes("Conversation Fabric control rejected: reason=control_not_terminal")
+  ));
+  assert.equal(
+    await page.evaluate(() => window.__cfRuntimeMessages.length),
+    0,
+    "visible malformed/non-terminal control must be diagnosed locally without worker dispatch"
+  );
+
   const assistantText = [
     "I am delegating two bounded reasoning jobs.",
     "<<<LOCAL_AGENT_CF",
@@ -142,7 +172,10 @@ async function runParentSmoke(context) {
   assert.notEqual(markers[0], markers[1], "each child must have a unique completion marker");
 
   await page.waitForFunction(() => window.__submitted.includes("FABRIC FEEDBACK"));
-  assert.deepEqual(await page.evaluate(() => window.__submitted), ["FABRIC FEEDBACK"]);
+  const submitted = await page.evaluate(() => window.__submitted);
+  assert.equal(submitted.length, 2);
+  assert.match(submitted[0], /control_not_terminal/);
+  assert.equal(submitted[1], "FABRIC FEEDBACK");
   await page.close();
   return markers[0];
 }
