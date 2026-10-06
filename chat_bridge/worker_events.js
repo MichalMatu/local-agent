@@ -83,7 +83,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         getScheduleSnapshot(state),
         conversationFabricOperatorSnapshot()
       ]);
-      const githubOwnership = await githubOwnershipSnapshot(state, runtime);
+      const [githubOwnership, operatorStatus] = await Promise.all([
+        githubOwnershipSnapshot(state, runtime),
+        loadOperatorStatus(runtime)
+      ]);
       const popupRuntime = {
         ...runtime,
         conversationControls: (runtime.conversationControls || []).filter((control) => {
@@ -101,6 +104,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         schedules,
         githubOwnership,
         fabricStatus,
+        operatorStatus,
         bridgeInfo: {
           extensionVersion: chrome.runtime.getManifest().version,
           contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
