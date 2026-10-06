@@ -8,7 +8,7 @@ This is the canonical operational workflow for `MichalMatu/local-agent`.
 Local Agent release line: 4.20.6
 immutable tag v4.20.6: 48eb9d8b6c26a9dfb317906d5099acabce8719c8
 released Bridge at tag: 0.8.1
-current source candidate Bridge: 0.8.3
+current source candidate Bridge: 0.8.4
 ```
 
 `main` is a moving production source branch and may contain later verified post-release patches. Before any live operation, read fresh daemon status and verify `daemon_version`, `self_revision`, repository registry identity, execution variant and installed Bridge version.
@@ -115,11 +115,19 @@ GitHub remains authoritative for remotely managed parent scheduling. Any change 
 
 Never modify Bridge Master through conversation desired state.
 
+## Operator observability
+
+The normal Bridge popup is the single concise read-only status surface. Browser-owned facts come directly from the installed extension: Bridge manifest version, Master state, current-parent Fabric campaign, captured/vaulted result count, cleanup state and terminal-feedback delivery state.
+
+Local Agent publishes a separate bounded `.agent/status/operator.json` through the existing supervisor control checkout. It contains deployed `daemon_version` / exact `self_revision`, Conversation Operator enabled/configured/running state, active workflow identity + child count, and bounded durable dedupe suppression/rejection/reconciliation evidence. It contains no child prompt text and grants no execution authority.
+
+Runtime schema 3 may provide an optional `operator_status_url`. Chat Bridge accepts that URL only from `https://raw.githubusercontent.com`, reads it with bounded timeout/cache, and treats failure as telemetry-unavailable rather than as a scheduling/execution failure. Enable that URL in live runtime state only after the matching Local Agent publisher is deployed and the remote JSON exists.
+
 ## Live acceptance
 
 The bounded arithmetic acceptance is recorded in `conversation_fabric/SAME_BROWSER_PROOF_2026-10-04.md`. For a fresh acceptance after verified code is loaded into the normal Chrome session:
 
-1. verify exact source/deployed revision, Bridge `0.8.3`, parent URL/tab and GitHub control state;
+1. verify exact source/deployed revision, Bridge `0.8.4`, parent URL/tab and GitHub control state;
 2. delegate at least two narrow non-overlapping reasoning jobs from one managed parent;
 3. visibly confirm both children open as normal tabs in the same Chrome session without another login/profile;
 4. wait for automatic result collection on the existing control alarm;
