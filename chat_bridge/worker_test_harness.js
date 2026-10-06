@@ -5,6 +5,7 @@ const vm = require("node:vm");
 function clone(value) { return value === undefined ? undefined : JSON.parse(JSON.stringify(value)); }
 function createHarness(options = {}) {
 const runtimeAgents = require("./runtime.example.json").agents;
+const manifestVersion = require("./manifest.json").version;
 const CONTENT_PROTOCOL_VERSION = require("./control_protocol.js").CONTENT_PROTOCOL_VERSION;
 const bindingFor = (repositoryId) => {
   const agent = runtimeAgents.find((item) => item.repository_id === repositoryId);
@@ -119,7 +120,7 @@ const chrome = {
   runtime: {
     id: "test-bridge",
     getURL: (path) => `chrome-extension://test-bridge/${path}`,
-    getManifest: () => ({ version: "0.7.0" }),
+    getManifest: () => ({ version: manifestVersion }),
     reload: () => { runtimeReloads.push(Date.now()); },
     onInstalled: { addListener(listener) { installedListeners.push(listener); } },
     onStartup: { addListener(listener) { startupListeners.push(listener); } },

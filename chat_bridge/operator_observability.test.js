@@ -144,7 +144,7 @@ function operatorStatus() {
   assert.equal(first.operatorStatus.status.operator.running, true);
   assert.equal(first.operatorStatus.status.operator.active_request.workflow_id, "workflow-observability");
   assert.equal(first.operatorStatus.status.dedupe.suppressed_count, 3);
-  assert.equal(first.bridgeInfo.extensionVersion, "0.7.0");
+  assert.equal(first.bridgeInfo.extensionVersion, "0.8.4");
   assert.equal(first.bridgeInfo.contentProtocolVersion, h.CONTENT_PROTOCOL_VERSION);
 
   const fabric = first.fabricStatus[parentId];
