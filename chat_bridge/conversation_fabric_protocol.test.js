@@ -35,6 +35,45 @@ const delegate = {
   assert.equal(parsed.campaign_id, "cf-0123456789abcdef");
 }
 
+{
+  const recent = protocol.parseConversationFabricControl(block({
+    schema_version: 1,
+    action: "inspect"
+  }));
+  assert.ok(recent);
+  assert.deepEqual(
+    { schema_version: recent.schema_version, action: recent.action },
+    { schema_version: 1, action: "inspect" }
+  );
+
+  const campaign = protocol.parseConversationFabricControl(block({
+    schema_version: 1,
+    action: "inspect",
+    campaign_id: "cf-0123456789abcdef"
+  }));
+  assert.equal(campaign.campaign_id, "cf-0123456789abcdef");
+
+  const child = protocol.parseConversationFabricControl(block({
+    schema_version: 1,
+    action: "inspect",
+    campaign_id: "cf-0123456789abcdef",
+    child_id: "verify"
+  }));
+  assert.equal(child.child_id, "verify");
+}
+
+{
+  const retire = protocol.parseConversationFabricControl(block({
+    schema_version: 1,
+    action: "retire",
+    campaign_id: "cf-0123456789abcdef",
+    child_id: "stuck-child"
+  }));
+  assert.ok(retire);
+  assert.equal(retire.action, "retire");
+  assert.equal(retire.child_id, "stuck-child");
+}
+
 assert.equal(protocol.parseConversationFabricControl(block(delegate, " trailing text")), null);
 assert.equal(protocol.parseConversationFabricControl("ordinary assistant reply"), null);
 assert.equal(protocol.parseConversationFabricControl(block({ ...delegate, extra: true })), null);
@@ -54,6 +93,18 @@ assert.equal(protocol.parseConversationFabricControl(block({
   schema_version: 1,
   action: "collect",
   campaign_id: "wrong"
+})), null);
+assert.equal(protocol.parseConversationFabricControl(block({
+  schema_version: 1,
+  action: "inspect",
+  campaign_id: "cf-0123456789abcdef",
+  child_id: "bad child id"
+})), null);
+assert.equal(protocol.parseConversationFabricControl(block({
+  schema_version: 1,
+  action: "retire",
+  campaign_id: "wrong",
+  child_id: "verify"
 })), null);
 
 console.log("Conversation Fabric protocol tests passed.");
