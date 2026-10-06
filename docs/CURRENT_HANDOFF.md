@@ -6,6 +6,12 @@ Status: Local Agent remains on release line `v4.20.6`. The current post-release 
 
 Stable rollback anchor: `main@2d99fad80ab6e455301354dc53ee894a852b0bd6`. The exact verification and branch-hygiene record is `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md`.
 
+## Current focus
+
+Single-goal Superchat acceptance, lifecycle/recovery, operator observability, corrective-intent dedupe and production-path test-architecture hardening are complete in current source. The next planned product milestone is **bounded multi-goal supervision**: define the active-goal limit, priority/pause policy, aggregate spawn bound, repository-aware parent policy and circuit breakers without adding child machine authority or a second scheduler.
+
+The installed normal-Chrome Bridge remains an explicit deployment fact, not something inferred from source. Loading/reloading Bridge 0.8.4 and enabling its optional live `operator_status_url` remain separate operator actions after verified source/deployed Local Agent status exists.
+
 ## Source of truth
 
 Read fresh repository/runtime evidence in this order:
