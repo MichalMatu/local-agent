@@ -61,6 +61,12 @@
       "repository": "MichalMatu/hardware-lab",
       "agent_binding": "fa3dc1d7-5ee2-4b59-841c-e41918610df1",
       "execution_enabled": true
+    },
+    {
+      "id": "wolf-ue5",
+      "repository": "MichalMatu/wolf-ue5",
+      "agent_binding": "82180c40-c17b-4ddb-b17f-d90f7b80436a",
+      "execution_enabled": true
     }
   ]
 }
