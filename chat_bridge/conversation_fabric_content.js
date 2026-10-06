@@ -8,7 +8,11 @@
     throw new Error("Conversation Fabric content dependencies are unavailable");
   }
   const { CONTENT_PROTOCOL_VERSION, normalizeConversationUrl, controlFingerprint, fnv1a32 } = bridgeProtocol;
-  const { parseConversationFabricControl, MAX_PROMPT_CHARS } = fabricProtocol;
+  const {
+    parseConversationFabricControl,
+    diagnoseConversationFabricControl,
+    MAX_PROMPT_CHARS
+  } = fabricProtocol;
 
   const existing = globalThis.__localAgentConversationFabricContent;
   if (existing?.protocolVersion === CONTENT_PROTOCOL_VERSION) return;
@@ -174,6 +178,22 @@
     return String(latest?.innerText || latest?.textContent || "");
   }
 
+  function boundedDiagnosticDetail(value) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    return text.length > 500 ? `${text.slice(0, 500)}…` : text;
+  }
+
+  function conversationFabricRejectedPrompt(reason, detail = "") {
+    const safeReason = String(reason || "unknown");
+    const safeDetail = boundedDiagnosticDetail(detail);
+    return [
+      `Conversation Fabric control rejected: reason=${safeReason}.`,
+      safeDetail ? `detail=${safeDetail}` : "",
+      "No child was replayed or automatically created because of this rejection.",
+      "Emit a corrected LOCAL_AGENT_CF control in a new final assistant response. The control block must be valid JSON and the final non-whitespace content of the assistant turn."
+    ].filter(Boolean).join("\n\n");
+  }
+
   async function deliverFabricFeedback(prompt, expectedUrl) {
     const normalizedUrl = normalizeConversationUrl(expectedUrl);
     const normalized = (value) => String(value || "").trim().replace(/\s+/g, " ");
@@ -245,10 +265,37 @@
     const signature = fnv1a32(`${url}\n${latest.identity}\n${latest.text}`);
     if (signature === lastScannedSignature) return;
 
-    const control = parseConversationFabricControl(latest.text);
+    const diagnostic = typeof diagnoseConversationFabricControl === "function"
+      ? diagnoseConversationFabricControl(latest.text)
+      : {
+          present: latest.text.includes("<<<LOCAL_AGENT_CF"),
+          ok: Boolean(parseConversationFabricControl(latest.text)),
+          reason: "control_invalid",
+          control: parseConversationFabricControl(latest.text)
+        };
+    const control = diagnostic.ok ? diagnostic.control : null;
     if (!control) {
-      lastScannedSignature = signature;
-      retryGate.reset(signature);
+      if (!diagnostic.present) {
+        lastScannedSignature = signature;
+        retryGate.reset(signature);
+        return;
+      }
+      if (!retryGate.canAttempt(signature)) return;
+      scanInFlight = true;
+      try {
+        const feedback = await deliverFabricFeedback(
+          conversationFabricRejectedPrompt(diagnostic.reason),
+          url
+        );
+        if (!feedback.ok) {
+          retryGate.defer(signature);
+          return;
+        }
+        lastScannedSignature = signature;
+        retryGate.reset(signature);
+      } finally {
+        scanInFlight = false;
+      }
       return;
     }
     const fingerprint = controlFingerprint(location.href, latest.text, control, latest.identity);
@@ -259,11 +306,27 @@
     try {
       requestControl = decorateDelegateControl(control, fingerprint);
     } catch (error) {
-      // Prompt length is deterministic for this assistant turn. Retrying cannot
-      // make the completion guard fit, so fail closed until a new turn arrives.
-      lastScannedSignature = signature;
-      retryGate.reset(signature);
-      console.warn("Local Agent Conversation Fabric completion guard failed:", error);
+      // Prompt decoration failure is deterministic for this assistant turn. Surface it
+      // once in the parent instead of silently dropping a syntactically valid control.
+      scanInFlight = true;
+      try {
+        const feedback = await deliverFabricFeedback(
+          conversationFabricRejectedPrompt(
+            "control_child_prompt_too_large_after_completion_guard",
+            error
+          ),
+          url
+        );
+        if (!feedback.ok) {
+          retryGate.defer(signature);
+          return;
+        }
+        lastScannedSignature = signature;
+        retryGate.reset(signature);
+        console.warn("Local Agent Conversation Fabric completion guard failed:", error);
+      } finally {
+        scanInFlight = false;
+      }
       return;
     }
 
@@ -278,7 +341,24 @@
         control: requestControl
       });
       if (!response?.ok) {
-        retryGate.defer(signature);
+        // An explicit worker response is an acknowledgement, not a transport outage.
+        // Surface the rejection and settle this assistant turn so deterministic errors
+        // do not disappear into an opaque retry loop. Exceptions/no-response still use
+        // the retry path below.
+        const feedback = await deliverFabricFeedback(
+          conversationFabricRejectedPrompt(
+            response?.reason || "conversation_fabric_rejected",
+            response?.error || ""
+          ),
+          url
+        );
+        if (!feedback.ok) {
+          retryGate.defer(signature);
+          return;
+        }
+        lastSubmittedFingerprint = fingerprint;
+        lastScannedSignature = signature;
+        retryGate.reset(signature);
         return;
       }
       if (response.feedbackPrompt) {
