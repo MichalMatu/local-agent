@@ -36,8 +36,8 @@ def prepare_task(
     if "resources" in task:
         task_resources_for(task)
     if profile == "host-maintenance":
-        if target.repository_id != "host-ops":
-            raise ValueError("host-maintenance requires the host-ops target")
+        if target.repository_id != "local-agent":
+            raise ValueError("host-maintenance requires the local-agent target")
         # Host scope does not imply whole-machine exclusivity. Callers must request
         # "machine" explicitly for true whole-host operations, or name the concrete
         # external resources they need. Software-only maintenance stays concurrent.

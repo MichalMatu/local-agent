@@ -15,6 +15,8 @@ from local_agent.runtime.task_transport import write_task_bundle
 
 BINDING = "2db52048-57ea-4643-bf4b-1ea5c5c3fa86"
 HOST_BINDING = "16d688b6-b0ef-4905-a5bd-24e59c99cfb4"
+LOCAL_BINDING = "2180d453-1357-4fbc-be1a-e1e5b8fbb10a"
+DISABLED_BINDING = "00000000-0000-4000-8000-000000000001"
 
 
 class TaskPreparationTests(unittest.TestCase):
@@ -37,7 +39,13 @@ class TaskPreparationTests(unittest.TestCase):
                         {
                             "id": "local-agent",
                             "repository": "owner/local-agent",
-                            "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+                            "agent_binding": LOCAL_BINDING,
+                            "execution_enabled": True,
+                        },
+                        {
+                            "id": "disabled",
+                            "repository": "owner/disabled",
+                            "agent_binding": DISABLED_BINDING,
                             "execution_enabled": False,
                         },
                     ],
@@ -98,7 +106,7 @@ class TaskPreparationTests(unittest.TestCase):
             self.assertEqual(
                 resolve_execution_target(target, path=self.catalog).agent_binding, BINDING
             )
-        for target in ("missing", " demo", "local-agent"):
+        for target in ("missing", " demo", "disabled"):
             with self.subTest(target=target), self.assertRaises(ValueError):
                 resolve_execution_target(target, path=self.catalog)
 
@@ -122,7 +130,7 @@ class TaskPreparationTests(unittest.TestCase):
 
     def test_execution_disabled_target_never_produces_task(self) -> None:
         with self.assertRaisesRegex(ValueError, "execution-disabled"):
-            prepare_task(self.draft(), repository="local-agent", catalog_path=self.catalog)
+            prepare_task(self.draft(), repository="disabled", catalog_path=self.catalog)
 
     def test_chat_context_never_selects_or_authorizes_execution_target(self) -> None:
         task = prepare_task(
@@ -135,7 +143,7 @@ class TaskPreparationTests(unittest.TestCase):
         )
         self.assertEqual(task["agent_binding"], BINDING)
         with self.assertRaisesRegex(ValueError, "execution-disabled"):
-            prepare_task(task, repository="local-agent", catalog_path=self.catalog)
+            prepare_task(task, repository="disabled", catalog_path=self.catalog)
 
     def test_preparation_preserves_execution_budgets(self) -> None:
         with self.assertRaisesRegex(ValueError, "cannot fit"):
@@ -166,7 +174,7 @@ class TaskPreparationTests(unittest.TestCase):
         self.assertEqual(task["resources"], ["device:demo"])
 
     def test_host_profile_requires_host_target_and_preserves_resource_scope(self) -> None:
-        with self.assertRaisesRegex(ValueError, "host-ops"):
+        with self.assertRaisesRegex(ValueError, "local-agent"):
             prepare_task(
                 self.draft(),
                 repository="demo",
@@ -176,11 +184,11 @@ class TaskPreparationTests(unittest.TestCase):
 
         default_task = prepare_task(
             self.draft(),
-            repository="host-ops",
+            repository="local-agent",
             profile="host-maintenance",
             catalog_path=self.catalog,
         )
-        self.assertEqual(default_task["agent_binding"], HOST_BINDING)
+        self.assertEqual(default_task["agent_binding"], LOCAL_BINDING)
         self.assertEqual(default_task["resources"], [])
 
         for resources in (
@@ -194,7 +202,7 @@ class TaskPreparationTests(unittest.TestCase):
             with self.subTest(resources=resources):
                 task = prepare_task(
                     {**self.draft(), "resources": resources},
-                    repository="host-ops",
+                    repository="local-agent",
                     profile="host-maintenance",
                     catalog_path=self.catalog,
                 )
