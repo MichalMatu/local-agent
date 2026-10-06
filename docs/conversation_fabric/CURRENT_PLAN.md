@@ -54,7 +54,9 @@ Results must carry the expected completion marker and be stable across repeated 
 ## Restart and terminal-delivery contract
 
 - Submitted children are never blindly replayed after service-worker/session restart.
+- A post-submit `spawn_submission_ambiguous` result is recoverable evidence uncertainty, not permission to resend the bootstrap or immediately terminally fail an actually submitted child.
 - Reattachment after lost session ownership requires exact page transaction/request/bootstrap/current-child-URL evidence; tab id alone is insufficient.
+- An ambiguous/submitting child with a durable exact tab/transaction/request/bootstrap claim remains eligible for bounded identity reconciliation across worker restart; it is promoted only after current child-route ownership is proven.
 - Transient observation failures remain pending/recoverable.
 - Completed/failed cleanup closes only exact owned child tabs.
 - Terminal feedback persists a campaign-specific delivery claim before the parent send boundary.
@@ -78,17 +80,20 @@ Some browser smoke still calls Fabric helpers directly for parts of restart/reco
 Add/maintain one deterministic browser acceptance that traverses the production routing rather than helper-only shortcuts:
 
 1. real parent content discovers/submits a delegate control;
-2. spawn 3–4 ordinary child tabs;
-3. one child completes quickly and at least one remains active longer;
-4. persist a stable result;
-5. interrupt/reload the service-worker/extension lifecycle while campaign is active;
-6. recover captured state and exact child ownership without bootstrap replay;
-7. exercise one transient observation failure and later successful recovery;
-8. let normal worker polling reach terminal state;
-9. close exact owned child tabs;
-10. deliver terminal feedback exactly once;
-11. reload/restart again and poll again;
-12. assert no completed-campaign replay.
+2. spawn four ordinary child tabs;
+3. force at least three children through delayed/provisional post-submit routing that would previously surface `spawn_submission_ambiguous`, while verifying each bootstrap is sent exactly once;
+4. keep those children recoverable rather than terminally failed, preserving their exact owned tab and transaction/request/bootstrap claims;
+5. interrupt/reload the service-worker/extension lifecycle while at least one ambiguous child is still awaiting identity proof;
+6. recover durable state and exact child ownership without bootstrap replay or duplicate child creation;
+7. let all four tabs reach canonical child URLs and prove identity using the existing transaction/request/bootstrap/current-route/current-child-URL evidence;
+8. have all four children produce final results and durably capture all four before cleanup;
+9. exercise one additional transient observation failure and later successful recovery;
+10. let normal worker polling reach terminal state;
+11. close only exact owned child tabs after durable result capture;
+12. deliver terminal feedback exactly once with 4/4 recovered results;
+13. reload/restart again and poll again;
+14. assert no completed-campaign replay and no orphaned completed child;
+15. separately prove a truly ambiguous child that never reaches verifiable identity fails closed after bounded recovery with no second submit and no replacement tab.
 
 Prefer a genuine MV3 service-worker/extension restart if Chromium exposes a deterministic harness primitive. If not, use the strongest reliable production-shaped restart and document the remaining limitation explicitly.
 

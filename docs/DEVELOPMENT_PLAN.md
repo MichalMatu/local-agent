@@ -40,6 +40,20 @@ Strengthen the browser acceptance so one deterministic scenario exercises the re
 
 Prefer a genuine MV3 worker/extension restart when the browser harness can force it deterministically. If Chrome does not expose a reliable test primitive, use the strongest production-shaped restart available and state the remaining limitation explicitly instead of simulating recovery only through direct helper calls.
 
+### P0/P1 correctness — recover ambiguous post-submit routing
+
+A production incident showed that `spawn_submission_ambiguous` can be a false negative after the bootstrap was actually sent: child tabs were created, received the exact bootstrap, completed their reasoning and produced final answers, but Fabric marked them failed and never collected their results. Fix this before later diagnostic/cosmetic hardening:
+
+- treat post-submit routing ambiguity as recoverable evidence uncertainty, not proof that submission failed;
+- never replay an ambiguous bootstrap and never create a replacement child merely because routing/identity proof is late;
+- preserve the exact owned `tab_id` plus transaction/request/bootstrap claims while bounded reconciliation continues;
+- promote an ambiguous child to `submitted` only after the existing transaction/request/bootstrap/current-route/current-child-URL ownership evidence proves identity; tab id alone is never sufficient;
+- after service-worker restart, reconcile an interrupted ambiguous/submitting child from durable ownership evidence when possible instead of immediately terminally failing it;
+- collect and persist final results from children successfully recovered after ambiguous submission before exact owned-tab cleanup;
+- add a production-shaped four-child browser regression where at least three children initially hit delayed/provisional routing, each bootstrap is sent exactly once, all four later prove identity and return results, no duplicate child is created, terminal feedback is delivered once, and worker restart during ambiguity preserves recovery;
+- add the negative case where a truly ambiguous tab never reaches verifiable child identity and bounded recovery eventually fails closed without replay;
+- replace or split `campaign_timed_out_after_final_collect` so an ordinary campaign that simply remains running with pending children reports a semantically correct timeout such as `campaign_timed_out_with_pending_children`.
+
 ### Follow-up hardening — Conversation Fabric control-surface diagnostics
 
 Immediately after the restart/reload E2E is stable, close the observed silent control-drop case without broadening Conversation Fabric authority:
