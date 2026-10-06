@@ -66,6 +66,7 @@ function clone(value) {
     SCHEMA_VERSION: 1,
     MAX_CHILDREN: 4,
     CAMPAIGN_ID_RE: /^cf-[0-9a-f]{16}$/,
+    CHILD_ID_RE: /^[A-Za-z0-9._-]{1,64}$/,
     validateControl(value) { return value; }
   };
 
