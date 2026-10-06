@@ -12,6 +12,7 @@ This repository is execution infrastructure. Prefer deterministic behavior, boun
 - `local_agent/version.py` owns the release version.
 - `local_agent/config.py` owns startup-loaded timeout configuration.
 - `local_agent/mcp/` owns generic machine-local MCP registry validation, loopback Streamable HTTP client sessions, explicit tool policy, bounded discovery/execution, artifact persistence and the packaged MCP CLI. Application-specific MCP workflows do not belong in Local Agent.
+- `local_agent/host_ops/` owns absorbed deterministic host/remote capability execution. Its dependency direction remains `cli -> workflows -> capabilities -> core`; it must not own planning, repository routing, scheduling, task admission, Conversation Fabric policy or daemon lifecycle.
 - `local_agent/foundation/core.py` owns deterministic task execution, workspace preparation/checkpointing and result publication.
 - `local_agent/foundation/process.py` owns registered spawning, bounded stdout transport, process groups, durable text writes and inherited execution-lease descriptors.
 - `local_agent/foundation/storage.py` owns bounded control Git sync, transient-network retry and storage diagnostics.

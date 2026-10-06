@@ -4,6 +4,7 @@ This changelog records the current operationally relevant Local Agent release li
 
 ## Unreleased — Chat Bridge 0.8.11 candidate
 
+- Begin Host Ops absorption in PR #176: import donor `host-ops@b12b6f33` under `local_agent.host_ops`, preserve JSON contract v1, migrate the full donor regression suite plus architecture/design gates, and move new host-maintenance task preparation to the `local-agent` target while retaining the standalone binding only for migration compatibility.
 - Add a production-shaped second Conversation Fabric campaign in the same parent to prove fresh campaign identity, no state/terminal-receipt leakage, exact child cleanup and no replay of the earlier terminal feedback.
 - Define Host Ops absorption as the next product stage: Local Agent remains the sole brain/orchestrator while the deterministic `host-ops` capability layer moves in without its standalone control-plane identity.
 - Register `MichalMatu/wolf-ue5` as an execution-enabled canonical target while preserving existing binding/admission semantics.
