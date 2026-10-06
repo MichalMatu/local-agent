@@ -127,6 +127,7 @@ local_agent/repository/           repository identity, binding, administration a
 local_agent/runtime/              staged execution, watchdogs, output and telemetry
 local_agent/supervisor/           parallel/serial orchestration, scheduling and resources
 local_agent/operator/             local and remote emergency controls
+local_agent/host_ops/             deterministic host/remote capability tooling
 local_agent/cli/                  diagnostics
 local_agent/platform/             operating-system integration helpers
 local_agent/paths.py              explicit installed-checkout resolver
@@ -238,7 +239,7 @@ Recommended reading order for runtime changes:
 4. [`docs/GOLDEN_STANDARD.md`](docs/GOLDEN_STANDARD.md) — current production invariants.
 5. [`docs/EMERGENCY_CONTROLS.md`](docs/EMERGENCY_CONTROLS.md) — cancellation, disable and recovery.
 6. [`docs/AUTONOMOUS_CHAT_LOOP.md`](docs/AUTONOMOUS_CHAT_LOOP.md) — Chat Bridge planner loop.
-7. [`docs/HOST_OPS_MULTIREPO.md`](docs/HOST_OPS_MULTIREPO.md) — cross-repository `host-ops` planner scope.
+7. [`docs/HOST_OPS_MULTIREPO.md`](docs/HOST_OPS_MULTIREPO.md) — multirepo reasoning boundary and retired standalone Host Ops identity.
 8. [`docs/CHANGELOG.md`](docs/CHANGELOG.md) — operational release history.
 
 Historical material under `docs/history/` is non-canonical.

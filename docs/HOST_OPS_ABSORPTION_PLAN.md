@@ -1,6 +1,6 @@
 # Host Ops absorption plan
 
-Status: **source absorption merged in PR #176** at `main@4c0ea4c975e772ce7da776b8fe1f6508cf690c7f`; post-merge CI #2318 is 6/6 PASS. Live cutover is still pending.
+Status: **complete**. Source absorption merged in PR #176, live Mac provisioning of `local-agent` succeeded, absorbed CLI smokes passed, the standalone `host-ops` machine target was disabled successfully, and the current source catalog no longer contains the standalone identity.
 
 ## Architectural decision
 
@@ -81,10 +81,10 @@ The isolated CPU/GPU routing experiment on `work/cpu-gpu-routing` is not part of
    - Host Ops keeps a separate coverage floor of at least 85%, while Local Agent core keeps its existing 70% floor;
    - macOS/live-machine claims remain separate from hermetic CI evidence.
 
-5. **Switch operational ownership**
-   - update Local Agent docs and runtime usage to the absorbed tooling;
-   - stop authoring new executable tasks whose target is the standalone `host-ops` repository;
-   - remove the standalone `host-ops` catalog/binding identity only after no supported workflow depends on it.
+5. **Switch operational ownership — complete**
+   - Local Agent docs/runtime use the absorbed tooling;
+   - host-maintenance targets `local-agent`;
+   - the standalone `host-ops` machine target is disabled and its canonical catalog/runtime identity is removed.
 
 6. **Retire the donor repository**
    - preserve required research branches/history;
@@ -92,13 +92,13 @@ The isolated CPU/GPU routing experiment on `work/cpu-gpu-routing` is not part of
    - ensure all maintained host-operation documentation points to Local Agent.
 
 
-## Live cutover prerequisite
+## Live cutover evidence
 
 Source ownership has moved, but the standalone donor binding must remain available until the installed Mac deployment proves the absorbed path end to end.
 
 Current repository evidence shows that the canonical catalog marks `local-agent` execution-enabled with binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`, while the GitHub repository currently has no visible `agent-control` branch. The machine-local registry is authoritative for provisioning, so do not fabricate a task queue or infer self-execution readiness from the source catalog alone.
 
-Before removing the standalone `host-ops` binding:
+Completed acceptance sequence:
 
 1. verify the Mac daemon has self-updated to `main@4c0ea4c975e772ce7da776b8fe1f6508cf690c7f` or later;
 2. inspect the machine-local registry and confirm whether `local-agent` is provisioned as an execution target;

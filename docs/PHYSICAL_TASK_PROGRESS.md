@@ -49,7 +49,7 @@ Do not hide recovery churn behind a long-running conversation.
 Keep each responsibility on the worker that owns it:
 
 - the device/project repository owns device-specific protocol, validation and safety policy;
-- a generic capability repository such as `host-ops` owns generic host/device discovery and bounded transport primitives;
+- the absorbed `local_agent.host_ops` subsystem owns generic host/device discovery and bounded transport primitives;
 - Local Agent owns scheduling, watchdogs, repository identity and run/result evidence.
 
 Cross-repository assistance is not a reason to bounce one physical transaction through multiple workers. Prefer one project-local live task after prerequisites are known, with generic probes used only when discovery or ambiguity actually requires them.

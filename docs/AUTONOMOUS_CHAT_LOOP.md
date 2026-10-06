@@ -18,7 +18,7 @@ The ChatGPT DOM is not a scheduling source of truth and chat identity is not rep
 
 Every configured conversation has one concrete Bridge chat identity for transport/scheduling. Active user goals or durable requests may reason across donor and target repositories without chat rebind.
 
-Every executable Local Agent task resolves the actual target through the canonical runtime catalog, requires `execution_enabled=true`, and uses that target repository's exact canonical `agent_binding`. Registry/control agreement without a canonical catalog record fails closed. The current catalog enables `local-agent`, so self-execution is allowed only through the same target-bound admission, lease, resource and emergency-control rules as any other repository; there is no permanent special-case self-execution prohibition. `host-ops` remains an explicit host-operation/multirepo reasoning scope and its binding is never inherited by another target repository.
+Every executable Local Agent task resolves the actual target through the canonical runtime catalog, requires `execution_enabled=true`, and uses that target repository's exact canonical `agent_binding`. Registry/control agreement without a canonical catalog record fails closed. The current catalog enables `local-agent`, so self-execution is allowed only through the same target-bound admission, lease, resource and emergency-control rules as any other repository. Cross-repository reasoning comes from the active goal/request, not from a special planner-scope repository. Host operations use the internal `local_agent.host_ops` subsystem through the `local-agent` target.
 
 ## GitHub-only pacing
 
@@ -125,7 +125,7 @@ For Bridge/runtime behavior changes:
 
 - `docs/GITHUB_BRIDGE_CONTROL.md` — managed conversation desired-state contract;
 - `docs/conversation_fabric/README.md` — browser-native child reasoning surface;
-- `docs/HOST_OPS_MULTIREPO.md` — host/multirepo execution boundary;
+- `docs/HOST_OPS_MULTIREPO.md` — retired standalone Host Ops identity and current multirepo reasoning boundary;
 - `docs/CHATGPT_DOM_CONTRACT.md` — browser DOM compatibility boundary;
 - `docs/GOLDEN_STANDARD.md` — release/runtime invariants;
 - `docs/OPERATIONS.md` — operating procedure and live acceptance.
