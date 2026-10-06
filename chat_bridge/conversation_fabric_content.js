@@ -433,7 +433,10 @@
           return;
         }
         const feedback = await deliverFabricFeedback(
-          conversationFabricRejectedPrompt(diagnostic.reason),
+          conversationFabricRejectedPrompt(
+            diagnostic.reason,
+            diagnostic.detail || ""
+          ),
           url
         );
         if (!feedback.ok) {
