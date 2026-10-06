@@ -189,9 +189,21 @@
     return [
       `Conversation Fabric control rejected: reason=${safeReason}.`,
       safeDetail ? `detail=${safeDetail}` : "",
-      "No child was replayed or automatically created because of this rejection.",
+      "Bridge will not replay this rejected control automatically.",
       "Emit a corrected LOCAL_AGENT_CF control in a new final assistant response. The control block must be valid JSON and the final non-whitespace content of the assistant turn."
     ].filter(Boolean).join("\n\n");
+  }
+
+  async function conversationFabricDiagnosticSurfaceReady(expectedUrl) {
+    try {
+      const context = await chrome.runtime.sendMessage({
+        type: "bridge:control-context",
+        conversationUrl: expectedUrl
+      });
+      return context?.ok === true;
+    } catch (_error) {
+      return null;
+    }
   }
 
   async function deliverFabricFeedback(prompt, expectedUrl) {
@@ -283,6 +295,18 @@
       if (!retryGate.canAttempt(signature)) return;
       scanInFlight = true;
       try {
+        const diagnosticSurface = await conversationFabricDiagnosticSurfaceReady(url);
+        if (diagnosticSurface === null) {
+          retryGate.defer(signature);
+          return;
+        }
+        if (!diagnosticSurface) {
+          // A marker in an unmanaged/unready conversation is inert. Do not let the
+          // content script create user turns outside the Bridge's managed authority.
+          lastScannedSignature = signature;
+          retryGate.reset(signature);
+          return;
+        }
         const feedback = await deliverFabricFeedback(
           conversationFabricRejectedPrompt(diagnostic.reason),
           url
@@ -310,6 +334,16 @@
       // once in the parent instead of silently dropping a syntactically valid control.
       scanInFlight = true;
       try {
+        const diagnosticSurface = await conversationFabricDiagnosticSurfaceReady(url);
+        if (diagnosticSurface === null) {
+          retryGate.defer(signature);
+          return;
+        }
+        if (!diagnosticSurface) {
+          lastScannedSignature = signature;
+          retryGate.reset(signature);
+          return;
+        }
         const feedback = await deliverFabricFeedback(
           conversationFabricRejectedPrompt(
             "control_child_prompt_too_large_after_completion_guard",
@@ -342,9 +376,19 @@
       });
       if (!response?.ok) {
         // An explicit worker response is an acknowledgement, not a transport outage.
-        // Surface the rejection and settle this assistant turn so deterministic errors
-        // do not disappear into an opaque retry loop. Exceptions/no-response still use
-        // the retry path below.
+        // Re-check the managed surface before creating a user-visible diagnostic,
+        // because parent readiness may have changed between parse and rejection.
+        const diagnosticSurface = await conversationFabricDiagnosticSurfaceReady(url);
+        if (diagnosticSurface === null) {
+          retryGate.defer(signature);
+          return;
+        }
+        if (!diagnosticSurface) {
+          lastSubmittedFingerprint = fingerprint;
+          lastScannedSignature = signature;
+          retryGate.reset(signature);
+          return;
+        }
         const feedback = await deliverFabricFeedback(
           conversationFabricRejectedPrompt(
             response?.reason || "conversation_fabric_rejected",
