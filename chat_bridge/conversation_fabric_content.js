@@ -246,13 +246,17 @@
   }
 
   function submitComposer(composer, sendButton) {
-    if (sendButton instanceof HTMLButtonElement && sendButton.isConnected && !sendButton.disabled) {
-      sendButton.click();
-      return;
-    }
+    // Conversation Fabric feedback is machine-generated text already present in the
+    // current ChatGPT composer. Prefer one native form submission boundary instead of
+    // a synthetic button click followed by a second fallback. This matches pressing
+    // Enter/Send semantically while keeping every delivery single-shot.
     const form = composer?.closest?.("form");
     if (form instanceof HTMLFormElement && typeof form.requestSubmit === "function") {
       form.requestSubmit();
+      return;
+    }
+    if (sendButton instanceof HTMLButtonElement && sendButton.isConnected && !sendButton.disabled) {
+      sendButton.click();
       return;
     }
     throw new Error("send control unavailable");
@@ -364,12 +368,12 @@
 
     const previousUser = latestUserText();
     const ownership = ownedComposerPrompts.get(composer);
-    if (ownership && ownership.text === prompt) ownership.submissionAttempted = true;
     try {
       submitComposer(composer, button);
     } catch (error) {
       return { ok: false, reason: "send_button_not_ready", error: String(error) };
     }
+    if (ownership && ownership.text === prompt) ownership.submissionAttempted = true;
     const confirmDeadline = Date.now() + 5000;
     while (Date.now() < confirmDeadline) {
       const current = latestUserText();
