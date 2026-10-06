@@ -100,6 +100,25 @@
     return null;
   }
 
+  function schemaDiagnosticDetail(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return "The control payload must be one JSON object.";
+    }
+    const action = String(value.action || "");
+    const describe = (name, allowedKeys) => {
+      const unexpected = Object.keys(value).filter((key) => !allowedKeys.includes(key)).sort();
+      const suffix = unexpected.length ? `; unexpected keys: ${unexpected.join(", ")}` : "";
+      return `${name} JSON keys must be exactly ${allowedKeys.join(", ")}${suffix}. The literal closing delimiter LOCAL_AGENT_CF>>> belongs after the JSON object and is not a JSON field.`;
+    };
+    if (action === "delegate") return describe("delegate", ["schema_version", "action", "children"]);
+    if (action === "collect") return describe("collect", ["schema_version", "action", "campaign_id"]);
+    if (action === "inspect") {
+      return "inspect JSON may contain only schema_version, action, optional campaign_id, and optional child_id. The literal closing delimiter LOCAL_AGENT_CF>>> belongs after the JSON object and is not a JSON field.";
+    }
+    if (action === "retire") return describe("retire", ["schema_version", "action", "campaign_id", "child_id"]);
+    return "Supported actions are delegate, collect, inspect, and retire. Use only the keys defined for the selected action.";
+  }
+
   function diagnoseConversationFabricControl(text) {
     const source = String(text || "");
     const start = source.lastIndexOf(OPEN);
@@ -107,7 +126,12 @@
 
     const end = source.indexOf(CLOSE, start + OPEN.length);
     if (end < 0) {
-      return { present: true, ok: false, reason: "control_close_missing" };
+      return {
+        present: true,
+        ok: false,
+        reason: "control_close_missing",
+        detail: "Append the literal closing delimiter LOCAL_AGENT_CF>>> after the JSON object. Do not add a control_close field to the JSON."
+      };
     }
     if (source.slice(end + CLOSE.length).trim()) {
       return { present: true, ok: false, reason: "control_not_terminal" };
@@ -127,7 +151,14 @@
     }
 
     const control = validateControl(decoded);
-    if (!control) return { present: true, ok: false, reason: "control_schema_invalid" };
+    if (!control) {
+      return {
+        present: true,
+        ok: false,
+        reason: "control_schema_invalid",
+        detail: schemaDiagnosticDetail(decoded)
+      };
+    }
     return {
       present: true,
       ok: true,
