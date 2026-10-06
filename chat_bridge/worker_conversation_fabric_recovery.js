@@ -129,6 +129,9 @@ collectConversationFabric = async function collectConversationFabricRecovered(au
   if (campaign.parent_conversation_url !== authority.conversationUrl) {
     return { ok: false, reason: "conversation_fabric_parent_mismatch" };
   }
+  // Recover an independently vaulted result before observing the child again.
+  // This makes the vault write itself a usable crash checkpoint.
+  await hydrateConversationFabricResultsFromVault(campaign);
   if (campaign.state === "spawning") await recoverConversationFabricSpawningCampaign(campaign);
   if (campaign.state === "completed") {
     if (campaign.feedback_delivered) {
