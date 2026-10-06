@@ -1,8 +1,9 @@
 "use strict";
 
-// Offline real-extension proof: parent control -> three same-browser children ->
-// partial durable capture -> real MV3 service-worker restart -> recovery -> terminal feedback ->
-// second restart -> no replay.
+// Offline real-extension proof: parent control -> four same-browser children, including
+// three real post-submit ambiguous route transitions -> durable partial capture -> real
+// MV3 service-worker restart -> exact ownership recovery without bootstrap replay ->
+// terminal feedback -> second restart -> no replay.
 const assert = require("node:assert/strict");
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -20,6 +21,13 @@ window.submitted = [];
 window.__childId = null;
 window.__completionMarker = null;
 window.__childCompleted = false;
+window.__delayedChildUrl = "";
+window.releaseDelayedRoute = () => {
+  if (!window.__delayedChildUrl) return;
+  history.pushState({}, "", window.__delayedChildUrl);
+  window.__delayedChildUrl = "";
+  turn("assistant", "WORKING_" + String(window.__childId || "").toUpperCase());
+};
 function turn(role, text) {
   const row = document.createElement("div");
   row.dataset.turnKey = role + "-" + document.querySelectorAll("[data-turn-key]").length;
@@ -65,21 +73,36 @@ document.querySelector("form").onsubmit = (event) => {
   const child = text.match(/^child_id=(.+)$/m);
   if (child) {
     window.__childId = child[1];
-    history.pushState({}, "", "/c/fabric-child-" + child[1]);
     const completion = text.match(/<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>/);
     if (!completion) throw new Error("child bootstrap missing completion marker");
     window.__completionMarker = completion[0];
-    if (child[1] === "fast") window.completeChild();
-    if (child[1] === "slow") turn("assistant", "WORKING_SLOW");
+
+    if (child[1] === "fast") {
+      history.pushState({}, "", "/c/fabric-child-fast");
+      window.completeChild();
+      return;
+    }
+
+    // Reproduce the production race: Send succeeds and the exact page claim is durable,
+    // then routing passes through a recognized provisional URL and briefly lands on an
+    // unrecognized route. spawn_content therefore reports submission ambiguity even
+    // though the bootstrap was submitted exactly once. The test releases the canonical
+    // child route only after the MV3 worker has restarted.
+    history.pushState({}, "", "/uc/fabric-" + child[1]);
+    window.__delayedChildUrl = "/c/fabric-child-" + child[1];
+    setTimeout(() => {
+      if (window.__delayedChildUrl) history.pushState({}, "", "/routing-pending-" + child[1]);
+    }, 50);
     return;
   }
   if (
     text.includes("completed.") &&
     text.includes("RESULT_FAST") &&
-    text.includes("RESULT_SLOW") &&
-    text.includes("RESULT_TRANSIENT")
+    text.includes("RESULT_PRODUCT") &&
+    text.includes("RESULT_RELIABILITY") &&
+    text.includes("RESULT_ARCHITECTURE")
   ) {
-    turn("assistant", "PARENT_SYNTHESIS: RESULT_FAST + RESULT_SLOW + RESULT_TRANSIENT");
+    turn("assistant", "PARENT_SYNTHESIS: RESULT_FAST + RESULT_PRODUCT + RESULT_RELIABILITY + RESULT_ARCHITECTURE");
   }
 };
 </script></body></html>`;
@@ -394,43 +417,55 @@ async function campaignSnapshot(worker, campaignId) {
       action: "delegate",
       children: [
         { id: "fast", role: "research", prompt: "Return RESULT_FAST." },
-        { id: "slow", role: "verification", prompt: "Return RESULT_SLOW after a longer observation window." },
-        { id: "transient", role: "integration", prompt: "Return RESULT_TRANSIENT after a transient observation gap." }
+        { id: "product", role: "research", prompt: "Return RESULT_PRODUCT after route recovery." },
+        { id: "reliability", role: "verification", prompt: "Return RESULT_RELIABILITY after route recovery." },
+        { id: "architecture", role: "integration", prompt: "Return RESULT_ARCHITECTURE after route recovery." }
       ]
     };
     await parent.evaluate(controlValue => {
       window.turn("assistant", "<<<LOCAL_AGENT_CF\n" + JSON.stringify(controlValue) + "\nLOCAL_AGENT_CF>>>");
     }, control);
 
-    const campaign = await waitFor("three child delegation", () => worker.evaluate(async () => {
+    const campaign = await waitFor("four child delegation with three ambiguous routes", () => worker.evaluate(async () => {
       const campaigns = await listConversationFabricCampaigns();
-      return campaigns.find(value => value.state === "running" && value.children?.length === 3) || null;
+      return campaigns.find(value =>
+        value.state === "running" &&
+        value.children?.length === 4 &&
+        value.children.filter(child => child.state === "submission_ambiguous").length === 3
+      ) || null;
     }), 30000);
     campaignId = campaign.id;
-    assert.equal(campaign.children.length, 3);
+    assert.equal(campaign.children.length, 4);
     assert.ok(campaign.children.every(child => /<<<LOCAL_AGENT_CF_CHILD_COMPLETE:/.test(child.intent.bootstrap_text)));
-    await waitFor("three same-browser child tabs", () => fabricChildren(context).length === 3);
+    await waitFor("four same-browser child tabs", () => fabricChildren(context).length === 4);
     for (const page of fabricChildren(context)) {
-      assert.equal(await page.evaluate(() => window.submitted.length), 1);
+      assert.equal(await page.evaluate(() => window.submitted.length), 1, "every bootstrap is submitted exactly once");
     }
     await waitFor("started feedback", () => parent.evaluate(() => window.submitted.length >= 2));
 
-    // Drive collection through the real GitHub-control alarm event. Only the fast child
-    // is terminal; slow/transient must remain pending and the fast result must be saved.
+    // Only the fast child is terminal. The three real post-submit ambiguous children
+    // stay recoverable and must not be reported as failed or replayed.
     await triggerProductionFabricPoll(worker);
-    const partiallyCaptured = await waitFor("durable fast result capture", async () => {
+    const partiallyCaptured = await waitFor("durable fast result plus ambiguous children", async () => {
       const value = await campaignSnapshot(worker, campaignId);
-      return value?.state === "running" && value.results?.length === 1 ? value : null;
+      return value?.state === "running" &&
+        value.results?.length === 1 &&
+        value.children.filter(child => child.state === "submission_ambiguous").length === 3
+        ? value
+        : null;
     }, 20000);
     assert.deepEqual(partiallyCaptured.results.map(value => value.assistant_text), ["RESULT_FAST"]);
-    assert.ok(partiallyCaptured.children.find(child => child.id === "slow").observation_attempts >= 1);
-    assert.ok(partiallyCaptured.children.find(child => child.id === "transient").observation_attempts >= 1);
+    assert.equal(partiallyCaptured.failed_children.length, 0);
 
-    const slowPage = await pageForChild(context, "slow");
-    const transientPage = await pageForChild(context, "transient");
+    const productPage = await pageForChild(context, "product");
+    const reliabilityPage = await pageForChild(context, "reliability");
+    const architecturePage = await pageForChild(context, "architecture");
+    const submissionsBeforeRecovery = await Promise.all(
+      fabricChildren(context).map(page => page.evaluate(() => window.submitted.length))
+    );
 
-    // Real MV3 service-worker stop/restart while the campaign is active. Clear
-    // storage.session first so recovery cannot depend on transient tab ownership.
+    // Restart while the three submissions are still ambiguous. Clear storage.session
+    // so promotion must rebuild ownership from the child page's exact durable claim.
     worker = await restartServiceWorker(context, worker, { clearSession: true });
     await waitFor(
       "parent content reinjection in extension isolated world",
@@ -439,34 +474,45 @@ async function campaignSnapshot(worker, campaignId) {
     const afterReload = await campaignSnapshot(worker, campaignId);
     assert.equal(afterReload.state, "running");
     assert.deepEqual(afterReload.results.map(value => value.assistant_text), ["RESULT_FAST"]);
-
-    // Poll once while both remaining children are still incomplete. This exercises
-    // transient observation recovery after the real worker restart without replaying bootstrap.
-    const submissionsBeforeRecovery = await Promise.all(
-      fabricChildren(context).map(page => page.evaluate(() => window.submitted.length))
+    assert.equal(
+      afterReload.children.filter(child => child.state === "submission_ambiguous").length,
+      3
     );
+
+    await Promise.all([
+      productPage.evaluate(() => window.releaseDelayedRoute()),
+      reliabilityPage.evaluate(() => window.releaseDelayedRoute()),
+      architecturePage.evaluate(() => window.releaseDelayedRoute())
+    ]);
+
+    // The normal production poll must prove exact page ownership, promote all three
+    // ambiguous children to submitted, and still not replay any bootstrap.
     await triggerProductionFabricPoll(worker);
-    const observedAfterReload = await waitFor("post-reload pending observation", async () => {
+    const recoveredAfterReload = await waitFor("ambiguous children promoted after restart", async () => {
       const value = await campaignSnapshot(worker, campaignId);
-      const slow = value?.children?.find(child => child.id === "slow");
-      const transient = value?.children?.find(child => child.id === "transient");
-      return slow?.observation_attempts >= 2 && transient?.observation_attempts >= 2 ? value : null;
+      return value?.state === "running" &&
+        value.children.every(child => child.state === "submitted") &&
+        value.children.filter(child => child.recovered_submission_ambiguity === true).length === 3
+        ? value
+        : null;
     }, 20000);
-    assert.deepEqual(observedAfterReload.results.map(value => value.assistant_text), ["RESULT_FAST"]);
+    assert.deepEqual(recoveredAfterReload.results.map(value => value.assistant_text), ["RESULT_FAST"]);
     assert.deepEqual(
       await Promise.all(fabricChildren(context).map(page => page.evaluate(() => window.submitted.length))),
       submissionsBeforeRecovery,
-      "worker-restart recovery must not replay child bootstraps"
+      "worker-restart ambiguity recovery must not replay child bootstraps"
     );
+    assert.equal(fabricChildren(context).length, 4, "ambiguity recovery must not create duplicate children");
 
-    await slowPage.evaluate(() => window.completeChild());
-    await transientPage.evaluate(() => window.completeChild());
+    await productPage.evaluate(() => window.completeChild());
+    await reliabilityPage.evaluate(() => window.completeChild());
+    await architecturePage.evaluate(() => window.completeChild());
 
-    // The real alarm route must now collect both results, cleanup exact owned child tabs,
-    // and deliver terminal feedback through runFeedbackCycle exactly once.
+    // The real alarm route now captures all four results before exact owned-tab cleanup
+    // and delivers terminal feedback through runFeedbackCycle exactly once.
     await triggerProductionFabricPoll(worker);
     await parent.waitForFunction(() => document.body.textContent.includes(
-      "PARENT_SYNTHESIS: RESULT_FAST + RESULT_SLOW + RESULT_TRANSIENT"
+      "PARENT_SYNTHESIS: RESULT_FAST + RESULT_PRODUCT + RESULT_RELIABILITY + RESULT_ARCHITECTURE"
     ), null, { timeout: 30000 });
     const completed = await waitFor("terminal durable campaign", async () => {
       const value = await campaignSnapshot(worker, campaignId);
@@ -474,7 +520,7 @@ async function campaignSnapshot(worker, campaignId) {
     }, 20000);
     assert.deepEqual(
       completed.results.map(value => value.assistant_text).sort(),
-      ["RESULT_FAST", "RESULT_SLOW", "RESULT_TRANSIENT"].sort()
+      ["RESULT_FAST", "RESULT_PRODUCT", "RESULT_RELIABILITY", "RESULT_ARCHITECTURE"].sort()
     );
     assert.ok(completed.results.every(value => !value.assistant_text.includes("LOCAL_AGENT_CF_CHILD_COMPLETE")));
     assert.ok(completed.results.every(value => !value.assistant_text.includes("LOCAL AGENT BROWSER CHILD")));
@@ -504,10 +550,11 @@ async function campaignSnapshot(worker, campaignId) {
     assert.equal(parent.isClosed(), false, "parent must survive child cleanup and worker restarts");
 
     console.log(
-      "PASS: real Bridge delegates three children, durably captures a fast result, " +
-      "recovers an active campaign through a real MV3 worker restart, recovers transient " +
-      "observations without bootstrap replay, closes owned tabs, delivers terminal feedback " +
-      "once, and does not replay it after a second reload/poll."
+      "PASS: real Bridge delegates four children, keeps three successful-but-ambiguous " +
+      "post-submit routes recoverable, durably captures the fast sibling, rebuilds exact " +
+      "ownership through a real MV3 worker restart without bootstrap replay or duplicate " +
+      "children, captures 4/4 results before cleanup, delivers terminal feedback once, " +
+      "and does not replay it after a second restart/poll."
     );
   } catch (error) {
     if (worker && campaignId) {
