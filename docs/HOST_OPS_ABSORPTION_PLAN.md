@@ -94,17 +94,23 @@ The isolated CPU/GPU routing experiment on `work/cpu-gpu-routing` is not part of
 
 ## Live cutover evidence
 
-Source ownership has moved, but the standalone donor binding must remain available until the installed Mac deployment proves the absorbed path end to end.
+The live Mac cutover completed successfully on 2026-10-06.
 
-Current repository evidence shows that the canonical catalog marks `local-agent` execution-enabled with binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`, while the GitHub repository currently has no visible `agent-control` branch. The machine-local registry is authoritative for provisioning, so do not fabricate a task queue or infer self-execution readiness from the source catalog alone.
+Evidence:
 
-Completed acceptance sequence:
+- the guarded daemon self-updated to `a41689175f176535039216a3879295d10942962e`, which contains the absorbed Host Ops runtime and the post-absorption source closeout;
+- the machine-local registry was extended without reordering existing repositories and now provisions `local-agent` with canonical binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`;
+- `local-agent/agent-control` was created through the supported repository-admin provisioning path and its `.agent/binding.json` was committed with exact catalog/registry/control identity equality;
+- `repository.admin validate --repository-id local-agent` and explicit hard-binding validation passed;
+- an executable smoke targeted directly at `local-agent` and returned JSON contract version `1` plus valid bounded Apple M1 host-profile JSON;
+- the machine registry then set the standalone `host-ops` target to `enabled=false`;
+- the supervisor was restarted through the canonical first-registry control repository (`growclip`) and returned healthy/idle;
+- a second executable smoke targeted directly at `local-agent` after donor disable and passed with the same absorbed CLI contract;
+- the standalone `host-ops` queue had no task without a terminal result before disable;
+- the current source retirement removes the standalone `host-ops` identity from the canonical binding catalog and Bridge runtime example while retaining the internal `local_agent.host_ops` subsystem;
+- the donor repository remains frozen/history-only and `work/cpu-gpu-routing` remains preserved.
 
-1. verify the Mac daemon has self-updated to `main@4c0ea4c975e772ce7da776b8fe1f6508cf690c7f` or later;
-2. inspect the machine-local registry and confirm whether `local-agent` is provisioned as an execution target;
-3. if missing, provision its repository-scoped control/work/checkpoint state using the normal Local Agent repository-admin path, including exact binding and `agent-control` branch;
-4. run a bounded host-maintenance smoke through target `local-agent`, for example `python -m local_agent.host_ops --json-contract-version` and `python -m local_agent.host_ops host profile --json`;
-5. confirm no maintained workflow still requires the standalone `host-ops` checkout/binding before catalog removal or donor archival.
+The machine-local `host-ops` registry record may be removed completely only after this source retirement is merged, self-updated live, and one final `local-agent` smoke succeeds on that source.
 
 ## Non-goals
 

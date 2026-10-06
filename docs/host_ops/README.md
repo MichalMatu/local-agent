@@ -25,6 +25,6 @@ python -m local_agent.host_ops host profile --json
 
 Machine-local configuration intentionally remains compatible with the donor layout, including `~/.config/host-ops/config.toml` and `HOST_OPS_CONFIG`.
 
-The standalone `MichalMatu/host-ops` repository and binding are transitional compatibility only until live cutover is complete. New host-maintenance task preparation targets `local-agent`.
+The standalone `MichalMatu/host-ops` repository is a frozen donor/history repository and is no longer a canonical execution target. Maintained runtime ownership is `local_agent.host_ops`, and host-maintenance tasks target `local-agent`.
 
 Reusable donor documentation is preserved below `docs/host_ops/`. The old standalone Local Agent onboarding document is intentionally not imported because repository identity/control-plane onboarding is no longer part of Host Ops ownership.
