@@ -1,0 +1,72 @@
+name: one-shot verified branch cleanup sequential hardening 2026-10-06
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Fail closed on unexpected source or active PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_sha="59c5d699bc32283ebb98fc026f76128ec9db6d2a"
+          workflow=".github/workflows/one-shot-branch-cleanup-sequential-20261006.yml"
+          git merge-base --is-ancestor "$source_sha" HEAD
+          changed="$(git diff --name-only "$source_sha"..HEAD)"
+          test "$changed" = "$workflow"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&per_page=1" --jq 'length')" = "0"
+
+      - name: Verify exact disposable branch heads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > /tmp/branch-heads <<'EOF'
+          docs/milestone4-closeout-20261006 7969594c0ebe903ce0d4229478d1197474e0ec34
+          docs/sequential-delegation-hardening-20261006 fed570824c18b5a4aaa4db0b7ef40e7445ede903
+          feat/fabric-operator-observability-20261006 74c96c46f6b2395a327e6652f5d6f6d1ea31152b
+          feat/fabric-result-vault-recovery-20261006 4943ca547dfed1a06fc4f6532421b50aac02e6c3
+          fix/fabric-ambiguous-submit-recovery-20261006 e44628f2f08c65401d959fa202427f631603aa36
+          fix/fabric-control-diagnostics-20261006 dc83da576ef123f2b3ee71a145cc7468d11ada19
+          fix/fabric-feedback-submit-path-20261006 c642c3d96ce61b58ce72f61ea9754de2ac726524
+          fix/fabric-terminal-manual-submit-dedupe-20261006 62052f6b30ecaaf4220e1bb132444586d67f1c34
+          fix/host-maintenance-granular-resources-20261006 c140a703df478d8f85502d930d0ede1291bf1ca0
+          fix/idle-output-activity-20261004 406fc57926dc388af8c30d9a1aaa4594a063116d
+          hardening/runtime-contract-closeout-20261006 c402a6093dc5e0935a1048bf2587fae93a8ebb7c
+          test/fabric-restart-e2e-20261004 aad4b4039e3d407cb00af943188a03d4aecc7eec
+          test/parallel-ingestion-dedupe-20261006 073ca0db476179a0181007d3a39674d417b43d79
+          test/runtime-admission-matrix-20261006 c380e056fc23d5b8a641f973f87c11f54d728201
+          EOF
+          while read -r branch expected; do
+            actual="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}" --jq '.object.sha')"
+            test "$actual" = "$expected"
+          done < /tmp/branch-heads
+
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/chat-bridge-state" --jq '.object.sha')" = "de093200dda278ccff783a788996018ade12cc92"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/operator-control" --jq '.object.sha')" = "04912527964eac4f3c0359ea045b0d5385de0ad7"
+
+      - name: Delete only verified disposable branches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          while read -r branch _expected; do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"
+          done < /tmp/branch-heads
