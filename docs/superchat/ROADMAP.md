@@ -2,66 +2,68 @@
 
 This roadmap starts from the current implemented baseline. Old pre-implementation phase numbering is historical and is no longer the active plan.
 
-## Stage A — single-Superchat live acceptance — NEXT
+## Stage A — single-Superchat live acceptance — complete
 
-Prove the core user-visible behavior on real code:
+The core user-visible path is accepted:
 
-- one parent Superchat;
-- at least two bounded reasoning-only children;
-- real child registration/result evidence;
-- parent observes and synthesizes child outputs;
-- at most one justified target-bound Local Agent execution;
-- queue dedupe prevents overlapping equivalent expensive work;
-- clean bounded shutdown/pause after the proof.
+- one parent Superchat delegates bounded reasoning-only children in the already authenticated normal Chrome session;
+- child registration/results are durable and visible to the parent;
+- the parent synthesizes child outputs and remains the only final execution decision-maker;
+- target-bound Local Agent execution stays behind canonical catalog/binding admission and queue dedupe;
+- bounded acceptance ends in an intentional paused/closed state.
 
-Exit: a user can watch one parent delegate, collect, decide and execute without giving children machine authority.
+Evidence includes the same-browser acceptance record plus the current real-extension browser regression.
 
-## Stage B — lifecycle/recovery acceptance
+## Stage B — lifecycle/recovery acceptance — complete
 
-Prove that the same architecture survives failure boundaries:
+The accepted architecture now has both historical live pacing evidence and deterministic production-shaped lifecycle coverage:
 
-- restart during child creation/wait/result collection;
-- durable recovery without duplicate authoritative children;
-- pause/resume;
-- one controlled child rollover;
-- hard exhaustion remains terminal/fail-closed;
-- parent resumes from durable checkpoint/evidence rather than copied chat history.
+- GitHub-managed pause/resume/NEXT was proved in normal daily Chrome;
+- service-worker interruption during active multi-child work preserves durable state;
+- submitted children recover only from exact transaction/request/bootstrap/current-route evidence and are never blindly replayed;
+- explicit retire plus deliberate fresh-id re-delegation provides controlled rollover without automatic replacement;
+- unresolved post-submit ambiguity reaches a bounded fail-closed terminal state;
+- terminal feedback is durably delivered at most once and a second restart/poll does not replay it.
 
-Exit: every bounded interruption either resumes safely or stops with one explicit supervisor blocker.
+Exit condition is satisfied: bounded interruptions either recover from durable evidence or stop with an explicit blocker/failure.
 
-## Stage C — concise operator observability
+## Stage C — concise operator observability — complete
 
-Provide one status surface showing:
+Chat Bridge 0.8.4 provides one compact read-only Operator status surface combining:
 
-- operator enabled/configured/running;
-- parent goal and active children;
-- child lifecycle state/result;
-- Bridge scheduling state;
-- dedupe suppression evidence;
-- exact Local Agent/Chat Bridge revisions.
+- Conversation Operator enabled/configured/running;
+- active workflow and child count;
+- current Fabric campaign/result/cleanup/terminal-feedback state;
+- Bridge Master/version state;
+- bounded dedupe suppression/rejection/reconciliation evidence;
+- exact Local Agent `daemon_version` + deployed `self_revision`.
 
-Exit: live readiness can be assessed without reading scattered runtime files.
+The Local Agent half is bounded `.agent/status/operator.json` telemetry; it adds no execution or scheduling authority.
 
-## Stage D — dedupe corrective-intent hardening
+## Stage D — dedupe corrective-intent hardening — complete
 
-Separate recent successful completion suppression from failed-terminal corrective intent so a materially changed retry is not accidentally blocked by a failed predecessor while preserving anti-duplication safety.
+Corrective intent is explicit and anti-duplication safety remains fail-closed:
 
-Exit: explicit corrective work is admissible without reopening duplicate execution races.
+- `dedupe_revision` defaults to 1 and requires an explicit `dedupe_key`;
+- after a completed attempt, including a failed attempt, a new task id with a higher revision may represent deliberate corrective work without waiting for the recent-completion TTL;
+- a changed plan at the same revision is terminal `dedupe_intent_conflict` evidence;
+- a higher revision never bypasses an active claim;
+- crash-safe completion reconciliation uses durable `result_published` evidence so claim loss cannot reopen equivalent work.
 
-## Stage E — bounded multi-goal supervision
+## Stage E — bounded multi-goal supervision — next
 
-Only after Stages A-B pass in production:
+Only now that Stages A-D and the production-path test-architecture milestone are complete:
 
-- deterministic active-goal limit;
-- priority and pause/resume policy;
-- bounded spawn rate;
-- compact fleet snapshot;
-- repository-aware scheduling policy;
-- circuit breakers for repeated blocked/failed goals.
+- define a deterministic active-goal limit;
+- add explicit priority and pause/resume policy across goals;
+- bound aggregate child spawn rate;
+- keep repository-aware execution decisions at the parent/canonical target boundary;
+- add circuit breakers for repeatedly blocked/failed goals;
+- expose a compact multi-goal fleet snapshot without creating a second scheduler or execution authority.
 
-Exit: one parent can coordinate several goals without becoming an unsafe autonomous scheduler.
+Exit: one parent can coordinate several bounded goals without becoming an unsafe autonomous scheduler.
 
-## Explicit non-goals until later
+## Explicit non-goals
 
 - child machine authority;
 - a second executor/scheduler;

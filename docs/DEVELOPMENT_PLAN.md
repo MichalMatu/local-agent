@@ -109,17 +109,20 @@ One normal read-only status surface now combines the existing Local Agent and br
 
 Telemetry failure is fail-soft and must never block control reconciliation, scheduling or task execution.
 
-## Milestone 4 — test architecture hardening
+## Milestone 4 — test architecture hardening — complete
 
-Reduce the gap between helper-level confidence and production-path confidence:
+The remaining helper-to-production gaps are now covered by focused production-path regressions:
 
-- shared serial/parallel runtime-admission acceptance matrix;
-- real worker-path wrong-binding, execution-disabled and stale-registry cases;
-- production-ingestion dedupe collision/malformed-metadata cases;
-- browser smoke that goes through content → worker event routing → durable state instead of calling Fabric helpers directly;
-- explicit restart/reload regression for terminal at-most-once delivery.
+- `tests/test_runtime_admission_matrix.py` drives both real serial and parallel `poll_repository_once()` entrypoints through canonical success, wrong-task-binding rejection, execution-disabled catalog admission and stale registry/control binding;
+- `tests/test_parallel_ingestion_dedupe.py` exercises malformed dedupe metadata from a real `.agent/tasks/*.json` manifest and same-intent/same-revision conflicting plans through the production parallel poll/coalescing path;
+- runtime-admission hardening and parallel-ingestion dedupe are included in the explicit macOS smoke gate;
+- `scripts/conversation_fabric_browser_smoke.cjs` starts delegation from the parent assistant DOM, traverses the installed content-controller/worker route, creates ordinary same-browser child tabs and captures durable state through the production poll alarm; direct helper use is limited to harness setup, forced time advancement and bounded inspection/awaiting, not production delegation/recovery/polling/ownership/terminal-delivery transitions;
+- that real-extension smoke stops and wakes the actual MV3 service worker, reconstructs exact child ownership without bootstrap replay, delivers terminal feedback once, restarts again, polls again and proves no completed-campaign replay;
+- the same browser proof also covers explicit retire/redelegate recovery and a truly unresolved post-submit ambiguity that times out fail-closed without a second submit or replacement tab.
 
-## Milestone 5 — bounded multi-goal supervision
+Do not add another browser harness merely to duplicate this path. A new test layer is justified only by a concrete uncovered production boundary.
+
+## Milestone 5 — bounded multi-goal supervision — next
 
 Only after the complete restart/reload E2E remains stable:
 
