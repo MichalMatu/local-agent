@@ -1,0 +1,46 @@
+name: one-shot Host Ops retirement branch cleanup
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/cleanup-host-ops-retirement-branches.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Delete exact retired work branches
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          check() {
+            local branch="$1"
+            local expected="$2"
+            local actual
+            actual="$(git ls-remote --heads origin "refs/heads/$branch" | awk '{print $1}')"
+            if [[ -z "$actual" ]]; then
+              echo "already absent: $branch"
+              return 0
+            fi
+            if [[ "$actual" != "$expected" ]]; then
+              echo "ref mismatch for $branch: expected $expected got $actual" >&2
+              exit 1
+            fi
+          }
+
+          check "chore/retire-host-ops-target" "58925a7481483f0d614124b59f027d8e3fc96980"
+          check "chore/retire-host-ops-binding" "9f3ec443e3643130eacd8de6978cffa76ffc0540"
+
+          git push origin --delete \
+            chore/retire-host-ops-target \
+            chore/retire-host-ops-binding
