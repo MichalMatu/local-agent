@@ -345,45 +345,12 @@ async function hydrateConversationFabricResultsFromVault(campaign) {
   return changed;
 }
 
-function conversationFabricControlBlock(control) {
-  return [
-    "<<<LOCAL_AGENT_CF",
-    JSON.stringify({
-      schema_version: conversationFabricProtocol.SCHEMA_VERSION,
-      ...control
-    }),
-    "LOCAL_AGENT_CF>>>"
-  ].join("\n");
-}
-
-function conversationFabricCollectBlock(campaignId) {
-  return conversationFabricControlBlock({ action: "collect", campaign_id: campaignId });
-}
-
-function conversationFabricInspectBlock(campaignId, childId = "") {
-  return conversationFabricControlBlock({
-    action: "inspect",
-    campaign_id: campaignId,
-    ...(childId ? { child_id: childId } : {})
-  });
-}
-
-function conversationFabricRetireBlock(campaignId, childId) {
-  return conversationFabricControlBlock({
-    action: "retire",
-    campaign_id: campaignId,
-    child_id: childId
-  });
-}
-
 function conversationFabricNextWakeInstruction(campaignId) {
   return [
-    "Bridge collects child results on its existing GitHub control poll while this parent is enabled.",
-    "Wait for result feedback. Do not invent child results or create another delegation for the same work.",
-    "For a read-only status/result check, end a later parent reply with this exact inspect block:",
-    conversationFabricInspectBlock(campaignId),
-    "To force one bounded observation pass of already-submitted children, use collect instead:",
-    conversationFabricCollectBlock(campaignId)
+    `Campaign id: ${campaignId}.`,
+    "Bridge collects child results automatically while this parent is enabled.",
+    "No parent action is required while children are still running.",
+    "Do not emit LOCAL_AGENT_CF inspect, collect, retire, or delegate controls in response to this status message. Wait for automatic result feedback."
   ].join("\n\n");
 }
 
@@ -436,18 +403,14 @@ function conversationFabricPendingPrompt(campaign, pendingIds) {
     .map((id) => (campaign.children || []).find((child) => child.id === id))
     .filter(Boolean);
   const pendingStatus = pendingChildren.map((child) => conversationFabricChildStatusLine(child, campaign));
-  const retireControls = pendingChildren.map((child) => [
-    `If you intentionally decide child ${child.id} is stuck and should be abandoned, use this exact retire control. Do not retire a child you still want to wait for:`,
-    conversationFabricRetireBlock(campaign.id, child.id)
-  ].join("\n\n"));
   return [
     `Conversation Fabric campaign ${campaign.id} is still running in child tabs: ${pendingIds.join(", ")}.`,
     pendingStatus.length ? `Pending child diagnostics:\n${pendingStatus.join("\n")}` : "",
     failures.length
       ? `Child startup/observation failures already recorded: ${failures.map(conversationFabricFailureSummary).join("; ")}. These children will not be replayed automatically.`
       : "",
-    ...retireControls,
     "Do not synthesize the delegated work yet unless the campaign becomes terminal.",
+    "If the operator later decides a child is stuck, wait for an explicit operator instruction before retiring it.",
     conversationFabricNextWakeInstruction(campaign.id)
   ].filter(Boolean).join("\n\n");
 }
@@ -497,11 +460,10 @@ function conversationFabricCompletedPrompt(campaign) {
     retryableFailures.length
       ? `Retryable missing child coverage: ${retryableFailures.map((failure) => failure.id).join(", ")}. You may intentionally delegate that bounded work again in a new campaign with new child ids. Bridge will never replay it automatically.`
       : "",
-    "Captured child work is retained in the Conversation Fabric Result Vault. Read-only recovery for this campaign:",
-    conversationFabricInspectBlock(campaign.id),
+    "Captured child work is retained in the Conversation Fabric Result Vault. Inspect it only when the operator explicitly asks for recovery or diagnostics.",
     failures.length
-      ? "Synthesize the final parent answer from the available results and explicitly report the missing child coverage. Do not invent or automatically replay failed child work."
-      : "Synthesize the final parent answer now. Do not delegate machine execution to a child."
+      ? "Synthesize the final parent answer from the available results and explicitly report the missing child coverage. Do not invent, automatically replay, or emit a new LOCAL_AGENT_CF control for failed child work."
+      : "Synthesize the final parent answer now. Do not emit another LOCAL_AGENT_CF control or delegate machine execution to a child."
   ].filter(Boolean).join("\n\n");
 }
 
