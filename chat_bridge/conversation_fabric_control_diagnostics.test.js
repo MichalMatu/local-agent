@@ -8,7 +8,7 @@ const vm = require("node:vm");
 const root = __dirname;
 const parentUrl = "https://chatgpt.com/c/control-diagnostics-parent";
 
-function createHarness({ assistantText, workerResponse }) {
+function createHarness({ assistantText, workerResponse, managed = true }) {
   let intervalCallback = null;
   let controlCalls = 0;
   let retryDefers = 0;
@@ -102,6 +102,9 @@ function createHarness({ assistantText, workerResponse }) {
     chrome: {
       runtime: {
         async sendMessage(message) {
+          if (message.type === "bridge:control-context") {
+            return managed ? { ok: true } : { ok: false, reason: "control_not_ready" };
+          }
           if (message.type !== "bridge:conversation-fabric-control") {
             throw new Error(`unexpected message type: ${message.type}`);
           }
@@ -209,6 +212,23 @@ async function flush() {
     await flush();
     assert.equal(h.controlCalls(), 1, "deterministic worker rejection must settle the assistant turn");
     assert.equal(h.submitted.length, 1);
+  }
+
+  {
+    const h = createHarness({
+      assistantText: [
+        "<<<LOCAL_AGENT_CF",
+        JSON.stringify(delegate),
+        "LOCAL_AGENT_CF>>>",
+        "trailing prose"
+      ].join("\n"),
+      workerResponse: { ok: true },
+      managed: false
+    });
+    await flush();
+    assert.equal(h.controlCalls(), 0);
+    assert.equal(h.submitted.length, 0, "unmanaged chat must not receive local Fabric diagnostic turns");
+    assert.equal(h.retryDefers(), 0);
   }
 
   console.log("Conversation Fabric control diagnostic tests passed.");
