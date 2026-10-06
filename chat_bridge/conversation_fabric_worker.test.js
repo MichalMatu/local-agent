@@ -24,6 +24,7 @@ function createHarness({
   ambiguousChildId = "",
   reconcilePlan = {},
   resultTextByChild = {},
+  observationReasonByChild = {},
   allowActiveClose = false,
   managed = true,
   storage = {}
@@ -163,6 +164,17 @@ function createHarness({
     async observeConversationSpawnResult(intent) {
       observed.push(clone(intent));
       const childId = childIdForIntent(intent);
+      const forcedReason = String(observationReasonByChild[childId] || "");
+      if (forcedReason) {
+        if (["child_generating", "child_result_missing", "child_result_unstable"].includes(forcedReason)) {
+          return {
+            ok: true,
+            reason: forcedReason,
+            childConversationUrl: `https://chatgpt.com/c/child-${intent.tab_id}`
+          };
+        }
+        return { ok: false, reason: forcedReason };
+      }
       return {
         ok: true,
         reason: "child_result_ready",
@@ -285,6 +297,33 @@ function createHarness({
       "late cleanup must not erase the receipt of concurrent terminal feedback delivery"
     );
 
+    const claimBase = await h.context.loadConversationFabricCampaign(started.campaignId);
+    const staleBeforeClaim = clone(claimBase);
+    const claimed = clone(claimBase);
+    claimed.feedback_delivery_claim = {
+      id: "claim-1",
+      state: "claimed",
+      started_at: "2026-10-06T03:00:00.000Z"
+    };
+    await h.context.saveConversationFabricCampaign(claimed, { allowDeliveryClaimMutation: true });
+    await h.context.saveConversationFabricCampaign(staleBeforeClaim);
+    assert.equal(
+      (await h.context.loadConversationFabricCampaign(started.campaignId)).feedback_delivery_claim.id,
+      "claim-1",
+      "ordinary stale campaign saves must preserve an in-flight terminal delivery claim"
+    );
+
+    const staleWithClaim = await h.context.loadConversationFabricCampaign(started.campaignId);
+    const clearedByOwner = clone(staleWithClaim);
+    delete clearedByOwner.feedback_delivery_claim;
+    await h.context.saveConversationFabricCampaign(clearedByOwner, { allowDeliveryClaimMutation: true });
+    await h.context.saveConversationFabricCampaign(staleWithClaim);
+    assert.equal(
+      (await h.context.loadConversationFabricCampaign(started.campaignId)).feedback_delivery_claim,
+      undefined,
+      "ordinary stale saves must not resurrect a claim cleared by the delivery owner"
+    );
+
     const vaultRecords = Object.entries(h.session)
       .filter(([key]) => key.startsWith("conversation-fabric-result:"))
       .map(([, value]) => value);
@@ -339,6 +378,51 @@ function createHarness({
   }
 
   {
+    const legacyCampaignId = "cf-0000000000000000";
+    const storage = {};
+    for (let index = 0; index < 32; index += 1) {
+      const id = `cf-${index.toString(16).padStart(16, "0")}`;
+      storage[`conversation-fabric-campaign:${id}`] = {
+        schema_version: 1,
+        id,
+        state: "completed",
+        parent_conversation_url: parentUrl,
+        parent_tab_id: 11,
+        assistant_identity: `legacy-assistant-${index}`,
+        fingerprint: "11111111",
+        created_at: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+        children: index === 0 ? [{
+          id: "legacy",
+          role: "research",
+          state: "submitted",
+          child_conversation_url: "https://chatgpt.com/c/legacy-child",
+          intent: {}
+        }] : [],
+        results: index === 0 ? [{
+          id: "legacy",
+          role: "research",
+          child_conversation_url: "https://chatgpt.com/c/legacy-child",
+          assistant_identity: "legacy-result",
+          assistant_text: "LEGACY_RESULT",
+          truncated: false,
+          captured_at: "2026-01-01T00:00:00.000Z"
+        }] : [],
+        failed_children: [],
+        feedback_delivered: true,
+        cleanup_pending: false
+      };
+    }
+    const h = createHarness({ storage });
+    const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
+    assert.equal(started.ok, true, JSON.stringify(started));
+    assert.equal(storage[`conversation-fabric-campaign:${legacyCampaignId}`], undefined);
+    const vaulted = storage[`conversation-fabric-result:${legacyCampaignId}:legacy`];
+    assert.ok(vaulted, "legacy campaign result must be vaulted before campaign-history pruning");
+    assert.equal(vaulted.assistant_text, "LEGACY_RESULT");
+    assert.equal(vaulted.captured_at, "2026-01-01T00:00:00.000Z");
+  }
+
+  {
     const h = createHarness({ managed: false });
     const result = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
     assert.equal(result.ok, false, JSON.stringify(result));
@@ -347,7 +431,10 @@ function createHarness({
   }
 
   {
-    const h = createHarness({ allowActiveClose: true });
+    const h = createHarness({
+      allowActiveClose: true,
+      observationReasonByChild: { verify: "child_generating" }
+    });
     const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
     assert.equal(started.ok, true, JSON.stringify(started));
     const createdBefore = h.created.length;
@@ -382,6 +469,31 @@ function createHarness({
     assert.equal(verify.failure.retryable, true);
     assert.equal(terminal.results.length, 1, "non-retired sibling result is still captured");
     assert.match(retired.feedbackPrompt, /retryable missing coverage/);
+  }
+
+  {
+    const h = createHarness({
+      allowActiveClose: true,
+      observationReasonByChild: { verify: "spawn_claim_conflict" }
+    });
+    const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
+    const rejected = await h.context.applyConversationFabricControl({
+      ...h.delegateMessage,
+      fingerprint: "4a5b6c7d",
+      assistantIdentity: "assistant-retire-repurposed",
+      control: {
+        schema_version: 1,
+        action: "retire",
+        campaign_id: started.campaignId,
+        child_id: "verify",
+        marker: "synthetic-retire-repurposed"
+      }
+    }, h.sender);
+    assert.equal(rejected.ok, false, JSON.stringify(rejected));
+    assert.equal(rejected.reason, "conversation_fabric_retire_ownership_unproven");
+    assert.equal(h.closed.length, 0, "retire must not close a tab whose current page identity cannot be re-proven");
+    const running = await h.context.loadConversationFabricCampaign(started.campaignId);
+    assert.equal(running.children.find(child => child.id === "verify").state, "submitted");
   }
 
   {
