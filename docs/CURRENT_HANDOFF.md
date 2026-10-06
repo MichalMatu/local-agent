@@ -8,9 +8,11 @@ Stable source rollback anchor: `main@59c5d699bc32283ebb98fc026f76128ec9db6d2a`. 
 
 ## Current focus
 
-Single-goal Superchat acceptance, lifecycle/recovery, operator observability, corrective-intent dedupe and production-path test-architecture hardening are complete in current source. The final planned product milestone is **sequential delegation-cycle hardening**: one parent remains responsible for exactly one project/main goal while repeatedly delegating bounded task-specific reasoning children, synthesizing and closing each campaign before starting the next.
+Single-goal Superchat acceptance, lifecycle/recovery, operator observability, corrective-intent dedupe and production-path test-architecture hardening are complete in current source. The sequential delegation-cycle source closeout now includes a production-shaped second-campaign proof in the same parent, covering fresh campaign identity, no inherited results/terminal receipt, exact child cleanup and no replay/mutation of the first campaign.
 
-The operator later disabled the live normal-Chrome Bridge after a field regression repeatedly inserted Conversation Fabric feedback without reliably submitting it and retries began to spam the composer. PR #171 fixes the source submit path and is merged with exact-head and post-merge 5/5 CI, but the post-fix source has not been reloaded or live-accepted. Keep the live Bridge disabled until an explicit operator validation step. Activation of the optional live `operator_status_url` has not been verified and must not be inferred.
+The next planned product stage is **Host Ops absorption**: Local Agent remains the sole brain/orchestrator while the deterministic production capability layer from `MichalMatu/host-ops` moves into Local Agent. The standalone Host Ops repository is transitional donor/compatibility infrastructure, not a second planner/scheduler/product. See `docs/HOST_OPS_ABSORPTION_PLAN.md`.
+
+The operator later disabled the live normal-Chrome Bridge after a field regression repeatedly inserted Conversation Fabric feedback without reliably submitting it and retries began to spam the composer. The source submit path has since been repaired and strengthened, but the post-fix source has not been reloaded or live-accepted. Keep the live Bridge disabled until an explicit operator validation step. Activation of the optional live `operator_status_url` has not been verified and must not be inferred.
 
 ## Source of truth
 
@@ -18,13 +20,14 @@ Read fresh repository/runtime evidence in this order:
 
 1. `AGENTS.md`
 2. this file
-3. `docs/CHECKPOINT_2026-10-06_SEQUENTIAL_HARDENING_BASELINE.md`
-4. `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md` (historical rollback evidence)
-5. `docs/GOLDEN_STANDARD.md`
-6. `docs/OPERATIONS.md`
-7. `docs/AUTONOMOUS_CHAT_LOOP.md`
-8. `docs/GITHUB_BRIDGE_CONTROL.md`
-9. `docs/conversation_fabric/CURRENT_PLAN.md`
+3. `docs/HOST_OPS_ABSORPTION_PLAN.md`
+4. `docs/CHECKPOINT_2026-10-06_SEQUENTIAL_HARDENING_BASELINE.md` (historical source/branch snapshot, not the current branch inventory)
+5. `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md` (historical rollback evidence)
+6. `docs/GOLDEN_STANDARD.md`
+7. `docs/OPERATIONS.md`
+8. `docs/AUTONOMOUS_CHAT_LOOP.md`
+9. `docs/GITHUB_BRIDGE_CONTROL.md`
+10. `docs/conversation_fabric/CURRENT_PLAN.md`
 
 Historical isolated-profile, DEV-lab, self-diagnostic, older checkpoint and release-note documents are evidence only.
 
