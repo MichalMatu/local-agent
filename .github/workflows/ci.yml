@@ -22,13 +22,13 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install absorbed Host Ops test tooling
-        run: python -m pip install --disable-pip-version-check pytest==9.1.1 hypothesis==6.168.3
+        run: python -m pip install --disable-pip-version-check pytest==9.1.1 hypothesis==6.168.3 pytest-cov==7.1.0
       - name: Host Ops architecture contract
         run: python scripts/host_ops_quality/check_architecture.py
       - name: Host Ops design contract
         run: python scripts/host_ops_quality/check_design.py
-      - name: Host Ops regression suite
-        run: python -m pytest -q host_ops_tests
+      - name: Host Ops regression and coverage suite
+        run: python -m pytest -q --cov=local_agent.host_ops --cov-branch --cov-fail-under=85 host_ops_tests
 
   bridge-browser:
     runs-on: ubuntu-latest

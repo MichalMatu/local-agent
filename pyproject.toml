@@ -24,6 +24,7 @@ omit = [
   ".venv/*",
   "venv/*",
   "env/*",
+  "local_agent/host_ops/*",
 ]
 
 [tool.coverage.report]
