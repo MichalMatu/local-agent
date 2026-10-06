@@ -11,7 +11,7 @@ The separate-profile production approach is retired. Same-browser multi-child re
 Production Conversation Fabric uses:
 
 - one managed parent Superchat in the operator's normal Chrome;
-- installed Chat Bridge `0.8.3`;
+- accepted deployed Chat Bridge remains `0.8.3` until the verified `0.8.4` observability candidate is explicitly loaded;
 - a dedicated trailing `LOCAL_AGENT_CF` control envelope, separate from legacy LAB controls;
 - the existing `worker_spawn.js` `chrome.tabs` / `chrome.scripting` ownership primitives;
 - ordinary child tabs in the same authenticated Chrome session;
@@ -77,7 +77,7 @@ Current coverage includes:
 
 - positive/negative protocol tests;
 - worker lifecycle tests for multi-child delegation, dedupe, managed-parent admission, stable collection, recovery and terminal delivery guards;
-- content protocol `18` / manifest `0.8.3` contract tests;
+- content protocol `18` / source-candidate manifest `0.8.4` contract tests;
 - real headless Chromium DOM/browser smoke for parent control, child result capture and ownership checks;
 - full repository CI through `bridge-browser`, test, coverage, Python 3.14 and macOS smoke jobs.
 
