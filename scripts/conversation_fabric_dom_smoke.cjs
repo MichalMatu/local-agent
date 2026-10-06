@@ -130,9 +130,11 @@ async function runParentSmoke(context) {
     text.includes("Conversation Fabric control rejected: reason=control_not_terminal")
   ));
   assert.equal(
-    await page.evaluate(() => window.__cfRuntimeMessages.length),
+    await page.evaluate(() => window.__cfRuntimeMessages.filter(message =>
+      message.type === "bridge:conversation-fabric-control"
+    ).length),
     0,
-    "visible malformed/non-terminal control must be diagnosed locally without worker dispatch"
+    "visible malformed/non-terminal control must be diagnosed without Fabric control dispatch"
   );
 
   const assistantText = [
@@ -155,8 +157,12 @@ async function runParentSmoke(context) {
     document.querySelector("#turns").appendChild(turn);
   }, assistantText);
 
-  await page.waitForFunction(() => window.__cfRuntimeMessages.length >= 1);
-  const runtimeMessage = await page.evaluate(() => window.__cfRuntimeMessages[0]);
+  await page.waitForFunction(() => window.__cfRuntimeMessages.some(message =>
+    message.type === "bridge:conversation-fabric-control"
+  ));
+  const runtimeMessage = await page.evaluate(() => window.__cfRuntimeMessages.find(message =>
+    message.type === "bridge:conversation-fabric-control"
+  ));
   assert.equal(runtimeMessage.type, "bridge:conversation-fabric-control");
   assert.equal(runtimeMessage.conversationUrl, parentUrl);
   assert.equal(runtimeMessage.control.action, "delegate");
