@@ -157,6 +157,7 @@
     const selectors = [
       "#composer-submit-button",
       'button[data-testid="send-button"]',
+      'button[data-testid="composer-submit-button"]',
       'button[data-testid="composer-send-button"]',
       'button[aria-label="Send prompt"]',
       'button[aria-label="Send message"]',
@@ -168,6 +169,30 @@
         const button = scope.querySelector(selector);
         if (button instanceof HTMLButtonElement && !button.disabled) return button;
       }
+    }
+    return null;
+  }
+
+  function submitComposer(composer, sendButton) {
+    if (sendButton instanceof HTMLButtonElement && sendButton.isConnected && !sendButton.disabled) {
+      sendButton.click();
+      return;
+    }
+    const form = composer?.closest?.("form");
+    if (form instanceof HTMLFormElement && typeof form.requestSubmit === "function") {
+      form.requestSubmit();
+      return;
+    }
+    throw new Error("send control unavailable");
+  }
+
+  async function waitForSendButton(composer, timeoutMs = 4500) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (assistantIsGenerating()) return null;
+      const button = findSendButton(composer);
+      if (button) return button;
+      await new Promise((resolve) => setTimeout(resolve, 100));
     }
     return null;
   }
@@ -236,13 +261,7 @@
     const inserted = composerText(composer);
     if (!inserted.trim()) return { ok: false, reason: "composer_write_failed" };
 
-    const deadline = Date.now() + 4500;
-    let button = findSendButton(composer);
-    while (!button && Date.now() < deadline) {
-      if (assistantIsGenerating()) return { ok: false, reason: "assistant_busy" };
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      button = findSendButton(composer);
-    }
+    let button = await waitForSendButton(composer);
     if (!button) return { ok: false, reason: "send_button_not_ready" };
     if (
       normalizeConversationUrl(location.href) !== normalizedUrl ||
@@ -251,10 +270,17 @@
     ) {
       return { ok: false, reason: "composer_changed" };
     }
+    if (assistantIsGenerating()) return { ok: false, reason: "send_button_not_ready" };
+
+    // Keep Fabric feedback submission on the same live-button path as normal Bridge
+    // delivery. ChatGPT may expose only the current composer-submit test id or replace
+    // the button while reconciling editor state.
+    button = findSendButton(composer) || await waitForSendButton(composer, 1200);
+    if (!button) return { ok: false, reason: "send_button_not_ready" };
 
     const previousUser = latestUserText();
     try {
-      button.click();
+      submitComposer(composer, button);
     } catch (error) {
       return { ok: false, reason: "send_button_not_ready", error: String(error) };
     }
