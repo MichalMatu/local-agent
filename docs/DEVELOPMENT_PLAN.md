@@ -138,7 +138,7 @@ Exit: one parent can execute repeated task A -> synthesize/close -> task B -> sy
 
 ## Milestone 6 — next: absorb Host Ops into Local Agent
 
-After the sequential-cycle source gate is green, the next implementation stage is the controlled absorption of the standalone `MichalMatu/host-ops` production capability layer.
+Host Ops absorption is complete: the deterministic capability layer lives under `local_agent.host_ops`, host-maintenance targets `local-agent`, and the standalone execution identity is retired from the canonical catalog.
 
 The architectural decision is fixed:
 
@@ -148,7 +148,7 @@ The architectural decision is fixed:
 - preserve the donor's `core -> capabilities -> workflows -> cli` ownership and its JSON contract before attempting redesign;
 - migrate production code/tests/docs separately from isolated prototypes;
 - preserve `work/cpu-gpu-routing` (or export its research history) before donor retirement;
-- retire the standalone `host-ops` execution identity only after supported workflows no longer depend on it.
+- keep the standalone `MichalMatu/host-ops` repository frozen/history-only; preserve `work/cpu-gpu-routing` until that research is intentionally closed.
 
 The detailed migration and exit criteria are in `docs/HOST_OPS_ABSORPTION_PLAN.md`.
 

@@ -118,7 +118,7 @@ Host Ops may then perform at most one guarded page reload followed by one readin
 - External Host Ops recovery is a fallback, not a second Bridge runtime.
 - No arbitrary JavaScript, click/fill/press, general navigation, worker mutation, broad process kill or implicit daily-Chrome attachment is authorized by this flow.
 - Re-check repository drift, daemon state and concurrent tasks before writes or browser mutation.
-- `local-agent` is execution-disabled in the multirepo catalog; schedule machine execution through execution-enabled `host-ops` with its exact binding.
+- Machine execution uses the execution-enabled `local-agent` target with its exact canonical binding; Host Ops functionality is provided by the absorbed `local_agent.host_ops` subsystem.
 - `chat-bridge-state` is an operational runtime-state branch and must not be removed as development-branch cleanup.
 
 ## Expected healthy evidence

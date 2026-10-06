@@ -4,6 +4,7 @@ This changelog records the current operationally relevant Local Agent release li
 
 ## Unreleased — Chat Bridge 0.8.11 candidate
 
+- Retire the standalone `host-ops` execution identity after successful live cutover: machine registry target disabled, `local-agent` self-target provisioned, absorbed CLI smokes passed, and canonical catalog/runtime example now route host maintenance only through `local-agent` + `local_agent.host_ops`.
 - Begin Host Ops absorption in PR #176: import donor `host-ops@b12b6f33` under `local_agent.host_ops`, preserve JSON contract v1, migrate the full donor regression suite plus architecture/design gates, and move new host-maintenance task preparation to the `local-agent` target while retaining the standalone binding only for migration compatibility.
 - Add a production-shaped second Conversation Fabric campaign in the same parent to prove fresh campaign identity, no state/terminal-receipt leakage, exact child cleanup and no replay of the earlier terminal feedback.
 - Define Host Ops absorption as the next product stage: Local Agent remains the sole brain/orchestrator while the deterministic `host-ops` capability layer moves in without its standalone control-plane identity.

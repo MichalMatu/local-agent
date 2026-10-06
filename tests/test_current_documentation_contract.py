@@ -90,29 +90,26 @@ class CurrentDocumentationContractTests(unittest.TestCase):
             bootstrap,
         )
 
-    def test_host_ops_multirepo_scope_is_canonical_and_documented(self) -> None:
+    def test_retired_host_ops_identity_is_absent_from_current_execution_surfaces(self) -> None:
         catalog = json.loads(
             (REPO_ROOT / "config" / "agent_bindings.json").read_text(encoding="utf-8")
         )
         runtime = json.loads(
             (REPO_ROOT / "chat_bridge" / "runtime.example.json").read_text(encoding="utf-8")
         )
-        catalog_host_ops = next(item for item in catalog["agents"] if item["id"] == "host-ops")
-        runtime_host_ops = next(
-            item for item in runtime["agents"] if item["repository_id"] == "host-ops"
-        )
-        self.assertEqual(catalog_host_ops["planner_scope"], "multirepo")
-        self.assertEqual(runtime_host_ops["planner_scope"], "multirepo")
+        self.assertNotIn("host-ops", {item["id"] for item in catalog["agents"]})
+        self.assertNotIn("host-ops", {item["repository_id"] for item in runtime["agents"]})
+        self.assertIn("local-agent", {item["id"] for item in catalog["agents"]})
         for relative in (
             "AGENTS.md",
             "docs/AUTONOMOUS_CHAT_LOOP.md",
-            "docs/GOLDEN_STANDARD.md",
             "docs/HOST_OPS_MULTIREPO.md",
+            "docs/SESSION_BOOTSTRAP.md",
         ):
             with self.subTest(path=relative):
                 text = (REPO_ROOT / relative).read_text(encoding="utf-8")
-                self.assertIn("host-ops", text)
-                self.assertIn("multirepo", text)
+                self.assertIn("local_agent.host_ops", text)
+                self.assertNotIn("execution-enabled compatibility workspace", text)
 
     def test_golden_standard_release_state_matches_source_version(self) -> None:
         golden = (REPO_ROOT / "docs" / "GOLDEN_STANDARD.md").read_text(encoding="utf-8")
