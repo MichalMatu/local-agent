@@ -158,6 +158,12 @@ def operator_observability(
     enabled, configured, configuration_error = _operator_configuration()
     running = bool(campaign is not None and campaign.proc.poll() is None)
     request, request_error = _project_operator_request(campaign if running else None)
+    try:
+        result_publish_pending = conversation_supervisor.result_publish_pending()
+    except (OSError, ValueError) as exc:
+        result_publish_pending = False
+        if configuration_error is None:
+            configuration_error = f"{type(exc).__name__}: {exc}"
     return {
         "enabled": enabled,
         "configured": configured,
@@ -165,7 +171,7 @@ def operator_observability(
         "configuration_error": configuration_error,
         "active_request": request,
         "active_request_error": request_error,
-        "result_publish_pending": conversation_supervisor.result_publish_pending(),
+        "result_publish_pending": result_publish_pending,
     }
 
 
