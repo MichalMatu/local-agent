@@ -65,25 +65,39 @@ function conversationFabricObservationIsTransient(observed) {
 async function recoverConversationFabricSpawningCampaign(campaign) {
   if (campaign?.state !== "spawning") return campaign;
   const submitted = [];
+  const ambiguous = [];
   const failed = conversationFabricFailedChildren(campaign);
   for (const child of campaign.children || []) {
     if (child.state === "submitted" && child.child_conversation_url) {
       submitted.push(child);
       continue;
     }
+    if (child.state === CONVERSATION_FABRIC_AMBIGUOUS_CHILD_STATE) {
+      ambiguous.push(child);
+      continue;
+    }
     if (child.state === "failed") continue;
-    const reason = child.state === "submitting"
-      ? "spawn_interrupted_submission_ambiguous"
-      : child.state === "tab_created"
-        ? "spawn_interrupted_after_tab_creation"
-        : "spawn_interrupted_before_submission";
+    if (child.state === "submitting") {
+      // The worker may have died after the click crossed the send boundary. Preserve
+      // the existing tab/intent and reconcile it later; never replay the bootstrap.
+      child.state = CONVERSATION_FABRIC_AMBIGUOUS_CHILD_STATE;
+      child.last_reason = "spawn_interrupted_submission_ambiguous";
+      child.last_error = "service worker restarted during submission; awaiting exact child identity proof";
+      child.ambiguity_started_at = child.ambiguity_started_at || new Date().toISOString();
+      delete child.failure;
+      ambiguous.push(child);
+      continue;
+    }
+    const reason = child.state === "tab_created"
+      ? "spawn_interrupted_after_tab_creation"
+      : "spawn_interrupted_before_submission";
     child.state = "failed";
     child.failure = {
       id: child.id,
       role: child.role,
       attempt: Number(child.attempts || 0),
       reason,
-      error: "service worker restarted while campaign was spawning; child was not replayed"
+      error: "service worker restarted before submission began; child was not replayed"
     };
     child.last_reason = reason;
     child.last_error = child.failure.error;
@@ -92,7 +106,7 @@ async function recoverConversationFabricSpawningCampaign(campaign) {
   campaign.failed_children = failed;
   campaign.partial_failure = failed.length > 0;
   campaign.recovered_spawning = true;
-  if (submitted.length) {
+  if (submitted.length || ambiguous.length) {
     campaign.state = "running";
   } else {
     campaign.state = "failed";
@@ -139,6 +153,29 @@ collectConversationFabric = async function collectConversationFabricRecovered(au
   for (const child of campaign.children) {
     if (child.state === "failed") continue;
     if (conversationFabricStoredResult(campaign, child.id)) continue;
+    if (child.state === CONVERSATION_FABRIC_AMBIGUOUS_CHILD_STATE) {
+      const recovered = await reconcileConversationFabricAmbiguousChild(child);
+      if (!recovered.ok) {
+        if (recovered.pending) {
+          pending.push(child.id);
+          await saveConversationFabricCampaign(campaign);
+          continue;
+        }
+        const failure = {
+          id: child.id,
+          role: child.role,
+          attempt: Number(child.attempts || 0),
+          reason: recovered.reason,
+          error: recovered.error
+        };
+        failedChildren.push(failure);
+        child.state = "failed";
+        child.failure = failure;
+        await saveConversationFabricCampaign(campaign);
+        continue;
+      }
+      await saveConversationFabricCampaign(campaign);
+    }
     if (child.state !== "submitted" || !child.child_conversation_url) {
       const failure = {
         id: child.id,
@@ -307,8 +344,24 @@ pollConversationFabricCampaigns = async function pollConversationFabricCampaigns
         current?.state === "running" &&
         Date.now() - Date.parse(current.created_at) > CONVERSATION_FABRIC_TIMEOUT_MS
       ) {
+        for (const child of current.children || []) {
+          if (child.state !== CONVERSATION_FABRIC_AMBIGUOUS_CHILD_STATE) continue;
+          child.state = "failed";
+          child.failure = {
+            id: child.id,
+            role: child.role,
+            attempt: Number(child.attempts || 0),
+            reason: "spawn_submission_ambiguous_timeout",
+            error: "bounded route/identity reconciliation expired without exact ownership proof"
+          };
+          child.last_reason = child.failure.reason;
+          child.last_error = child.failure.error;
+        }
+        current.failed_children = (current.children || [])
+          .filter((child) => child.state === "failed")
+          .map(conversationFabricChildFailure);
         current.state = "failed";
-        current.failure = "campaign_timed_out_after_final_collect";
+        current.failure = "campaign_timed_out_with_pending_children";
         current.feedback_delivered = false;
         await saveConversationFabricCampaign(current);
       }
