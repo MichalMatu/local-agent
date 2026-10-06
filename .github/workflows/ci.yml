@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install absorbed Host Ops test tooling
-        run: python -m pip install --disable-pip-version-check pytest==9.1.1
+        run: python -m pip install --disable-pip-version-check pytest==9.1.1 hypothesis==6.168.3
       - name: Host Ops architecture contract
         run: python scripts/host_ops_quality/check_architecture.py
       - name: Host Ops design contract
