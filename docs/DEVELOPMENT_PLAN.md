@@ -67,7 +67,8 @@ Make completed child work independently recoverable from later campaign/feedback
 - after retirement or terminal child failure, parent feedback should make it clear which child coverage is missing and that a new delegation may intentionally reassign that bounded work with a new child id; the Bridge itself must not replay it;
 - before terminal campaign failure/timeout, perform a final salvage observation of children that can still prove exact ownership so completed work is vaulted before cleanup;
 - add regressions for: captured result survives campaign-history pruning, inspect returns it later, retire closes only the exact owned child, a closed/missing child becomes clearly retryable, and a later explicit re-delegation does not reuse/replay the retired bootstrap.
-### Follow-up hardening — Conversation Fabric control-surface diagnostics
+
+### P1 hardening — Conversation Fabric control-surface diagnostics
 
 Immediately after the restart/reload E2E is stable, close the observed silent control-drop case without broadening Conversation Fabric authority:
 
