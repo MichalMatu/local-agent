@@ -551,17 +551,6 @@ def service_control(
                 )
                 return True
             conversation_supervisor.service_control_plane()
-            try:
-                operator_observability.publish_operator_status(
-                    repositories,
-                    operator_campaign,
-                    max_workers=max_workers,
-                )
-            except Exception as exc:
-                log(
-                    "operator observability publish degraded: "
-                    f"{type(exc).__name__}: {exc}"
-                )
             agentd.publish_daemon_status(
                 "idle",
                 force_remote=False,
@@ -576,6 +565,17 @@ def service_control(
                 if request is None or str(request.get("action", "")) != "cancel_task":
                     agentd.handle_control_request(status_extra=status_fields)
                 agentd.maybe_self_update()
+            try:
+                operator_observability.publish_operator_status(
+                    repositories,
+                    operator_campaign,
+                    max_workers=max_workers,
+                )
+            except Exception as exc:
+                log(
+                    "operator observability publish degraded: "
+                    f"{type(exc).__name__}: {exc}"
+                )
             agentd.publish_daemon_status(
                 "idle",
                 force_remote=False,

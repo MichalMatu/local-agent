@@ -192,7 +192,7 @@ class OperatorObservabilityTests(unittest.TestCase):
         ):
             snapshot = observability.operator_observability(campaign)
 
-        self.assertEqual(snapshot["active_request_error"], "operator_request_io_error")
+        self.assertEqual(snapshot["active_request_error"], "operator_request_invalid")
         self.assertNotIn(str(self.root), json.dumps(snapshot))
 
     def test_bounded_dedupe_sample_never_walks_full_history(self) -> None:

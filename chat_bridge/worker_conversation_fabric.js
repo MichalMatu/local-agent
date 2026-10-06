@@ -17,8 +17,10 @@ const CONVERSATION_FABRIC_HISTORY_LIMIT = 32;
 const CONVERSATION_FABRIC_OPERATOR_SNAPSHOT_CACHE_MS = 5 * 60 * 1000;
 const conversationFabricOperations = new Map();
 let conversationFabricOperatorSnapshotCache = null;
+let conversationFabricOperatorSnapshotGeneration = 0;
 
 function invalidateConversationFabricOperatorSnapshot() {
+  conversationFabricOperatorSnapshotGeneration += 1;
   conversationFabricOperatorSnapshotCache = null;
 }
 
@@ -198,6 +200,7 @@ async function conversationFabricOperatorSnapshot() {
     return conversationFabricOperatorSnapshotCache.value;
   }
 
+  const generation = conversationFabricOperatorSnapshotGeneration;
   const stored = await chrome.storage.local.get(null);
   const campaigns = Object.entries(stored).filter(([key, value]) =>
     key.startsWith(CONVERSATION_FABRIC_CAMPAIGN_PREFIX) && value?.schema_version === 1
@@ -243,10 +246,12 @@ async function conversationFabricOperatorSnapshot() {
     };
   }
 
-  conversationFabricOperatorSnapshotCache = {
-    value: snapshot,
-    expiresAt: Date.now() + CONVERSATION_FABRIC_OPERATOR_SNAPSHOT_CACHE_MS
-  };
+  if (generation === conversationFabricOperatorSnapshotGeneration) {
+    conversationFabricOperatorSnapshotCache = {
+      value: snapshot,
+      expiresAt: Date.now() + CONVERSATION_FABRIC_OPERATOR_SNAPSHOT_CACHE_MS
+    };
+  }
   return snapshot;
 }
 
