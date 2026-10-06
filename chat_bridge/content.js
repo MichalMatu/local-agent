@@ -372,7 +372,9 @@
     const submissionForm = composer.closest("form");
     let submitBoundaryCrossed = false;
     const markSubmitBoundary = () => { submitBoundaryCrossed = true; };
-    if (submissionForm instanceof HTMLFormElement) {
+    const canObserveSubmitBoundary =
+      typeof HTMLFormElement !== "undefined" && submissionForm instanceof HTMLFormElement;
+    if (canObserveSubmitBoundary) {
       submissionForm.addEventListener("submit", markSubmitBoundary, true);
     }
     try {
@@ -421,7 +423,7 @@
       }
       return { ok: false, reason: "delivery_unconfirmed" };
     } finally {
-      if (submissionForm instanceof HTMLFormElement) {
+      if (canObserveSubmitBoundary) {
         submissionForm.removeEventListener("submit", markSubmitBoundary, true);
       }
     }
