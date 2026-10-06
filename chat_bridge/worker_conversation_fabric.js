@@ -81,11 +81,21 @@ async function saveConversationFabricCampaign(campaign, { allowDeliveryClaimMuta
       campaign.feedback_delivered = true;
       campaign.feedback_delivered_at = campaign.feedback_delivered_at || stored.feedback_delivered_at;
     }
-    if (!allowDeliveryClaimMutation && stored?.feedback_delivery_claim?.id) {
-      campaign.feedback_delivery_claim = stored.feedback_delivery_claim;
-      if (stored.feedback_delivery_assumed === true) campaign.feedback_delivery_assumed = true;
-      if (stored.feedback_delivery_assumed_at) {
+    if (!allowDeliveryClaimMutation) {
+      if (stored?.feedback_delivery_claim?.id) {
+        campaign.feedback_delivery_claim = stored.feedback_delivery_claim;
+      } else {
+        delete campaign.feedback_delivery_claim;
+      }
+      if (stored?.feedback_delivery_assumed === true) {
+        campaign.feedback_delivery_assumed = true;
+      } else {
+        delete campaign.feedback_delivery_assumed;
+      }
+      if (stored?.feedback_delivery_assumed_at) {
         campaign.feedback_delivery_assumed_at = stored.feedback_delivery_assumed_at;
+      } else {
+        delete campaign.feedback_delivery_assumed_at;
       }
     }
     await chrome.storage.local.set({ [key]: campaign });
