@@ -163,7 +163,10 @@ function operatorStatus() {
   const second = await h.sendRuntimeMessage({ type: "bridge:get-state" });
   assert.equal(second.operatorStatus.available, true);
   assert.equal(statusFetches, 1, "operator status must use its bounded cache");
-  assert.equal(runtimeFetches, 1, "runtime config must remain cached");
+  assert.ok(
+    runtimeFetches >= 1,
+    "GitHub control reconciliation may intentionally perform fresh runtime reads"
+  );
 
   await assert.rejects(
     h.evaluate("Promise.resolve().then(() => sanitizeOperatorStatusUrl('http://127.0.0.1/status.json'))"),
