@@ -200,6 +200,22 @@ async function loadRuntimeConfig(state, conversation = null) {
   return applyConversationInterval(await fetchRuntime(state.settings), conversation);
 }
 
+function validateOperatorReasonCounts(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  const entries = Object.entries(value);
+  if (entries.length > 32) throw new Error(`${label} exceeds 32 reasons`);
+  for (const [reason, count] of entries) {
+    if (!reason || reason.length > 100 || !/^[A-Za-z0-9._:-]+$/.test(reason)) {
+      throw new Error(`${label} reason is invalid`);
+    }
+    if (!Number.isInteger(count) || count < 0) {
+      throw new Error(`${label} count must be a non-negative integer`);
+    }
+  }
+}
+
 function validateOperatorStatus(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.schema_version !== 1) {
     throw new Error("operator status must use schema_version=1");
@@ -231,11 +247,27 @@ function validateOperatorStatus(raw) {
   for (const field of ["enabled", "configured", "running", "result_publish_pending"]) {
     if (typeof operator[field] !== "boolean") throw new Error(`operator status ${field} must be boolean`);
   }
+  if (operator.active_request !== null && operator.active_request !== undefined) {
+    const active = operator.active_request;
+    if (!active || typeof active !== "object" || Array.isArray(active)) {
+      throw new Error("operator active_request is invalid");
+    }
+    const workflowId = String(active.workflow_id || "");
+    if (!workflowId || workflowId.length > 200) {
+      throw new Error("operator workflow_id is invalid");
+    }
+    if (!Number.isInteger(active.children_total) || active.children_total < 0 || active.children_total > 64) {
+      throw new Error("operator children_total is invalid");
+    }
+  }
   for (const field of ["suppressed_count", "rejected_count", "reconciled_count"]) {
     if (!Number.isInteger(dedupe[field]) || dedupe[field] < 0) {
       throw new Error(`operator dedupe ${field} must be a non-negative integer`);
     }
   }
+  validateOperatorReasonCounts(dedupe.suppression_reasons || {}, "operator suppression reasons");
+  validateOperatorReasonCounts(dedupe.rejection_reasons || {}, "operator rejection reasons");
+  validateOperatorReasonCounts(dedupe.reconciliation_reasons || {}, "operator reconciliation reasons");
 
   return raw;
 }
