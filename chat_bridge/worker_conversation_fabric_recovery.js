@@ -46,7 +46,7 @@ function conversationFabricStoredResult(campaign, childId) {
   return (campaign.results || []).find((result) => result.id === childId) || null;
 }
 
-function conversationFabricResultRecord(child, observed) {
+function conversationFabricResultRecord(child, observed, vaulted = null) {
   const text = String(observed.assistantText || "");
   return {
     id: child.id,
@@ -54,7 +54,9 @@ function conversationFabricResultRecord(child, observed) {
     child_conversation_url: child.child_conversation_url,
     assistant_identity: String(observed.assistantIdentity || ""),
     assistant_text: text.slice(0, CONVERSATION_FABRIC_RESULT_CHARS),
-    truncated: observed.truncated === true || text.length > CONVERSATION_FABRIC_RESULT_CHARS
+    truncated: observed.truncated === true || text.length > CONVERSATION_FABRIC_RESULT_CHARS,
+    captured_at: String(vaulted?.captured_at || new Date().toISOString()),
+    vault_sha256: String(vaulted?.text_sha256 || "")
   };
 }
 
@@ -193,9 +195,10 @@ collectConversationFabric = async function collectConversationFabricRecovered(au
 
     const observed = await stableConversationFabricResult(child);
     if (observed?.ok && observed.reason === "child_result_ready") {
-      campaign.results.push(conversationFabricResultRecord(child, observed));
+      const vaulted = await saveConversationFabricVaultResult(campaign, child, observed);
+      campaign.results.push(conversationFabricResultRecord(child, observed, vaulted));
       child.result_captured = true;
-      child.result_captured_at = new Date().toISOString();
+      child.result_captured_at = vaulted.captured_at;
       child.last_observation_reason = "child_result_ready";
       await saveConversationFabricCampaign(campaign);
       continue;
