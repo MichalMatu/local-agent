@@ -412,6 +412,23 @@ function createHarness({
         cleanup_pending: false
       };
     }
+    const cleanupPendingId = "cf-ffffffffffffffff";
+    storage[`conversation-fabric-campaign:${cleanupPendingId}`] = {
+      schema_version: 1,
+      id: cleanupPendingId,
+      state: "completed",
+      parent_conversation_url: parentUrl,
+      parent_tab_id: 11,
+      assistant_identity: "cleanup-pending",
+      fingerprint: "22222222",
+      created_at: "2025-12-01T00:00:00.000Z",
+      children: [],
+      results: [],
+      failed_children: [],
+      feedback_delivered: true,
+      cleanup_pending: true
+    };
+
     const h = createHarness({ storage });
     const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
     assert.equal(started.ok, true, JSON.stringify(started));
@@ -420,6 +437,10 @@ function createHarness({
     assert.ok(vaulted, "legacy campaign result must be vaulted before campaign-history pruning");
     assert.equal(vaulted.assistant_text, "LEGACY_RESULT");
     assert.equal(vaulted.captured_at, "2026-01-01T00:00:00.000Z");
+    assert.ok(
+      storage[`conversation-fabric-campaign:${cleanupPendingId}`],
+      "cleanup-pending terminal campaign must never be history-pruned before exact tab cleanup completes"
+    );
   }
 
   {
