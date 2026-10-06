@@ -717,7 +717,11 @@ function createHarness({
     }, h.sender);
     assert.equal(collected.ok, true, JSON.stringify(collected));
     assert.equal(collected.reason, "conversation_fabric_completed");
-    assert.equal(h.observed.length, 6, "three successful children require stable double observation");
+    assert.equal(
+      h.observed.length,
+      9,
+      "three successful children require stable double capture plus one final cleanup ownership proof each"
+    );
     assert.equal(h.closed.length, 4, "terminal cleanup closes all owned tabs only after results are captured");
     assert.match(collected.feedbackPrompt, /completed with partial child failures/);
     assert.match(collected.feedbackPrompt, /child tests \(verification\) FAILED/);
