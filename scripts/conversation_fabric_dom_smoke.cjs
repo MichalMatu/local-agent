@@ -18,7 +18,14 @@ const parentFixture = `<!doctype html><html><body>
 <div id="turns"></div>
 <script>
 window.__submitted = [];
+window.__buttonClicks = 0;
+window.__formSubmits = 0;
+document.querySelector('[data-testid="composer-submit-button"]').addEventListener("click", (event) => {
+  window.__buttonClicks += 1;
+  event.preventDefault();
+});
 document.querySelector("#composer-form").addEventListener("submit", (event) => {
+  window.__formSubmits += 1;
   event.preventDefault();
   const composer = document.querySelector("#prompt-textarea");
   const text = String(composer.innerText || composer.textContent || "").trim();
@@ -182,6 +189,16 @@ async function runParentSmoke(context) {
   assert.equal(submitted.length, 2);
   assert.match(submitted[0], /control_not_terminal/);
   assert.equal(submitted[1], "FABRIC FEEDBACK");
+  const submitPath = await page.evaluate(() => ({
+    buttonClicks: window.__buttonClicks,
+    formSubmits: window.__formSubmits
+  }));
+  assert.ok(submitPath.buttonClicks >= 2, "primary live-button path must still be attempted");
+  assert.equal(
+    submitPath.formSubmits,
+    2,
+    "guarded post-click form fallback must submit each unchanged Bridge-owned prompt exactly once"
+  );
   await page.close();
   return markers[0];
 }

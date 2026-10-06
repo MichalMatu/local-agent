@@ -284,11 +284,32 @@
     } catch (error) {
       return { ok: false, reason: "send_button_not_ready", error: String(error) };
     }
+    const formFallbackAt = Date.now() + 1200;
+    let formFallbackAttempted = false;
     const confirmDeadline = Date.now() + 5000;
     while (Date.now() < confirmDeadline) {
       const current = latestUserText();
       if (current !== previousUser && normalized(current) === normalized(prompt)) {
         return { ok: true, reason: "sent" };
+      }
+      if (!formFallbackAttempted && Date.now() >= formFallbackAt) {
+        formFallbackAttempted = true;
+        if (
+          normalizeConversationUrl(location.href) === normalizedUrl &&
+          findComposer() === composer &&
+          composerText(composer) === inserted &&
+          !assistantIsGenerating() &&
+          current === previousUser
+        ) {
+          const form = composer?.closest?.("form");
+          if (form instanceof HTMLFormElement && typeof form.requestSubmit === "function") {
+            try {
+              form.requestSubmit();
+            } catch (_error) {
+              // Keep the exact prompt for bounded retry/reconciliation.
+            }
+          }
+        }
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }

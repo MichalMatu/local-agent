@@ -5,6 +5,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const content = fs.readFileSync(path.join(__dirname, "content.js"), "utf8");
+const fabricContent = fs.readFileSync(
+  path.join(__dirname, "conversation_fabric_content.js"),
+  "utf8"
+);
 
 assert.match(
   content,
@@ -26,5 +30,31 @@ assert.match(
   /form\.requestSubmit\(\);/,
   "requestSubmit without a stale button may remain as a last-resort fallback"
 );
+
+for (const [name, source] of [
+  ["normal Bridge", content],
+  ["Conversation Fabric", fabricContent]
+]) {
+  assert.match(
+    source,
+    /const formFallbackAt = Date\.now\(\) \+ 1200;/,
+    `${name} must bound the post-click fallback delay`
+  );
+  assert.match(
+    source,
+    /let formFallbackAttempted = false;/,
+    `${name} must permit at most one post-click fallback attempt`
+  );
+  assert.match(
+    source,
+    /composerText\(composer\) === /,
+    `${name} fallback must require the exact unchanged Bridge-owned composer text`
+  );
+  assert.match(
+    source,
+    /form\.requestSubmit\(\);/,
+    `${name} must use native form submission only after the guarded click path stalls`
+  );
+}
 
 console.log("Chat Bridge live Send submission contract tests passed.");

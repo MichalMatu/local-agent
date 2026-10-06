@@ -374,6 +374,8 @@
     } catch (error) {
       return { ok: false, reason: "send_button_not_ready", error: String(error) };
     }
+    const formFallbackAt = Date.now() + 1200;
+    let formFallbackAttempted = false;
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
       if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
@@ -384,6 +386,28 @@
         normalizedText(lastUser?.innerText || lastUser?.textContent) === normalizedText(prompt)
       ) {
         return { ok: true, reason: "sent" };
+      }
+      if (!formFallbackAttempted && Date.now() >= formFallbackAt) {
+        formFallbackAttempted = true;
+        const currentUserIdentity = latestUserMessage()?.identity;
+        if (
+          normalizeConversationUrl(location.href) === normalizedUrl &&
+          composer.isConnected &&
+          findComposer() === composer &&
+          composerText(composer) === insertedComposerText &&
+          !assistantIsGenerating() &&
+          userMessages.length === previousUserMessages &&
+          currentUserIdentity === previousUserIdentity
+        ) {
+          const form = composer.closest("form");
+          if (form instanceof HTMLFormElement && typeof form.requestSubmit === "function") {
+            try {
+              form.requestSubmit();
+            } catch (_error) {
+              // Delivery remains unconfirmed and retains the exact Bridge prompt.
+            }
+          }
+        }
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
