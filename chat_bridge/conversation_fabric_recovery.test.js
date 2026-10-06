@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
@@ -59,6 +60,7 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
 
   const context = vm.createContext({
     console,
+    crypto: crypto.webcrypto,
     Date,
     JSON,
     Object,
@@ -90,6 +92,7 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
     SCHEMA_VERSION: 1,
     MAX_CHILDREN: 4,
     CAMPAIGN_ID_RE: /^cf-[0-9a-f]{16}$/,
+    CHILD_ID_RE: /^[A-Za-z0-9._-]{1,64}$/,
     validateControl(value) { return value; }
   };
   Object.assign(context, {
@@ -103,6 +106,9 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
           "parent-id": { id: "parent-id", url: parentUrl, preferredTabId: 11, enabled: true }
         }
       };
+    },
+    async conversationSpawnSha256(text) {
+      return crypto.createHash("sha256").update(String(text), "utf8").digest("hex");
     },
     async reconcileConversationSpawn(intent) {
       const current = Object.values(storage[campaignKey].children)
@@ -208,6 +214,9 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
     assert.equal(stored.state, "completed");
     assert.equal(stored.failed_children.length, 0);
     assert.deepEqual(stored.results.map(item => item.id), ["a", "b"]);
+    const vaultKeys = Object.keys(h.storage).filter(key => key.startsWith("conversation-fabric-result:"));
+    assert.equal(vaultKeys.length, 2, "restart recovery must vault both stable results before cleanup");
+    assert.ok(vaultKeys.every(key => /^[0-9a-f]{64}$/.test(h.storage[key].text_sha256)));
   }
 
   // Restart during a post-click submitting checkpoint keeps the original child recoverable.
@@ -248,6 +257,59 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
     await h.context.pollConversationFabricCampaigns();
     assert.equal(h.stored().state, "completed");
     assert.equal(h.stored().results[0].assistant_text, "final-a");
+  }
+
+  // A manually closed submitted child becomes explicit retryable missing coverage.
+  {
+    const h = createHarness(campaign([
+      child("kept", "submitted", 101),
+      child("closed", "submitted", 102)
+    ]), {
+      kept: ["child_result_ready", "child_result_ready"],
+      closed: ["spawn_tab_unavailable"]
+    });
+    await h.context.pollConversationFabricCampaigns();
+    const stored = h.stored();
+    assert.equal(stored.state, "completed");
+    assert.deepEqual(stored.results.map(item => item.id), ["kept"]);
+    const failed = stored.failed_children.find(item => item.id === "closed");
+    assert.ok(failed);
+    assert.equal(failed.reason, "spawn_tab_unavailable");
+    assert.equal(failed.retryable, true);
+    assert.match(h.context.conversationFabricCompletedPrompt(stored), /Retryable missing child coverage: closed/);
+  }
+
+  // A crash after the independent vault write but before the campaign copy must
+  // restore the result without re-observing a now-unavailable child tab.
+  {
+    const h = createHarness(campaign([child("vaulted", "submitted", 101)]), {
+      vaulted: ["spawn_tab_unavailable"]
+    });
+    h.storage[`conversation-fabric-result:${campaignId}:vaulted`] = {
+      schema_version: 1,
+      campaign_id: campaignId,
+      child_id: "vaulted",
+      role: "verification",
+      parent_conversation_url: parentUrl,
+      child_conversation_url: "https://chatgpt.com/c/vaulted",
+      assistant_identity: "assistant-vaulted",
+      captured_at: "2026-10-06T03:00:00.000Z",
+      assistant_text: "final-vaulted-from-checkpoint",
+      truncated: false,
+      campaign_text_truncated: false,
+      text_sha256: "a".repeat(64)
+    };
+    await h.context.pollConversationFabricCampaigns();
+    const stored = h.stored();
+    assert.equal(stored.state, "completed");
+    assert.equal(stored.results.length, 1);
+    assert.equal(stored.results[0].id, "vaulted");
+    assert.equal(stored.results[0].assistant_text, "final-vaulted-from-checkpoint");
+    assert.equal(stored.results[0].vault_sha256, "a".repeat(64));
+    assert.ok(
+      !h.observed.includes("vaulted"),
+      "vault checkpoint must be hydrated before any attempt to observe the closed child"
+    );
   }
 
   // child_result_unavailable is transient and recovers to final.

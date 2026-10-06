@@ -108,18 +108,38 @@ Production children are ordinary tabs in the operator's already authenticated pr
 ### Durable campaign lifecycle
 
 - Campaign identity and captured results are stored in `chrome.storage.local`.
+- Every stable child result is also copied into a separately retained bounded Result Vault record before sibling completion, terminal feedback or tab cleanup.
 - Stable child results require the explicit completion marker and repeated identical observation.
-- Each stable result is persisted before sibling completion or tab cleanup.
+- The normal campaign copy remains concise; the Result Vault keeps a larger bounded recovery copy plus child/campaign identity, source URL, timestamp and SHA-256 digest.
 - Transient observation failures remain pending/recoverable.
 - After service-worker/session restart, an existing child may be reattached only if the page proves the exact transaction id, child-request digest, bootstrap digest and current child conversation URL. Tab id alone never proves ownership.
-- Ambiguous/pre-submit spawning fails closed; Bridge does not blindly replay an already-submitted bootstrap.
+- Post-submit routing ambiguity remains recoverable evidence uncertainty. Pre-submit interruption fails closed. Neither case permits automatic bootstrap replay.
+- A manually closed/missing submitted child becomes explicit retryable missing coverage after observation; successful siblings and already-vaulted results remain available.
 - Completed/failed cleanup closes only exact owned child tabs.
 
-### Collection
+### Collection and operator recovery
 
 Normal campaign observation is worker-driven. The existing one-minute GitHub-control alarm reconciles conversation controls and then polls active Fabric campaigns while parent + Master are enabled.
 
-An explicit `collect` control is a bounded recovery/inspection operation for already-submitted children. It must never resubmit their prompts.
+An explicit `collect` control performs bounded observation/recovery for already-submitted children. It must never resubmit their prompts.
+
+A read-only `inspect` control can list recent state, inspect one campaign, or recover one vaulted child result:
+
+```text
+<<<LOCAL_AGENT_CF
+{"schema_version":1,"action":"inspect","campaign_id":"cf-...","child_id":"verification"}
+LOCAL_AGENT_CF>>>
+```
+
+An explicit `retire` control closes one problematic child only through the existing exact ownership checks and marks missing work retryable without creating a replacement:
+
+```text
+<<<LOCAL_AGENT_CF
+{"schema_version":1,"action":"retire","campaign_id":"cf-...","child_id":"verification"}
+LOCAL_AGENT_CF>>>
+```
+
+If the bounded work is still needed, the parent may intentionally delegate it again only as a new delegation with a new child id. The Bridge never performs that reassignment automatically.
 
 ### Terminal feedback
 

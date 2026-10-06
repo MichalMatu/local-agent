@@ -549,6 +549,118 @@ async function campaignSnapshot(worker, campaignId) {
     assert.equal(terminalPromptsAfterReload.length, 1, "terminal campaign must not replay after restart/poll");
     assert.equal(parent.isClosed(), false, "parent must survive child cleanup and worker restarts");
 
+    // Read-only recovery: child tabs are already gone, but a child-scoped inspect must
+    // retrieve the durable vault copy without touching terminal delivery receipts.
+    const inspectControl = {
+      schema_version: 1,
+      action: "inspect",
+      campaign_id: campaignId,
+      child_id: "product"
+    };
+    const submissionsBeforeInspect = await parent.evaluate(() => window.submitted.length);
+    await parent.evaluate(controlValue => {
+      window.turn("assistant", "<<<LOCAL_AGENT_CF\n" + JSON.stringify(controlValue) + "\nLOCAL_AGENT_CF>>>");
+    }, inspectControl);
+    await parent.waitForFunction(before => window.submitted.length > before &&
+      window.submitted.some(text =>
+        text.includes("Conversation Fabric result inspection:") &&
+        text.includes("child=product") &&
+        text.includes("RESULT_PRODUCT")
+      ), submissionsBeforeInspect, { timeout: 20000 });
+    assert.equal(fabricChildren(context).length, 0, "inspect must not reopen a completed child tab");
+    const stillDelivered = await campaignSnapshot(worker, campaignId);
+    assert.equal(stillDelivered.feedback_delivered, true, "inspect must not reset terminal delivery receipt");
+
+    // Operator recovery: retire one problematic exact-owned child, then intentionally
+    // re-delegate the missing bounded work with a fresh child id. No automatic replay.
+    const retireDelegate = {
+      schema_version: 1,
+      action: "delegate",
+      children: [
+        { id: "stuck", role: "verification", prompt: "Remain pending until explicitly retired." }
+      ]
+    };
+    await parent.evaluate(controlValue => {
+      window.turn("assistant", "<<<LOCAL_AGENT_CF\n" + JSON.stringify(controlValue) + "\nLOCAL_AGENT_CF>>>");
+    }, retireDelegate);
+    const retireCampaign = await waitFor("retire scenario campaign", () => worker.evaluate(async previousId => {
+      const campaigns = await listConversationFabricCampaigns();
+      return campaigns.find(value =>
+        value.id !== previousId &&
+        value.state === "running" &&
+        value.children?.length === 1 &&
+        value.children[0].id === "stuck"
+      ) || null;
+    }, campaignId), 30000);
+    const stuckPage = await pageForChild(context, "stuck");
+    assert.equal(await stuckPage.evaluate(() => window.submitted.length), 1, "stuck bootstrap must be sent once");
+    // Retire is intentionally stricter than cleanup: first let the page expose its
+    // canonical child route so the exact page claim can be re-proven immediately before close.
+    await stuckPage.evaluate(() => window.releaseDelayedRoute());
+
+    const retireControl = {
+      schema_version: 1,
+      action: "retire",
+      campaign_id: retireCampaign.id,
+      child_id: "stuck"
+    };
+    const parentMessagesBeforeRetire = await parent.evaluate(() => window.submitted.length);
+    await parent.evaluate(controlValue => {
+      window.turn("assistant", "<<<LOCAL_AGENT_CF\n" + JSON.stringify(controlValue) + "\nLOCAL_AGENT_CF>>>");
+    }, retireControl);
+    await parent.waitForFunction(before => window.submitted.length > before &&
+      window.submitted.some(text =>
+        text.includes("was explicitly retired") &&
+        text.includes("retryable missing coverage") &&
+        text.includes("Wait for the campaign's terminal feedback")
+      ), parentMessagesBeforeRetire, { timeout: 20000 });
+    await waitFor("retired exact child tab closed", () =>
+      context.pages().every(page => !page.url().includes("fabric-child-stuck"))
+    );
+    const retiredState = await campaignSnapshot(worker, retireCampaign.id);
+    assert.equal(retiredState.children[0].state, "failed");
+    assert.equal(retiredState.children[0].failure.reason, "operator_retired");
+    assert.equal(retiredState.children[0].failure.retryable, true);
+
+    await triggerProductionFabricPoll(worker);
+    await waitFor("retire campaign terminal delivery", async () => {
+      const value = await campaignSnapshot(worker, retireCampaign.id);
+      return value?.state === "completed" && value.feedback_delivered ? value : null;
+    }, 20000);
+
+    const retryDelegate = {
+      schema_version: 1,
+      action: "delegate",
+      children: [
+        { id: "retry-stuck", role: "verification", prompt: "Return RESULT_RETRY after explicit reassignment." }
+      ]
+    };
+    await parent.evaluate(controlValue => {
+      window.turn("assistant", "<<<LOCAL_AGENT_CF\n" + JSON.stringify(controlValue) + "\nLOCAL_AGENT_CF>>>");
+    }, retryDelegate);
+    const retryCampaign = await waitFor("explicit reassignment campaign", () => worker.evaluate(async retiredId => {
+      const campaigns = await listConversationFabricCampaigns();
+      return campaigns.find(value =>
+        value.id !== retiredId &&
+        value.state === "running" &&
+        value.children?.length === 1 &&
+        value.children[0].id === "retry-stuck"
+      ) || null;
+    }, retireCampaign.id), 30000);
+    const retryPage = await pageForChild(context, "retry-stuck");
+    assert.equal(await retryPage.evaluate(() => window.submitted.length), 1, "replacement bootstrap is one explicit new submit");
+    await retryPage.evaluate(() => {
+      window.releaseDelayedRoute();
+      window.completeChild();
+    });
+    await triggerProductionFabricPoll(worker);
+    const retryCompleted = await waitFor("explicit reassignment result", async () => {
+      const value = await campaignSnapshot(worker, retryCampaign.id);
+      return value?.state === "completed" && value.results?.length === 1 ? value : null;
+    }, 20000);
+    assert.equal(retryCompleted.results[0].assistant_text, "RESULT_RETRY-STUCK");
+    assert.equal(retryCompleted.children[0].id, "retry-stuck");
+
     // Negative regression: Send succeeds once, but the child never reaches a canonical
     // route. Force the durable campaign age beyond the bounded deadline and prove that
     // recovery fails closed without a second submit or replacement tab.

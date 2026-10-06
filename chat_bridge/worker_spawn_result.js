@@ -76,6 +76,15 @@ async function observeConversationSpawnResult(intent) {
   return sendConversationSpawnResultMessage(intent);
 }
 
+async function forgetConversationSpawnTab(intent) {
+  validateConversationSpawnBrowserIntent(intent, { requireTab: true });
+  await requireConversationSpawnBootstrapDigest(intent);
+  await chrome.storage.session.remove([
+    conversationSpawnTabClaimKey(intent.transaction_id),
+    conversationSpawnProvisionalEvidenceKey(intent.transaction_id)
+  ]);
+}
+
 async function closeConversationSpawnTab(intent) {
   validateConversationSpawnBrowserIntent(intent, { requireTab: true });
   await requireConversationSpawnBootstrapDigest(intent);
@@ -98,9 +107,6 @@ async function closeConversationSpawnTab(intent) {
     }
   }
 
-  await chrome.storage.session.remove([
-    conversationSpawnTabClaimKey(intent.transaction_id),
-    conversationSpawnProvisionalEvidenceKey(intent.transaction_id)
-  ]);
+  await forgetConversationSpawnTab(intent);
   return { ok: true, reason: tab?.id ? "child_closed" : "child_already_closed" };
 }

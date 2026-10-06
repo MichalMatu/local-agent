@@ -23,6 +23,9 @@ function createHarness({
   failReason = "spawn_unexpected_route",
   ambiguousChildId = "",
   reconcilePlan = {},
+  resultTextByChild = {},
+  observationReasonByChild = {},
+  allowActiveClose = false,
   managed = true,
   storage = {}
 } = {}) {
@@ -32,6 +35,7 @@ function createHarness({
   const childrenAtSubmit = [];
   const observed = [];
   const closed = [];
+  const closedTabIds = new Set();
   const injected = [];
   const reconcileQueues = Object.fromEntries(
     Object.entries(reconcilePlan).map(([id, values]) => [id, [...values]])
@@ -159,20 +163,38 @@ function createHarness({
     },
     async observeConversationSpawnResult(intent) {
       observed.push(clone(intent));
+      const childId = childIdForIntent(intent);
+      const forcedReason = String(observationReasonByChild[childId] || "");
+      if (forcedReason) {
+        if (["child_generating", "child_result_missing", "child_result_unstable"].includes(forcedReason)) {
+          return {
+            ok: true,
+            reason: forcedReason,
+            childConversationUrl: `https://chatgpt.com/c/child-${intent.tab_id}`
+          };
+        }
+        return { ok: false, reason: forcedReason };
+      }
       return {
         ok: true,
         reason: "child_result_ready",
         childConversationUrl: `https://chatgpt.com/c/child-${intent.tab_id}`,
         assistantIdentity: `assistant-${intent.tab_id}`,
-        assistantText: `Result for tab ${intent.tab_id}.`,
+        assistantText: String(resultTextByChild[childId] || `Result for tab ${intent.tab_id}.`),
         truncated: false
       };
     },
     async closeConversationSpawnTab(intent) {
-      assert.ok(
-        Object.values(session).some(campaign => ["completed", "failed"].includes(campaign.state)),
-        "terminal evidence must be saved before tabs close"
-      );
+      if (!allowActiveClose) {
+        assert.ok(
+          Object.values(session).some(value =>
+            String(value?.id || "").startsWith("cf-") && ["completed", "failed"].includes(value.state)
+          ),
+          "terminal evidence must be saved before tabs close"
+        );
+      }
+      if (closedTabIds.has(intent.tab_id)) return { ok: true, reason: "child_already_closed" };
+      closedTabIds.add(intent.tab_id);
       closed.push(clone(intent));
       return { ok: true, reason: "child_closed" };
     }
@@ -275,6 +297,78 @@ function createHarness({
       "late cleanup must not erase the receipt of concurrent terminal feedback delivery"
     );
 
+    const claimBase = await h.context.loadConversationFabricCampaign(started.campaignId);
+    const staleBeforeClaim = clone(claimBase);
+    const claimed = clone(claimBase);
+    claimed.feedback_delivery_claim = {
+      id: "claim-1",
+      state: "claimed",
+      started_at: "2026-10-06T03:00:00.000Z"
+    };
+    await h.context.saveConversationFabricCampaign(claimed, { allowDeliveryClaimMutation: true });
+    await h.context.saveConversationFabricCampaign(staleBeforeClaim);
+    assert.equal(
+      (await h.context.loadConversationFabricCampaign(started.campaignId)).feedback_delivery_claim.id,
+      "claim-1",
+      "ordinary stale campaign saves must preserve an in-flight terminal delivery claim"
+    );
+
+    const staleWithClaim = await h.context.loadConversationFabricCampaign(started.campaignId);
+    const clearedByOwner = clone(staleWithClaim);
+    delete clearedByOwner.feedback_delivery_claim;
+    await h.context.saveConversationFabricCampaign(clearedByOwner, { allowDeliveryClaimMutation: true });
+    await h.context.saveConversationFabricCampaign(staleWithClaim);
+    assert.equal(
+      (await h.context.loadConversationFabricCampaign(started.campaignId)).feedback_delivery_claim,
+      undefined,
+      "ordinary stale saves must not resurrect a claim cleared by the delivery owner"
+    );
+
+    const vaultRecords = Object.entries(h.session)
+      .filter(([key]) => key.startsWith("conversation-fabric-result:"))
+      .map(([, value]) => value);
+    assert.equal(vaultRecords.length, 2, "every stable child result must have an independent vault record");
+    assert.ok(vaultRecords.every(value => /^[0-9a-f]{64}$/.test(value.text_sha256)));
+
+    const inspectCampaign = await h.context.applyConversationFabricControl({
+      ...h.delegateMessage,
+      fingerprint: "1a2b3c4d",
+      assistantIdentity: "assistant-inspect-campaign",
+      control: {
+        schema_version: 1,
+        action: "inspect",
+        campaign_id: started.campaignId,
+        marker: "synthetic-inspect"
+      }
+    }, h.sender);
+    assert.equal(inspectCampaign.ok, true, JSON.stringify(inspectCampaign));
+    assert.equal(inspectCampaign.reason, "conversation_fabric_inspect");
+    assert.match(inspectCampaign.feedbackPrompt, /Vault records:/);
+    assert.match(inspectCampaign.feedbackPrompt, /child=audit/);
+
+    const auditVaultKey = Object.keys(h.session).find(key =>
+      key.startsWith(`conversation-fabric-result:${started.campaignId}:audit`)
+    );
+    assert.ok(auditVaultKey);
+    const campaignKey = `conversation-fabric-campaign:${started.campaignId}`;
+    delete h.session[campaignKey];
+    const inspectArchivedChild = await h.context.applyConversationFabricControl({
+      ...h.delegateMessage,
+      fingerprint: "2a3b4c5d",
+      assistantIdentity: "assistant-inspect-vault-only",
+      control: {
+        schema_version: 1,
+        action: "inspect",
+        campaign_id: started.campaignId,
+        child_id: "audit",
+        marker: "synthetic-inspect-child"
+      }
+    }, h.sender);
+    assert.equal(inspectArchivedChild.ok, true, JSON.stringify(inspectArchivedChild));
+    assert.match(inspectArchivedChild.feedbackPrompt, /state=vault-only/);
+    assert.match(inspectArchivedChild.feedbackPrompt, /Result for tab 101\./);
+    assert.ok(h.session[auditVaultKey], "campaign pruning/removal must not remove the independent result vault");
+
     const wrongSender = await h.context.applyConversationFabricControl(
       h.delegateMessage,
       { ...h.sender, url: "https://chatgpt.com/c/other", tab: { id: 11, url: "https://chatgpt.com/c/other" } }
@@ -284,11 +378,143 @@ function createHarness({
   }
 
   {
+    const legacyCampaignId = "cf-0000000000000000";
+    const storage = {};
+    for (let index = 0; index < 32; index += 1) {
+      const id = `cf-${index.toString(16).padStart(16, "0")}`;
+      storage[`conversation-fabric-campaign:${id}`] = {
+        schema_version: 1,
+        id,
+        state: "completed",
+        parent_conversation_url: parentUrl,
+        parent_tab_id: 11,
+        assistant_identity: `legacy-assistant-${index}`,
+        fingerprint: "11111111",
+        created_at: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+        children: index === 0 ? [{
+          id: "legacy",
+          role: "research",
+          state: "submitted",
+          child_conversation_url: "https://chatgpt.com/c/legacy-child",
+          intent: {}
+        }] : [],
+        results: index === 0 ? [{
+          id: "legacy",
+          role: "research",
+          child_conversation_url: "https://chatgpt.com/c/legacy-child",
+          assistant_identity: "legacy-result",
+          assistant_text: "LEGACY_RESULT",
+          truncated: false,
+          captured_at: "2026-01-01T00:00:00.000Z"
+        }] : [],
+        failed_children: [],
+        feedback_delivered: true,
+        cleanup_pending: false
+      };
+    }
+    const cleanupPendingId = "cf-ffffffffffffffff";
+    storage[`conversation-fabric-campaign:${cleanupPendingId}`] = {
+      schema_version: 1,
+      id: cleanupPendingId,
+      state: "completed",
+      parent_conversation_url: parentUrl,
+      parent_tab_id: 11,
+      assistant_identity: "cleanup-pending",
+      fingerprint: "22222222",
+      created_at: "2025-12-01T00:00:00.000Z",
+      children: [],
+      results: [],
+      failed_children: [],
+      feedback_delivered: true,
+      cleanup_pending: true
+    };
+
+    const h = createHarness({ storage });
+    const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
+    assert.equal(started.ok, true, JSON.stringify(started));
+    assert.equal(storage[`conversation-fabric-campaign:${legacyCampaignId}`], undefined);
+    const vaulted = storage[`conversation-fabric-result:${legacyCampaignId}:legacy`];
+    assert.ok(vaulted, "legacy campaign result must be vaulted before campaign-history pruning");
+    assert.equal(vaulted.assistant_text, "LEGACY_RESULT");
+    assert.equal(vaulted.captured_at, "2026-01-01T00:00:00.000Z");
+    assert.ok(
+      storage[`conversation-fabric-campaign:${cleanupPendingId}`],
+      "cleanup-pending terminal campaign must never be history-pruned before exact tab cleanup completes"
+    );
+  }
+
+  {
     const h = createHarness({ managed: false });
     const result = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
     assert.equal(result.ok, false, JSON.stringify(result));
     assert.equal(result.reason, "conversation_fabric_parent_not_managed");
     assert.equal(h.created.length, 0, "unmanaged ChatGPT tabs must not create Conversation Fabric children");
+  }
+
+  {
+    const h = createHarness({
+      allowActiveClose: true,
+      observationReasonByChild: { verify: "child_generating" }
+    });
+    const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
+    assert.equal(started.ok, true, JSON.stringify(started));
+    const createdBefore = h.created.length;
+    const submittedBefore = h.submitted.length;
+
+    const retired = await h.context.applyConversationFabricControl({
+      ...h.delegateMessage,
+      fingerprint: "3a4b5c6d",
+      assistantIdentity: "assistant-retire-verify",
+      control: {
+        schema_version: 1,
+        action: "retire",
+        campaign_id: started.campaignId,
+        child_id: "verify",
+        marker: "synthetic-retire"
+      }
+    }, h.sender);
+    assert.equal(retired.ok, true, JSON.stringify(retired));
+    assert.equal(retired.reason, "conversation_fabric_child_retired");
+    assert.equal(retired.hadCapturedResult, false);
+    assert.equal(h.created.length, createdBefore, "retire must not create a replacement tab");
+    assert.equal(h.submitted.length, submittedBefore, "retire must not replay any bootstrap");
+    assert.deepEqual(
+      h.closed.map(intent => intent.tab_id).sort(),
+      [101, 102],
+      "explicit retire plus terminal cleanup closes only the original exact owned tabs"
+    );
+    const terminal = await h.context.loadConversationFabricCampaign(started.campaignId);
+    const verify = terminal.children.find(child => child.id === "verify");
+    assert.equal(verify.state, "failed");
+    assert.equal(verify.failure.reason, "operator_retired");
+    assert.equal(verify.failure.retryable, true);
+    assert.equal(terminal.results.length, 1, "non-retired sibling result is still captured");
+    assert.match(retired.feedbackPrompt, /retryable missing coverage/);
+  }
+
+  {
+    const h = createHarness({
+      allowActiveClose: true,
+      observationReasonByChild: { verify: "spawn_claim_conflict" }
+    });
+    const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
+    const rejected = await h.context.applyConversationFabricControl({
+      ...h.delegateMessage,
+      fingerprint: "4a5b6c7d",
+      assistantIdentity: "assistant-retire-repurposed",
+      control: {
+        schema_version: 1,
+        action: "retire",
+        campaign_id: started.campaignId,
+        child_id: "verify",
+        marker: "synthetic-retire-repurposed"
+      }
+    }, h.sender);
+    assert.equal(rejected.ok, false, JSON.stringify(rejected));
+    assert.equal(rejected.reason, "conversation_fabric_retire_ownership_unproven");
+    assert.equal(h.closed.length, 0, "retire must not close a tab whose current page identity cannot be re-proven");
+    const running = await h.context.loadConversationFabricCampaign(started.campaignId);
+    assert.equal(running.children.find(child => child.id === "verify").state, "submitted");
   }
 
   {

@@ -46,7 +46,7 @@ function conversationFabricStoredResult(campaign, childId) {
   return (campaign.results || []).find((result) => result.id === childId) || null;
 }
 
-function conversationFabricResultRecord(child, observed) {
+function conversationFabricResultRecord(child, observed, vaulted = null) {
   const text = String(observed.assistantText || "");
   return {
     id: child.id,
@@ -54,7 +54,9 @@ function conversationFabricResultRecord(child, observed) {
     child_conversation_url: child.child_conversation_url,
     assistant_identity: String(observed.assistantIdentity || ""),
     assistant_text: text.slice(0, CONVERSATION_FABRIC_RESULT_CHARS),
-    truncated: observed.truncated === true || text.length > CONVERSATION_FABRIC_RESULT_CHARS
+    truncated: observed.truncated === true || text.length > CONVERSATION_FABRIC_RESULT_CHARS,
+    captured_at: String(vaulted?.captured_at || new Date().toISOString()),
+    vault_sha256: String(vaulted?.text_sha256 || "")
   };
 }
 
@@ -127,6 +129,9 @@ collectConversationFabric = async function collectConversationFabricRecovered(au
   if (campaign.parent_conversation_url !== authority.conversationUrl) {
     return { ok: false, reason: "conversation_fabric_parent_mismatch" };
   }
+  // Recover an independently vaulted result before observing the child again.
+  // This makes the vault write itself a usable crash checkpoint.
+  await hydrateConversationFabricResultsFromVault(campaign);
   if (campaign.state === "spawning") await recoverConversationFabricSpawningCampaign(campaign);
   if (campaign.state === "completed") {
     if (campaign.feedback_delivered) {
@@ -168,9 +173,9 @@ collectConversationFabric = async function collectConversationFabricRecovered(au
           reason: recovered.reason,
           error: recovered.error
         };
-        failedChildren.push(failure);
         child.state = "failed";
         child.failure = failure;
+        failedChildren.push(conversationFabricChildFailure(child));
         await saveConversationFabricCampaign(campaign);
         continue;
       }
@@ -184,18 +189,19 @@ collectConversationFabric = async function collectConversationFabricRecovered(au
         reason: `invalid_child_state_${child.state || "unknown"}`,
         error: ""
       };
-      failedChildren.push(failure);
       child.state = "failed";
       child.failure = failure;
+      failedChildren.push(conversationFabricChildFailure(child));
       await saveConversationFabricCampaign(campaign);
       continue;
     }
 
     const observed = await stableConversationFabricResult(child);
     if (observed?.ok && observed.reason === "child_result_ready") {
-      campaign.results.push(conversationFabricResultRecord(child, observed));
+      const vaulted = await saveConversationFabricVaultResult(campaign, child, observed);
+      campaign.results.push(conversationFabricResultRecord(child, observed, vaulted));
       child.result_captured = true;
-      child.result_captured_at = new Date().toISOString();
+      child.result_captured_at = vaulted.captured_at;
       child.last_observation_reason = "child_result_ready";
       await saveConversationFabricCampaign(campaign);
       continue;
@@ -215,9 +221,9 @@ collectConversationFabric = async function collectConversationFabricRecovered(au
       reason: String(observed?.reason || "conversation_fabric_child_observation_failed"),
       error: String(observed?.error || "")
     };
-    failedChildren.push(failure);
     child.state = "failed";
     child.failure = failure;
+    failedChildren.push(conversationFabricChildFailure(child));
     await saveConversationFabricCampaign(campaign);
   }
 

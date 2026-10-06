@@ -5,7 +5,7 @@
   if (!protocol) throw new Error("Local Agent Chat Bridge protocol is unavailable");
   const { normalizeConversationUrl } = protocol;
   const SPAWN_PROTOCOL_VERSION = 2;
-  const MAX_RESULT_CHARS = 6_000;
+  const MAX_RESULT_CHARS = 24_000;
   const TRANSACTION_RE = /^spawn-[0-9a-f]{64}$/;
   const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
   const COMPLETION_MARKER_RE = /^<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>$/;

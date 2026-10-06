@@ -53,12 +53,13 @@ Isolation is logical: exact parent conversation, tab id, child URL, spawn transa
 
 ## Conversation Fabric recovery and delivery
 
-- Campaigns and captured child results are durable in `chrome.storage.local`.
+- Campaign state is durable in `chrome.storage.local`; every stable child result is additionally copied into a separately retained bounded Result Vault before cleanup or terminal feedback.
 - A submitted child survives service-worker restart/reload. Lost session ownership may be reconstructed only from the child page's exact transaction/request/bootstrap/current-URL claim; a reused tab id is never sufficient.
-- Pre-submit/ambiguous spawning fails closed rather than replaying a child prompt.
-- Stable results require the explicit completion marker plus repeated identical observation; each stable result is persisted before sibling completion or tab cleanup.
+- Pre-submit interruption fails closed. Post-submit routing ambiguity remains recoverable while exact identity can still be proven. Neither state permits automatic child-prompt replay.
+- Stable results require the explicit completion marker plus repeated identical observation; successful sibling results survive later child/campaign failures.
 - Transient child observation failures remain pending and recoverable rather than becoming permanent child failures.
-- The existing GitHub-control alarm normally observes/collects campaigns while the parent and Master are enabled. Explicit `collect` is a recovery/inspection operation for already-submitted children and must never resubmit their bootstrap prompts.
+- A manually closed or explicitly retired child is surfaced as missing coverage when no stable result was captured. Safe failure classes are marked retryable so the parent may intentionally delegate the bounded work again with a new child id; the Bridge never creates that replacement itself.
+- The existing GitHub-control alarm normally observes/collects campaigns while the parent and Master are enabled. Explicit `collect` performs bounded recovery for already-submitted children, read-only `inspect` recovers status/vaulted results, and explicit `retire` closes one exact-owned child without replay.
 - Terminal feedback uses a durable per-campaign delivery claim before crossing the send boundary. A surviving ambiguous claim suppresses resend after restart, intentionally preferring a possibly missed terminal notification to duplicate terminal delivery.
 - A new delegation for a parent is rejected while an older terminal campaign still has undelivered feedback, preventing stale cross-campaign terminal replay.
 - Completed/failed campaign cleanup closes only exact owned child tabs.

@@ -46,7 +46,7 @@ async function conversationFabricAssumeClaimDelivered(campaign, reason) {
     reason: String(reason || "delivery_unconfirmed"),
     completed_at: now
   };
-  await saveConversationFabricCampaign(campaign);
+  await saveConversationFabricCampaign(campaign, { allowDeliveryClaimMutation: true });
   return campaign;
 }
 
@@ -59,7 +59,7 @@ async function conversationFabricConfirmClaimDelivered(campaign) {
     state: "confirmed",
     completed_at: now
   };
-  await saveConversationFabricCampaign(campaign);
+  await saveConversationFabricCampaign(campaign, { allowDeliveryClaimMutation: true });
   return campaign;
 }
 
@@ -81,7 +81,7 @@ conversationFabricFeedbackForParent = async function conversationFabricFeedbackF
     parent_conversation_url: String(parentUrl || "")
   };
   campaign.feedback_delivery_claim = claim;
-  await saveConversationFabricCampaign(campaign);
+  await saveConversationFabricCampaign(campaign, { allowDeliveryClaimMutation: true });
   conversationFabricActiveTerminalClaims.set(String(parentUrl || ""), {
     campaignId: campaign.id,
     id: claim.id
@@ -134,7 +134,7 @@ deliverConversation = async function deliverConversationWithFabricAtMostOnce(cha
     delete campaign.feedback_delivery_claim;
     delete campaign.feedback_delivery_assumed;
     delete campaign.feedback_delivery_assumed_at;
-    await saveConversationFabricCampaign(campaign);
+    await saveConversationFabricCampaign(campaign, { allowDeliveryClaimMutation: true });
     return result;
   }
 

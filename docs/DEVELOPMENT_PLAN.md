@@ -54,6 +54,19 @@ A production incident showed that `spawn_submission_ambiguous` can be a false ne
 - add the negative case where a truly ambiguous tab never reaches verifiable child identity and bounded recovery eventually fails closed without replay;
 - replace or split `campaign_timed_out_after_final_collect` so an ordinary campaign that simply remains running with pending children reports a semantically correct timeout such as `campaign_timed_out_with_pending_children`.
 
+### P1 durability/operations — Result Vault and explicit child recovery
+
+Make completed child work independently recoverable from later campaign/feedback/orchestration failures, and make failed/stuck child handling explicit without weakening no-replay:
+
+- persist every stable child result into a separate bounded Result Vault record before campaign cleanup or terminal feedback;
+- keep vault retention independent of the short campaign-history window so removing an old campaign record does not silently discard already-captured child work;
+- retain campaign id, child id/role, child conversation URL, assistant identity, capture timestamp, bounded result text, truncation metadata and a content digest;
+- provide a read-only `inspect` control for a managed parent to retrieve current child states plus archived/captured results without changing delivery receipts or resubmitting prompts;
+- provide an explicit `retire` control for one exact child: close only the exact owned tab when ownership can be proven, mark the child failed/retryable, preserve any already-captured result, and never auto-submit a replacement;
+- terminal/pending diagnostics should distinguish transient observation, submission ambiguity, operator retirement, closed/missing tab, ownership conflict and bounded timeout;
+- after retirement or terminal child failure, parent feedback should make it clear which child coverage is missing and that a new delegation may intentionally reassign that bounded work with a new child id; the Bridge itself must not replay it;
+- before terminal campaign failure/timeout, perform a final salvage observation of children that can still prove exact ownership so completed work is vaulted before cleanup;
+- add regressions for: captured result survives campaign-history pruning, inspect returns it later, retire closes only the exact owned child, a closed/missing child becomes clearly retryable, and a later explicit re-delegation does not reuse/replay the retired bootstrap.
 ### Follow-up hardening — Conversation Fabric control-surface diagnostics
 
 Immediately after the restart/reload E2E is stable, close the observed silent control-drop case without broadening Conversation Fabric authority:
