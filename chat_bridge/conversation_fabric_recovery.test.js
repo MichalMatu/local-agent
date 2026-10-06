@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
@@ -59,6 +60,7 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
 
   const context = vm.createContext({
     console,
+    crypto: crypto.webcrypto,
     Date,
     JSON,
     Object,
@@ -103,6 +105,9 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
           "parent-id": { id: "parent-id", url: parentUrl, preferredTabId: 11, enabled: true }
         }
       };
+    },
+    async conversationSpawnSha256(text) {
+      return crypto.createHash("sha256").update(String(text), "utf8").digest("hex");
     },
     async reconcileConversationSpawn(intent) {
       const current = Object.values(storage[campaignKey].children)
@@ -208,6 +213,9 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
     assert.equal(stored.state, "completed");
     assert.equal(stored.failed_children.length, 0);
     assert.deepEqual(stored.results.map(item => item.id), ["a", "b"]);
+    const vaultKeys = Object.keys(h.storage).filter(key => key.startsWith("conversation-fabric-result:"));
+    assert.equal(vaultKeys.length, 2, "restart recovery must vault both stable results before cleanup");
+    assert.ok(vaultKeys.every(key => /^[0-9a-f]{64}$/.test(h.storage[key].text_sha256)));
   }
 
   // Restart during a post-click submitting checkpoint keeps the original child recoverable.
