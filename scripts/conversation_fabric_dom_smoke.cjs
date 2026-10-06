@@ -18,6 +18,16 @@ const parentFixture = `<!doctype html><html><body>
 <div id="turns"></div>
 <script>
 window.__submitted = [];
+window.__sendReplacementCount = 0;
+document.querySelector("#prompt-textarea").addEventListener("input", () => {
+  const composer = document.querySelector("#prompt-textarea");
+  if (!String(composer.innerText || composer.textContent || "").trim()) return;
+  const current = document.querySelector('button[data-testid="composer-submit-button"]');
+  if (!current) return;
+  const replacement = current.cloneNode(true);
+  current.replaceWith(replacement);
+  window.__sendReplacementCount += 1;
+});
 document.querySelector("#composer-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const composer = document.querySelector("#prompt-textarea");
@@ -182,6 +192,10 @@ async function runParentSmoke(context) {
   assert.equal(submitted.length, 2);
   assert.match(submitted[0], /control_not_terminal/);
   assert.equal(submitted[1], "FABRIC FEEDBACK");
+  assert.ok(
+    await page.evaluate(() => window.__sendReplacementCount >= 2),
+    "Fabric feedback must survive ChatGPT replacing the live Send button after composer input"
+  );
   await page.close();
   return markers[0];
 }

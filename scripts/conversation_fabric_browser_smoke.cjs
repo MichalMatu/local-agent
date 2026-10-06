@@ -571,6 +571,65 @@ async function campaignSnapshot(worker, campaignId) {
     const stillDelivered = await campaignSnapshot(worker, campaignId);
     assert.equal(stillDelivered.feedback_delivered, true, "inspect must not reset terminal delivery receipt");
 
+    // Sequential-cycle proof: after campaign A is fully terminal and cleaned, the same
+    // parent starts a fresh campaign B. B must not inherit A ownership/results/terminal
+    // delivery and A must remain durably delivered without replay.
+    const round2Delegate = {
+      schema_version: 1,
+      action: "delegate",
+      children: [
+        { id: "round2", role: "verification", prompt: "Return RESULT_ROUND2 in a fresh campaign." }
+      ]
+    };
+    const firstCampaignBeforeRound2 = await campaignSnapshot(worker, campaignId);
+    const firstTerminalCountBeforeRound2 = await parent.evaluate(id => window.submitted.filter(text =>
+      text.includes(`Conversation Fabric campaign ${id} completed.`)
+    ).length, campaignId);
+    await parent.evaluate(controlValue => {
+      window.turn("assistant", "<<<LOCAL_AGENT_CF\\n" + JSON.stringify(controlValue) + "\\nLOCAL_AGENT_CF>>>");
+    }, round2Delegate);
+    const round2Campaign = await waitFor("fresh sequential campaign B", () => worker.evaluate(async previousId => {
+      const campaigns = await listConversationFabricCampaigns();
+      return campaigns.find(value =>
+        value.id !== previousId &&
+        value.state === "running" &&
+        value.children?.length === 1 &&
+        value.children[0].id === "round2"
+      ) || null;
+    }, campaignId), 30000);
+    assert.notEqual(round2Campaign.id, campaignId, "campaign B must have a fresh campaign id");
+    assert.equal(round2Campaign.results.length, 0, "campaign B must not inherit campaign A results");
+    assert.equal(round2Campaign.feedback_delivered, false, "campaign B starts with no terminal delivery receipt");
+    assert.equal(fabricChildren(context).length, 1, "campaign B starts only its exact owned child");
+
+    const round2Page = await pageForChild(context, "round2");
+    assert.equal(await round2Page.evaluate(() => window.submitted.length), 1, "campaign B bootstrap is submitted once");
+    await round2Page.evaluate(() => {
+      window.releaseDelayedRoute();
+      window.completeChild();
+    });
+    await triggerProductionFabricPoll(worker);
+    const round2Completed = await waitFor("campaign B terminal delivery", async () => {
+      const value = await campaignSnapshot(worker, round2Campaign.id);
+      return value?.state === "completed" && value.feedback_delivered && value.results?.length === 1 ? value : null;
+    }, 20000);
+    assert.equal(round2Completed.results[0].assistant_text, "RESULT_ROUND2");
+    assert.equal(round2Completed.children[0].id, "round2");
+    assert.equal(fabricChildren(context).length, 0, "campaign B exact owned child must be cleaned before later work");
+
+    const firstCampaignAfterRound2 = await campaignSnapshot(worker, campaignId);
+    assert.equal(firstCampaignAfterRound2.state, "completed");
+    assert.equal(firstCampaignAfterRound2.feedback_delivered, true);
+    assert.deepEqual(firstCampaignAfterRound2.results, firstCampaignBeforeRound2.results, "campaign B must not mutate campaign A results");
+    const firstTerminalCountAfterRound2 = await parent.evaluate(id => window.submitted.filter(text =>
+      text.includes(`Conversation Fabric campaign ${id} completed.`)
+    ).length, campaignId);
+    assert.equal(
+      firstTerminalCountAfterRound2,
+      firstTerminalCountBeforeRound2,
+      "starting/completing campaign B must not replay campaign A terminal feedback"
+    );
+
     // Operator recovery: retire one problematic exact-owned child, then intentionally
     // re-delegate the missing bounded work with a fresh child id. No automatic replay.
     const retireDelegate = {
