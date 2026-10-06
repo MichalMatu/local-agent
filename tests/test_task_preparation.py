@@ -165,7 +165,7 @@ class TaskPreparationTests(unittest.TestCase):
         )
         self.assertEqual(task["resources"], ["device:demo"])
 
-    def test_host_profile_requires_host_target_and_machine_resource(self) -> None:
+    def test_host_profile_requires_host_target_and_preserves_resource_scope(self) -> None:
         with self.assertRaisesRegex(ValueError, "host-ops"):
             prepare_task(
                 self.draft(),
@@ -173,17 +173,36 @@ class TaskPreparationTests(unittest.TestCase):
                 profile="host-maintenance",
                 catalog_path=self.catalog,
             )
-        task = prepare_task(
+
+        default_task = prepare_task(
             self.draft(),
             repository="host-ops",
             profile="host-maintenance",
             catalog_path=self.catalog,
         )
-        self.assertEqual(task["agent_binding"], HOST_BINDING)
-        self.assertEqual(task["resources"], ["machine"])
-        with self.assertRaisesRegex(ValueError, "machine"):
+        self.assertEqual(default_task["agent_binding"], HOST_BINDING)
+        self.assertEqual(default_task["resources"], [])
+
+        for resources in (
+            [],
+            ["browser:chrome"],
+            ["usb:esp32"],
+            ["codex-cli"],
+            ["browser:chrome", "usb:esp32"],
+            ["machine"],
+        ):
+            with self.subTest(resources=resources):
+                task = prepare_task(
+                    {**self.draft(), "resources": resources},
+                    repository="host-ops",
+                    profile="host-maintenance",
+                    catalog_path=self.catalog,
+                )
+                self.assertEqual(task["resources"], resources)
+
+        with self.assertRaisesRegex(ValueError, "must be declared alone"):
             prepare_task(
-                {**self.draft(), "resources": []},
+                {**self.draft(), "resources": ["machine", "usb:esp32"]},
                 repository="host-ops",
                 profile="host-maintenance",
                 catalog_path=self.catalog,

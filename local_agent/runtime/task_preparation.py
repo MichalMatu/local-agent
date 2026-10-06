@@ -38,9 +38,10 @@ def prepare_task(
     if profile == "host-maintenance":
         if target.repository_id != "host-ops":
             raise ValueError("host-maintenance requires the host-ops target")
-        task.setdefault("resources", ["machine"])
-        if task["resources"] != ["machine"]:
-            raise ValueError("host-maintenance requires resources=['machine']")
+        # Host scope does not imply whole-machine exclusivity. Callers must request
+        # "machine" explicitly for true whole-host operations, or name the concrete
+        # external resources they need. Software-only maintenance stays concurrent.
+        task.setdefault("resources", [])
     elif profile == "hardware":
         if not task.get("resources") or "machine" in task["resources"]:
             raise ValueError("hardware requires explicit named resources")

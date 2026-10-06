@@ -8,6 +8,7 @@ This roadmap contains only active forward work. Historical rollout detail belong
 - canonical runtime catalog as mandatory final execution authority;
 - exact target `agent_binding` + `execution_enabled` admission;
 - bounded parallel multi-repository scheduler and resource admission;
+- granular host-maintenance preparation: software-only by default, explicit named resources when needed, and `machine` only for whole-host exclusivity;
 - durable task/result/recovery contracts;
 - crash-safe parallel dedupe completion reconciliation;
 - GitHub-backed Chat Bridge conversation pacing;
