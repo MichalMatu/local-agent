@@ -586,7 +586,7 @@ async function campaignSnapshot(worker, campaignId) {
       text.includes(`Conversation Fabric campaign ${id} completed.`)
     ).length, campaignId);
     await parent.evaluate(controlValue => {
-      window.turn("assistant", "<<<LOCAL_AGENT_CF\\n" + JSON.stringify(controlValue) + "\\nLOCAL_AGENT_CF>>>");
+      window.turn("assistant", "<<<LOCAL_AGENT_CF\n" + JSON.stringify(controlValue) + "\nLOCAL_AGENT_CF>>>");
     }, round2Delegate);
     const round2Campaign = await waitFor("fresh sequential campaign B", () => worker.evaluate(async previousId => {
       const campaigns = await listConversationFabricCampaigns();
