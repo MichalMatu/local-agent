@@ -51,6 +51,14 @@ LOCAL_AGENT_CF>>>
 
 Results must carry the expected completion marker and be stable across repeated observations before adoption. Each stable result is durably stored before sibling completion or tab cleanup.
 
+## Result durability and operator recovery
+
+- Stable child work is not only part of the campaign record: it is copied into a separate bounded Result Vault before tab cleanup or terminal feedback.
+- Result Vault retention is independent of the short completed-campaign history window and preserves enough metadata to identify the original child and conversation.
+- A managed parent may use a read-only `inspect` control to recover current child state and previously captured/vaulted result text without replaying terminal feedback.
+- A managed parent may explicitly `retire` one problematic child. Retirement never resubmits its bootstrap and closes a tab only through the existing exact ownership proof.
+- Any already-captured result survives retirement. A retired/missing child is reported as retryable missing coverage so the parent may intentionally issue a new delegation with a new child id.
+- Automatic replacement/replay remains forbidden.
 ## Restart and terminal-delivery contract
 
 - Submitted children are never blindly replayed after service-worker/session restart.
