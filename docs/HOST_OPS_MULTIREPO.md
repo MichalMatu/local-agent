@@ -1,6 +1,6 @@
 # Superchat multirepo reasoning and Host Ops transport workspace
 
-A parent Superchat may coordinate work across multiple repositories without rebinding the Chat Bridge conversation. `host-ops` remains the canonical execution-enabled operator/transport workspace for Mac-local operations, but its Bridge metadata does not grant repository execution authority.
+A parent Superchat may coordinate work across multiple repositories without rebinding the Chat Bridge conversation. The current deployment still carries `host-ops` as a transitional execution-enabled compatibility workspace for Mac-local operations, but the accepted target architecture absorbs its deterministic tooling into Local Agent. Local Agent remains the sole brain/orchestrator; Host Ops never grants repository execution authority.
 
 ## Repository scope
 
@@ -43,9 +43,11 @@ A normal wake uses only the stable chat envelope plus the runtime prompt:
 
 GitHub `conversation_controls` owns pacing for managed chats. Repository/binding fields are not schedule authority. Legacy ADD/REBIND controls remain migration compatibility only.
 
-## Host Ops
+## Host Ops transition
 
-Use the execution-enabled `host-ops` repository only for bounded Mac-local operations that genuinely belong to Host Ops: inspecting worktrees/process state, running local release gates, managing host services or other machine-level operations. Project work belongs to the actual project repository and uses that project's exact task binding.
+The standalone `host-ops` repository is now a donor/compatibility boundary, not a second product architecture. Until absorption is complete, it may still be used for bounded existing Mac-local operations such as inspecting worktrees/process state, running local release gates, managing host services or other machine-level operations. Do not add planning, scheduling, repository routing, Conversation Fabric policy or another daemon/control plane there.
+
+The next product stage is defined in `docs/HOST_OPS_ABSORPTION_PLAN.md`: migrate the deterministic capability/workflow implementation into Local Agent, preserve its safety/JSON contracts, then retire the standalone execution identity once supported workflows no longer depend on it. Project work still belongs to the actual project repository and uses that project's exact task binding.
 
 Use direct GitHub edits when an exact source/docs diff plus CI is sufficient. Use Local Agent only when the task genuinely requires machine-local commands, local builds/tests, devices or host state.
 
