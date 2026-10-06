@@ -127,6 +127,111 @@ async function loadConversationFabricVaultResult(campaignId, childId) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 
+function conversationFabricOperatorCampaignSummary(campaign, vaultResults = []) {
+  const children = Array.isArray(campaign?.children) ? campaign.children : [];
+  const campaignResults = Array.isArray(campaign?.results) ? campaign.results : [];
+  const capturedIds = new Set(campaignResults.map((result) => String(result?.id || "")).filter(Boolean));
+  for (const vaulted of vaultResults) {
+    if (vaulted?.campaign_id === campaign?.id && vaulted?.child_id) {
+      capturedIds.add(String(vaulted.child_id));
+    }
+  }
+
+  const failures = conversationFabricFailedChildren(campaign);
+  const failedIds = new Set(failures.map((failure) => failure.id).filter(Boolean));
+  const pendingChildIds = children
+    .filter((child) => !failedIds.has(String(child?.id || "")) && !capturedIds.has(String(child?.id || "")))
+    .map((child) => String(child.id));
+  const ambiguousChildIds = children
+    .filter((child) => child?.state === CONVERSATION_FABRIC_AMBIGUOUS_CHILD_STATE)
+    .map((child) => String(child.id));
+  const retryableChildIds = failures
+    .filter((failure) => failure.retryable)
+    .map((failure) => failure.id)
+    .filter(Boolean);
+
+  let feedbackState = "not_terminal";
+  if (["completed", "failed"].includes(String(campaign?.state || ""))) {
+    feedbackState = campaign?.feedback_delivered
+      ? "delivered"
+      : campaign?.feedback_delivery_assumed
+        ? "assumed"
+        : campaign?.feedback_delivery_claim?.id
+          ? "claimed"
+          : "pending";
+  }
+
+  return {
+    campaignId: String(campaign?.id || ""),
+    state: String(campaign?.state || "unknown"),
+    createdAt: String(campaign?.created_at || ""),
+    completedAt: String(campaign?.completed_at || ""),
+    childCount: children.length,
+    capturedResultCount: capturedIds.size,
+    pendingChildIds,
+    ambiguousChildIds,
+    failedChildIds: failures.map((failure) => failure.id).filter(Boolean),
+    retryableChildIds,
+    failureReasons: failures.map((failure) => ({
+      childId: failure.id,
+      reason: failure.reason,
+      retryable: failure.retryable === true
+    })),
+    cleanupPending: campaign?.cleanup_pending === true,
+    feedbackState,
+    partialFailure: campaign?.partial_failure === true
+  };
+}
+
+async function conversationFabricOperatorSnapshot() {
+  const stored = await chrome.storage.local.get(null);
+  const campaigns = Object.entries(stored).filter(([key, value]) =>
+    key.startsWith(CONVERSATION_FABRIC_CAMPAIGN_PREFIX) && value?.schema_version === 1
+  ).map(([, value]) => value);
+  const vault = Object.entries(stored).filter(([key, value]) =>
+    key.startsWith(CONVERSATION_FABRIC_RESULT_PREFIX) && value?.schema_version === 1
+  ).map(([, value]) => value);
+
+  const parentUrls = new Set([
+    ...campaigns.map((campaign) => String(campaign?.parent_conversation_url || "")).filter(Boolean),
+    ...vault.map((result) => String(result?.parent_conversation_url || "")).filter(Boolean)
+  ]);
+  const snapshot = {};
+
+  for (const parentUrl of parentUrls) {
+    const parentCampaigns = campaigns
+      .filter((campaign) => campaign?.parent_conversation_url === parentUrl)
+      .sort((left, right) => String(right?.created_at || "").localeCompare(String(left?.created_at || "")));
+    const parentVault = vault
+      .filter((result) => result?.parent_conversation_url === parentUrl)
+      .sort((left, right) => String(right?.captured_at || "").localeCompare(String(left?.captured_at || "")));
+
+    const active = parentCampaigns.filter((campaign) =>
+      ["spawning", "running"].includes(String(campaign?.state || ""))
+    );
+    const terminalAttention = parentCampaigns.filter((campaign) =>
+      ["completed", "failed"].includes(String(campaign?.state || "")) &&
+      (campaign?.cleanup_pending === true || campaign?.feedback_delivered !== true)
+    );
+    const current = active[0] || terminalAttention[0] || parentCampaigns[0] || null;
+    const vaultCampaignIds = new Set(parentVault.map((result) => String(result?.campaign_id || "")).filter(Boolean));
+
+    snapshot[conversationId(parentUrl)] = {
+      parentConversationUrl: parentUrl,
+      activeCampaignCount: active.length,
+      campaignCount: parentCampaigns.length,
+      vaultResultCount: parentVault.length,
+      vaultCampaignCount: vaultCampaignIds.size,
+      latestVaultCapturedAt: String(parentVault[0]?.captured_at || ""),
+      currentCampaign: current
+        ? conversationFabricOperatorCampaignSummary(current, parentVault)
+        : null
+    };
+  }
+
+  return snapshot;
+}
+
 async function saveConversationFabricVaultResult(campaign, child, observed, { capturedAt = "" } = {}) {
   const fullText = String(observed?.assistantText || "");
   const assistantText = fullText.slice(0, CONVERSATION_FABRIC_VAULT_RESULT_CHARS);
