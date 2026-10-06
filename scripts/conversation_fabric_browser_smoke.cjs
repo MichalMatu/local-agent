@@ -654,7 +654,7 @@ async function campaignSnapshot(worker, campaignId) {
       const value = await campaignSnapshot(worker, retryCampaign.id);
       return value?.state === "completed" && value.results?.length === 1 ? value : null;
     }, 20000);
-    assert.equal(retryCompleted.results[0].assistant_text, "RESULT_RETRY");
+    assert.equal(retryCompleted.results[0].assistant_text, "RESULT_RETRY-STUCK");
     assert.equal(retryCompleted.children[0].id, "retry-stuck");
 
     // Negative regression: Send succeeds once, but the child never reaches a canonical
