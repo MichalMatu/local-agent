@@ -83,16 +83,17 @@ Immediately after the restart/reload E2E is stable, close the observed silent co
 
 If an unsupported model channel is not represented in the DOM visible to the extension, the Bridge cannot diagnose that hidden channel directly. In that case the runtime/model instruction is the enforcing boundary; the Bridge diagnostic applies to markers that are actually observable on the page.
 
-## Milestone 2 — runtime parity and timeout semantics
+## Milestone 2 — runtime parity and timeout semantics — complete
 
-Close remaining correctness gaps only where current production behavior is confirmed:
+The production contracts are now explicit and regression-protected:
 
-- define whether serial fallback must share production parallel dedupe semantics or is intentionally a reduced recovery mode;
-- make any intended parity explicit in tests and operations docs;
-- decide whether `task_timeout` is a command-budget concept or a full task wall-clock contract including prepare/checkpoint/cleanup, then make implementation + docs agree;
-- ensure idle-output activity is measured at the byte/chunk boundary if commands that emit progress without newline are supported.
+- bounded parallel execution remains the production scheduler and owns full queue coalescing, dedupe reconciliation and crash-recovery semantics;
+- serial `agent_multirepo.py` remains a bounded fallback/diagnostic path while reusing the safe shared queued-duplicate admission path; this does not imply full serial/parallel parity;
+- `task_timeout` is a stage-admission execution budget anchored before workspace preparation, not a strict total wall-clock deadline; preparation consumes remaining stage budget while checkpoint/cleanup remain separately bounded finalization;
+- every new stage must fit its configured timeout plus the finalization reserve inside the remaining task budget or fail before start with `task_budget_exhausted`;
+- raw stdout byte/chunk activity now refreshes idle-watchdog activity through a side channel without injecting phantom output, while universal newline semantics remain preserved.
 
-Do not change these semantics merely for symmetry; require a production consequence and a regression first.
+Future parity or timeout-contract expansion requires a concrete production consequence plus a dedicated regression; it must not be introduced merely for symmetry.
 
 ## Milestone 3 — operator observability
 
