@@ -1,6 +1,6 @@
 # Host Ops absorption plan
 
-Status: **next planned Local Agent product stage after the current source closeout**.
+Status: **in progress on PR #176**. Runtime, donor regression tests and reusable architecture/operations documentation are being absorbed into Local Agent.
 
 ## Architectural decision
 
@@ -65,15 +65,15 @@ The isolated CPU/GPU routing experiment on `work/cpu-gpu-routing` is not part of
    - inventory production modules, tests, docs, console entry points and JSON contract;
    - identify any filesystem/config assumptions tied to the standalone repository.
 
-2. **Import the deterministic subsystem**
-   - move production code under `local_agent.host_ops` without changing behavior;
-   - preserve the existing `core -> capabilities -> workflows -> cli` dependency direction;
-   - keep process spawning on one registered/bounded execution path.
+2. **Import the deterministic subsystem — implemented in PR #176**
+   - production code is under `local_agent.host_ops` from donor `host-ops@b12b6f33a5ee667201d4bddcbfa3cb1d1cb2948b`;
+   - the existing `core -> capabilities -> workflows -> cli` dependency direction is enforced by migrated architecture/design gates;
+   - the complete donor pytest regression suite is retained under `host_ops_tests/`.
 
-3. **Add the Local Agent integration seam**
-   - expose the smallest typed adapter Local Agent needs for host operations;
-   - preserve JSON contract version 1 for compatibility where external callers still depend on it;
-   - do not route normal host operations through a new queue, planner or daemon.
+3. **Add the Local Agent integration seam — active in PR #176**
+   - the compatibility CLI is `python -m local_agent.host_ops` and preserves JSON contract version 1;
+   - new `host-maintenance` task preparation targets `local-agent`, not the standalone donor repository;
+   - existing Local Agent task admission/scheduling remains the only orchestration authority; no new queue, planner or daemon is introduced.
 
 4. **Migrate verification**
    - move the donor architecture/design/security/unit/integration tests;

@@ -1,0 +1,27 @@
+# Removable-media artifact deployment
+
+## Purpose
+
+`python -m local_agent.host_ops macos deploy-media` is a deterministic workflow that composes existing macOS storage inspection/control with verified local artifact deployment. It is intended for USB/SD-style removable volumes where Local Agent already knows the exact `diskNsN` volume identifier.
+
+```bash
+python -m local_agent.host_ops macos deploy-media disk4s1 ./firmware.bin --name firmware.bin --json
+python -m local_agent.host_ops macos deploy-media disk4s1 ./firmware.bin --name firmware.bin --replace --eject --json
+```
+
+## Contract
+
+The workflow:
+
+1. inventories external physical storage and finds the exact requested volume;
+2. requires `Internal=false`, a non-whole volume and a confirmed external containing whole disk;
+3. rejects read-only volume/media state;
+4. accepts an existing mount point only below `/Volumes`, otherwise mounts the explicit volume and re-inspects it;
+5. delegates the file write to `LocalArtifactDeployer`, preserving staging, fsync, SHA-256 verification and explicit replacement semantics;
+6. when `--eject` is requested, ejects the containing whole disk only after verified deployment succeeds.
+
+There is no automatic eject after deployment failure. If eject itself fails, structured error evidence includes the completed deployment so the caller knows the artifact was already written. The workflow also reports whether it mounted the volume itself.
+
+## Non-goals
+
+The workflow does not choose a disk or partition, format/partition media, infer a firmware filename, erase unrelated files, or decide which artifact a project should deploy. Those choices remain explicit caller/project policy.

@@ -45,7 +45,7 @@ python -m local_agent.cli.diagnostics validate-task \
   /path/to/publication-checkout/.agent/tasks/example.json --repository growclip
 ```
 
-An inline draft can be as small as `{"id":"example","commands":["python -m unittest -q"]}`. The explicit target accepts a catalog id or `owner/name`; chat metadata is never consulted. Existing mismatched bindings are rejected rather than replaced. `repository` supplies `resources: []` when absent, `hardware` requires explicit named resources, and `host-maintenance` requires the `host-ops` target but defaults to `resources: []`. Host maintenance that needs a concrete external resource declares it explicitly (for example `browser:chrome` or `usb:esp32`); only true whole-host operations request `resources: ["machine"]`. The `machine` resource remains an exclusive global mutex and must be declared alone. Profiles compile to the existing task schema and keep its configured timeout and memory limits.
+An inline draft can be as small as `{"id":"example","commands":["python -m unittest -q"]}`. The explicit target accepts a catalog id or `owner/name`; chat metadata is never consulted. Existing mismatched bindings are rejected rather than replaced. `repository` supplies `resources: []` when absent, `hardware` requires explicit named resources, and `host-maintenance` requires the `local-agent` target but defaults to `resources: []`. Host maintenance that needs a concrete external resource declares it explicitly (for example `browser:chrome` or `usb:esp32`); only true whole-host operations request `resources: ["machine"]`. The `machine` resource remains an exclusive global mutex and must be declared alone. Profiles compile to the existing task schema and keep its configured timeout and memory limits.
 
 Preparation uses the existing atomic task-bundle writer and refuses to overwrite an existing manifest or write into a registered daemon control clone, including disabled entries and symlink aliases. Publish the manifest and its adjacent payload directory together through the target's remote `agent-control` branch. Preparation itself does not commit, push, enqueue or execute work.
 
@@ -61,7 +61,7 @@ For a corrective plan or deliberate rerun after completion, publish a **new task
 
 ## Multi-repository / host operations
 
-`host-ops` is the explicit `multirepo` host-operation/planning scope. Use it only for host effects that belong there. A repository edit/build/test still belongs to its actual target repository and requires that target repository's own execution-enabled binding.
+New host-maintenance work uses the `local-agent` target and the absorbed `local_agent.host_ops` capability layer. The standalone `host-ops` target is transitional compatibility only during migration and must not be selected for new host-maintenance plans. A repository edit/build/test still belongs to its actual target repository and requires that target repository's own execution-enabled binding.
 
 Never use `host-ops` to tunnel around a disabled target repository.
 
