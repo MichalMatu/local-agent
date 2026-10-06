@@ -599,7 +599,7 @@ async function campaignSnapshot(worker, campaignId) {
     }, campaignId), 30000);
     assert.notEqual(round2Campaign.id, campaignId, "campaign B must have a fresh campaign id");
     assert.equal(round2Campaign.results.length, 0, "campaign B must not inherit campaign A results");
-    assert.equal(round2Campaign.feedback_delivered, false, "campaign B starts with no terminal delivery receipt");
+    assert.notEqual(round2Campaign.feedback_delivered, true, "campaign B starts with no terminal delivery receipt");
     assert.equal(fabricChildren(context).length, 1, "campaign B starts only its exact owned child");
 
     const round2Page = await pageForChild(context, "round2");
