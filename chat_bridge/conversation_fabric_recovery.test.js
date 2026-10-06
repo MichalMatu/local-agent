@@ -241,8 +241,8 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
     assert.equal(recovered.recovered_submission_ambiguity, true);
     assert.equal(
       h.observed.filter(id => id === "b").length,
-      3,
-      "ambiguous child uses one identity recovery observation plus stable double result observation"
+      4,
+      "ambiguous child uses identity recovery, stable double result observation and final cleanup ownership proof"
     );
   }
 

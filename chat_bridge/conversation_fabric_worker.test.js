@@ -308,7 +308,11 @@ function createHarness({
     }, h.sender);
     assert.equal(collected.ok, true, JSON.stringify(collected));
     assert.equal(collected.reason, "conversation_fabric_completed");
-    assert.equal(h.observed.length, 4, "each child result must be stable across two observations");
+    assert.equal(
+      h.observed.length,
+      6,
+      "each child result needs stable double capture plus one final cleanup ownership proof"
+    );
     assert.equal(h.closed.length, 2, "completed campaign must close exactly its two owned child tabs");
     assert.match(collected.feedbackPrompt, /Result for tab 101\./);
     assert.match(collected.feedbackPrompt, /Result for tab 102\./);
