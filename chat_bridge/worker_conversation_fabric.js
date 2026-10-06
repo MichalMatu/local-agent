@@ -482,11 +482,12 @@ async function delegateConversationFabric(authority) {
     results: [],
     failed_children: []
   };
-  await saveConversationFabricCampaign(campaign);
-
+  // Persist the complete requested child set before any tab creation or submit side
+  // effect. If the worker restarts during an early child, later requested children
+  // remain represented and can fail closed explicitly instead of disappearing.
   for (const child of authority.control.children) {
     const intent = await conversationFabricIntent(authority, campaignId, child);
-    const record = {
+    campaign.children.push({
       id: child.id,
       role: child.role,
       intent,
@@ -495,10 +496,12 @@ async function delegateConversationFabric(authority) {
       attempts: 0,
       last_reason: "",
       last_error: ""
-    };
-    campaign.children.push(record);
-    await saveConversationFabricCampaign(campaign);
+    });
+  }
+  await saveConversationFabricCampaign(campaign);
 
+  for (const record of campaign.children) {
+    const intent = record.intent;
     try {
       const spawned = await submitConversationFabricChild(intent, async (activeIntent, state, diagnostic = {}) => {
         record.intent = activeIntent;

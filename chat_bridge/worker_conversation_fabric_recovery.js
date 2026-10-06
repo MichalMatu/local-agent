@@ -315,12 +315,15 @@ pollConversationFabricCampaigns = async function pollConversationFabricCampaigns
   if (!state.settings.masterEnabled) return;
   const campaigns = await listConversationFabricCampaigns();
   for (const listed of campaigns) {
-    if (listed.feedback_delivered || conversationFabricOperations.has(listed.parent_conversation_url)) continue;
+    if (
+      (listed.feedback_delivered && !listed.cleanup_pending) ||
+      conversationFabricOperations.has(listed.parent_conversation_url)
+    ) continue;
     const parent = state.conversations[conversationId(listed.parent_conversation_url)];
     if (!parent?.enabled) continue;
     await serializeConversationFabric(listed.parent_conversation_url, async () => {
       let current = await loadConversationFabricCampaign(listed.id);
-      if (!current || current.feedback_delivered) return;
+      if (!current || (current.feedback_delivered && !current.cleanup_pending)) return;
       if (current.state === "spawning") current = await recoverConversationFabricSpawningCampaign(current);
 
       const recoverableClaims = current.state === "failed" &&
@@ -371,7 +374,10 @@ pollConversationFabricCampaigns = async function pollConversationFabricCampaigns
         finished.cleanup_pending = !await cleanupConversationFabricChildren(finished.children);
         await saveConversationFabricCampaign(finished);
       }
-      if (["completed", "failed"].includes(finished?.state)) {
+      if (
+        ["completed", "failed"].includes(finished?.state) &&
+        !finished.feedback_delivered
+      ) {
         await runFeedbackCycle({ conversationId: parent.id });
       }
     });
