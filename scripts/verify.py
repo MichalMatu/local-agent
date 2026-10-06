@@ -33,6 +33,8 @@ MACOS_SMOKE_TESTS = (
     "tests.test_agent_storage",
     "tests.test_agent_binding",
     "tests.test_serial_agent_binding",
+    "tests.test_runtime_admission_hardening",
+    "tests.test_runtime_admission_matrix",
     "tests.test_agent_repo_worker",
     "tests.test_agent_parallel",
     "tests.test_agent_parallel_worker",
