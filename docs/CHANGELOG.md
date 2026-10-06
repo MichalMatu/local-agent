@@ -2,8 +2,14 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
-## Unreleased — Chat Bridge 0.8.3 candidate
+## Unreleased — Chat Bridge 0.8.4 candidate
 
+- Add one compact read-only Operator status card combining installed Bridge/Fabric state with bounded Local Agent supervisor telemetry.
+- Publish `.agent/status/operator.json` only through the existing supervisor control lease, on semantic change or bounded heartbeat; telemetry failure remains fail-soft.
+- Expose Conversation Operator enabled/configured/running + active workflow/child count, exact deployed Local Agent `self_revision`, and bounded dedupe suppression/rejection/reconciliation counts with reasons without publishing child prompts or paths.
+- Mark crash-safe dedupe completion reconciliation in the existing durable receipt so observability can count it without changing execution/replay semantics.
+- Keep runtime schema 3 backward-compatible with optional `operator_status_url`, restricted to read-only `https://raw.githubusercontent.com`; no browser-to-daemon RPC or new mutation authority is introduced.
+- Advance Chat Bridge manifest to 0.8.4; content protocol remains v18 and assistant guard remains v8.
 - Enable same-browser Superchat delegation through the existing extension spawn primitives, without CDP or another browser profile.
 - Capture up to four reasoning children, persist campaign/results before owned-tab cleanup, and collect results through the existing GitHub-control poll.
 - Serialize duplicate delegation, retain failure evidence without automatic replay, and deliver result feedback once to the parent.
