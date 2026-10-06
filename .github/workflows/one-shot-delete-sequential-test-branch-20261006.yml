@@ -19,7 +19,7 @@ jobs:
         run: |
           set -euo pipefail
           branch="test/sequential-fabric-cycles-20261006"
-          expected="b61aa010b7f628ce055302bbad9dfe1fee48fa3b"
+          expected="20557bd3a111a2f56942528fa1c023cd5dd5a5be"
           actual="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}" --jq '.object.sha')"
           test "$actual" = "$expected"
           test "$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&head=MichalMatu:${branch}&per_page=1" --jq 'length')" = "0"
