@@ -172,7 +172,20 @@ function conversationFabricChildFailure(child) {
 
 function conversationFabricFailedChildren(campaign) {
   const stored = Array.isArray(campaign?.failed_children) ? campaign.failed_children : [];
-  if (stored.length) return stored;
+  if (stored.length) {
+    return stored.map((failure) => {
+      const reason = String(failure?.reason || "unknown");
+      return {
+        id: String(failure?.id || ""),
+        role: String(failure?.role || ""),
+        attempt: Number.isInteger(failure?.attempt) ? failure.attempt : 0,
+        reason,
+        error: String(failure?.error || ""),
+        retryable: failure?.retryable === true ||
+          CONVERSATION_FABRIC_EXPLICIT_RETRYABLE_FAILURE_REASONS.has(reason)
+      };
+    });
+  }
   return (campaign?.children || [])
     .filter((child) => child?.state === "failed")
     .map(conversationFabricChildFailure);
