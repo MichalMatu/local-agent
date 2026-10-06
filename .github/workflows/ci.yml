@@ -13,6 +13,23 @@ permissions:
   contents: read
 
 jobs:
+  absorbed-host-ops:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12'
+      - name: Install absorbed Host Ops test tooling
+        run: python -m pip install --disable-pip-version-check pytest==9.1.1
+      - name: Host Ops architecture contract
+        run: python scripts/host_ops_quality/check_architecture.py
+      - name: Host Ops design contract
+        run: python scripts/host_ops_quality/check_design.py
+      - name: Host Ops regression suite
+        run: python -m pytest -q host_ops_tests
+
   bridge-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 10
