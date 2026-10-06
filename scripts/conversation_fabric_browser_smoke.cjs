@@ -594,6 +594,9 @@ async function campaignSnapshot(worker, campaignId) {
     }, campaignId), 30000);
     const stuckPage = await pageForChild(context, "stuck");
     assert.equal(await stuckPage.evaluate(() => window.submitted.length), 1, "stuck bootstrap must be sent once");
+    // Retire is intentionally stricter than cleanup: first let the page expose its
+    // canonical child route so the exact page claim can be re-proven immediately before close.
+    await stuckPage.evaluate(() => window.releaseDelayedRoute());
 
     const retireControl = {
       schema_version: 1,
@@ -608,7 +611,8 @@ async function campaignSnapshot(worker, campaignId) {
     await parent.waitForFunction(before => window.submitted.length > before &&
       window.submitted.some(text =>
         text.includes("was explicitly retired") &&
-        text.includes("retryable missing coverage")
+        text.includes("retryable missing coverage") &&
+        text.includes("Wait for the campaign's terminal feedback")
       ), parentMessagesBeforeRetire, { timeout: 20000 });
     await waitFor("retired exact child tab closed", () =>
       context.pages().every(page => !page.url().includes("fabric-child-stuck"))
