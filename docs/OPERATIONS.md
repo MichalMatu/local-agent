@@ -13,7 +13,7 @@ current source candidate Bridge: 0.8.3
 
 `main` is a moving production source branch and may contain later verified post-release patches. Before any live operation, read fresh daemon status and verify `daemon_version`, `self_revision`, repository registry identity, execution variant and installed Bridge version.
 
-Production bounded-parallel execution uses `agent_parallel.py` with a hard worker cap of four. Serial `agent_multirepo.py` remains fallback, not the production dedupe path.
+Production bounded-parallel execution uses `agent_parallel.py` with a hard worker cap of four. Serial `agent_multirepo.py` remains a bounded fallback/diagnostic path, not a second production scheduler. It reuses safe queued-duplicate admission so equivalent queued work is not executed twice, but full production coalescing/reconciliation/crash-recovery semantics remain owned by the parallel path.
 
 ## Normal inspection order
 
@@ -52,6 +52,12 @@ Preparation uses the existing atomic task-bundle writer and refuses to overwrite
 `validate-task --repository` reports schema validity separately from local admission readiness. It checks emergency disable, catalog/registry/control/task identity, checkout origins and branch validity. `--catalog` and `--registry` select explicit local configuration files. Preflight is a read-only snapshot; resource and execution leases are still acquired by the executor at admission.
 
 For a corrective plan or deliberate rerun after completion, publish a **new task id** with the same `dedupe_key` and an increased integer `dedupe_revision`. Changing commands under the same revision produces `dedupe_intent_conflict`; unchanged duplicates remain suppressed. A higher revision cannot bypass an active claim. Never reuse the old task id or automatically replay interrupted work.
+
+### Timeout contract
+
+`task_timeout` is the runtime's stage-admission execution budget. Its deadline starts before workspace preparation, so preparation time consumes the remaining budget. A command or verification stage starts only when its full stage timeout plus the 60-second finalization reserve still fits.
+
+`task_timeout` is **not** a strict total wall-clock deadline. Durable checkpointing and cleanup keep their own bounded finalization rules and may finish after the execution deadline. This preserves recoverable dirty state instead of abandoning finalization at an arbitrary wall-clock boundary.
 
 ## Multi-repository / host operations
 

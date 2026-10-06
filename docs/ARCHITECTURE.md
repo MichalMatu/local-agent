@@ -102,17 +102,21 @@ This closes duplicate-execution replay without turning uncertain state into a fa
 
 ## Serial vs parallel execution
 
-Parallel multirepo execution is the production path and owns production queue coalescing/dedupe semantics. Serial mode remains a bounded fallback/diagnostic execution variant unless/until its parity contract is explicitly expanded.
+Parallel multirepo execution is the production path and owns the full production queue coalescing, dedupe reconciliation and crash-recovery contract. Serial `agent_multirepo.py` remains a bounded fallback/diagnostic execution variant rather than a second production scheduler.
 
-Any future parity change must be stated in `OPERATIONS.md` and backed by a shared worker-path acceptance matrix rather than inferred from similarly named helpers.
+Serial fallback deliberately reuses the shared queued-duplicate admission path where that is safe: equivalent queued work is suppressed and receives a durable duplicate result instead of executing twice. That shared admission does **not** imply full serial/parallel parity for production coalescing, crash reconciliation or concurrent scheduling.
+
+Any future parity expansion must be stated in `OPERATIONS.md` and backed by a shared worker-path acceptance matrix rather than inferred from similarly named helpers.
 
 ## Process and timeout boundary
 
 `local_agent/foundation/process.py` owns registered spawning, process-group termination, bounded output transfer and inherited repository/resource lease descriptors.
 
-`local_agent/runtime/executor.py` owns command timeout, idle timeout, memory watchdogs and the task execution deadline used to decide whether another command can start while reserving finalization budget.
+`local_agent/runtime/executor.py` owns command timeout, idle timeout, memory watchdogs and the task execution deadline. `task_timeout` is a **stage-admission execution budget**, not a strict end-to-end wall-clock timeout. The deadline is anchored when `RuntimeExecutor` accepts the task, before workspace preparation, so time spent preparing the workspace reduces the budget available for starting later command/verification stages.
 
-Workspace preparation, checkpointing and cleanup still have their own bounded operations. If `task_timeout` is ever promoted from execution-budget semantics to a strict total wall-clock contract, all preparation/finalization subprocess timeouts must be derived from the same remaining deadline and the documentation/tests must change together.
+Before a stage starts, its complete configured timeout plus `TASK_FINALIZATION_RESERVE` (currently 60 seconds) must still fit inside the remaining task budget. Otherwise the stage is not started and the task reports `task_budget_exhausted`.
+
+Checkpointing and cleanup remain separately bounded finalization operations. They are intentionally allowed to run after the task execution deadline so dirty-state preservation and cleanup are not abandoned merely because the stage-admission budget expired; total wall-clock duration may therefore exceed `task_timeout`. If `task_timeout` is ever promoted to a strict total wall-clock contract, preparation/finalization subprocess timeouts must be derived from the same remaining deadline and the documentation/tests must change together.
 
 ## Conversation Fabric
 

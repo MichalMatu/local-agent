@@ -759,6 +759,55 @@ class RuntimeExecutorTests(unittest.TestCase):
         self.assertNotIn("task_timed_out", result)
         self.assertEqual(self.runtime._last_failure_reason, "task_budget_exhausted")
 
+    def test_task_budget_starts_before_prepare_but_finalization_is_separately_bounded(self) -> None:
+        task = {
+            "id": "prepare-consumes-stage-budget",
+            "resources": [],
+            "commands": ["printf never-runs"],
+            "command_timeout": 30,
+            "idle_timeout": 0,
+            "task_timeout": 120,
+        }
+        finalization: list[str] = []
+
+        def consume_prepare_budget(*_args, **_kwargs) -> None:
+            self.assertIsNotNone(self.runtime._deadline)
+            assert self.runtime._deadline is not None
+            self.runtime._deadline -= 31
+
+        def checkpoint(*_args, **_kwargs):
+            self.assertIsNotNone(self.runtime._deadline)
+            self.runtime._deadline = time.monotonic() - 1
+            finalization.append("checkpoint")
+            return None
+
+        def cleanup() -> None:
+            finalization.append("cleanup")
+
+        with mock.patch.object(
+            core, "prepare_work", side_effect=consume_prepare_budget
+        ), mock.patch.object(
+            core, "checkpoint_worktree", side_effect=checkpoint
+        ), mock.patch.object(
+            core, "cleanup_work", side_effect=cleanup
+        ), mock.patch.object(
+            core,
+            "git_snapshot",
+            return_value=(
+                {"exit_code": 0, "output": ""},
+                {"exit_code": 0, "output": ""},
+            ),
+        ), mock.patch.object(runtime_module, "spawn_shell") as spawn:
+            result = self.runtime.process_task(task)
+
+        spawn.assert_not_called()
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["failure_reason"], "task_budget_exhausted")
+        self.assertEqual(len(result["commands"]), 1)
+        self.assertTrue(result["commands"][0]["not_started"])
+        self.assertTrue(result["commands"][0]["budget_exhausted"])
+        self.assertEqual(finalization, ["checkpoint", "cleanup"])
+
     def test_structured_stage_timeout_overrides_task_command_timeout(self) -> None:
         task = {
             "id": "stage-timeout-override",
