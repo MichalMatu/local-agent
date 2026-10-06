@@ -14,7 +14,9 @@ const CONVERSATION_FABRIC_SUBMIT_RETRY_BASE_MS = 350;
 const CONVERSATION_FABRIC_SUBMIT_RETRY_MAX_MS = 2_800;
 const CONVERSATION_FABRIC_TIMEOUT_MS = 15 * 60 * 1000;
 const CONVERSATION_FABRIC_HISTORY_LIMIT = 32;
+const CONVERSATION_FABRIC_OPERATOR_SNAPSHOT_CACHE_MS = 2_000;
 const conversationFabricOperations = new Map();
+let conversationFabricOperatorSnapshotCache = null;
 
 function serializeConversationFabric(parentUrl, operation) {
   const previous = conversationFabricOperations.get(parentUrl) || Promise.resolve();
@@ -184,6 +186,13 @@ function conversationFabricOperatorCampaignSummary(campaign, vaultResults = []) 
 }
 
 async function conversationFabricOperatorSnapshot() {
+  if (
+    conversationFabricOperatorSnapshotCache &&
+    conversationFabricOperatorSnapshotCache.expiresAt > Date.now()
+  ) {
+    return conversationFabricOperatorSnapshotCache.value;
+  }
+
   const stored = await chrome.storage.local.get(null);
   const campaigns = Object.entries(stored).filter(([key, value]) =>
     key.startsWith(CONVERSATION_FABRIC_CAMPAIGN_PREFIX) && value?.schema_version === 1
@@ -229,6 +238,10 @@ async function conversationFabricOperatorSnapshot() {
     };
   }
 
+  conversationFabricOperatorSnapshotCache = {
+    value: snapshot,
+    expiresAt: Date.now() + CONVERSATION_FABRIC_OPERATOR_SNAPSHOT_CACHE_MS
+  };
   return snapshot;
 }
 
