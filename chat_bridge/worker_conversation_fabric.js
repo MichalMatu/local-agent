@@ -71,12 +71,23 @@ async function loadConversationFabricCampaign(campaignId) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 
-async function saveConversationFabricCampaign(campaign) {
+async function saveConversationFabricCampaign(campaign, { allowDeliveryClaimMutation = false } = {}) {
   const key = conversationFabricCampaignKey(campaign.id);
   return serializeConversationFabric(key, async () => {
     const stored = await loadConversationFabricCampaign(campaign.id);
-    // Cleanup can finish after a concurrent delivery. Preserve its durable receipt.
-    if (stored?.state === campaign.state && stored.feedback_delivered) campaign.feedback_delivered = true;
+    // Cleanup/operator recovery can race with terminal delivery. Preserve the durable
+    // at-most-once boundary unless the delivery-guard path explicitly owns claim mutation.
+    if (stored?.state === campaign.state && stored.feedback_delivered) {
+      campaign.feedback_delivered = true;
+      campaign.feedback_delivered_at = campaign.feedback_delivered_at || stored.feedback_delivered_at;
+    }
+    if (!allowDeliveryClaimMutation && stored?.feedback_delivery_claim?.id) {
+      campaign.feedback_delivery_claim = stored.feedback_delivery_claim;
+      if (stored.feedback_delivery_assumed === true) campaign.feedback_delivery_assumed = true;
+      if (stored.feedback_delivery_assumed_at) {
+        campaign.feedback_delivery_assumed_at = stored.feedback_delivery_assumed_at;
+      }
+    }
     await chrome.storage.local.set({ [key]: campaign });
     return campaign;
   });
@@ -106,12 +117,12 @@ async function loadConversationFabricVaultResult(campaignId, childId) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 
-async function saveConversationFabricVaultResult(campaign, child, observed) {
+async function saveConversationFabricVaultResult(campaign, child, observed, { capturedAt = "" } = {}) {
   const fullText = String(observed?.assistantText || "");
   const assistantText = fullText.slice(0, CONVERSATION_FABRIC_VAULT_RESULT_CHARS);
   const key = conversationFabricVaultKey(campaign.id, child.id);
   const existing = await loadConversationFabricVaultResult(campaign.id, child.id);
-  const capturedAt = String(existing?.captured_at || new Date().toISOString());
+  const storedCapturedAt = String(existing?.captured_at || capturedAt || new Date().toISOString());
   const record = {
     schema_version: 1,
     campaign_id: campaign.id,
@@ -120,7 +131,7 @@ async function saveConversationFabricVaultResult(campaign, child, observed) {
     parent_conversation_url: campaign.parent_conversation_url,
     child_conversation_url: String(child.child_conversation_url || observed?.childConversationUrl || ""),
     assistant_identity: String(observed?.assistantIdentity || ""),
-    captured_at: capturedAt,
+    captured_at: storedCapturedAt,
     assistant_text: assistantText,
     truncated: observed?.truncated === true || fullText.length > CONVERSATION_FABRIC_VAULT_RESULT_CHARS,
     campaign_text_truncated: fullText.length > CONVERSATION_FABRIC_RESULT_CHARS,
@@ -134,6 +145,64 @@ async function saveConversationFabricVaultResult(campaign, child, observed) {
     await chrome.storage.local.remove(conversationFabricVaultKey(old.campaign_id, old.child_id));
   }
   return record;
+}
+
+function conversationFabricCampaignResultFromVault(vaulted) {
+  const text = String(vaulted?.assistant_text || "");
+  return {
+    id: String(vaulted?.child_id || ""),
+    role: String(vaulted?.role || ""),
+    child_conversation_url: String(vaulted?.child_conversation_url || ""),
+    assistant_identity: String(vaulted?.assistant_identity || ""),
+    assistant_text: text.slice(0, CONVERSATION_FABRIC_RESULT_CHARS),
+    truncated: vaulted?.truncated === true ||
+      vaulted?.campaign_text_truncated === true ||
+      text.length > CONVERSATION_FABRIC_RESULT_CHARS,
+    captured_at: String(vaulted?.captured_at || ""),
+    vault_sha256: String(vaulted?.text_sha256 || "")
+  };
+}
+
+async function backfillConversationFabricCampaignResults(campaign) {
+  let created = 0;
+  for (const result of campaign?.results || []) {
+    const child = (campaign.children || []).find((value) => value.id === result.id) || {
+      id: result.id,
+      role: result.role,
+      child_conversation_url: result.child_conversation_url
+    };
+    if (!child?.id || await loadConversationFabricVaultResult(campaign.id, child.id)) continue;
+    await saveConversationFabricVaultResult(campaign, child, {
+      assistantText: String(result.assistant_text || ""),
+      assistantIdentity: String(result.assistant_identity || ""),
+      childConversationUrl: String(result.child_conversation_url || ""),
+      truncated: result.truncated === true
+    }, {
+      capturedAt: String(result.captured_at || "")
+    });
+    created += 1;
+  }
+  return created;
+}
+
+async function hydrateConversationFabricResultsFromVault(campaign) {
+  const vaulted = (await listConversationFabricVaultResults()).filter((result) =>
+    result.campaign_id === campaign.id &&
+    result.parent_conversation_url === campaign.parent_conversation_url
+  );
+  let changed = false;
+  campaign.results = Array.isArray(campaign.results) ? campaign.results : [];
+  for (const result of vaulted) {
+    if (campaign.results.some((stored) => stored.id === result.child_id)) continue;
+    const child = (campaign.children || []).find((value) => value.id === result.child_id);
+    if (!child) continue;
+    campaign.results.push(conversationFabricCampaignResultFromVault(result));
+    child.result_captured = true;
+    child.result_captured_at = String(result.captured_at || child.result_captured_at || "");
+    changed = true;
+  }
+  if (changed) await saveConversationFabricCampaign(campaign);
+  return changed;
 }
 
 function conversationFabricControlBlock(control) {
@@ -693,6 +762,9 @@ async function delegateConversationFabric(authority) {
   const history = campaigns.filter((value) => !["spawning", "running"].includes(value.state) && value.feedback_delivered)
     .sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)));
   for (const old of history.slice(CONVERSATION_FABRIC_HISTORY_LIMIT - 1)) {
+    // Upgrade-safe migration: never prune a legacy campaign result until its
+    // independently retained vault copy exists.
+    await backfillConversationFabricCampaignResults(old);
     await chrome.storage.local.remove(conversationFabricCampaignKey(old.id));
   }
   if (
@@ -902,6 +974,9 @@ async function collectConversationFabric(authority) {
   if (campaign.parent_conversation_url !== authority.conversationUrl) {
     return { ok: false, reason: "conversation_fabric_parent_mismatch" };
   }
+  // A crash may happen after the independent vault write but before the campaign copy.
+  // Restore that durable result before any observation or cleanup decision.
+  await hydrateConversationFabricResultsFromVault(campaign);
   if (campaign.state === "completed") {
     if (campaign.feedback_delivered) {
       return { ok: true, reason: "conversation_fabric_already_delivered", campaignId: campaign.id };
@@ -1038,23 +1113,74 @@ async function retireConversationFabricChild(authority) {
   const child = (campaign.children || []).find((value) => value.id === authority.control.child_id);
   if (!child) return { ok: false, reason: "conversation_fabric_child_missing" };
 
-  const campaignResult = (campaign.results || []).find((result) => result.id === child.id) || null;
-  const vaulted = await loadConversationFabricVaultResult(campaign.id, child.id);
+  // Recover a vault-only checkpoint before touching the tab. This closes the crash
+  // window where result durability succeeded but the campaign copy was not yet saved.
+  await hydrateConversationFabricResultsFromVault(campaign);
+  let campaignResult = (campaign.results || []).find((result) => result.id === child.id) || null;
+  let vaulted = await loadConversationFabricVaultResult(campaign.id, child.id);
+  if (campaignResult && !vaulted) {
+    await backfillConversationFabricCampaignResults(campaign);
+    vaulted = await loadConversationFabricVaultResult(campaign.id, child.id);
+  }
+
   if (Number.isInteger(child?.intent?.tab_id)) {
-    let closed;
-    try {
-      closed = await closeConversationSpawnTab(child.intent);
-    } catch (error) {
-      closed = { ok: false, reason: "spawn_tab_close_failed", error: String(error) };
-    }
-    if (!closed?.ok) {
-      return {
-        ok: false,
-        reason: "conversation_fabric_retire_ownership_unproven",
-        campaignId: campaign.id,
-        childId: child.id,
-        error: String(closed?.reason || closed?.error || "unable to close exact owned child tab")
-      };
+    // Re-prove the page's exact transaction/request/bootstrap/current-route identity
+    // immediately before close. A stale storage.session tab mapping is not sufficient.
+    const ownership = await stableConversationFabricResult(child);
+    if (ownership?.reason === "spawn_tab_unavailable") {
+      // The operator/browser already closed the tab; there is nothing left to remove.
+    } else {
+      if (
+        !ownership?.ok ||
+        !ownership.childConversationUrl ||
+        (child.child_conversation_url && ownership.childConversationUrl !== child.child_conversation_url)
+      ) {
+        return {
+          ok: false,
+          reason: "conversation_fabric_retire_ownership_unproven",
+          campaignId: campaign.id,
+          childId: child.id,
+          error: String(ownership?.reason || ownership?.error || "exact child page identity could not be proven")
+        };
+      }
+      if (!child.child_conversation_url) {
+        child.child_conversation_url = ownership.childConversationUrl;
+        child.state = "submitted";
+      }
+      if (ownership.reason === "child_result_ready" && !campaignResult) {
+        vaulted = await saveConversationFabricVaultResult(campaign, child, ownership);
+        campaignResult = {
+          id: child.id,
+          role: child.role,
+          child_conversation_url: child.child_conversation_url,
+          assistant_identity: String(ownership.assistantIdentity || ""),
+          assistant_text: String(ownership.assistantText || "").slice(0, CONVERSATION_FABRIC_RESULT_CHARS),
+          truncated: ownership.truncated === true ||
+            String(ownership.assistantText || "").length > CONVERSATION_FABRIC_RESULT_CHARS,
+          captured_at: vaulted.captured_at,
+          vault_sha256: vaulted.text_sha256
+        };
+        campaign.results.push(campaignResult);
+        child.result_captured = true;
+        child.result_captured_at = vaulted.captured_at;
+        await saveConversationFabricCampaign(campaign);
+      }
+
+      let closed;
+      try {
+        closed = await closeConversationSpawnTab(child.intent);
+      } catch (error) {
+        closed = { ok: false, reason: "spawn_tab_close_failed", error: String(error) };
+      }
+      if (!closed?.ok) {
+        return {
+          ok: false,
+          reason: "conversation_fabric_retire_ownership_unproven",
+          campaignId: campaign.id,
+          childId: child.id,
+          error: String(closed?.reason || closed?.error || "unable to close exact owned child tab")
+        };
+      }
     }
   }
 
@@ -1111,7 +1237,7 @@ async function retireConversationFabricChild(authority) {
       `Conversation Fabric child ${child.id} was explicitly retired. Its bootstrap was not replayed.`,
       campaignResult || vaulted
         ? "A captured result was preserved in the Result Vault."
-        : "No captured result existed; this child is retryable missing coverage and may be intentionally reassigned in a new delegation with a new child id.",
+        : "No captured result existed; this child is retryable missing coverage. Wait for the campaign's terminal feedback before intentionally reassigning that bounded work in a new delegation with a new child id.",
       inspected.feedbackPrompt || ""
     ].filter(Boolean).join("\n\n")
   };
