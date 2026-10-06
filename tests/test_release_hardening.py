@@ -258,6 +258,7 @@ class InstalledUpdateIntegrationTests(unittest.TestCase):
         from local_agent.daemon.installation import begin_installation
 
         begin_installation(self.state, self.original, target)
+        git(["fetch", "origin", "main"], cwd=self.checkout)
         git(["merge", "--ff-only", "--quiet", target], cwd=self.checkout)
         local.disable_agent(reason="operator_cli")
 
