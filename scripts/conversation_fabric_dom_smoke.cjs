@@ -217,6 +217,46 @@ async function runParentSmoke(context) {
     2,
     "guarded post-click form fallback must submit each unchanged Bridge-owned prompt exactly once"
   );
+
+  await page.evaluate(() => {
+    const composer = document.querySelector("#prompt-textarea");
+    composer.textContent = "  FABRIC   FEEDBACK  ";
+    composer.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertText",
+      data: "  FABRIC   FEEDBACK  "
+    }));
+    const turn = document.createElement("div");
+    turn.dataset.turnKey = "assistant-parent-inspect-draft-collision";
+    const message = document.createElement("div");
+    message.dataset.messageAuthorRole = "assistant";
+    message.textContent = [
+      "<<<LOCAL_AGENT_CF",
+      JSON.stringify({
+        schema_version: 1,
+        action: "inspect",
+        campaign_id: "cf-1234567890abcdef"
+      }),
+      "LOCAL_AGENT_CF>>>"
+    ].join("\n");
+    turn.appendChild(message);
+    document.querySelector("#turns").appendChild(turn);
+  });
+  await page.waitForFunction(() => window.__cfRuntimeMessages.filter(message =>
+    message.type === "bridge:conversation-fabric-control"
+  ).length >= 2);
+  await page.waitForTimeout(250);
+  assert.equal(
+    await page.locator("#prompt-textarea").textContent(),
+    "  FABRIC   FEEDBACK  ",
+    "Fabric must preserve a whitespace-equivalent operator draft instead of treating it as Bridge-owned"
+  );
+  assert.equal(
+    (await page.evaluate(() => window.__submitted)).length,
+    2,
+    "operator draft collision must not create another submit"
+  );
+
   await page.close();
   return markers[0];
 }

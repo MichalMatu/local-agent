@@ -856,14 +856,26 @@ async function cleanupConversationFabricChildren(children) {
   for (const child of children) {
     if (!Number.isInteger(child?.intent?.tab_id)) continue;
     try {
+      if (child.child_conversation_url) {
+        const ownership = await observeConversationSpawnResult(child.intent);
+        if (ownership?.reason === "spawn_tab_unavailable") {
+          await forgetConversationSpawnTab(child.intent);
+          continue;
+        }
+        if (
+          !ownership?.ok ||
+          ownership.childConversationUrl !== child.child_conversation_url
+        ) {
+          complete = false;
+          continue;
+        }
+      }
       const result = await closeConversationSpawnTab(child.intent);
       if (!result?.ok) complete = false;
     } catch (_error) { complete = false; }
   }
   return complete;
 }
-
-const CONVERSATION_FABRIC_NONTERMINAL_FEEDBACK_CLAIM_LIMIT = 32;
 
 async function claimConversationFabricNonterminalFeedback(campaignId, authority, kind) {
   const fingerprint = String(authority?.fingerprint || "");
@@ -882,14 +894,9 @@ async function claimConversationFabricNonterminalFeedback(campaignId, authority,
     kind: String(kind || "nonterminal"),
     claimed_at: new Date().toISOString()
   };
-  const ordered = Object.entries(claims)
-    .sort((left, right) => String(left[1]?.claimed_at || "").localeCompare(String(right[1]?.claimed_at || "")));
-  for (const [oldFingerprint] of ordered.slice(
-    0,
-    Math.max(0, ordered.length - CONVERSATION_FABRIC_NONTERMINAL_FEEDBACK_CLAIM_LIMIT)
-  )) {
-    delete claims[oldFingerprint];
-  }
+  // Keep every control receipt for the lifetime of this bounded campaign.
+  // Campaign history pruning removes the whole record later; evicting an older receipt
+  // while the campaign is still alive would allow stale assistant controls to replay.
   campaign.nonterminal_feedback_claims = claims;
   await saveConversationFabricCampaign(campaign);
   return true;

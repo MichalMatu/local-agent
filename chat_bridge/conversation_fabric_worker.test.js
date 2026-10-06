@@ -25,6 +25,7 @@ function createHarness({
   reconcilePlan = {},
   resultTextByChild = {},
   observationReasonByChild = {},
+  observationUrlByChild = {},
   allowActiveClose = false,
   managed = true,
   storage = {}
@@ -164,13 +165,16 @@ function createHarness({
     async observeConversationSpawnResult(intent) {
       observed.push(clone(intent));
       const childId = childIdForIntent(intent);
+      const childConversationUrl = String(
+        observationUrlByChild[childId] || `https://chatgpt.com/c/child-${intent.tab_id}`
+      );
       const forcedReason = String(observationReasonByChild[childId] || "");
       if (forcedReason) {
         if (["child_generating", "child_result_missing", "child_result_unstable"].includes(forcedReason)) {
           return {
             ok: true,
             reason: forcedReason,
-            childConversationUrl: `https://chatgpt.com/c/child-${intent.tab_id}`
+            childConversationUrl
           };
         }
         return { ok: false, reason: forcedReason };
@@ -178,7 +182,7 @@ function createHarness({
       return {
         ok: true,
         reason: "child_result_ready",
-        childConversationUrl: `https://chatgpt.com/c/child-${intent.tab_id}`,
+        childConversationUrl,
         assistantIdentity: `assistant-${intent.tab_id}`,
         assistantText: String(resultTextByChild[childId] || `Result for tab ${intent.tab_id}.`),
         truncated: false
@@ -265,6 +269,29 @@ function createHarness({
     assert.equal(duplicate.ok, true);
     assert.equal(duplicate.campaignId, started.campaignId);
     assert.equal(h.created.length, 2, "duplicate parent control must not create more child tabs");
+
+    const claimedFingerprints = [];
+    for (let index = 0; index < 40; index += 1) {
+      const fingerprint = index.toString(16).padStart(8, "0");
+      claimedFingerprints.push(fingerprint);
+      assert.equal(
+        await h.context.claimConversationFabricNonterminalFeedback(
+          started.campaignId,
+          { fingerprint },
+          "pending"
+        ),
+        true
+      );
+    }
+    assert.equal(
+      await h.context.claimConversationFabricNonterminalFeedback(
+        started.campaignId,
+        { fingerprint: claimedFingerprints[0] },
+        "pending"
+      ),
+      false,
+      "a live campaign must never evict an older nonterminal feedback receipt"
+    );
 
     const collected = await h.context.applyConversationFabricControl({
       type: "bridge:conversation-fabric-control",
@@ -375,6 +402,29 @@ function createHarness({
     );
     assert.equal(wrongSender.ok, false);
     assert.equal(wrongSender.reason, "conversation_fabric_control_invalid");
+  }
+
+  {
+    const h = createHarness({
+      allowActiveClose: true,
+      observationUrlByChild: {
+        audit: "https://chatgpt.com/c/operator-navigated-away"
+      }
+    });
+    const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
+    const campaign = await h.context.loadConversationFabricCampaign(started.campaignId);
+    const complete = await h.context.cleanupConversationFabricChildren(campaign.children);
+    assert.equal(complete, false, "cleanup must fail closed when a claimed child tab navigated elsewhere");
+    assert.equal(
+      h.closed.some(intent => childIdForIntent(intent) === "audit"),
+      false,
+      "cleanup must not close a child tab whose current canonical URL no longer matches"
+    );
+    assert.equal(
+      h.closed.some(intent => childIdForIntent(intent) === "verify"),
+      true,
+      "cleanup may still close siblings whose exact current ownership is re-proven"
+    );
   }
 
   {

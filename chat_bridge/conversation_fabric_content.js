@@ -263,7 +263,7 @@
     const composer = findComposer();
     if (!composer) return { ok: false, reason: "composer_not_found" };
     const existingComposerText = composerText(composer);
-    const reuseExactPrompt = Boolean(existingComposerText && normalized(existingComposerText) === normalized(prompt));
+    const reuseExactPrompt = Boolean(existingComposerText && existingComposerText === prompt);
     if (existingComposerText.trim() && !reuseExactPrompt) {
       return { ok: false, reason: "composer_not_empty" };
     }
