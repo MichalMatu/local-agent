@@ -264,6 +264,8 @@ async function flush() {
     assert.equal(h.submitted.length, 1);
     assert.match(h.submitted[0], /Conversation Fabric control rejected: reason=conversation_fabric_parent_busy/);
     assert.match(h.submitted[0], /existing campaign is still active/);
+    assert.match(h.submitted[0], /No new Conversation Fabric delegation was started/);
+    assert.match(h.submitted[0], /Do not wait for child results/);
     assert.equal(h.retryDefers(), 0, "explicit worker rejection is an ACK, not a transport retry");
 
     h.interval()();

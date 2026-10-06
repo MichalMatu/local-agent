@@ -151,6 +151,8 @@ If the bounded work is still needed, the parent may intentionally delegate it ag
 
 ### Control-surface diagnostics
 
+A delegate control is not proof that children started. The parent may wait for child results only after explicit `conversation_fabric_started` feedback. Any explicit rejected-control feedback is terminal for that control: no new delegation started and the parent must not wait for results from it.
+
 A `LOCAL_AGENT_CF` control is supported only when it is visible in the parser-owned terminal assistant turn and the control block is the final non-whitespace content of that turn.
 
 - A visible malformed, incomplete or non-terminal control in a managed parent is rejected with a stable diagnostic reason instead of being silently ignored.

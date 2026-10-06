@@ -39,6 +39,8 @@ LOCAL_AGENT_CF>>>
 
 The Bridge admits this only from the exact top-frame managed parent. Each child bootstrap states that it is reasoning-only and may not create Local Agent tasks, run machine commands, mutate repositories or make the final parent decision.
 
+A delegate control is only a request until the parent receives explicit Fabric feedback. The parent must enter a waiting/collection state only after a `conversation_fabric_started` acknowledgement. Any explicit rejection (for example capacity, parent-busy or startup failure) means no new delegation started from that control and the parent must not wait for child results.
+
 When a campaign is running, the existing minute GitHub-control alarm automatically observes/collects stable results while the parent and Master are enabled. The parent waits for actual feedback. An explicit collect block is available for bounded observation recovery without resubmitting child prompts; it is not the normal polling mechanism.
 
 Collect control:

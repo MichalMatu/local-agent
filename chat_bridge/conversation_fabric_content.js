@@ -294,6 +294,7 @@
     return [
       `Conversation Fabric control rejected: reason=${safeReason}.`,
       safeDetail ? `detail=${safeDetail}` : "",
+      "No new Conversation Fabric delegation was started by this rejected control. Do not wait for child results from it.",
       "Bridge will not replay this rejected control automatically.",
       "Emit a corrected LOCAL_AGENT_CF control in a new final assistant response. The control block must be valid JSON and the final non-whitespace content of the assistant turn."
     ].filter(Boolean).join("\n\n");
