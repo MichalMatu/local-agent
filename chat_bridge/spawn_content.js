@@ -245,6 +245,34 @@
     selection.addRange(range);
   }
 
+  function dispatchComposerBeforeInput(composer, text) {
+    const inputType = text ? "insertText" : "deleteContentBackward";
+    try {
+      composer.dispatchEvent(new InputEvent("beforeinput", {
+        bubbles: true,
+        composed: true,
+        inputType,
+        data: text || null
+      }));
+    } catch (_error) {
+      composer.dispatchEvent(new Event("beforeinput", { bubbles: true, composed: true }));
+    }
+  }
+
+  function dispatchComposerInput(composer, text) {
+    const inputType = text ? "insertText" : "deleteContentBackward";
+    try {
+      composer.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        composed: true,
+        inputType,
+        data: text || null
+      }));
+    } catch (_error) {
+      composer.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    }
+  }
+
   function setComposerText(composer, text) {
     composer.focus();
     if (composer instanceof HTMLTextAreaElement) {

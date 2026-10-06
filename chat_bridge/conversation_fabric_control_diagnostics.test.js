@@ -171,6 +171,27 @@ async function flush() {
       assistantText: [
         "Delegating.",
         "<<<LOCAL_AGENT_CF",
+        JSON.stringify(delegate)
+      ].join("\n"),
+      workerResponse: { ok: true }
+    });
+    await flush();
+    assert.equal(h.controlCalls(), 0);
+    assert.equal(h.submitted.length, 0, "first incomplete control observation must be treated as possibly streaming");
+    assert.equal(h.retryDefers(), 1);
+
+    h.interval()();
+    await flush();
+    assert.equal(h.controlCalls(), 0);
+    assert.equal(h.submitted.length, 1, "unchanged incomplete control may be diagnosed after stabilization");
+    assert.match(h.submitted[0], /control_close_missing/);
+  }
+
+  {
+    const h = createHarness({
+      assistantText: [
+        "Delegating.",
+        "<<<LOCAL_AGENT_CF",
         JSON.stringify(delegate),
         "LOCAL_AGENT_CF>>>",
         "this trailing prose makes the control unsupported"

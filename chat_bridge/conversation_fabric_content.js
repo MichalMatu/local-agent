@@ -23,6 +23,7 @@
   let scanInFlight = false;
   let lastScannedSignature = "";
   let lastSubmittedFingerprint = "";
+  let pendingIncompleteControlSignature = "";
   const composerInputVersions = new WeakMap();
   const ownedComposerPrompts = new WeakMap();
 
@@ -43,6 +44,14 @@
       ownership.text === prompt &&
       ownership.inputVersion === composerInputVersion(composer) &&
       composerText(composer) === prompt
+    );
+  }
+
+  function composerOwnedPromptSubmissionAttempted(composer, prompt) {
+    const ownership = ownedComposerPrompts.get(composer);
+    return Boolean(
+      composerOwnedPromptMatches(composer, prompt) &&
+      ownership?.submissionAttempted === true
     );
   }
 
@@ -158,6 +167,20 @@
     selection.addRange(range);
   }
 
+  function dispatchComposerBeforeInput(composer, text) {
+    const inputType = text ? "insertText" : "deleteContentBackward";
+    try {
+      composer.dispatchEvent(new InputEvent("beforeinput", {
+        bubbles: true,
+        composed: true,
+        inputType,
+        data: text || null
+      }));
+    } catch (_error) {
+      composer.dispatchEvent(new Event("beforeinput", { bubbles: true, composed: true }));
+    }
+  }
+
   function dispatchComposerInput(composer, text) {
     const inputType = text ? "insertText" : "deleteContentBackward";
     try {
@@ -185,18 +208,21 @@
       throw new Error("unsupported composer element");
     }
     selectContent(composer);
+    dispatchComposerBeforeInput(composer, text);
 
-    let inputObserved = false;
-    const markInput = () => { inputObserved = true; };
-    composer.addEventListener("input", markInput, true);
     let inserted = false;
     try {
       inserted = document.execCommand("insertText", false, text);
-    } finally {
-      composer.removeEventListener("input", markInput, true);
+    } catch (_error) {
+      inserted = false;
     }
     if (!inserted) composer.textContent = text;
-    if (!inputObserved) dispatchComposerInput(composer, text);
+
+    // Always emit one explicit, fully-described input event after the DOM mutation.
+    // Current ChatGPT/Lexical builds can emit a native execCommand input event while
+    // still leaving application editor state stale; the explicit event is the state
+    // synchronization boundary used by the Bridge.
+    dispatchComposerInput(composer, text);
   }
 
   function findSendButton(composer) {
@@ -309,11 +335,15 @@
       if (!written.trim()) return { ok: false, reason: "composer_write_failed" };
       ownedComposerPrompts.set(composer, {
         text: written,
-        inputVersion: composerInputVersion(composer)
+        inputVersion: composerInputVersion(composer),
+        submissionAttempted: false
       });
     }
     const inserted = composerText(composer);
     if (!inserted.trim()) return { ok: false, reason: "composer_write_failed" };
+    if (composerOwnedPromptSubmissionAttempted(composer, prompt)) {
+      return { ok: false, reason: "delivery_unconfirmed" };
+    }
 
     let button = await waitForSendButton(composer);
     if (!button) return { ok: false, reason: "send_button_not_ready" };
@@ -333,6 +363,8 @@
     if (!button) return { ok: false, reason: "send_button_not_ready" };
 
     const previousUser = latestUserText();
+    const ownership = ownedComposerPrompts.get(composer);
+    if (ownership && ownership.text === prompt) ownership.submissionAttempted = true;
     try {
       submitComposer(composer, button);
     } catch (error) {
@@ -368,11 +400,22 @@
           control: parseConversationFabricControl(latest.text)
         };
     const control = diagnostic.ok ? diagnostic.control : null;
+    if (control) pendingIncompleteControlSignature = "";
     if (!control) {
       if (!diagnostic.present) {
+        pendingIncompleteControlSignature = "";
         lastScannedSignature = signature;
         retryGate.reset(signature);
         return;
+      }
+      if (diagnostic.reason === "control_close_missing") {
+        if (pendingIncompleteControlSignature !== signature) {
+          pendingIncompleteControlSignature = signature;
+          retryGate.defer(signature);
+          return;
+        }
+      } else {
+        pendingIncompleteControlSignature = "";
       }
       if (!retryGate.canAttempt(signature)) return;
       scanInFlight = true;

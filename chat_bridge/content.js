@@ -77,6 +77,20 @@
     selection.addRange(range);
   }
 
+  function dispatchComposerBeforeInput(composer, text) {
+    const inputType = text ? "insertText" : "deleteContentBackward";
+    try {
+      composer.dispatchEvent(new InputEvent("beforeinput", {
+        bubbles: true,
+        composed: true,
+        inputType,
+        data: text || null
+      }));
+    } catch (_error) {
+      composer.dispatchEvent(new Event("beforeinput", { bubbles: true, composed: true }));
+    }
+  }
+
   function dispatchComposerInput(composer, text) {
     const inputType = text ? "insertText" : "deleteContentBackward";
     try {
@@ -104,18 +118,21 @@
       throw new Error("unsupported composer element");
     }
     selectContent(composer);
+    dispatchComposerBeforeInput(composer, text);
 
-    let inputObserved = false;
-    const markInput = () => { inputObserved = true; };
-    composer.addEventListener("input", markInput, true);
     let inserted = false;
     try {
       inserted = document.execCommand("insertText", false, text);
-    } finally {
-      composer.removeEventListener("input", markInput, true);
+    } catch (_error) {
+      inserted = false;
     }
     if (!inserted) composer.textContent = text;
-    if (!inputObserved) dispatchComposerInput(composer, text);
+
+    // Always emit one explicit, fully-described input event after the DOM mutation.
+    // Current ChatGPT/Lexical builds can emit a native execCommand input event while
+    // still leaving application editor state stale; the explicit event is the state
+    // synchronization boundary used by the Bridge.
+    dispatchComposerInput(composer, text);
   }
 
   function clearComposer(composer, insertedText) {

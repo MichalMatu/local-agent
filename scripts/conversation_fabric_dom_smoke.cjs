@@ -21,17 +21,27 @@ window.__submitted = [];
 window.__buttonClicks = 0;
 window.__formSubmits = 0;
 window.__editorInputEvents = 0;
+window.__beforeInputEvents = 0;
 window.__editorState = "";
 window.__silentAcceptedClickDelay = 0;
+window.__blockButtonSubmit = false;
 document.execCommand = (command, _showUi, value) => {
   if (command !== "insertText") return false;
   const composer = document.querySelector("#prompt-textarea");
   composer.textContent = String(value ?? "");
+  // Model the current-browser edge case where execCommand emits an input event but
+  // application editor state still requires a fully-described explicit InputEvent.
+  composer.dispatchEvent(new Event("input", { bubbles: true }));
   return true;
 };
+document.addEventListener("beforeinput", (event) => {
+  if (event.target?.id !== "prompt-textarea") return;
+  window.__beforeInputEvents += 1;
+}, true);
 document.addEventListener("input", (event) => {
   if (event.target?.id !== "prompt-textarea") return;
   window.__editorInputEvents += 1;
+  if (!event.inputType) return;
   window.__editorState = String(event.target.innerText || event.target.textContent || "");
 }, true);
 window.__appendUserTurn = (text) => {
@@ -50,6 +60,10 @@ window.__appendUserTurn = (text) => {
 };
 document.querySelector('[data-testid="composer-submit-button"]').addEventListener("click", (event) => {
   window.__buttonClicks += 1;
+  if (window.__blockButtonSubmit) {
+    event.preventDefault();
+    return;
+  }
   const delay = Number(window.__silentAcceptedClickDelay || 0);
   if (!delay) return;
   event.preventDefault();
@@ -60,6 +74,13 @@ document.querySelector("#composer-form").addEventListener("submit", (event) => {
   window.__formSubmits += 1;
   event.preventDefault();
   const text = String(window.__editorState || "").trim();
+  window.__appendUserTurn(text);
+});
+document.querySelector("#prompt-textarea").addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.shiftKey) return;
+  const text = String(window.__editorState || "").trim();
+  if (!text) return;
+  event.preventDefault();
   window.__appendUserTurn(text);
 });
 </script>
@@ -115,6 +136,72 @@ async function installChildChromeStub(page) {
       if (!settled) resolve(undefined);
     });
   });
+}
+
+async function runStreamingControlSmoke(context) {
+  const page = await context.newPage();
+  await installParentChromeStub(page);
+  await page.goto(parentUrl, { waitUntil: "domcontentloaded" });
+  for (const filename of [
+    "control_protocol.js",
+    "conversation_fabric_protocol.js",
+    "content_retry.js",
+    "conversation_fabric_content.js"
+  ]) {
+    await page.addScriptTag({ path: path.join(bridge, filename) });
+  }
+
+  const control = {
+    schema_version: 1,
+    action: "delegate",
+    children: [{ id: "stream-check", role: "verification", prompt: "Verify one bounded topic." }]
+  };
+  await page.evaluate((control) => {
+    const turn = document.createElement("div");
+    turn.dataset.turnKey = "assistant-streaming-control";
+    const message = document.createElement("div");
+    message.id = "streaming-control-message";
+    message.dataset.messageAuthorRole = "assistant";
+    message.textContent = [
+      "Starting delegation.",
+      "<<<LOCAL_AGENT_CF",
+      JSON.stringify(control)
+    ].join("\n");
+    turn.appendChild(message);
+    document.querySelector("#turns").appendChild(turn);
+  }, control);
+
+  await page.waitForTimeout(900);
+  assert.equal(
+    await page.evaluate(() => window.__submitted.some(text => text.includes("control_close_missing"))),
+    false,
+    "first observation of a missing close marker must be treated as a possibly streaming assistant turn"
+  );
+  assert.equal(
+    await page.evaluate(() => window.__cfRuntimeMessages.filter(message =>
+      message.type === "bridge:conversation-fabric-control"
+    ).length),
+    0
+  );
+
+  await page.evaluate((control) => {
+    document.querySelector("#streaming-control-message").textContent = [
+      "Starting delegation.",
+      "<<<LOCAL_AGENT_CF",
+      JSON.stringify(control),
+      "LOCAL_AGENT_CF>>>"
+    ].join("\n");
+  }, control);
+  await page.waitForFunction(() => window.__cfRuntimeMessages.some(message =>
+    message.type === "bridge:conversation-fabric-control"
+  ));
+  await page.waitForFunction(() => window.__submitted.includes("FABRIC FEEDBACK"));
+  assert.equal(
+    await page.evaluate(() => window.__submitted.some(text => text.includes("control_close_missing"))),
+    false,
+    "a control completed before stabilization must never emit a false rejection"
+  );
+  await page.close();
 }
 
 async function runParentSmoke(context) {
@@ -265,7 +352,53 @@ async function runParentSmoke(context) {
     "Bridge must not call requestSubmit after a click whose application acceptance is merely delayed"
   );
 
+  const beforeManual = await page.evaluate(() => ({
+    submitted: window.__submitted.length,
+    buttonClicks: window.__buttonClicks,
+    formSubmits: window.__formSubmits,
+    beforeInputEvents: window.__beforeInputEvents
+  }));
   await page.evaluate(() => {
+    window.__silentAcceptedClickDelay = 0;
+    window.__blockButtonSubmit = true;
+    window.__nextFabricFeedbackPrompt = "FABRIC MANUAL ENTER";
+    const turn = document.createElement("div");
+    turn.dataset.turnKey = "assistant-parent-manual-enter";
+    const message = document.createElement("div");
+    message.dataset.messageAuthorRole = "assistant";
+    message.textContent = [
+      "<<<LOCAL_AGENT_CF",
+      JSON.stringify({
+        schema_version: 1,
+        action: "inspect",
+        campaign_id: "cf-1234567890abcdef"
+      }),
+      "LOCAL_AGENT_CF>>>"
+    ].join("\n");
+    turn.appendChild(message);
+    document.querySelector("#turns").appendChild(turn);
+  });
+  await page.waitForFunction(() =>
+    document.querySelector("#prompt-textarea").textContent === "FABRIC MANUAL ENTER"
+  );
+  await page.locator("#prompt-textarea").press("Enter");
+  await page.waitForFunction(() => window.__submitted.includes("FABRIC MANUAL ENTER"));
+  const manual = await page.evaluate(() => ({
+    submitted: window.__submitted.length,
+    buttonClicks: window.__buttonClicks,
+    formSubmits: window.__formSubmits,
+    beforeInputEvents: window.__beforeInputEvents
+  }));
+  assert.equal(manual.submitted, beforeManual.submitted + 1, "manual Enter must submit Bridge-written editor state");
+  assert.equal(manual.buttonClicks, beforeManual.buttonClicks + 1, "Bridge still attempts the live Send button once");
+  assert.equal(manual.formSubmits, beforeManual.formSubmits, "blocked live button must not create a hidden form fallback");
+  assert.ok(
+    manual.beforeInputEvents > beforeManual.beforeInputEvents,
+    "Bridge contenteditable writes must emit beforeinput before the explicit input synchronization event"
+  );
+
+  await page.evaluate(() => {
+    window.__blockButtonSubmit = false;
     window.__silentAcceptedClickDelay = 0;
     window.__nextFabricFeedbackPrompt = "FABRIC EXACT OPERATOR DRAFT";
     const composer = document.querySelector("#prompt-textarea");
@@ -302,7 +435,7 @@ async function runParentSmoke(context) {
   );
   assert.equal(
     (await page.evaluate(() => window.__submitted)).length,
-    delayed.submitted,
+    manual.submitted,
     "exact operator draft collision must not create another submit"
   );
 
@@ -427,6 +560,7 @@ async function runChildSmoke(context, completionMarker) {
     await route.fulfill({ status: 200, contentType: "text/html", body });
   });
   try {
+    await runStreamingControlSmoke(context);
     const completionMarker = await runParentSmoke(context);
     await runChildSmoke(context, completionMarker);
     console.log("Conversation Fabric DOM smoke passed.");

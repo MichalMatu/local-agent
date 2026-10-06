@@ -32,13 +32,13 @@ for (const [name, source] of [
 ]) {
   assert.match(
     source,
-    /let inputObserved = false;/,
-    `${name} must detect whether execCommand emitted an editor input event`
+    /dispatchComposerBeforeInput\(composer, text\);/,
+    `${name} must begin contenteditable mutation with a beforeinput lifecycle event`
   );
   assert.match(
     source,
-    /if \(!inputObserved\) dispatchComposerInput\(composer, text\);/,
-    `${name} must synchronize editor state when visible DOM mutation emitted no input event`
+    /dispatchComposerInput\(composer, text\);/,
+    `${name} must always finish contenteditable mutation with an explicit input event`
   );
   assert.doesNotMatch(
     source,
@@ -66,6 +66,16 @@ assert.match(
   fabricContent,
   /document\.removeEventListener\("input", trackComposerInput, true\)/,
   "Fabric must release its composer provenance listener on reinjection"
+);
+assert.match(
+  fabricContent,
+  /ownership\.submissionAttempted = true;/,
+  "Fabric must mark its exact owned prompt before crossing the live-button boundary"
+);
+assert.match(
+  fabricContent,
+  /composerOwnedPromptSubmissionAttempted\(composer, prompt\)/,
+  "Fabric retries must not click the same unchanged owned prompt twice"
 );
 
 console.log("Chat Bridge live Send submission contract tests passed.");
