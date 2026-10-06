@@ -78,6 +78,7 @@ async function observeConversationSpawnResult(intent) {
 
 async function forgetConversationSpawnTab(intent) {
   validateConversationSpawnBrowserIntent(intent, { requireTab: true });
+  await requireConversationSpawnBootstrapDigest(intent);
   await chrome.storage.session.remove([
     conversationSpawnTabClaimKey(intent.transaction_id),
     conversationSpawnProvisionalEvidenceKey(intent.transaction_id)
