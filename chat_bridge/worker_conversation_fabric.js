@@ -1138,7 +1138,9 @@ async function retireConversationFabricChild(authority) {
     // immediately before close. A stale storage.session tab mapping is not sufficient.
     const ownership = await stableConversationFabricResult(child);
     if (ownership?.reason === "spawn_tab_unavailable") {
-      // The operator/browser already closed the tab; there is nothing left to remove.
+      // The operator/browser already closed the tab. Clear only transient ownership
+      // metadata; do not touch the tab id again because it could later be repurposed.
+      await forgetConversationSpawnTab(child.intent);
     } else {
       if (
         !ownership?.ok ||
