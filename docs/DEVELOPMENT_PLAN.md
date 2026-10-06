@@ -152,6 +152,54 @@ The architectural decision is fixed:
 
 The detailed migration and exit criteria are in `docs/HOST_OPS_ABSORPTION_PLAN.md`.
 
+## Milestone 7 — active: consolidate Host Ops into a complete multi-tool runtime
+
+The next development phase is deliberately ordered. Do not skip ahead to capability expansion or a ChatGPT plugin before the existing tooling baseline is understood and hardened.
+
+### Phase A — inventory and normalize what already exists
+
+- build one canonical inventory of every maintained Host Ops capability/workflow/CLI surface plus the deterministic browser/chat-UI primitives that may belong in the tool layer;
+- record for each operation its owner, inputs, structured result, external dependency, side-effect/risk class, timeout/output bounds, resource needs and current test/live-smoke coverage;
+- identify duplicate concepts, CLI-only glue, hidden cross-capability coupling and capabilities whose current boundary is artificially narrow;
+- make no behavior change merely to make the inventory look uniform.
+
+### Phase B — debug, test and harden the existing tools
+
+- exercise each existing tool through focused unit/integration tests and, where physical I/O matters, bounded live smoke;
+- fix correctness, timeout, cleanup, result-contract and recovery defects before adding broad new authority;
+- keep failures explicit and evidence bounded;
+- preserve the existing `cli -> workflows -> capabilities -> core` dependency direction unless a later contract change explicitly replaces it.
+
+### Phase C — define the Local Agent <-> Tool Runtime contract
+
+Only after the existing tooling is understood and hardened, introduce a small internal tool contract/registry shared by Local Agent and Host Ops. The contract should describe stable tool identity, validated arguments/results, effect/risk class, resource requirements, execution bounds and artifact behavior.
+
+The contract is internal to Local Agent execution. It must not create a second scheduler, planner, daemon or control plane. GitHub remains the sole durable ChatGPT <-> Local Agent control/evidence plane.
+
+### Phase D — expand into a complete reusable multi-tool surface
+
+After the contract is proven on existing tools, broaden reusable capabilities such as ADB, SSH, filesystem/process, network, browser and device operations. Capability breadth should not be artificially restricted when a general deterministic boundary can be validated and governed by Local Agent policy.
+
+Risk/authorization policy belongs above the primitive capability where practical: a capability may support a general deterministic operation while Local Agent admission decides whether a specific invocation is read-only, mutating, arbitrary-code-like or requires an exclusive/named resource.
+
+### Phase E — prepare the future ChatGPT plugin without changing transport authority
+
+A future Local Agent ChatGPT plugin is an ergonomic product surface over the same GitHub-backed contracts. It must not introduce MCP, a direct ChatGPT-to-Local-Agent execution server or any parallel control transport.
+
+The intended shape remains:
+
+```text
+ChatGPT / future plugin
+    -> GitHub control + evidence
+        -> Local Agent admission / scheduling / policy
+            -> Host Ops Tool Runtime
+                -> machine / device / browser / remote effects
+```
+
+Conversation Fabric remains Local Agent orchestration. It owns child-request semantics, campaign ownership, result collection, retry/retire policy and synthesis. Deterministic browser/chat-UI lifecycle primitives may move into or be exposed through Host Ops tooling, but "delegate children and reconcile their reasoning" must not become a Host Ops workflow or planner responsibility.
+
+Exit for this milestone: existing tools are inventoried and hardened, the Local Agent/tooling boundary is explicit and regression-protected, and new capabilities can be added without inventing one-off execution contracts.
+
 ## Not current work
 
 Do not reopen legacy repository-bound chat routing, isolated-profile production control, bounded multi-goal parent supervision, a second executor/scheduler, child machine authority, cookie migration, direct OpenAI API reasoning loops or predictive autonomous fan-out. Those directions conflict with the accepted architecture or add authority outside the current safety model.

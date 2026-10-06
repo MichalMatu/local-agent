@@ -1,6 +1,6 @@
 # Host Ops target model
 
-**Status: stable baseline / maintenance mode.** `host-ops` is complete for its current role beneath Local Agent. Runtime scope grows only from demonstrated cross-project integration needs.
+**Status: stable absorbed baseline / active consolidation.** The current Host Ops behavior is a green baseline beneath Local Agent. The next phase inventories, tests and hardens that baseline before introducing a shared internal tool contract and then broadening the reusable multi-tool surface.
 
 ## Purpose
 
@@ -13,7 +13,7 @@ ChatGPT / planner
             -> OS / Git / browser / ADB / serial / storage / SSH / remote host
 ```
 
-It is not an automation platform, planner, scheduler, credential store or device-protocol layer.
+It is not an automation platform, planner, scheduler, credential store or device-protocol layer. It may grow into a broad deterministic tool runtime, but authority, planning, admission, scheduling and durable ChatGPT control remain Local Agent/GitHub responsibilities.
 
 ## Stable capability set
 
@@ -38,15 +38,16 @@ These are generic primitives. Device protocols, project commands and task policy
 
 ## Boundary rules
 
-The following stay outside the stable baseline unless repeated downstream evidence proves a reusable contract:
+The frozen boundary is responsibility, not today's feature count:
 
-- device-specific command protocols, calibration, flashing and motion/tool policy;
-- autonomous planning, retries, scheduling or generic plugin systems;
-- general attached-page automation such as click/fill/press/drag, arbitrary JavaScript, page-content extraction, screenshots, download orchestration, cookies or storage access;
-- arbitrary ADB shell, package/reboot operations or broader Android mutation;
-- destructive disk formatting/partitioning.
+- Host Ops/tooling may implement broad deterministic machine primitives when their inputs, effects, bounds and results are explicit;
+- Local Agent remains the only owner of planning, repository/task admission, scheduling, resource arbitration and durable execution evidence;
+- GitHub remains the only durable ChatGPT <-> Local Agent control/evidence plane; a future ChatGPT plugin is an ergonomic GitHub-backed surface, not a direct execution transport;
+- Conversation Fabric owns child/campaign semantics and reasoning orchestration; deterministic browser/chat-UI lifecycle effects may be Tool Runtime primitives, but delegation policy and synthesis do not move into Host Ops;
+- destructive or arbitrary-code-like primitives require correspondingly explicit Local Agent policy/resource admission rather than being made "safe" by hiding the underlying capability;
+- project/device-specific policy such as calibration sequences, firmware choice or motion strategy remains outside generic tooling unless it becomes a demonstrably reusable deterministic workflow.
 
-Persistent browser process/session control is already part of the stable baseline; it must not be confused with general page-automation authority. Interactive browser mode deliberately gives the user a normal no-CDP browser process and does not add automated page actions.
+Existing narrow boundaries (for example current ADB and attached-browser surfaces) remain the production contract until intentionally expanded with focused tests and policy coverage. Consolidation must not silently broaden authority.
 
 ## Extension test
 
@@ -60,8 +61,17 @@ A new runtime capability is justified only when:
 
 Otherwise keep the behavior in the consuming project.
 
-## Maintenance policy
+## Consolidation sequence
 
-Default work is correctness, safety, compatibility, dependency maintenance and documentation accuracy. Avoid speculative refactors and capability growth that do not improve a demonstrated boundary or failure mode.
+The active order is:
 
-`docs/plans/ROADMAP.md` records possible on-demand extensions, not an implementation backlog.
+1. inventory and normalize the existing tool surface without changing behavior;
+2. debug, test and harden each existing capability/workflow;
+3. define and regression-protect the internal Local Agent <-> Tool Runtime contract;
+4. migrate existing tools onto that contract without semantic drift;
+5. expand the reusable multi-tool surface only after the contract is proven;
+6. prepare future ChatGPT-plugin ergonomics over the unchanged GitHub control/evidence plane.
+
+Do not invert this order by building a generic plugin framework first.
+
+`docs/DEVELOPMENT_PLAN.md` is the canonical implementation sequence. `docs/plans/ROADMAP.md` may still record possible on-demand extensions, but it is not authority to skip inventory/hardening.
