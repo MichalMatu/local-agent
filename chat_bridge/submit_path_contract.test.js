@@ -37,6 +37,16 @@ for (const [name, source] of [
 ]) {
   assert.match(
     source,
+    /let inputObserved = false;/,
+    `${name} must detect whether execCommand emitted an editor input event`
+  );
+  assert.match(
+    source,
+    /if \(!inputObserved\) dispatchComposerInput\(composer, text\);/,
+    `${name} must synchronize editor state when visible DOM mutation emitted no input event`
+  );
+  assert.match(
+    source,
     /const formFallbackAt = Date\.now\(\) \+ 1200;/,
     `${name} must bound the post-click fallback delay`
   );

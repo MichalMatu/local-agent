@@ -677,6 +677,11 @@ function createHarness({
       h.context.applyConversationFabricControl(h.delegateMessage, h.sender)
     ]);
     assert.ok(simultaneous.every(result => result.ok));
+    assert.equal(
+      simultaneous.filter(result => Boolean(result.feedbackPrompt)).length,
+      1,
+      "one delegate control may surface its nonterminal start feedback at most once"
+    );
     assert.equal(h.created.length, 2, "concurrent duplicate controls must not create extra children");
     const another = await h.context.applyConversationFabricControl(
       { ...h.delegateMessage, assistantIdentity: "new-delegation" },
@@ -689,6 +694,11 @@ function createHarness({
       restarted.sender
     );
     assert.equal(duplicate.campaignId, simultaneous[0].campaignId);
+    assert.equal(
+      duplicate.feedbackPrompt,
+      undefined,
+      "worker restart must not re-surface already-claimed start feedback"
+    );
     assert.equal(restarted.created.length, 0, "worker restart must preserve campaign ownership and dedupe");
   }
 

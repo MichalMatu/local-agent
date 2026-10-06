@@ -129,28 +129,45 @@
     selection.addRange(range);
   }
 
+  function dispatchComposerInput(composer, text) {
+    const inputType = text ? "insertText" : "deleteContentBackward";
+    try {
+      composer.dispatchEvent(new InputEvent("input", {
+        bubbles: true,
+        composed: true,
+        inputType,
+        data: text || null
+      }));
+    } catch (_error) {
+      composer.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+    }
+  }
+
   function setComposerText(composer, text) {
     composer.focus();
     if (composer instanceof HTMLTextAreaElement) {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
       if (!setter) throw new Error("textarea value setter unavailable");
       setter.call(composer, text);
-      composer.dispatchEvent(new Event("input", { bubbles: true }));
+      composer.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
       return;
     }
     if (!(composer instanceof HTMLElement) || composer.contentEditable !== "true") {
       throw new Error("unsupported composer element");
     }
     selectContent(composer);
-    const inserted = document.execCommand("insertText", false, text);
-    if (!inserted) {
-      composer.textContent = text;
-      composer.dispatchEvent(new InputEvent("input", {
-        bubbles: true,
-        inputType: "insertText",
-        data: text
-      }));
+
+    let inputObserved = false;
+    const markInput = () => { inputObserved = true; };
+    composer.addEventListener("input", markInput, true);
+    let inserted = false;
+    try {
+      inserted = document.execCommand("insertText", false, text);
+    } finally {
+      composer.removeEventListener("input", markInput, true);
     }
+    if (!inserted) composer.textContent = text;
+    if (!inputObserved) dispatchComposerInput(composer, text);
   }
 
   function findSendButton(composer) {

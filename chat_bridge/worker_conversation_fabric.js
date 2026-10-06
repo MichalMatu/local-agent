@@ -863,6 +863,44 @@ async function cleanupConversationFabricChildren(children) {
   return complete;
 }
 
+const CONVERSATION_FABRIC_NONTERMINAL_FEEDBACK_CLAIM_LIMIT = 32;
+
+async function claimConversationFabricNonterminalFeedback(campaignId, authority, kind) {
+  const fingerprint = String(authority?.fingerprint || "");
+  if (!/^[0-9a-f]{8}$/.test(fingerprint)) return true;
+
+  const campaign = await loadConversationFabricCampaign(campaignId);
+  if (!campaign) return false;
+  const claims = campaign.nonterminal_feedback_claims &&
+    typeof campaign.nonterminal_feedback_claims === "object" &&
+    !Array.isArray(campaign.nonterminal_feedback_claims)
+    ? { ...campaign.nonterminal_feedback_claims }
+    : {};
+  if (claims[fingerprint]) return false;
+
+  claims[fingerprint] = {
+    kind: String(kind || "nonterminal"),
+    claimed_at: new Date().toISOString()
+  };
+  const ordered = Object.entries(claims)
+    .sort((left, right) => String(left[1]?.claimed_at || "").localeCompare(String(right[1]?.claimed_at || "")));
+  for (const [oldFingerprint] of ordered.slice(
+    0,
+    Math.max(0, ordered.length - CONVERSATION_FABRIC_NONTERMINAL_FEEDBACK_CLAIM_LIMIT)
+  )) {
+    delete claims[oldFingerprint];
+  }
+  campaign.nonterminal_feedback_claims = claims;
+  await saveConversationFabricCampaign(campaign);
+  return true;
+}
+
+async function conversationFabricNonterminalFeedbackPrompt(campaignId, authority, kind, prompt) {
+  return await claimConversationFabricNonterminalFeedback(campaignId, authority, kind)
+    ? prompt
+    : undefined;
+}
+
 async function delegateConversationFabric(authority) {
   const campaignId = await conversationFabricCampaignId(authority);
   const existing = await loadConversationFabricCampaign(campaignId);
@@ -876,13 +914,22 @@ async function delegateConversationFabric(authority) {
     if (existing.state === "completed" && existing.feedback_delivered) {
       return { ok: true, reason: "conversation_fabric_already_delivered", campaignId };
     }
+    const reason = existing.state === "completed"
+      ? "conversation_fabric_completed"
+      : "conversation_fabric_started";
+    const feedbackPrompt = existing.state === "completed"
+      ? conversationFabricCompletedPrompt(existing)
+      : await conversationFabricNonterminalFeedbackPrompt(
+          campaignId,
+          authority,
+          "started",
+          conversationFabricStartedPrompt(existing)
+        );
     return {
       ok: true,
-      reason: existing.state === "completed" ? "conversation_fabric_completed" : "conversation_fabric_started",
+      reason,
       campaignId,
-      feedbackPrompt: existing.state === "completed"
-        ? conversationFabricCompletedPrompt(existing)
-        : conversationFabricStartedPrompt(existing)
+      ...(feedbackPrompt ? { feedbackPrompt } : {})
     };
   }
 
@@ -1021,6 +1068,12 @@ async function delegateConversationFabric(authority) {
   campaign.state = "running";
   campaign.partial_failure = campaign.failed_children.length > 0;
   await saveConversationFabricCampaign(campaign);
+  const feedbackPrompt = await conversationFabricNonterminalFeedbackPrompt(
+    campaignId,
+    authority,
+    "started",
+    conversationFabricStartedPrompt(campaign)
+  );
   return {
     ok: true,
     reason: "conversation_fabric_started",
@@ -1031,7 +1084,7 @@ async function delegateConversationFabric(authority) {
       childConversationUrl: child.child_conversation_url,
       failure: child.state === "failed" ? conversationFabricChildFailure(child) : null
     })),
-    feedbackPrompt: conversationFabricStartedPrompt(campaign)
+    ...(feedbackPrompt ? { feedbackPrompt } : {})
   };
 }
 
@@ -1220,12 +1273,18 @@ async function collectConversationFabric(authority) {
   campaign.failed_children = failedChildren;
   if (pending.length) {
     await saveConversationFabricCampaign(campaign);
+    const feedbackPrompt = await conversationFabricNonterminalFeedbackPrompt(
+      campaign.id,
+      authority,
+      "pending",
+      conversationFabricPendingPrompt(campaign, pending)
+    );
     return {
       ok: true,
       reason: "conversation_fabric_pending",
       campaignId: campaign.id,
       pending,
-      feedbackPrompt: conversationFabricPendingPrompt(campaign, pending)
+      ...(feedbackPrompt ? { feedbackPrompt } : {})
     };
   }
 

@@ -20,6 +20,19 @@ const parentFixture = `<!doctype html><html><body>
 window.__submitted = [];
 window.__buttonClicks = 0;
 window.__formSubmits = 0;
+window.__editorInputEvents = 0;
+window.__editorState = "";
+document.execCommand = (command, _showUi, value) => {
+  if (command !== "insertText") return false;
+  const composer = document.querySelector("#prompt-textarea");
+  composer.textContent = String(value ?? "");
+  return true;
+};
+document.addEventListener("input", (event) => {
+  if (event.target?.id !== "prompt-textarea") return;
+  window.__editorInputEvents += 1;
+  window.__editorState = String(event.target.innerText || event.target.textContent || "");
+}, true);
 document.querySelector('[data-testid="composer-submit-button"]').addEventListener("click", (event) => {
   window.__buttonClicks += 1;
   event.preventDefault();
@@ -28,7 +41,7 @@ document.querySelector("#composer-form").addEventListener("submit", (event) => {
   window.__formSubmits += 1;
   event.preventDefault();
   const composer = document.querySelector("#prompt-textarea");
-  const text = String(composer.innerText || composer.textContent || "").trim();
+  const text = String(window.__editorState || "").trim();
   if (!text) return;
   window.__submitted.push(text);
   const turn = document.createElement("div");
@@ -191,9 +204,14 @@ async function runParentSmoke(context) {
   assert.equal(submitted[1], "FABRIC FEEDBACK");
   const submitPath = await page.evaluate(() => ({
     buttonClicks: window.__buttonClicks,
-    formSubmits: window.__formSubmits
+    formSubmits: window.__formSubmits,
+    editorInputEvents: window.__editorInputEvents
   }));
   assert.ok(submitPath.buttonClicks >= 2, "primary live-button path must still be attempted");
+  assert.ok(
+    submitPath.editorInputEvents >= 2,
+    "visible composer DOM writes must synchronize ChatGPT-like editor state through input events"
+  );
   assert.equal(
     submitPath.formSubmits,
     2,
