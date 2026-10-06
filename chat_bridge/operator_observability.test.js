@@ -14,7 +14,7 @@ const campaignId = "cf-0123456789abcdef";
 function operatorStatus() {
   return {
     schema_version: 1,
-    updated_at: "2026-10-06T04:30:00+00:00",
+    updated_at: new Date().toISOString(),
     daemon: {
       daemon_version: "4.20.6",
       self_revision: "ab3306e267fb99184dd1486c678af3f3ddfd490e",
@@ -29,10 +29,7 @@ function operatorStatus() {
       running: true,
       configuration_error: null,
       active_request: {
-        request_id: "obs-request",
         workflow_id: "workflow-observability",
-        parent_conversation_url: parentUrl,
-        repository_ids: ["local-agent"],
         children_total: 2
       },
       active_request_error: null,
@@ -177,6 +174,32 @@ function operatorStatus() {
     "",
     "operator status remains optional for runtime schema v3"
   );
+
+  const stale = operatorStatus();
+  stale.updated_at = new Date(Date.now() - (20 * 60 * 1000)).toISOString();
+  const staleHarness = createHarness({
+    fetch: async (url) => {
+      const target = String(url);
+      if (target.startsWith(statusUrl)) {
+        return { ok: true, async json() { return stale; } };
+      }
+      return {
+        ok: true,
+        async json() {
+          return {
+            ...runtimeExample,
+            bootstrap_prompt: "BOOTSTRAP",
+            wake_prompt: "WAKE",
+            operator_status_url: statusUrl
+          };
+        }
+      };
+    }
+  });
+  const staleState = await staleHarness.sendRuntimeMessage({ type: "bridge:get-state" });
+  assert.equal(staleState.operatorStatus.available, false);
+  assert.equal(staleState.operatorStatus.source, "stale");
+  assert.equal(staleState.operatorStatus.status.daemon.daemon_version, "4.20.6");
 
   const popup = fs.readFileSync(path.join(__dirname, "popup.js"), "utf8");
   const popupHtml = fs.readFileSync(path.join(__dirname, "popup.html"), "utf8");
