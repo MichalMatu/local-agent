@@ -185,14 +185,32 @@ async function testNormalWakeNeverUsesFabricReconciliation() {
   });
 }
 
-async function testSendButtonRetryDoesNotClaimPriorUserTurn() {
+async function testSendButtonRetryReconcilesExactTerminalPromptAfterOperatorSubmit() {
   const harness = makeHarness({ lastStatus: "send_button_not_ready" });
+  const result = await harness.context.deliverConversation("parent", false);
+  assert.equal(result.ok, true);
+  assert.equal(result.reason, "already_sent");
+  assert.equal(result.status, "sent");
+  assert.equal(harness.campaign.feedback_delivered, true);
+  assert.deepEqual(harness.counts(), {
+    sendCalls: 0,
+    scriptCalls: 1,
+    saveCalls: 1,
+    scheduleCalls: 1
+  });
+}
+
+async function testSendButtonRetryWithDifferentUserHistoryFallsBackToNormalDelivery() {
+  const harness = makeHarness({
+    lastStatus: "send_button_not_ready",
+    latestUserText: "operator sent something else"
+  });
   const result = await harness.context.deliverConversation("parent", false);
   assert.equal(result.ok, true);
   assert.equal(result.reason, "sent");
   assert.deepEqual(harness.counts(), {
     sendCalls: 1,
-    scriptCalls: 0,
+    scriptCalls: 1,
     saveCalls: 1,
     scheduleCalls: 1
   });
@@ -203,7 +221,8 @@ async function testSendButtonRetryDoesNotClaimPriorUserTurn() {
   await testEarlierExactTerminalPromptSurvivesLaterOperatorTurn();
   await testDifferentUserHistoryFallsBackToNormalDelivery();
   await testNormalWakeNeverUsesFabricReconciliation();
-  await testSendButtonRetryDoesNotClaimPriorUserTurn();
+  await testSendButtonRetryReconcilesExactTerminalPromptAfterOperatorSubmit();
+  await testSendButtonRetryWithDifferentUserHistoryFallsBackToNormalDelivery();
   console.log("conversation_fabric_terminal_delivery_reconciliation.test.js: OK");
 })().catch((error) => {
   console.error(error);
