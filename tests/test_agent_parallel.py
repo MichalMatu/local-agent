@@ -68,6 +68,15 @@ class ParallelSupervisorTests(unittest.TestCase):
             self.assertEqual(payload["state"], "running")
             self.assertEqual(payload["active_repository_ids"], ["existing"])
 
+    def test_scheduler_quiesces_while_deferred_shutdown_is_pending(self) -> None:
+        with mock.patch.object(
+            parallel,
+            "process_shutdown_requested",
+            return_value=True,
+        ), mock.patch.object(parallel.time, "sleep") as sleep:
+            self.assertTrue(parallel.quiesce_deferred_shutdown())
+        sleep.assert_called_once_with(parallel.REAP_INTERVAL_SECONDS)
+
     def test_default_concurrency_is_one(self) -> None:
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertEqual(parallel.scheduling.resolve_max_workers(None), 1)

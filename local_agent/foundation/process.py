@@ -199,12 +199,18 @@ def _redeliver_termination_signal(signum: int) -> None:
     os.kill(os.getpid(), signum)
 
 
+def process_shutdown_requested() -> bool:
+    """Return whether a termination signal has committed this process to shutdown."""
+    with _process_lock:
+        return _process_shutdown_requested
+
+
 def defer_termination(signum: int) -> bool:
-    """Defer termination until process spawn or a critical section is safe."""
+    """Record shutdown and defer signal delivery until subprocess state is safe."""
     global _deferred_termination_signal, _process_shutdown_requested
+    _process_shutdown_requested = True
     if not _process_spawn_in_progress and not _termination_deferral_depth:
         return False
-    _process_shutdown_requested = True
     if _deferred_termination_signal is None:
         _deferred_termination_signal = signum
     return True
@@ -580,9 +586,7 @@ def terminate_active_processes(
     grace_seconds: float = 5.0,
 ) -> int:
     """Stop every registered process group within one shared shutdown deadline."""
-    global _process_shutdown_requested
     with _process_lock:
-        _process_shutdown_requested = True
         processes = list(_active_processes.values())
 
     groups: dict[int, subprocess.Popen[Any]] = {}

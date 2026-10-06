@@ -39,6 +39,7 @@ from local_agent.foundation.process import (
     acquire_execution_leases,
     defer_termination,
     popen_registered,
+    process_shutdown_requested,
     terminate_active_processes,
     terminate_process_group,
     unregister_process,
@@ -690,6 +691,14 @@ def install_signal_handlers() -> None:
     signal.signal(signal.SIGINT, shutdown_handler)
 
 
+def quiesce_deferred_shutdown() -> bool:
+    """Stop scheduler-side spawning while another thread settles deferred SIGTERM."""
+    if not process_shutdown_requested():
+        return False
+    time.sleep(REAP_INTERVAL_SECONDS)
+    return True
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Bounded parallel multi-repository local-agent supervisor."
@@ -803,6 +812,8 @@ def main() -> int:
 
     while True:
         try:
+            if quiesce_deferred_shutdown():
+                continue
             completed = reap_workers(running, schedules)
             previous_operator_campaign = operator_campaign
             operator_campaign = conversation_supervisor.reap(

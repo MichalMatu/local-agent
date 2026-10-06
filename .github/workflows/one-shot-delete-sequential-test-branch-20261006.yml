@@ -1,0 +1,26 @@
+name: one-shot delete sequential test branch 2026-10-06
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete only the verified abandoned test branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          branch="test/sequential-fabric-cycles-20261006"
+          expected="b61aa010b7f628ce055302bbad9dfe1fee48fa3b"
+          actual="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${branch}" --jq '.object.sha')"
+          test "$actual" = "$expected"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/pulls?state=open&head=MichalMatu:${branch}&per_page=1" --jq 'length')" = "0"
+          gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"

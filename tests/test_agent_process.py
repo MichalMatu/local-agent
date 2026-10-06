@@ -16,6 +16,7 @@ from local_agent.foundation.process import (
     acquire_execution_leases,
     defer_termination,
     process_group_for,
+    process_shutdown_requested,
     spawn_shell,
     termination_critical_section,
     terminate_active_processes,
@@ -87,6 +88,19 @@ class ProcessGroupTests(unittest.TestCase):
             if proc.stdout is not None:
                 proc.stdout.close()
             unregister_process(proc)
+
+    def test_terminate_active_processes_does_not_commit_process_shutdown(self) -> None:
+        self.assertEqual(
+            terminate_active_processes(lambda _message: None, grace_seconds=0.0),
+            0,
+        )
+        self.assertFalse(process_shutdown_requested())
+
+    def test_signal_request_commits_shutdown_before_immediate_delivery(self) -> None:
+        self.assertFalse(defer_termination(signal.SIGUSR1))
+        self.assertTrue(process_shutdown_requested())
+        with self.assertRaisesRegex(RuntimeError, "process spawn rejected during shutdown"):
+            agent_process.popen_registered(["ignored"])
 
     def test_terminate_active_processes_tolerates_unreachable_exited_group(self) -> None:
         proc = mock.Mock(spec=subprocess.Popen)
