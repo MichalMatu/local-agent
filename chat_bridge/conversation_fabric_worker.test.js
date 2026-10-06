@@ -293,7 +293,7 @@ function createHarness({
 
     const inspectCampaign = await h.context.applyConversationFabricControl({
       ...h.delegateMessage,
-      fingerprint: "inspect-campaign",
+      fingerprint: "1a2b3c4d",
       assistantIdentity: "assistant-inspect-campaign",
       control: {
         schema_version: 1,
@@ -315,7 +315,7 @@ function createHarness({
     delete h.session[campaignKey];
     const inspectArchivedChild = await h.context.applyConversationFabricControl({
       ...h.delegateMessage,
-      fingerprint: "inspect-vault-only",
+      fingerprint: "2a3b4c5d",
       assistantIdentity: "assistant-inspect-vault-only",
       control: {
         schema_version: 1,
@@ -355,7 +355,7 @@ function createHarness({
 
     const retired = await h.context.applyConversationFabricControl({
       ...h.delegateMessage,
-      fingerprint: "retire-verify",
+      fingerprint: "3a4b5c6d",
       assistantIdentity: "assistant-retire-verify",
       control: {
         schema_version: 1,
