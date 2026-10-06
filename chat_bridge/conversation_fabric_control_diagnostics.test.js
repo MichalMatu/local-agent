@@ -185,6 +185,40 @@ async function flush() {
     assert.equal(h.controlCalls(), 0);
     assert.equal(h.submitted.length, 1, "unchanged incomplete control may be diagnosed after stabilization");
     assert.match(h.submitted[0], /control_close_missing/);
+    assert.match(h.submitted[0], /literal closing delimiter LOCAL_AGENT_CF>>>/);
+    assert.match(h.submitted[0], /Do not add a control_close field/);
+  }
+
+  {
+    const h = createHarness({
+      assistantText: [
+        "Delegating with a redundant repair field.",
+        "<<<LOCAL_AGENT_CF",
+        JSON.stringify({ ...delegate, control_close: true }),
+        "LOCAL_AGENT_CF>>>"
+      ].join("\n"),
+      workerResponse: { ok: true }
+    });
+    await flush();
+    assert.equal(h.controlCalls(), 1, "redundant control_close=true must not block a valid delegation");
+    assert.equal(h.submitted.length, 0);
+  }
+
+  {
+    const h = createHarness({
+      assistantText: [
+        "Delegating with an invalid repair field.",
+        "<<<LOCAL_AGENT_CF",
+        JSON.stringify({ ...delegate, control_close: false }),
+        "LOCAL_AGENT_CF>>>"
+      ].join("\n"),
+      workerResponse: { ok: true }
+    });
+    await flush();
+    assert.equal(h.controlCalls(), 0);
+    assert.equal(h.submitted.length, 1);
+    assert.match(h.submitted[0], /control_schema_invalid/);
+    assert.match(h.submitted[0], /unexpected keys: control_close/);
   }
 
   {
