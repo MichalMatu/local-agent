@@ -11,7 +11,7 @@ from local_agent.host_ops.core.execution import ExecutionLimits, ProcessResult, 
 
 from .models import NetworkResolutionResult, ResolvedAddress, TcpProbeResult
 
-_WORKER_MODULE = "host_ops.capabilities.local.network._worker"
+_WORKER_MODULE = "local_agent.host_ops.capabilities.local.network._worker"
 _MAX_TIMEOUT_SECONDS = 60.0
 
 
