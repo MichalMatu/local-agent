@@ -259,6 +259,26 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
     assert.equal(h.stored().results[0].assistant_text, "final-a");
   }
 
+  // A manually closed submitted child becomes explicit retryable missing coverage.
+  {
+    const h = createHarness(campaign([
+      child("kept", "submitted", 101),
+      child("closed", "submitted", 102)
+    ]), {
+      kept: ["child_result_ready", "child_result_ready"],
+      closed: ["spawn_tab_unavailable"]
+    });
+    await h.context.pollConversationFabricCampaigns();
+    const stored = h.stored();
+    assert.equal(stored.state, "completed");
+    assert.deepEqual(stored.results.map(item => item.id), ["kept"]);
+    const failed = stored.failed_children.find(item => item.id === "closed");
+    assert.ok(failed);
+    assert.equal(failed.reason, "spawn_tab_unavailable");
+    assert.equal(failed.retryable, true);
+    assert.match(h.context.conversationFabricCompletedPrompt(stored), /Retryable missing child coverage: closed/);
+  }
+
   // child_result_unavailable is transient and recovers to final.
   {
     const h = createHarness(campaign([child("a", "submitted", 101)]), {
