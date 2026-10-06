@@ -122,7 +122,7 @@ The remaining helper-to-production gaps are now covered by focused production-pa
 
 Do not add another browser harness merely to duplicate this path. A new test layer is justified only by a concrete uncovered production boundary.
 
-## Milestone 5 — sequential delegation-cycle hardening — final
+## Milestone 5 — sequential delegation-cycle hardening — source closeout
 
 Keep one parent conversation bound to exactly one project/main goal and harden repeated bounded reasoning cycles inside that project:
 
@@ -135,6 +135,22 @@ Keep one parent conversation bound to exactly one project/main goal and harden r
 - keep children reasoning-only and keep all repository/machine execution authority at the parent plus canonical target admission boundary.
 
 Exit: one parent can execute repeated task A -> synthesize/close -> task B -> synthesize/close cycles reliably for one project, including bounded recovery interruptions, without cross-campaign leakage or replay.
+
+## Milestone 6 — next: absorb Host Ops into Local Agent
+
+After the sequential-cycle source gate is green, the next implementation stage is the controlled absorption of the standalone `MichalMatu/host-ops` production capability layer.
+
+The architectural decision is fixed:
+
+- Local Agent remains the sole brain/orchestrator and owns repository identity, canonical admission, scheduling, resource arbitration, watchdogs and durable task/run/result evidence;
+- Host Ops contributes deterministic host/remote capability execution only;
+- no planner, queue, scheduler, repository binding authority, Conversation Fabric policy or second daemon/control plane moves from the donor;
+- preserve the donor's `core -> capabilities -> workflows -> cli` ownership and its JSON contract before attempting redesign;
+- migrate production code/tests/docs separately from isolated prototypes;
+- preserve `work/cpu-gpu-routing` (or export its research history) before donor retirement;
+- retire the standalone `host-ops` execution identity only after supported workflows no longer depend on it.
+
+The detailed migration and exit criteria are in `docs/HOST_OPS_ABSORPTION_PLAN.md`.
 
 ## Not current work
 
