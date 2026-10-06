@@ -20,6 +20,7 @@ branch = true
 source = ["."]
 omit = [
   "tests/*",
+  "host_ops_tests/*",
   "scripts/*",
   ".venv/*",
   "venv/*",
