@@ -218,6 +218,18 @@ async function loadRuntimeConfig(state, conversation = null) {
   return applyConversationInterval(await fetchRuntime(state.settings), conversation);
 }
 
+function utf8ByteLength(value) {
+  let bytes = 0;
+  for (const character of String(value || "")) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint <= 0x7f) bytes += 1;
+    else if (codePoint <= 0x7ff) bytes += 2;
+    else if (codePoint <= 0xffff) bytes += 3;
+    else bytes += 4;
+  }
+  return bytes;
+}
+
 async function readBoundedOperatorStatusJson(response) {
   if (response.body?.getReader) {
     const reader = response.body.getReader();
@@ -253,7 +265,7 @@ async function readBoundedOperatorStatusJson(response) {
   } else {
     text = JSON.stringify(await response.json());
   }
-  if (new TextEncoder().encode(text).byteLength > OPERATOR_STATUS_MAX_BYTES) {
+  if (utf8ByteLength(text) > OPERATOR_STATUS_MAX_BYTES) {
     throw new Error(`operator status exceeds ${OPERATOR_STATUS_MAX_BYTES} bytes`);
   }
   return JSON.parse(text);

@@ -218,6 +218,13 @@ function operatorStatus() {
   assert.equal(futureState.operatorStatus.available, false);
   assert.equal(futureState.operatorStatus.source, "stale");
 
+  await assert.rejects(
+    h.evaluate(`readBoundedOperatorStatusJson({
+      text: async () => '"' + 'x'.repeat(64001) + '"'
+    })`),
+    /operator status exceeds 64000 bytes/
+  );
+
   const stale = operatorStatus();
   stale.updated_at = new Date(Date.now() - (20 * 60 * 1000)).toISOString();
   const staleHarness = createHarness({
