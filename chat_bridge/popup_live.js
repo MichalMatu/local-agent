@@ -9,6 +9,7 @@
       request,
       renderConversations,
       refreshCurrentTabForm,
+      renderOperatorStatus,
       restartCountdownTimer,
       updateNextWakeElement,
       setLatestState: (value) => { latestState = value; },
@@ -37,6 +38,7 @@
       request,
       renderConversations,
       refreshCurrentTabForm,
+      renderOperatorStatus,
       restartCountdownTimer,
       updateNextWakeElement,
       setLatestState,
@@ -131,6 +133,7 @@
         elements.runtimeSource.textContent = runtime?.source || "-";
         elements.runtimeInterval.textContent = runtime?.intervalMinutes ? `${runtime.intervalMinutes} min` : "-";
         elements.conversationCount.textContent = String(conversations.length);
+        renderOperatorStatus(response);
 
         if (!cards) {
           renderConversations(state, schedules, runtime);
