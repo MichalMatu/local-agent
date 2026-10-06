@@ -5,8 +5,7 @@ function runtimeAgentForBinding(runtime, binding) {
 
 function transportAgent(runtime) {
   const agents = runtime?.agents || [];
-  return agents.find((agent) => agent.plannerScope === "multirepo") ||
-    agents.find((agent) => agent.executionEnabled) ||
+  return agents.find((agent) => agent.executionEnabled) ||
     agents[0] || null;
 }
 

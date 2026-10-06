@@ -26,7 +26,7 @@ const { createHarness } = require("./worker_test_harness.js");
   });
   assert.equal(response.ok, true, response.error);
   const aId = response.conversation.id;
-  assert.equal(response.conversation.repositoryId, "host-ops");
+  assert.equal(response.conversation.repositoryId, "local-agent");
   assert.equal(response.conversation.bindingRevision, 1);
   assert.equal(response.conversation.bootstrapPending, true);
 

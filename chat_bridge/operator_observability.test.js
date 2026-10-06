@@ -54,7 +54,7 @@ function operatorStatus() {
   let runtimeFetches = 0;
   let statusFetches = 0;
   const statusUrl =
-    "https://raw.githubusercontent.com/MichalMatu/host-ops/agent-control/.agent/status/operator.json";
+    "https://raw.githubusercontent.com/MichalMatu/local-agent/agent-control/.agent/status/operator.json";
   const storage = {
     [`conversation-fabric-campaign:${campaignId}`]: {
       schema_version: 1,

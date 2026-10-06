@@ -4,11 +4,10 @@ const assert = require("node:assert/strict");
 const model = require("./github_control_model.js");
 
 const AGENT = Object.freeze({
-  repositoryId: "host-ops",
-  repository: "MichalMatu/host-ops",
-  agentBinding: "16d688b6-b0ef-4905-a5bd-24e59c99cfb4",
-  executionEnabled: true,
-  plannerScope: "multirepo"
+  repositoryId: "local-agent",
+  repository: "MichalMatu/local-agent",
+  agentBinding: "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  executionEnabled: true
 });
 
 function raw(overrides = {}) {
