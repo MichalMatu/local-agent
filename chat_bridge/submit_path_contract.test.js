@@ -52,6 +52,16 @@ for (const [name, source] of [
   );
   assert.match(
     source,
+    /!submitBoundaryCrossed/,
+    `${name} fallback must never cross the submit boundary twice`
+  );
+  assert.match(
+    source,
+    /addEventListener\("submit", markSubmitBoundary, true\)/,
+    `${name} must observe whether the primary click already crossed form submission`
+  );
+  assert.match(
+    source,
     /form\.requestSubmit\(\);/,
     `${name} must use native form submission only after the guarded click path stalls`
   );

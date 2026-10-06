@@ -279,41 +279,54 @@
     if (!button) return { ok: false, reason: "send_button_not_ready" };
 
     const previousUser = latestUserText();
-    try {
-      submitComposer(composer, button);
-    } catch (error) {
-      return { ok: false, reason: "send_button_not_ready", error: String(error) };
+    const submissionForm = composer?.closest?.("form");
+    let submitBoundaryCrossed = false;
+    const markSubmitBoundary = () => { submitBoundaryCrossed = true; };
+    if (submissionForm instanceof HTMLFormElement) {
+      submissionForm.addEventListener("submit", markSubmitBoundary, true);
     }
-    const formFallbackAt = Date.now() + 1200;
-    let formFallbackAttempted = false;
-    const confirmDeadline = Date.now() + 5000;
-    while (Date.now() < confirmDeadline) {
-      const current = latestUserText();
-      if (current !== previousUser && normalized(current) === normalized(prompt)) {
-        return { ok: true, reason: "sent" };
+    try {
+      try {
+        submitComposer(composer, button);
+      } catch (error) {
+        return { ok: false, reason: "send_button_not_ready", error: String(error) };
       }
-      if (!formFallbackAttempted && Date.now() >= formFallbackAt) {
-        formFallbackAttempted = true;
-        if (
-          normalizeConversationUrl(location.href) === normalizedUrl &&
-          findComposer() === composer &&
-          composerText(composer) === inserted &&
-          !assistantIsGenerating() &&
-          current === previousUser
-        ) {
-          const form = composer?.closest?.("form");
-          if (form instanceof HTMLFormElement && typeof form.requestSubmit === "function") {
-            try {
-              form.requestSubmit();
-            } catch (_error) {
-              // Keep the exact prompt for bounded retry/reconciliation.
+      const formFallbackAt = Date.now() + 1200;
+      let formFallbackAttempted = false;
+      const confirmDeadline = Date.now() + 5000;
+      while (Date.now() < confirmDeadline) {
+        const current = latestUserText();
+        if (current !== previousUser && normalized(current) === normalized(prompt)) {
+          return { ok: true, reason: "sent" };
+        }
+        if (!formFallbackAttempted && Date.now() >= formFallbackAt) {
+          formFallbackAttempted = true;
+          if (
+            !submitBoundaryCrossed &&
+            normalizeConversationUrl(location.href) === normalizedUrl &&
+            findComposer() === composer &&
+            composerText(composer) === inserted &&
+            !assistantIsGenerating() &&
+            current === previousUser
+          ) {
+            const form = composer?.closest?.("form");
+            if (form instanceof HTMLFormElement && typeof form.requestSubmit === "function") {
+              try {
+                form.requestSubmit();
+              } catch (_error) {
+                // Keep the exact prompt for bounded retry/reconciliation.
+              }
             }
           }
         }
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      return { ok: false, reason: "delivery_unconfirmed" };
+    } finally {
+      if (submissionForm instanceof HTMLFormElement) {
+        submissionForm.removeEventListener("submit", markSubmitBoundary, true);
+      }
     }
-    return { ok: false, reason: "delivery_unconfirmed" };
   }
 
   async function scanLatestConversationFabricControl() {

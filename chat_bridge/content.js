@@ -369,49 +369,62 @@
     const previousUserMessages = messageElements("user").length;
     const previousUserIdentity = latestUserMessage()?.identity;
     const normalizedText = (text) => String(text || "").trim().replace(/\s+/g, " ");
-    try {
-      submitComposer(composer, sendButton);
-    } catch (error) {
-      return { ok: false, reason: "send_button_not_ready", error: String(error) };
+    const submissionForm = composer.closest("form");
+    let submitBoundaryCrossed = false;
+    const markSubmitBoundary = () => { submitBoundaryCrossed = true; };
+    if (submissionForm instanceof HTMLFormElement) {
+      submissionForm.addEventListener("submit", markSubmitBoundary, true);
     }
-    const formFallbackAt = Date.now() + 1200;
-    let formFallbackAttempted = false;
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline) {
-      if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
-      const userMessages = messageElements("user");
-      const lastUser = userMessages[userMessages.length - 1];
-      if (
-        (userMessages.length > previousUserMessages || latestUserMessage()?.identity !== previousUserIdentity) &&
-        normalizedText(lastUser?.innerText || lastUser?.textContent) === normalizedText(prompt)
-      ) {
-        return { ok: true, reason: "sent" };
+    try {
+      try {
+        submitComposer(composer, sendButton);
+      } catch (error) {
+        return { ok: false, reason: "send_button_not_ready", error: String(error) };
       }
-      if (!formFallbackAttempted && Date.now() >= formFallbackAt) {
-        formFallbackAttempted = true;
-        const currentUserIdentity = latestUserMessage()?.identity;
+      const formFallbackAt = Date.now() + 1200;
+      let formFallbackAttempted = false;
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        if (normalizeConversationUrl(location.href) !== normalizedUrl) break;
+        const userMessages = messageElements("user");
+        const lastUser = userMessages[userMessages.length - 1];
         if (
-          normalizeConversationUrl(location.href) === normalizedUrl &&
-          composer.isConnected &&
-          findComposer() === composer &&
-          composerText(composer) === insertedComposerText &&
-          !assistantIsGenerating() &&
-          userMessages.length === previousUserMessages &&
-          currentUserIdentity === previousUserIdentity
+          (userMessages.length > previousUserMessages || latestUserMessage()?.identity !== previousUserIdentity) &&
+          normalizedText(lastUser?.innerText || lastUser?.textContent) === normalizedText(prompt)
         ) {
-          const form = composer.closest("form");
-          if (form instanceof HTMLFormElement && typeof form.requestSubmit === "function") {
-            try {
-              form.requestSubmit();
-            } catch (_error) {
-              // Delivery remains unconfirmed and retains the exact Bridge prompt.
+          return { ok: true, reason: "sent" };
+        }
+        if (!formFallbackAttempted && Date.now() >= formFallbackAt) {
+          formFallbackAttempted = true;
+          const currentUserIdentity = latestUserMessage()?.identity;
+          if (
+            !submitBoundaryCrossed &&
+            normalizeConversationUrl(location.href) === normalizedUrl &&
+            composer.isConnected &&
+            findComposer() === composer &&
+            composerText(composer) === insertedComposerText &&
+            !assistantIsGenerating() &&
+            userMessages.length === previousUserMessages &&
+            currentUserIdentity === previousUserIdentity
+          ) {
+            const form = composer.closest("form");
+            if (form instanceof HTMLFormElement && typeof form.requestSubmit === "function") {
+              try {
+                form.requestSubmit();
+              } catch (_error) {
+                // Delivery remains unconfirmed and retains the exact Bridge prompt.
+              }
             }
           }
         }
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      return { ok: false, reason: "delivery_unconfirmed" };
+    } finally {
+      if (submissionForm instanceof HTMLFormElement) {
+        submissionForm.removeEventListener("submit", markSubmitBoundary, true);
+      }
     }
-    return { ok: false, reason: "delivery_unconfirmed" };
   }
 
   let controlScanTimer = null;
