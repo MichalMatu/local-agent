@@ -32,7 +32,7 @@ GitHub owns managed-chat pacing through `conversation_controls`. Local Agent rem
 
 ## Current implementation
 
-Chat Bridge `0.8.3` implements the primary-Chrome path directly:
+Chat Bridge `0.8.4` implements the primary-Chrome path directly:
 
 - `conversation_fabric_protocol.js` — exact delegate/collect envelope and bounds;
 - `conversation_fabric_content.js` — managed parent DOM controller and idempotent parent feedback;
@@ -41,7 +41,7 @@ Chat Bridge `0.8.3` implements the primary-Chrome path directly:
 - `worker_spawn.js` — transaction-safe tab creation/bootstrap/reconciliation primitives;
 - `worker_spawn_result.js` + `spawn_result_content.js` — exact owned child result/cleanup helpers;
 - durable campaign/result state in `chrome.storage.local`;
-- content protocol `18`, Bridge manifest `0.8.3`;
+- content protocol `18`, Bridge manifest `0.8.4`;
 - focused Node coverage plus real-extension/headless Chromium browser coverage.
 
 No production CDP attachment, dedicated browser/profile, Native Messaging, second scheduler or Local Agent-to-browser RPC is part of this design.
