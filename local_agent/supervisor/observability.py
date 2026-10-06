@@ -31,20 +31,36 @@ def _read_json_object(path: Path) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
-def _bounded_recent_json_files(path: Path) -> tuple[list[Path], bool]:
+def _bounded_json_sample(path: Path) -> tuple[list[Path], bool]:
+    """Read at most one bounded directory sample; never walk lifetime history."""
     if not path.is_dir():
         return [], False
     ranked: list[tuple[float, str, Path]] = []
-    for item in path.glob("*.json"):
-        try:
-            if item.is_symlink() or not item.is_file():
-                continue
-            ranked.append((item.stat().st_mtime, item.name, item))
-        except OSError:
-            continue
-    ranked.sort(key=lambda value: (value[0], value[1]), reverse=True)
+    try:
+        with os.scandir(path) as entries:
+            for entry in entries:
+                if len(ranked) > MAX_DEDUPE_EVIDENCE_FILES_PER_REPOSITORY:
+                    break
+                if not entry.name.endswith(".json"):
+                    continue
+                try:
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                    ranked.append((
+                        entry.stat(follow_symlinks=False).st_mtime,
+                        entry.name,
+                        Path(entry.path),
+                    ))
+                except OSError:
+                    continue
+    except OSError:
+        return [], False
     truncated = len(ranked) > MAX_DEDUPE_EVIDENCE_FILES_PER_REPOSITORY
-    return [item[2] for item in ranked[:MAX_DEDUPE_EVIDENCE_FILES_PER_REPOSITORY]], truncated
+    ranked.sort(key=lambda value: (value[0], value[1]), reverse=True)
+    return [
+        item[2]
+        for item in ranked[:MAX_DEDUPE_EVIDENCE_FILES_PER_REPOSITORY]
+    ], truncated
 
 
 def _reason_counts(counter: Counter[str]) -> dict[str, int]:
@@ -63,7 +79,7 @@ def dedupe_observability(repositories: Iterable[RepositoryContext]) -> dict[str,
     for repository in repositories:
         state_dir = agentd.STATE_DIR / "repositories" / repository.repository_id
 
-        paths, limited = _bounded_recent_json_files(state_dir / "runs")
+        paths, limited = _bounded_json_sample(state_dir / "runs")
         truncated = truncated or limited
         for path in paths:
             payload = _read_json_object(path)
@@ -78,7 +94,7 @@ def dedupe_observability(repositories: Iterable[RepositoryContext]) -> dict[str,
                 if reason in {"dedupe_intent_conflict", "invalid_dedupe_key"}:
                     rejections[reason] += 1
 
-        paths, limited = _bounded_recent_json_files(state_dir / "task-dedupe")
+        paths, limited = _bounded_json_sample(state_dir / "task-dedupe")
         truncated = truncated or limited
         for path in paths:
             payload = _read_json_object(path)
@@ -98,7 +114,7 @@ def dedupe_observability(repositories: Iterable[RepositoryContext]) -> dict[str,
                 reconciliations[reason] += 1
 
     return {
-        "evidence_scope": "bounded_local_state",
+        "evidence_scope": "bounded_directory_sample",
         "suppressed_count": sum(suppressions.values()),
         "suppression_reasons": _reason_counts(suppressions),
         "rejected_count": sum(rejections.values()),
@@ -141,8 +157,10 @@ def _project_operator_request(
     try:
         request = operator_contract.load_operator_request(campaign.request_path)
         operator_contract.operator_request_repository_ids(request)
-    except (OSError, ValueError) as exc:
-        return None, f"{type(exc).__name__}: {exc}"
+    except OSError:
+        return None, "operator_request_io_error"
+    except ValueError:
+        return None, "operator_request_invalid"
     return {
         "workflow_id": str(request["workflow_id"]),
         "children_total": len(request["children"]),
@@ -157,10 +175,10 @@ def operator_observability(
     request, request_error = _project_operator_request(campaign if running else None)
     try:
         result_publish_pending = conversation_supervisor.result_publish_pending()
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError):
         result_publish_pending = False
         if configuration_error is None:
-            configuration_error = f"{type(exc).__name__}: {exc}"
+            configuration_error = "operator_result_state_unavailable"
     return {
         "enabled": enabled,
         "configured": configured,
@@ -208,7 +226,7 @@ def _heartbeat_due(existing: dict[str, Any] | None) -> bool:
     except ValueError:
         return True
     age = (datetime.now(timezone.utc) - updated.astimezone(timezone.utc)).total_seconds()
-    return age >= OPERATOR_STATUS_HEARTBEAT_SECONDS
+    return age < 0 or age >= OPERATOR_STATUS_HEARTBEAT_SECONDS
 
 
 def publish_operator_status(

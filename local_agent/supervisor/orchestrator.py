@@ -489,6 +489,9 @@ def probe_control_request(
             if handle_bound_disable_control(repository):
                 return ControlProbeResult.CLEAR
             conversation_supervisor.service_control_plane()
+            probe_result = pending_control_request_from_bound_checkout()
+            if probe_result is not ControlProbeResult.CLEAR:
+                return probe_result
             if repositories is not None and max_workers is not None:
                 try:
                     operator_observability.publish_operator_status(
@@ -501,7 +504,7 @@ def probe_control_request(
                         "operator observability publish degraded: "
                         f"{type(exc).__name__}: {exc}"
                     )
-            return pending_control_request_from_bound_checkout()
+            return ControlProbeResult.CLEAR
     except ExecutionLeaseBusy:
         return ControlProbeResult.LEASE_BUSY
     except Exception as exc:

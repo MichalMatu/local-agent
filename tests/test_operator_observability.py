@@ -178,6 +178,49 @@ class OperatorObservabilityTests(unittest.TestCase):
         self.assertNotIn("https://chatgpt.com/c/parent-observability", encoded)
         self.assertNotIn("host-ops", encoded)
 
+    def test_request_error_does_not_publish_local_path(self) -> None:
+        missing = self.root / "private" / "operator" / "request.json"
+        campaign = conversation.RunningOperatorCampaign(
+            request_id="missing-request",
+            proc=SimpleNamespace(poll=lambda: None),
+            started_at=0.0,
+            request_path=missing,
+            result_path=self.root / "result.json",
+        )
+        with mock.patch.dict(os.environ, self.operator_env(), clear=False), mock.patch.object(
+            conversation, "result_publish_pending", return_value=False
+        ):
+            snapshot = observability.operator_observability(campaign)
+
+        self.assertEqual(snapshot["active_request_error"], "operator_request_io_error")
+        self.assertNotIn(str(self.root), json.dumps(snapshot))
+
+    def test_bounded_dedupe_sample_never_walks_full_history(self) -> None:
+        runs = agentd.STATE_DIR / "repositories" / "host-ops" / "runs"
+        runs.mkdir(parents=True, exist_ok=True)
+        for index in range(observability.MAX_DEDUPE_EVIDENCE_FILES_PER_REPOSITORY + 20):
+            (runs / f"run-{index:03d}.json").write_text(
+                json.dumps({
+                    "event": "duplicate_task_suppressed",
+                    "duplicate_reason": "queued_duplicate",
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+        snapshot = observability.dedupe_observability([self.repository])
+
+        self.assertTrue(snapshot["scan_truncated"])
+        self.assertLessEqual(
+            snapshot["observed_run_records"],
+            observability.MAX_DEDUPE_EVIDENCE_FILES_PER_REPOSITORY,
+        )
+
+    def test_future_heartbeat_timestamp_is_due(self) -> None:
+        future = {
+            "updated_at": "2999-01-01T00:00:00+00:00",
+        }
+        self.assertTrue(observability._heartbeat_due(future))
+
     def test_publication_is_change_driven_with_bounded_heartbeat(self) -> None:
         existing = {
             "schema_version": 1,
