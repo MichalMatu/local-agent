@@ -330,7 +330,7 @@ function renderOperatorStatus(response) {
   const state = response?.state || {};
   const bridge = response?.bridgeInfo || {};
   const envelope = response?.operatorStatus || { available: false, source: "not_configured" };
-  const remote = envelope.available ? envelope.status || {} : {};
+  const remote = envelope.status || {};
   const daemon = remote.daemon || {};
   const operator = remote.operator || {};
   const dedupe = remote.dedupe || {};
@@ -351,9 +351,19 @@ function renderOperatorStatus(response) {
 
   const master = state.settings?.masterEnabled ? "Master on" : "Master off";
   if (!envelope.available) {
-    const reason = envelope.source === "not_configured" ? "Agent status not configured" : "Agent status unavailable";
-    setOperatorLine(elements.operatorOverall, master);
-    setOperatorLine(elements.operatorRuntime, reason, envelope.error || reason);
+    const reason = envelope.source === "not_configured"
+      ? "Agent status not configured"
+      : envelope.source === "stale"
+        ? "Agent status stale"
+        : "Agent status unavailable";
+    setOperatorLine(elements.operatorOverall, envelope.source === "stale" ? "Stale" : master);
+    setOperatorLine(
+      elements.operatorRuntime,
+      reason,
+      envelope.source === "stale"
+        ? `last update ${remote.updated_at || "unknown"}`
+        : (envelope.error || reason)
+    );
   } else {
     const configured = operator.configured ? "configured" : "misconfigured";
     const enabled = operator.enabled ? "enabled" : "disabled";
@@ -370,8 +380,7 @@ function renderOperatorStatus(response) {
   if (active) {
     setOperatorLine(
       elements.operatorGoal,
-      `${active.workflow_id} · ${active.children_total} child${active.children_total === 1 ? "" : "ren"}`,
-      `request ${active.request_id}; parent ${active.parent_conversation_url}; repositories ${(active.repository_ids || []).join(", ") || "none"}`
+      `${active.workflow_id} · ${active.children_total} child${active.children_total === 1 ? "" : "ren"}`
     );
   } else {
     setOperatorLine(elements.operatorGoal, operator.running ? "Running request unavailable" : "No active operator workflow");
