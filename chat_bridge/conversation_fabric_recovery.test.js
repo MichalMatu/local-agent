@@ -411,7 +411,11 @@ function createHarness(initialCampaign, observationPlan = {}, reconcilePlan = {}
     await restarted.context.pollConversationFabricCampaigns();
     assert.equal(restarted.stored().state, "completed");
     assert.deepEqual(restarted.stored().results.map(item => item.id), ["fast", "slow"]);
-    assert.ok(!restarted.observed.includes("fast"), "durably captured sibling must not be re-observed after restart");
+    assert.equal(
+      restarted.observed.filter(id => id === "fast").length,
+      1,
+      "durably captured sibling must skip result recapture and only receive the final cleanup ownership proof"
+    );
   }
 
   // A result that becomes final immediately before timeout wins the final safe collect.
