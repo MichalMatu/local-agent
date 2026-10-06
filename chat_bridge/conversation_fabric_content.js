@@ -197,7 +197,7 @@
   async function conversationFabricDiagnosticSurfaceReady(expectedUrl) {
     try {
       const context = await chrome.runtime.sendMessage({
-        type: "bridge:control-context",
+        type: "bridge:conversation-fabric-diagnostic-context",
         conversationUrl: expectedUrl
       });
       return context?.ok === true;
