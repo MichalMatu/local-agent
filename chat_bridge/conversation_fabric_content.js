@@ -251,7 +251,11 @@
     // a synthetic button click followed by a second fallback. This matches pressing
     // Enter/Send semantically while keeping every delivery single-shot.
     const form = composer?.closest?.("form");
-    if (form instanceof HTMLFormElement && typeof form.requestSubmit === "function") {
+    const canRequestSubmit =
+      typeof HTMLFormElement !== "undefined" &&
+      form instanceof HTMLFormElement &&
+      typeof form.requestSubmit === "function";
+    if (canRequestSubmit) {
       form.requestSubmit();
       return;
     }
