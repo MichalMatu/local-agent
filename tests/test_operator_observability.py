@@ -262,6 +262,11 @@ class OperatorObservabilityTests(unittest.TestCase):
             )
         payload = publish.call_args.args[1]
         self.assertEqual(payload["updated_at"], "2026-10-06T00:05:00+00:00")
+        self.assertEqual(
+            publish.call_args.kwargs["timeout"],
+            observability.OPERATOR_STATUS_PUBLISH_TIMEOUT_SECONDS,
+        )
+        self.assertEqual(publish.call_args.kwargs["attempts"], 1)
 
 
 if __name__ == "__main__":

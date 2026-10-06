@@ -18,6 +18,7 @@ from local_agent.supervisor import conversation as conversation_supervisor
 REMOTE_OPERATOR_STATUS = ".agent/status/operator.json"
 OPERATOR_STATUS_SCHEMA_VERSION = 1
 OPERATOR_STATUS_HEARTBEAT_SECONDS = 5 * 60
+OPERATOR_STATUS_PUBLISH_TIMEOUT_SECONDS = 5
 MAX_DEDUPE_EVIDENCE_FILES_PER_REPOSITORY = 128
 
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
@@ -38,8 +39,8 @@ def _bounded_json_sample(path: Path) -> tuple[list[Path], bool]:
     ranked: list[tuple[float, str, Path]] = []
     try:
         with os.scandir(path) as entries:
-            for entry in entries:
-                if len(ranked) > MAX_DEDUPE_EVIDENCE_FILES_PER_REPOSITORY:
+            for visited, entry in enumerate(entries):
+                if visited > MAX_DEDUPE_EVIDENCE_FILES_PER_REPOSITORY:
                     break
                 if not entry.name.endswith(".json"):
                     continue
@@ -249,5 +250,7 @@ def publish_operator_status(
         REMOTE_OPERATOR_STATUS,
         payload,
         commit_message="Agent operator status",
+        timeout=OPERATOR_STATUS_PUBLISH_TIMEOUT_SECONDS,
+        attempts=1,
     )
     return True
