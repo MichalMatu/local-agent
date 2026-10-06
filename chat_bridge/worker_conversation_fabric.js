@@ -14,9 +14,13 @@ const CONVERSATION_FABRIC_SUBMIT_RETRY_BASE_MS = 350;
 const CONVERSATION_FABRIC_SUBMIT_RETRY_MAX_MS = 2_800;
 const CONVERSATION_FABRIC_TIMEOUT_MS = 15 * 60 * 1000;
 const CONVERSATION_FABRIC_HISTORY_LIMIT = 32;
-const CONVERSATION_FABRIC_OPERATOR_SNAPSHOT_CACHE_MS = 2_000;
+const CONVERSATION_FABRIC_OPERATOR_SNAPSHOT_CACHE_MS = 5 * 60 * 1000;
 const conversationFabricOperations = new Map();
 let conversationFabricOperatorSnapshotCache = null;
+
+function invalidateConversationFabricOperatorSnapshot() {
+  conversationFabricOperatorSnapshotCache = null;
+}
 
 function serializeConversationFabric(parentUrl, operation) {
   const previous = conversationFabricOperations.get(parentUrl) || Promise.resolve();
@@ -101,6 +105,7 @@ async function saveConversationFabricCampaign(campaign, { allowDeliveryClaimMuta
       }
     }
     await chrome.storage.local.set({ [key]: campaign });
+    invalidateConversationFabricOperatorSnapshot();
     return campaign;
   });
 }
@@ -266,11 +271,13 @@ async function saveConversationFabricVaultResult(campaign, child, observed, { ca
     text_sha256: await conversationSpawnSha256(assistantText)
   };
   await chrome.storage.local.set({ [key]: record });
+  invalidateConversationFabricOperatorSnapshot();
 
   const all = (await listConversationFabricVaultResults())
     .sort((left, right) => String(right.captured_at || "").localeCompare(String(left.captured_at || "")));
   for (const old of all.slice(CONVERSATION_FABRIC_VAULT_HISTORY_LIMIT)) {
     await chrome.storage.local.remove(conversationFabricVaultKey(old.campaign_id, old.child_id));
+    invalidateConversationFabricOperatorSnapshot();
   }
   return record;
 }
@@ -897,6 +904,7 @@ async function delegateConversationFabric(authority) {
     // independently retained vault copy exists.
     await backfillConversationFabricCampaignResults(old);
     await chrome.storage.local.remove(conversationFabricCampaignKey(old.id));
+    invalidateConversationFabricOperatorSnapshot();
   }
   if (
     campaigns.length -

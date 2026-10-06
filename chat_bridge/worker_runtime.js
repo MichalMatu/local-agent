@@ -2,6 +2,8 @@ let runtimeFetchSequence = 0;
 let runtimeCacheSequence = 0;
 let operatorStatusCache = null;
 const OPERATOR_STATUS_STALE_MS = 15 * 60 * 1000;
+const OPERATOR_STATUS_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const OPERATOR_STATUS_MAX_BYTES = 64_000;
 
 function sanitizeOperatorStatusUrl(value) {
   const text = String(value || "").trim();
@@ -17,6 +19,20 @@ function sanitizeOperatorStatusUrl(value) {
     throw new Error("operator_status_url must use https://raw.githubusercontent.com");
   }
   return parsed.toString();
+}
+
+function operatorStatusRuntimeConfig(value) {
+  try {
+    return {
+      operatorStatusUrl: sanitizeOperatorStatusUrl(value),
+      operatorStatusConfigError: ""
+    };
+  } catch (error) {
+    return {
+      operatorStatusUrl: "",
+      operatorStatusConfigError: String(error)
+    };
+  }
 }
 
 function validatePrompt(value, fallback, maximum, label) {
@@ -79,6 +95,7 @@ function validateRuntimeConfig(raw, settings) {
     throw new Error("runtime config must use schema_version=3");
   }
   const agents = validateRuntimeAgents(raw.agents);
+  const operatorStatus = operatorStatusRuntimeConfig(raw.operator_status_url);
   return {
     intervalMinutes: clampNumber(
       raw.interval_minutes,
@@ -100,7 +117,7 @@ function validateRuntimeConfig(raw, settings) {
       "runtime wake prompt"
     ),
     agents,
-    operatorStatusUrl: sanitizeOperatorStatusUrl(raw.operator_status_url),
+    ...operatorStatus,
     conversationControls: githubControlModel.validateConversationControls(raw.conversation_controls, agents)
   };
 }
@@ -128,6 +145,7 @@ function fallbackRuntime(settings) {
     ),
     agents: [],
     operatorStatusUrl: "",
+    operatorStatusConfigError: "",
     conversationControls: []
   };
 }
@@ -200,6 +218,47 @@ async function loadRuntimeConfig(state, conversation = null) {
   return applyConversationInterval(await fetchRuntime(state.settings), conversation);
 }
 
+async function readBoundedOperatorStatusJson(response) {
+  if (response.body?.getReader) {
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = value instanceof Uint8Array ? value : new Uint8Array(value || []);
+        total += chunk.byteLength;
+        if (total > OPERATOR_STATUS_MAX_BYTES) {
+          try { await reader.cancel(); } catch (_error) {}
+          throw new Error(`operator status exceeds ${OPERATOR_STATUS_MAX_BYTES} bytes`);
+        }
+        chunks.push(chunk);
+      }
+    } finally {
+      try { reader.releaseLock?.(); } catch (_error) {}
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return JSON.parse(new TextDecoder().decode(bytes));
+  }
+
+  let text;
+  if (typeof response.text === "function") {
+    text = await response.text();
+  } else {
+    text = JSON.stringify(await response.json());
+  }
+  if (new TextEncoder().encode(text).byteLength > OPERATOR_STATUS_MAX_BYTES) {
+    throw new Error(`operator status exceeds ${OPERATOR_STATUS_MAX_BYTES} bytes`);
+  }
+  return JSON.parse(text);
+}
+
 function validateOperatorReasonCounts(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
@@ -220,7 +279,9 @@ function validateOperatorStatus(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.schema_version !== 1) {
     throw new Error("operator status must use schema_version=1");
   }
-  if (JSON.stringify(raw).length > 64_000) throw new Error("operator status exceeds 64000 characters");
+  if (JSON.stringify(raw).length > OPERATOR_STATUS_MAX_BYTES) {
+    throw new Error(`operator status exceeds ${OPERATOR_STATUS_MAX_BYTES} characters`);
+  }
 
   const updatedAt = Date.parse(String(raw.updated_at || ""));
   if (!Number.isFinite(updatedAt)) throw new Error("operator status updated_at is invalid");
@@ -273,6 +334,10 @@ function validateOperatorStatus(raw) {
 }
 
 async function loadOperatorStatus(runtime) {
+  const configError = String(runtime?.operatorStatusConfigError || "").trim();
+  if (configError) {
+    return { available: false, source: "misconfigured", error: configError };
+  }
   const url = String(runtime?.operatorStatusUrl || "").trim();
   if (!url) return { available: false, source: "not_configured" };
   if (operatorStatusCache?.url === url && operatorStatusCache.expiresAt > Date.now()) {
@@ -288,9 +353,10 @@ async function loadOperatorStatus(runtime) {
       signal: controller.signal
     });
     if (!response.ok) throw new Error(`operator status fetch returned HTTP ${response.status}`);
-    const status = validateOperatorStatus(await response.json());
+    const status = validateOperatorStatus(await readBoundedOperatorStatusJson(response));
     const updatedAt = Date.parse(String(status.updated_at || ""));
-    if (Date.now() - updatedAt > OPERATOR_STATUS_STALE_MS) {
+    const age = Date.now() - updatedAt;
+    if (age > OPERATOR_STATUS_STALE_MS || age < -OPERATOR_STATUS_FUTURE_SKEW_MS) {
       const value = { available: false, source: "stale", status };
       operatorStatusCache = { url, expiresAt: Date.now() + 5_000, value };
       return value;

@@ -353,10 +353,17 @@ function renderOperatorStatus(response) {
   if (!envelope.available) {
     const reason = envelope.source === "not_configured"
       ? "Agent status not configured"
-      : envelope.source === "stale"
-        ? "Agent status stale"
-        : "Agent status unavailable";
-    setOperatorLine(elements.operatorOverall, envelope.source === "stale" ? "Stale" : master);
+      : envelope.source === "misconfigured"
+        ? "Agent status configuration invalid"
+        : envelope.source === "stale"
+          ? "Agent status stale"
+          : "Agent status unavailable";
+    const unavailableOverall = envelope.source === "stale"
+      ? "Stale"
+      : envelope.source === "misconfigured"
+        ? "Config error"
+        : master;
+    setOperatorLine(elements.operatorOverall, unavailableOverall);
     setOperatorLine(
       elements.operatorRuntime,
       reason,
@@ -368,7 +375,14 @@ function renderOperatorStatus(response) {
     const configured = operator.configured ? "configured" : "misconfigured";
     const enabled = operator.enabled ? "enabled" : "disabled";
     const activity = operator.running ? "running" : "idle";
-    setOperatorLine(elements.operatorOverall, operator.running ? "Running" : "Ready");
+    const overall = !operator.configured
+      ? "Misconfigured"
+      : !operator.enabled
+        ? "Disabled"
+        : operator.running
+          ? "Running"
+          : "Ready";
+    setOperatorLine(elements.operatorOverall, overall);
     setOperatorLine(
       elements.operatorRuntime,
       `${master} · ${enabled}/${configured} · ${activity}`,

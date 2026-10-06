@@ -175,6 +175,49 @@ function operatorStatus() {
     "operator status remains optional for runtime schema v3"
   );
 
+  const invalidRuntimeHarness = createHarness({
+    fetch: async () => ({
+      ok: true,
+      async json() {
+        return {
+          ...runtimeExample,
+          bootstrap_prompt: "BOOTSTRAP",
+          wake_prompt: "WAKE",
+          operator_status_url: "http://127.0.0.1/status.json"
+        };
+      }
+    })
+  });
+  const invalidRuntime = await invalidRuntimeHarness.sendRuntimeMessage({ type: "bridge:get-state" });
+  assert.equal(invalidRuntime.runtime.source, "remote");
+  assert.equal(invalidRuntime.operatorStatus.available, false);
+  assert.equal(invalidRuntime.operatorStatus.source, "misconfigured");
+  assert.match(invalidRuntime.operatorStatus.error, /raw\.githubusercontent\.com/);
+
+  const future = operatorStatus();
+  future.updated_at = new Date(Date.now() + (20 * 60 * 1000)).toISOString();
+  const futureHarness = createHarness({
+    fetch: async (url) => {
+      if (String(url).startsWith(statusUrl)) {
+        return { ok: true, async json() { return future; } };
+      }
+      return {
+        ok: true,
+        async json() {
+          return {
+            ...runtimeExample,
+            bootstrap_prompt: "BOOTSTRAP",
+            wake_prompt: "WAKE",
+            operator_status_url: statusUrl
+          };
+        }
+      };
+    }
+  });
+  const futureState = await futureHarness.sendRuntimeMessage({ type: "bridge:get-state" });
+  assert.equal(futureState.operatorStatus.available, false);
+  assert.equal(futureState.operatorStatus.source, "stale");
+
   const stale = operatorStatus();
   stale.updated_at = new Date(Date.now() - (20 * 60 * 1000)).toISOString();
   const staleHarness = createHarness({
@@ -207,6 +250,8 @@ function operatorStatus() {
   assert.match(popup, /capturedResultCount/);
   assert.match(popup, /reconciled_count/);
   assert.match(popup, /bridgeInfo/);
+  assert.match(popup, /"Misconfigured"/);
+  assert.match(popup, /"Disabled"/);
   assert.match(popupHtml, /id="operatorStatusTitle"/);
   assert.match(popupHtml, /id="operatorFeedback"/);
   assert.match(popupHtml, /id="operatorDedupe"/);
