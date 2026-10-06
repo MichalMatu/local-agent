@@ -446,14 +446,21 @@ function createHarness({
   {
     const h = createHarness();
     const ready = await h.context.conversationFabricDiagnosticContext(
-      { conversationUrl: parentUrl },
+      { conversationUrl: parentUrl, contentProtocolVersion: h.context.CONTENT_PROTOCOL_VERSION },
       h.sender
     );
     assert.equal(ready.ok, true, JSON.stringify(ready));
     assert.equal(ready.reason, "conversation_fabric_diagnostic_ready");
 
+    const staleProtocol = await h.context.conversationFabricDiagnosticContext(
+      { conversationUrl: parentUrl, contentProtocolVersion: h.context.CONTENT_PROTOCOL_VERSION - 1 },
+      h.sender
+    );
+    assert.equal(staleProtocol.ok, false);
+    assert.equal(staleProtocol.reason, "conversation_fabric_diagnostic_protocol_mismatch");
+
     const wrongTab = await h.context.conversationFabricDiagnosticContext(
-      { conversationUrl: parentUrl },
+      { conversationUrl: parentUrl, contentProtocolVersion: h.context.CONTENT_PROTOCOL_VERSION },
       { ...h.sender, tab: { id: 12, url: parentUrl } }
     );
     assert.equal(wrongTab.ok, false);
@@ -463,7 +470,7 @@ function createHarness({
   {
     const h = createHarness({ managed: false });
     const diagnostic = await h.context.conversationFabricDiagnosticContext(
-      { conversationUrl: parentUrl },
+      { conversationUrl: parentUrl, contentProtocolVersion: h.context.CONTENT_PROTOCOL_VERSION },
       h.sender
     );
     assert.equal(diagnostic.ok, false);
