@@ -81,29 +81,32 @@ Current coverage includes:
 - real headless Chromium DOM/browser smoke for parent control, child result capture and ownership checks;
 - full repository CI through `bridge-browser`, test, coverage, Python 3.14 and macOS smoke jobs.
 
-Some browser smoke still calls Fabric helpers directly for parts of restart/recovery, so it is not by itself the complete end-to-end restart acceptance.
+The deterministic real-extension browser smoke now traverses the production routing for the lifecycle/recovery contract; direct helper calls are retained only for bounded test-state inspection/awaiting and harness-only MV3 interruption.
 
-## Next work — complete restart/reload E2E
+## Restart/reload E2E — complete
 
-Add/maintain one deterministic browser acceptance that traverses the production routing rather than helper-only shortcuts:
+`scripts/conversation_fabric_browser_smoke.cjs` now proves the complete bounded lifecycle:
 
 1. real parent content discovers/submits a delegate control;
-2. spawn four ordinary child tabs;
-3. force at least three children through delayed/provisional post-submit routing that would previously surface `spawn_submission_ambiguous`, while verifying each bootstrap is sent exactly once;
-4. keep those children recoverable rather than terminally failed, preserving their exact owned tab and transaction/request/bootstrap claims;
-5. interrupt/reload the service-worker/extension lifecycle while at least one ambiguous child is still awaiting identity proof;
-6. recover durable state and exact child ownership without bootstrap replay or duplicate child creation;
-7. let all four tabs reach canonical child URLs and prove identity using the existing transaction/request/bootstrap/current-route/current-child-URL evidence;
-8. have all four children produce final results and durably capture all four before cleanup;
-9. exercise one additional transient observation failure and later successful recovery;
-10. let normal worker polling reach terminal state;
-11. close only exact owned child tabs after durable result capture;
-12. deliver terminal feedback exactly once with 4/4 recovered results;
-13. reload/restart again and poll again;
-14. assert no completed-campaign replay and no orphaned completed child;
-15. separately prove a truly ambiguous child that never reaches verifiable identity fails closed after bounded recovery with no second submit and no replacement tab.
+2. four ordinary child tabs are created in one extension-owned browser session;
+3. three children pass through real post-submit ambiguous routing while every bootstrap is submitted exactly once;
+4. stable sibling evidence is durably captured before the ambiguous children finish;
+5. the actual MV3 service worker is stopped and woken while ambiguity is still unresolved;
+6. durable campaign state and exact page ownership are reconstructed without bootstrap replay or duplicate child creation;
+7. all four children recover onto canonical child URLs and exact ownership is re-proven;
+8. all four final results are captured before exact owned-tab cleanup;
+9. normal production alarm routing reaches terminal state;
+10. terminal feedback is delivered exactly once;
+11. the worker is restarted a second time and the same production poll route proves no completed-campaign replay;
+12. read-only Result Vault inspection still works after child cleanup without resetting terminal delivery;
+13. explicit retire plus deliberate fresh-id re-delegation proves bounded operator-controlled rollover without automatic replay;
+14. an unresolved post-submit ambiguity is forced past the bounded deadline and fails closed with no second submit, replacement tab or orphaned owned tab.
 
-Prefer a genuine MV3 service-worker/extension restart if Chromium exposes a deterministic harness primitive. If not, use the strongest reliable production-shaped restart and document the remaining limitation explicitly.
+The test uses CDP only as a harness mechanism to stop/reattach to Chromium's real MV3 worker target; delegation, recovery, polling, ownership, durable state and terminal delivery remain the installed extension's production paths.
+
+## Next work — bounded multi-goal supervision
+
+The single-goal transport/recovery/test architecture is now sufficiently closed for the bounded multi-goal policy work in `docs/DEVELOPMENT_PLAN.md`. Preserve the same reasoning-only child boundary, exact target execution admission, deterministic active-goal limit and fail-closed recovery model.
 
 ## Execution authority
 
