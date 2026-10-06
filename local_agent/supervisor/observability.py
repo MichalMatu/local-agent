@@ -140,14 +140,11 @@ def _project_operator_request(
         return None, None
     try:
         request = operator_contract.load_operator_request(campaign.request_path)
-        repositories = operator_contract.operator_request_repository_ids(request)
+        operator_contract.operator_request_repository_ids(request)
     except (OSError, ValueError) as exc:
         return None, f"{type(exc).__name__}: {exc}"
     return {
-        "request_id": str(request["id"]),
         "workflow_id": str(request["workflow_id"]),
-        "parent_conversation_url": str(request["parent_conversation_url"]),
-        "repository_ids": repositories,
         "children_total": len(request["children"]),
     }, None
 
@@ -188,7 +185,6 @@ def build_operator_status(
             "daemon_version": agentd.DAEMON_VERSION,
             "self_revision": agentd.self_revision(),
             "execution_model": "parallel_repository_supervisor",
-            "supervisor_pid": os.getpid(),
             "max_parallel_workers": max_workers,
             "repository_count": len(repository_list),
         },
