@@ -4,6 +4,9 @@ This changelog records the current operationally relevant Local Agent release li
 
 ## Unreleased — Chat Bridge 0.8.11 candidate
 
+- Add a production-shaped second Conversation Fabric campaign in the same parent to prove fresh campaign identity, no state/terminal-receipt leakage, exact child cleanup and no replay of the earlier terminal feedback.
+- Define Host Ops absorption as the next product stage: Local Agent remains the sole brain/orchestrator while the deterministic `host-ops` capability layer moves in without its standalone control-plane identity.
+- Register `MichalMatu/wolf-ue5` as an execution-enabled canonical target while preserving existing binding/admission semantics.
 - Fix Conversation Fabric parent feedback delivery to use one native form-submit boundary when available, avoiding the current ChatGPT synthetic Send-click stall without reintroducing delayed double-submit fallback.
 - Remove executable `LOCAL_AGENT_CF` inspect/collect/retire blocks from Bridge-generated running/completed status feedback so status messages cannot self-trigger a control-feedback loop.
 - Add regression coverage for a blocked synthetic Send button and for passive status prompts that contain no executable Fabric control envelope.
@@ -18,7 +21,7 @@ This changelog records the current operationally relevant Local Agent release li
 - Capture up to four reasoning children, persist campaign/results before owned-tab cleanup, and collect results through the existing GitHub-control poll.
 - Serialize duplicate delegation, retain failure evidence without automatic replay, and deliver result feedback once to the parent.
 - Refresh all parent/child controllers through the shared content lifecycle and preserve exact logical multiline composer text.
-- Local Agent remains at 4.20.6; repository execution bindings and scheduler admission are unchanged.
+- Local Agent remains at 4.20.6; existing binding/admission semantics and scheduler authority are unchanged.
 
 ## v4.20.6
 
