@@ -203,14 +203,12 @@ async function deliverConversation(chatId, manual, { promptOverride = "" } = {})
   }
 
   const overridePrompt = typeof promptOverride === "string" ? promptOverride.trim() : "";
-  const explicitFeedback = overridePrompt
-    ? null
-    : await conversationFabricExplicitFeedbackForParent(conversation.url);
-  const explicitPrompt = overridePrompt || String(explicitFeedback?.prompt || "");
-  const fabricFeedback = explicitPrompt
+  const fabricFeedback = overridePrompt
     ? null
     : await conversationFabricFeedbackForParent(conversation.url);
-  if (!explicitPrompt && !fabricFeedback && await conversationFabricParentReserved(conversation.url)) {
+  const parentReserved = !overridePrompt && !fabricFeedback &&
+    await conversationFabricParentReserved(conversation.url);
+  if (parentReserved) {
     const runAt = new Date().toISOString();
     await updateConversationStatus(chatId, {
       lastRunAt: runAt,
@@ -229,6 +227,10 @@ async function deliverConversation(chatId, manual, { promptOverride = "" } = {})
       bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
     };
   }
+  const explicitFeedback = overridePrompt || fabricFeedback
+    ? null
+    : await conversationFabricExplicitFeedbackForParent(conversation.url);
+  const explicitPrompt = overridePrompt || String(explicitFeedback?.prompt || "");
   const runAt = new Date().toISOString();
   const tab = await findConversationTab(conversation);
   if (!tab?.id) {
