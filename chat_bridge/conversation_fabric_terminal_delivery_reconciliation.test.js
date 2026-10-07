@@ -65,6 +65,7 @@ function makeHarness({
     inFlightDeliveries: new Set(),
     activeDeliveries: new Map(),
     crypto: { randomUUID: () => "delivery-1" },
+    conversationId: (value) => value === URL ? "parent" : "",
     location: { href: URL },
     document: {
       querySelectorAll: () => userMessages
