@@ -127,7 +127,38 @@ def test_size_and_sha256_parse_fixed_remote_commands() -> None:
     assert remote.size("/sdcard/file.bin") == 7
     assert remote.sha256("/sdcard/file.bin") == DIGEST
     assert runner.commands[0][-3:] == ("wc", "-c", "/sdcard/file.bin")
-    assert runner.commands[1][-1] == "/sdcard/file.bin"
+    assert runner.commands[1] == (
+        ADB,
+        "-s",
+        SERIAL,
+        "shell",
+        "sha256sum",
+        "/sdcard/file.bin",
+    )
+
+
+def test_sha256_falls_back_to_toybox_without_remote_shell_script() -> None:
+    runner = FakeRunner(
+        _result(stderr="/system/bin/sh: sha256sum: inaccessible or not found", exit_code=127),
+        _result(f"{DIGEST}  /sdcard/file.bin\n"),
+    )
+
+    assert _remote(runner).sha256("/sdcard/file.bin") == DIGEST
+    assert runner.commands == [
+        (ADB, "-s", SERIAL, "shell", "sha256sum", "/sdcard/file.bin"),
+        (ADB, "-s", SERIAL, "shell", "toybox", "sha256sum", "/sdcard/file.bin"),
+    ]
+
+
+def test_sha256_rejects_when_no_supported_hash_command_exists() -> None:
+    runner = FakeRunner(
+        _result(exit_code=127),
+        _result(exit_code=127),
+        _result(exit_code=127),
+    )
+
+    with pytest.raises(AdbTransferError, match="no supported hash command"):
+        _remote(runner).sha256("/sdcard/file.bin")
 
 
 def test_size_and_sha256_reject_malformed_evidence() -> None:
