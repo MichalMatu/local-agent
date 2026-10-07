@@ -28,6 +28,10 @@ if hasattr(errno, "ENOTSUP"):
 class ArtifactDeploymentError(RuntimeError):
     """Raised when artifact deployment cannot complete with trustworthy evidence."""
 
+    def __init__(self, message: str, *, committed: bool = False) -> None:
+        super().__init__(message)
+        self.committed = committed
+
 
 class LocalArtifactDeployer:
     """Deploy one regular file into an existing local directory and verify SHA-256."""
@@ -137,13 +141,19 @@ class LocalArtifactDeployer:
             state = "after commit" if committed else "before commit"
             suffix = "; destination may require operator cleanup" if committed else ""
             raise ArtifactDeploymentError(
-                f"artifact deployment exceeded its whole-operation timeout {state}{suffix}"
+                f"artifact deployment exceeded its whole-operation timeout {state}{suffix}",
+                committed=committed,
             ) from exc
-        except ArtifactDeploymentError:
+        except ArtifactDeploymentError as exc:
+            if committed and not exc.committed:
+                raise ArtifactDeploymentError(str(exc), committed=True) from exc
             raise
         except OSError as exc:
             state = "after commit" if committed else "before commit"
-            raise ArtifactDeploymentError(f"artifact deployment failed {state}: {exc}") from exc
+            raise ArtifactDeploymentError(
+                f"artifact deployment failed {state}: {exc}",
+                committed=committed,
+            ) from exc
         finally:
             if temporary_path is not None:
                 with suppress(OSError):

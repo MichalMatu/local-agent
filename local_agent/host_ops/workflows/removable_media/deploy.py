@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,8 @@ from local_agent.host_ops.capabilities.local.macos import (
 )
 from local_agent.host_ops.core.execution import ExecutionLimits
 
+_DEFAULT_LIMITS = ExecutionLimits()
+
 
 class RemovableMediaDeploymentError(RuntimeError):
     """Report a failed workflow stage without hiding completed side effects."""
@@ -32,12 +35,16 @@ class RemovableMediaDeploymentError(RuntimeError):
         volume_identifier: str,
         mounted_by_workflow: bool = False,
         deployment: ArtifactDeploymentResult | None = None,
+        artifact_committed: bool = False,
+        storage_action_attempted: bool = False,
     ) -> None:
         super().__init__(message)
         self.stage = stage
         self.volume_identifier = volume_identifier
         self.mounted_by_workflow = mounted_by_workflow
         self.deployment = deployment
+        self.artifact_committed = artifact_committed
+        self.storage_action_attempted = storage_action_attempted
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -46,8 +53,44 @@ class RemovableMediaDeploymentError(RuntimeError):
             "volume_identifier": self.volume_identifier,
             "mounted_by_workflow": self.mounted_by_workflow,
             "artifact_deployed": self.deployment is not None,
+            "artifact_committed": self.artifact_committed,
+            "storage_action_attempted": self.storage_action_attempted,
             "deployment": None if self.deployment is None else self.deployment.as_dict(),
         }
+
+
+class _WorkflowBudget:
+    """One monotonic deadline shared by the complete removable-media workflow."""
+
+    def __init__(self, limits: ExecutionLimits) -> None:
+        self._limits = limits
+        self._deadline = time.monotonic() + limits.timeout_seconds
+
+    def remaining(
+        self,
+        *,
+        stage: str,
+        volume_identifier: str,
+        mounted_by_workflow: bool = False,
+        deployment: ArtifactDeploymentResult | None = None,
+    ) -> ExecutionLimits:
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise RemovableMediaDeploymentError(
+                "removable media deployment exceeded its whole-operation timeout",
+                stage=stage,
+                volume_identifier=volume_identifier,
+                mounted_by_workflow=mounted_by_workflow,
+                deployment=deployment,
+                artifact_committed=deployment is not None,
+            )
+        return ExecutionLimits(
+            timeout_seconds=remaining,
+            terminate_grace_seconds=self._limits.terminate_grace_seconds,
+            pipe_drain_seconds=self._limits.pipe_drain_seconds,
+            max_stdout_bytes=self._limits.max_stdout_bytes,
+            max_stderr_bytes=self._limits.max_stderr_bytes,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,9 +138,16 @@ class MacOSRemovableMediaDeployer:
         eject: bool = False,
         limits: ExecutionLimits | None = None,
     ) -> RemovableMediaDeploymentResult:
+        budget = _WorkflowBudget(limits or _DEFAULT_LIMITS)
         mounted_by_workflow = False
         try:
-            volume, whole = self._inspect_target(volume_identifier, limits=limits)
+            volume, whole = self._inspect_target(
+                volume_identifier,
+                limits=budget.remaining(
+                    stage="inspect",
+                    volume_identifier=volume_identifier,
+                ),
+            )
         except (MacOSInspectionError, RemovableMediaDeploymentError) as exc:
             if isinstance(exc, RemovableMediaDeploymentError):
                 raise
@@ -115,16 +165,30 @@ class MacOSRemovableMediaDeployer:
         )
         if mount_point is None:
             try:
-                self._controller.mount(volume_identifier, limits=limits)
+                self._controller.mount(
+                    volume_identifier,
+                    limits=budget.remaining(
+                        stage="mount",
+                        volume_identifier=volume_identifier,
+                    ),
+                )
             except MacOSStorageControlError as exc:
                 raise RemovableMediaDeploymentError(
                     str(exc),
                     stage="mount",
                     volume_identifier=volume_identifier,
+                    storage_action_attempted=exc.action_attempted,
                 ) from exc
             mounted_by_workflow = True
             try:
-                volume, whole = self._inspect_target(volume_identifier, limits=limits)
+                volume, whole = self._inspect_target(
+                    volume_identifier,
+                    limits=budget.remaining(
+                        stage="mount",
+                        volume_identifier=volume_identifier,
+                        mounted_by_workflow=True,
+                    ),
+                )
             except (MacOSInspectionError, RemovableMediaDeploymentError) as exc:
                 raise RemovableMediaDeploymentError(
                     str(exc),
@@ -152,6 +216,11 @@ class MacOSRemovableMediaDeployer:
                 mount_point,
                 destination_name=destination_name,
                 replace=replace,
+                limits=budget.remaining(
+                    stage="deploy",
+                    volume_identifier=volume_identifier,
+                    mounted_by_workflow=mounted_by_workflow,
+                ),
             )
         except ArtifactDeploymentError as exc:
             raise RemovableMediaDeploymentError(
@@ -159,12 +228,21 @@ class MacOSRemovableMediaDeployer:
                 stage="deploy",
                 volume_identifier=volume_identifier,
                 mounted_by_workflow=mounted_by_workflow,
+                artifact_committed=exc.committed,
             ) from exc
 
         eject_message: str | None = None
         if eject:
             try:
-                eject_result = self._controller.eject(whole.identifier, limits=limits)
+                eject_result = self._controller.eject(
+                    whole.identifier,
+                    limits=budget.remaining(
+                        stage="eject",
+                        volume_identifier=volume_identifier,
+                        mounted_by_workflow=mounted_by_workflow,
+                        deployment=deployment,
+                    ),
+                )
             except MacOSStorageControlError as exc:
                 raise RemovableMediaDeploymentError(
                     str(exc),
@@ -172,6 +250,8 @@ class MacOSRemovableMediaDeployer:
                     volume_identifier=volume_identifier,
                     mounted_by_workflow=mounted_by_workflow,
                     deployment=deployment,
+                    artifact_committed=True,
+                    storage_action_attempted=exc.action_attempted,
                 ) from exc
             eject_message = eject_result.message
 

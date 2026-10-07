@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 import pytest
@@ -11,9 +12,14 @@ from local_agent.host_ops.capabilities.local.macos import (
     MacOSStorageControlError,
     MacOSStorageDevice,
 )
+from local_agent.host_ops.core.execution import ExecutionLimits
 from local_agent.host_ops.workflows.removable_media import (
     MacOSRemovableMediaDeployer,
     RemovableMediaDeploymentError,
+)
+
+workflow_module = importlib.import_module(
+    "local_agent.host_ops.workflows.removable_media.deploy"
 )
 
 
@@ -44,9 +50,11 @@ class FakeInspector:
     def __init__(self, snapshots) -> None:
         self.snapshots = list(snapshots)
         self.calls = 0
+        self.limits: list[ExecutionLimits | None] = []
 
     def external_storage(self, *, limits=None):
         self.calls += 1
+        self.limits.append(limits)
         value = self.snapshots.pop(0)
         if isinstance(value, Exception):
             raise value
@@ -56,10 +64,12 @@ class FakeInspector:
 class FakeController:
     def __init__(self, *, eject_error: Exception | None = None) -> None:
         self.calls: list[tuple[str, str]] = []
+        self.limits: list[ExecutionLimits | None] = []
         self.eject_error = eject_error
 
     def mount(self, identifier: str, *, limits=None):
         self.calls.append(("mount", identifier))
+        self.limits.append(limits)
         return MacOSStorageActionResult(
             action="mount",
             identifier=identifier,
@@ -68,6 +78,7 @@ class FakeController:
 
     def eject(self, identifier: str, *, limits=None):
         self.calls.append(("eject", identifier))
+        self.limits.append(limits)
         if self.eject_error is not None:
             raise self.eject_error
         return MacOSStorageActionResult(
@@ -80,6 +91,7 @@ class FakeController:
 class FakeDeployer:
     def __init__(self, *, error: Exception | None = None) -> None:
         self.calls: list[tuple[Path, Path, str | None, bool]] = []
+        self.limits: list[ExecutionLimits | None] = []
         self.error = error
 
     def deploy(
@@ -89,8 +101,10 @@ class FakeDeployer:
         *,
         destination_name: str | None = None,
         replace: bool = False,
+        limits: ExecutionLimits | None = None,
     ) -> ArtifactDeploymentResult:
         self.calls.append((source, destination_directory, destination_name, replace))
+        self.limits.append(limits)
         if self.error is not None:
             raise self.error
         name = destination_name or source.name
@@ -229,7 +243,9 @@ def test_failed_deploy_leaves_mounted_volume_for_operator_inspection() -> None:
 
 def test_eject_failure_preserves_successful_deployment_evidence() -> None:
     inspector = FakeInspector([_inventory(mount_point="/Volumes/FIRMWARE")])
-    controller = FakeController(eject_error=MacOSStorageControlError("device busy"))
+    controller = FakeController(
+        eject_error=MacOSStorageControlError("device busy", action_attempted=True)
+    )
 
     with pytest.raises(RemovableMediaDeploymentError, match="device busy") as captured:
         MacOSRemovableMediaDeployer(inspector, controller, FakeDeployer()).deploy(
@@ -242,6 +258,8 @@ def test_eject_failure_preserves_successful_deployment_evidence() -> None:
     assert error.stage == "eject"
     assert error.deployment is not None
     assert error.as_dict()["artifact_deployed"] is True
+    assert error.as_dict()["artifact_committed"] is True
+    assert error.as_dict()["storage_action_attempted"] is True
     assert controller.calls == [("eject", "disk4")]
 
 
@@ -261,3 +279,123 @@ def test_post_mount_inspection_failure_reports_mount_stage() -> None:
 
     assert captured.value.stage == "mount"
     assert captured.value.mounted_by_workflow is True
+
+
+def test_workflow_passes_one_decreasing_deadline_to_every_stage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inspector = FakeInspector(
+        [
+            _inventory(mount_point=None),
+            _inventory(mount_point="/Volumes/FIRMWARE"),
+        ]
+    )
+    controller = FakeController()
+    deployer = FakeDeployer()
+    ticks = iter((100.0, 101.0, 102.0, 103.0, 104.0, 105.0))
+    monkeypatch.setattr(workflow_module.time, "monotonic", lambda: next(ticks))
+    limits = ExecutionLimits(
+        timeout_seconds=10.0,
+        terminate_grace_seconds=2.0,
+        pipe_drain_seconds=0.5,
+        max_stdout_bytes=1234,
+        max_stderr_bytes=5678,
+    )
+
+    MacOSRemovableMediaDeployer(inspector, controller, deployer).deploy(
+        Path("input.bin"),
+        "disk4s1",
+        eject=True,
+        limits=limits,
+    )
+
+    seen = [
+        inspector.limits[0],
+        controller.limits[0],
+        inspector.limits[1],
+        deployer.limits[0],
+        controller.limits[1],
+    ]
+    assert [value.timeout_seconds for value in seen if value is not None] == [
+        9.0,
+        8.0,
+        7.0,
+        6.0,
+        5.0,
+    ]
+    for value in seen:
+        assert value is not None
+        assert value.terminate_grace_seconds == 2.0
+        assert value.pipe_drain_seconds == 0.5
+        assert value.max_stdout_bytes == 1234
+        assert value.max_stderr_bytes == 5678
+
+
+def test_workflow_deadline_exhaustion_after_mount_preserves_mount_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inspector = FakeInspector([_inventory(mount_point=None)])
+    controller = FakeController()
+    deployer = FakeDeployer()
+    ticks = iter((100.0, 101.0, 102.0, 110.0))
+    monkeypatch.setattr(workflow_module.time, "monotonic", lambda: next(ticks))
+
+    with pytest.raises(RemovableMediaDeploymentError, match="whole-operation timeout") as captured:
+        MacOSRemovableMediaDeployer(inspector, controller, deployer).deploy(
+            Path("input.bin"),
+            "disk4s1",
+            limits=ExecutionLimits(timeout_seconds=10.0),
+        )
+
+    assert captured.value.stage == "mount"
+    assert captured.value.mounted_by_workflow is True
+    assert inspector.calls == 1
+    assert controller.calls == [("mount", "disk4s1")]
+    assert deployer.calls == []
+
+
+def test_workflow_deadline_exhaustion_before_eject_preserves_deployment_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inspector = FakeInspector([_inventory(mount_point="/Volumes/FIRMWARE")])
+    controller = FakeController()
+    deployer = FakeDeployer()
+    ticks = iter((100.0, 101.0, 102.0, 110.0))
+    monkeypatch.setattr(workflow_module.time, "monotonic", lambda: next(ticks))
+
+    with pytest.raises(RemovableMediaDeploymentError, match="whole-operation timeout") as captured:
+        MacOSRemovableMediaDeployer(inspector, controller, deployer).deploy(
+            Path("input.bin"),
+            "disk4s1",
+            eject=True,
+            limits=ExecutionLimits(timeout_seconds=10.0),
+        )
+
+    error = captured.value
+    payload = error.as_dict()
+    assert error.stage == "eject"
+    assert error.deployment is not None
+    assert payload["artifact_deployed"] is True
+    assert payload["artifact_committed"] is True
+    assert payload["storage_action_attempted"] is False
+    assert controller.calls == []
+
+
+def test_deploy_error_reports_committed_but_unverified_artifact() -> None:
+    inspector = FakeInspector([_inventory(mount_point="/Volumes/FIRMWARE")])
+    deployer = FakeDeployer(
+        error=ArtifactDeploymentError(
+            "artifact deployment exceeded its whole-operation timeout after commit",
+            committed=True,
+        )
+    )
+
+    with pytest.raises(RemovableMediaDeploymentError) as captured:
+        MacOSRemovableMediaDeployer(inspector, FakeController(), deployer).deploy(
+            Path("input.bin"),
+            "disk4s1",
+        )
+
+    payload = captured.value.as_dict()
+    assert payload["artifact_deployed"] is False
+    assert payload["artifact_committed"] is True

@@ -179,3 +179,24 @@ def test_deploy_enforces_whole_operation_timeout_before_commit_and_cleans_stage(
 
     assert not (target / "source.bin").exists()
     assert not list(target.glob(".source.bin.hostops-*"))
+
+
+def test_deploy_timeout_after_commit_exposes_committed_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"payload")
+    target = tmp_path / "target"
+    target.mkdir()
+
+    def timeout_after_commit(_path, _budget):
+        raise bounds_module.ArtifactOperationTimeout
+
+    monkeypatch.setattr(deploy_module, "_sync_directory", timeout_after_commit)
+
+    with pytest.raises(ArtifactDeploymentError, match="after commit") as captured:
+        LocalArtifactDeployer().deploy(source, target)
+
+    assert captured.value.committed is True
+    assert (target / "source.bin").read_bytes() == b"payload"

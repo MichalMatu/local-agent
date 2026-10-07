@@ -87,12 +87,13 @@ def test_mount_fails_before_action_when_budget_is_exhausted(
     ticks = iter((100.0, 101.0, 110.0))
     monkeypatch.setattr(storage_module.time, "monotonic", lambda: next(ticks))
 
-    with pytest.raises(MacOSStorageControlError, match="whole-operation timeout"):
+    with pytest.raises(MacOSStorageControlError, match="whole-operation timeout") as captured:
         MacOSStorageController(runner=runner, system_name="Darwin").mount(
             "disk4s1",
             limits=ExecutionLimits(timeout_seconds=10.0),
         )
 
+    assert captured.value.action_attempted is False
     assert runner.calls == [("/usr/sbin/diskutil", "info", "-plist", "disk4s1")]
 
 
@@ -150,5 +151,7 @@ def test_storage_action_propagates_diskutil_failure() -> None:
         ]
     )
 
-    with pytest.raises(MacOSStorageControlError, match="busy"):
+    with pytest.raises(MacOSStorageControlError, match="busy") as captured:
         MacOSStorageController(runner=runner, system_name="Darwin").unmount("disk4s1")
+
+    assert captured.value.action_attempted is True

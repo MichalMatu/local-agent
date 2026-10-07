@@ -19,6 +19,10 @@ _DEFAULT_LIMITS = ExecutionLimits()
 class MacOSStorageControlError(RuntimeError):
     """Raised when a macOS storage action cannot be performed safely."""
 
+    def __init__(self, message: str, *, action_attempted: bool = False) -> None:
+        super().__init__(message)
+        self.action_attempted = action_attempted
+
 
 class _OperationBudget:
     def __init__(self, limits: ExecutionLimits) -> None:
@@ -116,7 +120,13 @@ class MacOSStorageController:
             (_DISKUTIL, action, identifier),
             limits=budget.remaining(),
         )
-        _require_ok(result, f"{action} storage target {identifier}")
+        try:
+            _require_ok(result, f"{action} storage target {identifier}")
+        except MacOSStorageControlError as exc:
+            raise MacOSStorageControlError(
+                str(exc),
+                action_attempted=True,
+            ) from exc
         return MacOSStorageActionResult(
             action=action,
             identifier=identifier,
