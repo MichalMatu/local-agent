@@ -160,11 +160,20 @@ Canonical capability: `capabilities/local/files/*`.
 
 The implementation rejects symlink sources/target directories, stages in the destination directory, fsyncs data, supports explicit replace/no-clobber commit and verifies the final digest.
 
+Current bounds:
+- both operations default to `max_bytes=512 MiB` and reject configured limits above the shared 16 GiB hard maximum;
+- both CLIs expose explicit `--max-bytes` and `--timeout`; the default whole-operation timeout is 300 s;
+- inspection shares one monotonic deadline across open/hash/stability verification and rejects a file that starts above the limit or grows past it while hashing;
+- deployment shares one deadline across source validation, staging copy, fsync, commit, directory fsync and final SHA-256/size verification; a pre-commit timeout cleans the exact staging file, while any post-commit timeout is surfaced explicitly because the destination may require operator cleanup.
+
 Tests: `host_ops_tests/unit/local_files/*`, CLI artifact tests.
 
-Hardening:
-- no wall-clock or maximum-size bound exists for local hash/copy operations;
-- inspection/deployment should eventually expose explicit effect/resource metadata while preserving current atomicity semantics.
+Live hardening evidence:
+- focused host task `local-agent-host-ops-artifact-bounds-focused-20261007-v5` passed compile, architecture/design gates, bounded inspect/deploy success, explicit size-limit failures, invalid-timeout failure and exact temporary-file cleanup;
+- commit `48b34d36c3bf98e1f3d2ea01867d8198ead153ce` preserves atomic/no-clobber behavior while adding the bounds; exact-head CI run `37569437598` passed `absorbed-host-ops`, `test`, `coverage`, `bridge-browser`, `python-314` and `macos-smoke`.
+
+Remaining hardening:
+- inspection/deployment still need final effect/resource metadata classification as part of the cross-tool review.
 
 ### Local Git context
 
@@ -347,8 +356,8 @@ No known current P0 data-loss or authority bypass was found in this inventory. T
 
 ### P1 — normalize execution semantics
 
-1. Introduce true whole-operation budgets where a user operation spans multiple subprocesses or subprocess + local I/O, especially macOS storage/removable-media and host-profile composition.
-2. Add explicit size/time bounds for local artifact hashing/copying.
+1. Whole-operation budgets are complete for host-profile composition and direct macOS inspection/storage operations at `6d2241da0f6c7709cc6502c2cfa6bd960c847014`; the composed removable-media workflow still needs one shared deadline across inspect/mount/deploy/eject.
+2. Explicit local artifact size/time bounds are complete at `48b34d36c3bf98e1f3d2ea01867d8198ead153ce`.
 3. Define current operation effect classes accurately: passive read, active network/device read, local process execution, write/mutation, disruptive device/storage effect, arbitrary-code-like execution.
 4. Record canonical resource identity for serial ports, ADB devices, disks, remote SSH targets and remote-Git workspace/lock scopes.
 5. Verify JSON success/error shape consistency across CLI groups before freezing a shared tool result contract.
