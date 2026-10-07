@@ -326,6 +326,30 @@ def test_run_workspace_rejects_missing_readiness(monkeypatch, capsys) -> None:
     assert "without readiness evidence" in capsys.readouterr().err
 
 
+def test_run_workspace_json_ok_matches_missing_readiness_exit(monkeypatch, capsys) -> None:
+    result = _result(prepared=False)
+
+    class FakeRunner:
+        def prepare(self, target, workspace, *, limits=None):
+            return result
+
+    monkeypatch.setattr(remote_git, "load_host_target", lambda alias: object())
+    monkeypatch.setattr(remote_git, "RemoteGitRunner", FakeRunner)
+    rc = remote_git._run_workspace(
+        "phone",
+        _workspace(),
+        timeout_seconds=20.0,
+        as_json=True,
+        remote_argv=None,
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert payload["ok"] is False
+    assert payload["prepared"] is False
+    assert payload["process"]["exit_code"] == 0
+
+
 def test_run_workspace_reports_target_error(monkeypatch, capsys) -> None:
     def fail_target(alias):
         raise remote_git.HostTargetResolutionError("unknown target")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 
-JSON_CONTRACT_VERSION = 1
+JSON_CONTRACT_VERSION = 2
 
 
 def package_version() -> str:

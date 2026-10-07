@@ -43,8 +43,8 @@ class HostOpsAbsorptionTests(unittest.TestCase):
         self.assertNotIn("'.[browser]'", documentation)
         self.assertNotIn("'.[dev,browser]'", documentation)
 
-    def test_json_contract_version_is_preserved(self) -> None:
-        self.assertEqual(JSON_CONTRACT_VERSION, 1)
+    def test_json_contract_version_is_current(self) -> None:
+        self.assertEqual(JSON_CONTRACT_VERSION, 2)
 
     def test_absorbed_cli_is_executable_from_local_agent_namespace(self) -> None:
         result = subprocess.run(
@@ -55,7 +55,7 @@ class HostOpsAbsorptionTests(unittest.TestCase):
             timeout=10,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "1")
+        self.assertEqual(result.stdout.strip(), "2")
 
 
 if __name__ == "__main__":

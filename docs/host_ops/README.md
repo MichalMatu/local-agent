@@ -8,7 +8,7 @@ Source baseline imported by PR #176:
 donor: MichalMatu/host-ops
 donor main: b12b6f33a5ee667201d4bddcbfa3cb1d1cb2948b
 runtime namespace: local_agent.host_ops
-machine-readable JSON contract: 1
+machine-readable JSON contract: 2
 ```
 
 Local Agent remains the only planner/orchestrator. The absorbed subsystem validates inputs, performs bounded host/remote effects and returns structured evidence; it does not own repository routing, scheduling, task admission, Conversation Fabric policy or daemon lifecycle.

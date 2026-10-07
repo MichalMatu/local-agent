@@ -29,7 +29,7 @@ class RemoteGitResult:
 
     @property
     def ok(self) -> bool:
-        return self.process.ok
+        return self.process.ok and self.prepared
 
     def as_dict(self) -> dict[str, Any]:
         return {

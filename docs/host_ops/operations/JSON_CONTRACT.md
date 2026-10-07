@@ -11,14 +11,29 @@ python -m local_agent.host_ops --json-contract-version
 Current output:
 
 ```text
-1
+2
 ```
 
 The command prints only the decimal contract version followed by a newline and exits with status 0. It does not require host configuration or external tools.
 
+## Version 2 migration
+
+Version 2 makes one semantic correction without introducing a common JSON envelope:
+
+- remote-Git prepare/run result field ok now means the workflow is trustworthy: the underlying
+  process completed successfully and the exact readiness marker for the requested workspace/revision
+  was observed;
+- under version 1, a process exit code of zero without readiness evidence could emit ok=true while
+  the CLI correctly exited with status 1; version 2 removes that contradiction;
+- prepared remains explicit, the nested process object is unchanged, and all command-specific
+  top-level JSON shapes remain unchanged.
+
+Consumers that used remote-Git result ok must negotiate contract version 2 before relying on this
+corrected meaning. Consumers that only use other command shapes are unaffected by the migration.
+
 ## Versioning policy
 
-Contract version `1` covers the current machine-readable CLI output shapes.
+Contract version `2` covers the current machine-readable CLI output shapes.
 
 The version remains unchanged for backwards-compatible changes, including:
 

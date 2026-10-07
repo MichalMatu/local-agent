@@ -71,7 +71,7 @@ Rollback the maintained implementation only through `local-agent`. Never restore
 
 Before rollback, record the exact source/deployed revision and current repository registry. Restore only to a previously verified **post-absorption** Local Agent revision. After the supported supervisor restart, require all of these checks before resuming host maintenance:
 
-- `python -m local_agent.host_ops --json-contract-version` prints exactly `1`;
+- `python -m local_agent.host_ops --json-contract-version` prints exactly `2`;
 - `python -m local_agent.host_ops host profile --json` returns a valid bounded host profile;
 - the canonical catalog and machine registry contain neither `host-ops` nor `MichalMatu/host-ops`;
 - `local-agent` remains execution-enabled under binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`;
