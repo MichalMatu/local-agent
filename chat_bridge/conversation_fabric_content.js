@@ -237,9 +237,6 @@
     protocolVersion: CONTENT_PROTOCOL_VERSION,
     dispose() {
       try { observer?.disconnect(); } catch (_error) {}
-      if (canTrackComposerInput) {
-        try { document.removeEventListener("input", trackComposerInput, true); } catch (_error) {}
-      }
       if (scanTimer !== null) clearTimeout(scanTimer);
       clearInterval(retryInterval);
     }
