@@ -1,5 +1,7 @@
 "use strict";
 const assert = require("node:assert/strict");
+const protocol = require("./control_protocol.js");
+const runtimeExample = require("./runtime.example.json");
 const { createHarness } = require("./worker_test_harness.js");
 
 function deferred() {
@@ -114,6 +116,73 @@ async function add(harness, overrides = {}) {
     assert.equal(h.sentMessages[1].message.recoverBridgePrompt, true);
     const removed = await h.sendRuntimeMessage({ type: "bridge:remove-conversation", conversationId: id });
     assert.equal(removed.ok, true);
+  }
+
+  // GitHub alarm restores a missing parent before refreshing its stale content script.
+  {
+    const url = "https://chatgpt.com/c/a";
+    const chatId = protocol.conversationId(url);
+    const matrix = runtimeExample.agents.find((agent) => agent.repository_id === "matrixhub");
+    let control = null;
+    let h;
+    h = createHarness({
+      fetch: async () => ({
+        ok: true,
+        async json() {
+          return {
+            ...runtimeExample,
+            bootstrap_prompt: "BOOTSTRAP",
+            wake_prompt: "WAKE",
+            conversation_controls: control ? [control] : []
+          };
+        }
+      }),
+      contentScriptProbe: async ({ injectedScripts }) => {
+        const refreshed = injectedScripts.some((entry) =>
+          Array.isArray(entry.files) && entry.files.includes("content.js")
+        );
+        return {
+          ok: true,
+          reason: "ready",
+          protocolVersion: refreshed ? h.CONTENT_PROTOCOL_VERSION : h.CONTENT_PROTOCOL_VERSION - 1,
+          assistantIdentity: refreshed ? "fresh-parent" : "stale-parent"
+        };
+      }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    control = {
+      conversation_id: chatId,
+      repository_id: matrix.repository_id,
+      repository: matrix.repository,
+      agent_binding: matrix.agent_binding,
+      binding_revision: 1,
+      control_generation: 1,
+      enabled: true,
+      interval_minutes: 5,
+      next_wake_at: null,
+      updated_at: new Date().toISOString()
+    };
+    const result = await h.evaluate("handleGithubControlAlarm()");
+    assert.equal(h.storage.bridgeState.conversations[chatId].preferredTabId, 11);
+    assert.equal(normalContentInjections(h).length, 1);
+    assert.equal(result.ok, true);
+  }
+
+  // Delivery fails closed when duplicate matching tabs exist and the preferred tab is gone.
+  {
+    const h = createHarness();
+    const id = await add(h);
+    h.tabs.push({ id: 44, url: "https://chatgpt.com/c/a", title: "Duplicate" });
+    const updated = await h.sendRuntimeMessage({
+      type: "bridge:update-conversation",
+      conversationId: id,
+      patch: { preferredTabId: null }
+    });
+    assert.equal(updated.ok, true);
+    const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
+    assert.equal(result.reason, "conversation_tab_missing");
+    assert.equal(h.sentMessages.length, 0);
+    assert.equal(h.storage.bridgeState.conversations[id].preferredTabId, null);
   }
 
   // A missing content script is re-injected before delivery.
