@@ -32,9 +32,9 @@ The v1 browser dispatch envelope therefore contains only:
 - 1..4 reasoning children;
 - for each child: child id, ChildRequest id, role, exact spawn transaction id, ChildRequest digest, exact bootstrap digest, and exact bootstrap text.
 
-It deliberately does **not** contain:
+It deliberately does **not** expose the following as dispatch routing/authority fields:
 
-- `agent_binding`;
+- `agent_binding` or repository identity;
 - repository execution authority;
 - mutable repository refs;
 - scheduler resources;
@@ -42,7 +42,7 @@ It deliberately does **not** contain:
 - arbitrary browser selectors;
 - shell/device commands.
 
-The Bridge assigns runtime tab identity locally.
+The exact opaque child bootstrap can still contain the already-admitted repository/binding provenance required by the existing ChildRequest contract; Bridge must not reinterpret that provenance as execution authority. The Bridge assigns runtime tab identity locally.
 
 ## Idempotency
 
