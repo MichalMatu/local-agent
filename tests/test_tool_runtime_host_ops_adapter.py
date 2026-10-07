@@ -189,6 +189,7 @@ class ToolRuntimeHostOpsAdapterTests(unittest.TestCase):
         self.assertTrue(failed.partial_effect.committed)
         self.assertTrue(failed.partial_effect.cleanup_failed)
         self.assertEqual(failed.error.code, "ssh_transfer_failed")
+
     def test_artifact_inspect_projects_real_production_result_without_legacy_drift(
         self,
     ) -> None:
