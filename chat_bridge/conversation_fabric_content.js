@@ -24,44 +24,6 @@
   let lastScannedSignature = "";
   let lastSubmittedFingerprint = "";
   let pendingIncompleteControlSignature = "";
-  const composerInputVersions = new WeakMap();
-  const ownedComposerPrompts = new WeakMap();
-
-  function composerInputVersion(composer) {
-    return composerInputVersions.get(composer) || 0;
-  }
-
-  function trackComposerInput(event) {
-    const target = event?.target;
-    if (!target || (typeof target !== "object" && typeof target !== "function")) return;
-    composerInputVersions.set(target, composerInputVersion(target) + 1);
-  }
-
-  function composerOwnedPromptMatches(composer, prompt) {
-    const ownership = ownedComposerPrompts.get(composer);
-    return Boolean(
-      ownership &&
-      ownership.text === prompt &&
-      ownership.inputVersion === composerInputVersion(composer) &&
-      composerText(composer) === prompt
-    );
-  }
-
-  function composerOwnedPromptSubmissionAttempted(composer, prompt) {
-    const ownership = ownedComposerPrompts.get(composer);
-    return Boolean(
-      composerOwnedPromptMatches(composer, prompt) &&
-      ownership?.submissionAttempted === true
-    );
-  }
-
-  const canTrackComposerInput =
-    typeof document?.addEventListener === "function" &&
-    typeof document?.removeEventListener === "function";
-  if (canTrackComposerInput) {
-    document.addEventListener("input", trackComposerInput, true);
-  }
-
   const ASSISTANT_SELECTORS = [
     '[data-message-author-role="assistant"]',
     '[data-conversation-role="assistant"]'
@@ -142,255 +104,6 @@
     return null;
   }
 
-  function findComposer() {
-    return (
-      document.querySelector("#prompt-textarea") ||
-      document.querySelector('form [contenteditable="true"][data-lexical-editor="true"]') ||
-      document.querySelector('form [contenteditable="true"]') ||
-      document.querySelector("form textarea")
-    );
-  }
-
-  function composerText(composer) {
-    if (composer instanceof HTMLTextAreaElement || composer instanceof HTMLInputElement) {
-      return composer.value || "";
-    }
-    return composer?.innerText || composer?.textContent || "";
-  }
-
-  function selectContent(element) {
-    const selection = window.getSelection();
-    if (!selection) return;
-    const range = document.createRange();
-    range.selectNodeContents(element);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
-
-  function dispatchComposerBeforeInput(composer, text) {
-    const inputType = text ? "insertText" : "deleteContentBackward";
-    try {
-      composer.dispatchEvent(new InputEvent("beforeinput", {
-        bubbles: true,
-        composed: true,
-        inputType,
-        data: text || null
-      }));
-    } catch (_error) {
-      composer.dispatchEvent(new Event("beforeinput", { bubbles: true, composed: true }));
-    }
-  }
-
-  function dispatchComposerInput(composer, text) {
-    const inputType = text ? "insertText" : "deleteContentBackward";
-    try {
-      composer.dispatchEvent(new InputEvent("input", {
-        bubbles: true,
-        composed: true,
-        inputType,
-        data: text || null
-      }));
-    } catch (_error) {
-      composer.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
-    }
-  }
-
-  function setComposerText(composer, text) {
-    composer.focus();
-    if (composer instanceof HTMLTextAreaElement) {
-      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-      if (!setter) throw new Error("textarea value setter unavailable");
-      setter.call(composer, text);
-      composer.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
-      return;
-    }
-    if (!(composer instanceof HTMLElement) || composer.contentEditable !== "true") {
-      throw new Error("unsupported composer element");
-    }
-    selectContent(composer);
-    dispatchComposerBeforeInput(composer, text);
-
-    let inserted = false;
-    try {
-      inserted = document.execCommand("insertText", false, text);
-    } catch (_error) {
-      inserted = false;
-    }
-    if (!inserted) composer.textContent = text;
-
-    // Always emit one explicit, fully-described input event after the DOM mutation.
-    // Current ChatGPT/Lexical builds can emit a native execCommand input event while
-    // still leaving application editor state stale; the explicit event is the state
-    // synchronization boundary used by the Bridge.
-    dispatchComposerInput(composer, text);
-  }
-
-  function findSendButton(composer) {
-    const selectors = [
-      "#composer-submit-button",
-      'button[data-testid="send-button"]',
-      'button[data-testid="composer-submit-button"]',
-      'button[data-testid="composer-send-button"]',
-      'button[aria-label="Send prompt"]',
-      'button[aria-label="Send message"]',
-      'button[aria-label="Send"]'
-    ];
-    const form = composer?.closest?.("form");
-    for (const scope of form ? [form, document] : [document]) {
-      for (const selector of selectors) {
-        const button = scope.querySelector(selector);
-        if (button instanceof HTMLButtonElement && !button.disabled) return button;
-      }
-    }
-    return null;
-  }
-
-  function submitComposer(composer, sendButton) {
-    // Conversation Fabric feedback is machine-generated text already present in the
-    // current ChatGPT composer. Prefer one native form submission boundary instead of
-    // a synthetic button click followed by a second fallback. This matches pressing
-    // Enter/Send semantically while keeping every delivery single-shot.
-    const form = composer?.closest?.("form");
-    const canRequestSubmit =
-      typeof HTMLFormElement !== "undefined" &&
-      form instanceof HTMLFormElement &&
-      typeof form.requestSubmit === "function";
-    if (canRequestSubmit) {
-      form.requestSubmit();
-      return;
-    }
-    if (sendButton instanceof HTMLButtonElement && sendButton.isConnected && !sendButton.disabled) {
-      sendButton.click();
-      return;
-    }
-    throw new Error("send control unavailable");
-  }
-
-  async function waitForSendButton(composer, timeoutMs = 4500) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      if (assistantIsGenerating()) return null;
-      const button = findSendButton(composer);
-      if (button) return button;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    return null;
-  }
-
-  function latestUserText() {
-    const messages = Array.from(document.querySelectorAll(USER_SELECTORS.join(",")));
-    const latest = messages[messages.length - 1];
-    return String(latest?.innerText || latest?.textContent || "");
-  }
-
-  function boundedDiagnosticDetail(value) {
-    const text = String(value || "").replace(/\s+/g, " ").trim();
-    return text.length > 500 ? `${text.slice(0, 500)}…` : text;
-  }
-
-  function conversationFabricRejectedPrompt(reason, detail = "") {
-    const safeReason = String(reason || "unknown");
-    const safeDetail = boundedDiagnosticDetail(detail);
-    return [
-      `Conversation Fabric control rejected: reason=${safeReason}.`,
-      safeDetail ? `detail=${safeDetail}` : "",
-      "No new Conversation Fabric delegation was started by this rejected control. Do not wait for child results from it.",
-      "Bridge will not replay this rejected control automatically.",
-      "Emit a corrected LOCAL_AGENT_CF control in a new final assistant response. The control block must be valid JSON and the final non-whitespace content of the assistant turn."
-    ].filter(Boolean).join("\n\n");
-  }
-
-  async function conversationFabricDiagnosticSurfaceReady(expectedUrl) {
-    try {
-      const context = await chrome.runtime.sendMessage({
-        type: "bridge:conversation-fabric-diagnostic-context",
-        conversationUrl: expectedUrl,
-        contentProtocolVersion: CONTENT_PROTOCOL_VERSION
-      });
-      return context?.ok === true;
-    } catch (_error) {
-      return null;
-    }
-  }
-
-  async function deliverFabricFeedback(prompt, expectedUrl) {
-    const normalizedUrl = normalizeConversationUrl(expectedUrl);
-    const normalized = (value) => String(value || "").trim().replace(/\s+/g, " ");
-    if (!normalizedUrl || normalizeConversationUrl(location.href) !== normalizedUrl) {
-      return { ok: false, reason: "wrong_conversation" };
-    }
-    if (normalized(latestUserText()) === normalized(prompt)) {
-      return { ok: true, reason: "already_sent" };
-    }
-    if (document.visibilityState === "prerender") return { ok: false, reason: "page_not_ready" };
-    if (assistantIsGenerating()) return { ok: false, reason: "assistant_busy" };
-    const composer = findComposer();
-    if (!composer) return { ok: false, reason: "composer_not_found" };
-    const existingComposerText = composerText(composer);
-    const reuseOwnedPrompt = Boolean(
-      existingComposerText && composerOwnedPromptMatches(composer, prompt)
-    );
-    if (existingComposerText.trim() && !reuseOwnedPrompt) {
-      return { ok: false, reason: "composer_not_empty" };
-    }
-
-    if (!reuseOwnedPrompt) {
-      try {
-        setComposerText(composer, prompt);
-      } catch (error) {
-        return { ok: false, reason: "composer_write_failed", error: String(error) };
-      }
-      const written = composerText(composer);
-      if (!written.trim()) return { ok: false, reason: "composer_write_failed" };
-      ownedComposerPrompts.set(composer, {
-        text: written,
-        inputVersion: composerInputVersion(composer),
-        submissionAttempted: false
-      });
-    }
-    const inserted = composerText(composer);
-    if (!inserted.trim()) return { ok: false, reason: "composer_write_failed" };
-    if (composerOwnedPromptSubmissionAttempted(composer, prompt)) {
-      return { ok: false, reason: "delivery_unconfirmed" };
-    }
-
-    let button = await waitForSendButton(composer);
-    if (!button) return { ok: false, reason: "send_button_not_ready" };
-    if (
-      normalizeConversationUrl(location.href) !== normalizedUrl ||
-      findComposer() !== composer ||
-      composerText(composer) !== inserted
-    ) {
-      return { ok: false, reason: "composer_changed" };
-    }
-    if (assistantIsGenerating()) return { ok: false, reason: "send_button_not_ready" };
-
-    // Keep Fabric feedback submission on the same live-button path as normal Bridge
-    // delivery. ChatGPT may expose only the current composer-submit test id or replace
-    // the button while reconciling editor state.
-    button = findSendButton(composer) || await waitForSendButton(composer, 1200);
-    if (!button) return { ok: false, reason: "send_button_not_ready" };
-
-    const previousUser = latestUserText();
-    const ownership = ownedComposerPrompts.get(composer);
-    try {
-      submitComposer(composer, button);
-    } catch (error) {
-      return { ok: false, reason: "send_button_not_ready", error: String(error) };
-    }
-    if (ownership && ownership.text === prompt) ownership.submissionAttempted = true;
-    const confirmDeadline = Date.now() + 5000;
-    while (Date.now() < confirmDeadline) {
-      const current = latestUserText();
-      if (current !== previousUser && normalized(current) === normalized(prompt)) {
-        ownedComposerPrompts.delete(composer);
-        return { ok: true, reason: "sent" };
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    return { ok: false, reason: "delivery_unconfirmed" };
-  }
-
   async function scanLatestConversationFabricControl() {
     if (assistantIsGenerating() || scanInFlight) return;
     const latest = latestAssistantMessage();
@@ -427,36 +140,15 @@
         pendingIncompleteControlSignature = "";
       }
       if (!retryGate.canAttempt(signature)) return;
-      scanInFlight = true;
-      try {
-        const diagnosticSurface = await conversationFabricDiagnosticSurfaceReady(url);
-        if (diagnosticSurface === null) {
-          retryGate.defer(signature);
-          return;
-        }
-        if (!diagnosticSurface) {
-          // A marker in an unmanaged/unready conversation is inert. Do not let the
-          // content script create user turns outside the Bridge's managed authority.
-          lastScannedSignature = signature;
-          retryGate.reset(signature);
-          return;
-        }
-        const feedback = await deliverFabricFeedback(
-          conversationFabricRejectedPrompt(
-            diagnostic.reason,
-            diagnostic.detail || ""
-          ),
-          url
-        );
-        if (!feedback.ok) {
-          retryGate.defer(signature);
-          return;
-        }
-        lastScannedSignature = signature;
-        retryGate.reset(signature);
-      } finally {
-        scanInFlight = false;
-      }
+      // Machine diagnostics must never be injected into the parent composer. A later
+      // completed assistant turn has a different signature and will still be scanned.
+      lastScannedSignature = signature;
+      retryGate.reset(signature);
+      console.warn(
+        "Local Agent Conversation Fabric control rejected:",
+        diagnostic.reason,
+        diagnostic.detail || ""
+      );
       return;
     }
     const fingerprint = controlFingerprint(location.href, latest.text, control, latest.identity);
@@ -467,37 +159,11 @@
     try {
       requestControl = decorateDelegateControl(control, fingerprint);
     } catch (error) {
-      // Prompt decoration failure is deterministic for this assistant turn. Surface it
-      // once in the parent instead of silently dropping a syntactically valid control.
-      scanInFlight = true;
-      try {
-        const diagnosticSurface = await conversationFabricDiagnosticSurfaceReady(url);
-        if (diagnosticSurface === null) {
-          retryGate.defer(signature);
-          return;
-        }
-        if (!diagnosticSurface) {
-          lastScannedSignature = signature;
-          retryGate.reset(signature);
-          return;
-        }
-        const feedback = await deliverFabricFeedback(
-          conversationFabricRejectedPrompt(
-            "control_child_prompt_too_large_after_completion_guard",
-            error
-          ),
-          url
-        );
-        if (!feedback.ok) {
-          retryGate.defer(signature);
-          return;
-        }
-        lastScannedSignature = signature;
-        retryGate.reset(signature);
-        console.warn("Local Agent Conversation Fabric completion guard failed:", error);
-      } finally {
-        scanInFlight = false;
-      }
+      // Deterministic control diagnostics are worker/operator evidence only. Never turn
+      // them into synthetic user messages in the parent conversation.
+      lastScannedSignature = signature;
+      retryGate.reset(signature);
+      console.warn("Local Agent Conversation Fabric completion guard failed:", error);
       return;
     }
 
@@ -512,61 +178,25 @@
         control: requestControl
       });
       if (!response?.ok) {
-        // An explicit worker response is an acknowledgement, not a transport outage.
-        // Re-check the managed surface before creating a user-visible diagnostic,
-        // because parent readiness may have changed between parse and rejection.
-        const diagnosticSurface = await conversationFabricDiagnosticSurfaceReady(url);
-        if (diagnosticSurface === null) {
-          retryGate.defer(signature);
-          return;
-        }
-        if (!diagnosticSurface) {
-          lastSubmittedFingerprint = fingerprint;
-          lastScannedSignature = signature;
-          retryGate.reset(signature);
-          return;
-        }
-        const feedback = await deliverFabricFeedback(
-          conversationFabricRejectedPrompt(
-            response?.reason || "conversation_fabric_rejected",
-            response?.error || ""
-          ),
-          url
-        );
-        if (!feedback.ok) {
-          retryGate.defer(signature);
-          return;
-        }
+        // The worker acknowledgement settles this assistant control. Rejections are
+        // machine state, not user messages, so the parent composer remains untouched.
         lastSubmittedFingerprint = fingerprint;
         lastScannedSignature = signature;
         retryGate.reset(signature);
+        console.warn(
+          "Local Agent Conversation Fabric worker rejected control:",
+          response?.reason || "conversation_fabric_rejected",
+          response?.error || ""
+        );
         return;
       }
+      // Nonterminal and terminal Fabric status/results are delivered by the worker's
+      // single journaled feedback path. The control scanner never writes the composer.
       if (response.feedbackPrompt) {
-        const feedback = await deliverFabricFeedback(String(response.feedbackPrompt), url);
-        if (!feedback.ok) {
-          retryGate.defer(signature);
-          return;
-        }
-        const terminalFeedback = [
-          "conversation_fabric_completed",
-          "conversation_fabric_already_delivered"
-        ].includes(response.reason);
-        if (terminalFeedback) {
-          const receipt = await chrome.runtime.sendMessage({
-            type: "bridge:conversation-fabric-feedback",
-            conversationUrl: url,
-            fingerprint,
-            assistantIdentity: latest.identity,
-            contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
-            control: requestControl,
-            campaignId: response.campaignId
-          });
-          if (!receipt?.ok) {
-            retryGate.defer(signature);
-            return;
-          }
-        }
+        console.info(
+          "Local Agent Conversation Fabric feedback queued by worker:",
+          response.reason || "conversation_fabric_feedback"
+        );
       }
       lastSubmittedFingerprint = fingerprint;
       lastScannedSignature = signature;
@@ -607,9 +237,6 @@
     protocolVersion: CONTENT_PROTOCOL_VERSION,
     dispose() {
       try { observer?.disconnect(); } catch (_error) {}
-      if (canTrackComposerInput) {
-        try { document.removeEventListener("input", trackComposerInput, true); } catch (_error) {}
-      }
       if (scanTimer !== null) clearTimeout(scanTimer);
       clearInterval(retryInterval);
     }

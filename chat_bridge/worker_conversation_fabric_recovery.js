@@ -280,6 +280,34 @@ applyConversationFabricControl = async function applyConversationFabricControlRe
     safe.feedback_deferred_to_worker = result.reason === "conversation_fabric_completed";
     return safe;
   }
+  if (
+    result?.ok &&
+    ["conversation_fabric_inspect", "conversation_fabric_child_retired"].includes(result.reason) &&
+    typeof result.feedbackPrompt === "string" &&
+    result.feedbackPrompt.trim()
+  ) {
+    const parentUrl = String(message?.conversationUrl || "");
+    const feedbackId = `${result.reason}:${String(message?.fingerprint || "")}`;
+    await queueConversationFabricExplicitFeedback(parentUrl, {
+      id: feedbackId,
+      kind: result.reason,
+      prompt: result.feedbackPrompt
+    });
+    const delivery = await runFeedbackCycle({
+      conversationId: conversationId(parentUrl),
+      manual: true
+    });
+    const pending = await conversationFabricExplicitFeedbackQueue(parentUrl);
+    const stillQueued = pending.items.some((item) => item.id === feedbackId);
+    const safe = { ...result };
+    delete safe.feedbackPrompt;
+    safe.feedback_queued = true;
+    safe.feedback_delivered_by_worker = !stillQueued;
+    if (stillQueued) {
+      safe.feedback_delivery_reason = String(delivery?.reason || "delivery_pending");
+    }
+    return safe;
+  }
   return result;
 };
 

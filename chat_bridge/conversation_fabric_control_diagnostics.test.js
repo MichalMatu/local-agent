@@ -149,6 +149,7 @@ function createHarness({ assistantText, workerResponse, managed = true }) {
     interval: () => intervalCallback,
     controlCalls: () => controlCalls,
     retryDefers: () => retryDefers,
+    composerText: () => composer.value,
     submitted
   };
 }
@@ -183,10 +184,8 @@ async function flush() {
     h.interval()();
     await flush();
     assert.equal(h.controlCalls(), 0);
-    assert.equal(h.submitted.length, 1, "unchanged incomplete control may be diagnosed after stabilization");
-    assert.match(h.submitted[0], /control_close_missing/);
-    assert.match(h.submitted[0], /literal closing delimiter LOCAL_AGENT_CF>>>/);
-    assert.match(h.submitted[0], /Do not add a control_close field/);
+    assert.equal(h.submitted.length, 0, "stabilized incomplete control must remain machine-only diagnostics");
+    assert.equal(h.composerText(), "", "incomplete control must never dirty the parent composer");
   }
 
   {
@@ -216,9 +215,8 @@ async function flush() {
     });
     await flush();
     assert.equal(h.controlCalls(), 0);
-    assert.equal(h.submitted.length, 1);
-    assert.match(h.submitted[0], /control_schema_invalid/);
-    assert.match(h.submitted[0], /unexpected keys: control_close/);
+    assert.equal(h.submitted.length, 0);
+    assert.equal(h.composerText(), "", "schema diagnostics must never dirty the parent composer");
   }
 
   {
@@ -234,15 +232,14 @@ async function flush() {
     });
     await flush();
     assert.equal(h.controlCalls(), 0, "non-terminal visible control must be rejected before worker dispatch");
-    assert.equal(h.submitted.length, 1);
-    assert.match(h.submitted[0], /Conversation Fabric control rejected: reason=control_not_terminal/);
-    assert.match(h.submitted[0], /final non-whitespace content/);
+    assert.equal(h.submitted.length, 0);
+    assert.equal(h.composerText(), "", "non-terminal control diagnostics must remain out of the parent composer");
     assert.equal(h.retryDefers(), 0);
 
     h.interval()();
     await flush();
     assert.equal(h.controlCalls(), 0);
-    assert.equal(h.submitted.length, 1, "same malformed assistant turn must not spam diagnostics");
+    assert.equal(h.submitted.length, 0, "same malformed assistant turn must remain machine-only");
   }
 
   {
@@ -261,17 +258,14 @@ async function flush() {
     });
     await flush();
     assert.equal(h.controlCalls(), 1);
-    assert.equal(h.submitted.length, 1);
-    assert.match(h.submitted[0], /Conversation Fabric control rejected: reason=conversation_fabric_parent_busy/);
-    assert.match(h.submitted[0], /existing campaign is still active/);
-    assert.match(h.submitted[0], /No new Conversation Fabric delegation was started/);
-    assert.match(h.submitted[0], /Do not wait for child results/);
+    assert.equal(h.submitted.length, 0);
+    assert.equal(h.composerText(), "", "worker rejection must never become a synthetic parent user turn");
     assert.equal(h.retryDefers(), 0, "explicit worker rejection is an ACK, not a transport retry");
 
     h.interval()();
     await flush();
     assert.equal(h.controlCalls(), 1, "deterministic worker rejection must settle the assistant turn");
-    assert.equal(h.submitted.length, 1);
+    assert.equal(h.submitted.length, 0);
   }
 
   {
