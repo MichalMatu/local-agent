@@ -195,11 +195,14 @@ async function runStreamingControlSmoke(context) {
   await page.waitForFunction(() => window.__cfRuntimeMessages.some(message =>
     message.type === "bridge:conversation-fabric-control"
   ));
-  await page.waitForFunction(() => window.__submitted.includes("FABRIC FEEDBACK"));
-  assert.equal(
-    await page.evaluate(() => window.__submitted.some(text => text.includes("control_close_missing"))),
-    false,
-    "a control completed before stabilization must never emit a false rejection"
+  await page.waitForTimeout(250);
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      submitted: [...window.__submitted],
+      composer: document.querySelector("#prompt-textarea")?.textContent || ""
+    })),
+    { submitted: [], composer: "" },
+    "a completed streaming control must dispatch without any parent-composer feedback"
   );
   await page.close();
 }
@@ -246,15 +249,21 @@ async function runParentSmoke(context) {
     document.querySelector("#turns").appendChild(turn);
   }, malformedAssistantText);
 
-  await page.waitForFunction(() => window.__submitted.some(text =>
-    text.includes("Conversation Fabric control rejected: reason=control_not_terminal")
-  ));
+  await page.waitForTimeout(900);
   assert.equal(
     await page.evaluate(() => window.__cfRuntimeMessages.filter(message =>
       message.type === "bridge:conversation-fabric-control"
     ).length),
     0,
     "visible malformed/non-terminal control must be diagnosed without Fabric control dispatch"
+  );
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      submitted: [...window.__submitted],
+      composer: document.querySelector("#prompt-textarea")?.textContent || ""
+    })),
+    { submitted: [], composer: "" },
+    "malformed Fabric diagnostics must remain machine-only"
   );
 
   const assistantText = [
@@ -297,26 +306,22 @@ async function runParentSmoke(context) {
   });
   assert.notEqual(markers[0], markers[1], "each child must have a unique completion marker");
 
-  await page.waitForFunction(() => window.__submitted.includes("FABRIC FEEDBACK"));
-  const submitted = await page.evaluate(() => window.__submitted);
-  assert.equal(submitted.length, 2);
-  assert.match(submitted[0], /control_not_terminal/);
-  assert.equal(submitted[1], "FABRIC FEEDBACK");
+  await page.waitForTimeout(250);
   const submitPath = await page.evaluate(() => ({
+    submitted: [...window.__submitted],
+    composer: document.querySelector("#prompt-textarea")?.textContent || "",
     buttonClicks: window.__buttonClicks,
     formSubmits: window.__formSubmits,
-    editorInputEvents: window.__editorInputEvents
+    editorInputEvents: window.__editorInputEvents,
+    beforeInputEvents: window.__beforeInputEvents
   }));
-  assert.equal(
-    submitPath.buttonClicks,
-    0,
-    "Fabric feedback must not depend on a synthetic Send-button click when a form submit boundary exists"
-  );
-  assert.ok(
-    submitPath.editorInputEvents >= 2,
-    "visible composer DOM writes must synchronize ChatGPT-like editor state through input events"
-  );
-  assert.equal(submitPath.formSubmits, 2, "each Fabric feedback prompt must cross exactly one form submit boundary");
+  assert.deepEqual(submitPath.submitted, []);
+  assert.equal(submitPath.composer, "");
+  assert.equal(submitPath.buttonClicks, 0);
+  assert.equal(submitPath.formSubmits, 0);
+  assert.equal(submitPath.editorInputEvents, 0);
+  assert.equal(submitPath.beforeInputEvents, 0);
+
 
   const beforeBlockedButton = await page.evaluate(() => ({
     submitted: window.__submitted.length,
@@ -342,27 +347,24 @@ async function runParentSmoke(context) {
     turn.appendChild(message);
     document.querySelector("#turns").appendChild(turn);
   });
-  await page.waitForFunction(() => window.__submitted.includes("FABRIC BLOCKED BUTTON REGRESSION"));
+  await page.waitForFunction(() => window.__cfRuntimeMessages.filter(message =>
+    message.type === "bridge:conversation-fabric-control"
+  ).length >= 2);
+  await page.waitForTimeout(250);
   const blockedButton = await page.evaluate(() => ({
     submitted: window.__submitted.length,
+    composer: document.querySelector("#prompt-textarea")?.textContent || "",
     buttonClicks: window.__buttonClicks,
     formSubmits: window.__formSubmits
   }));
   assert.equal(
     blockedButton.submitted,
-    beforeBlockedButton.submitted + 1,
-    "Fabric feedback must still send when ChatGPT's synthetic Send-button click path is blocked"
+    beforeBlockedButton.submitted,
+    "Fabric worker feedback must not create a direct parent submit"
   );
-  assert.equal(
-    blockedButton.buttonClicks,
-    beforeBlockedButton.buttonClicks,
-    "Fabric must bypass the blocked synthetic button path"
-  );
-  assert.equal(
-    blockedButton.formSubmits,
-    beforeBlockedButton.formSubmits + 1,
-    "blocked-button recovery must still use exactly one native form submit"
-  );
+  assert.equal(blockedButton.composer, "", "Fabric worker feedback must not leave a parent draft");
+  assert.equal(blockedButton.buttonClicks, beforeBlockedButton.buttonClicks);
+  assert.equal(blockedButton.formSubmits, beforeBlockedButton.formSubmits);
 
   await page.evaluate(() => {
     window.__blockButtonSubmit = true;
@@ -402,7 +404,7 @@ async function runParentSmoke(context) {
   assert.equal(
     (await page.evaluate(() => window.__submitted)).length,
     blockedButton.submitted,
-    "exact operator draft collision must not create another submit"
+    "exact operator draft collision must not create a submit"
   );
 
   await page.close();
