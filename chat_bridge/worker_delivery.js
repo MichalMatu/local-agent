@@ -1,5 +1,17 @@
 const CONVERSATION_FABRIC_PARENT_FEEDBACK_PREFIX = "conversation-fabric-parent-feedback:";
 const CONVERSATION_FABRIC_PARENT_FEEDBACK_LIMIT = 8;
+const conversationFabricParentFeedbackMutations = new Map();
+
+function serializeConversationFabricParentFeedback(parentUrl, operation) {
+  const previous = conversationFabricParentFeedbackMutations.get(parentUrl) || Promise.resolve();
+  const pending = previous.catch(() => undefined).then(operation);
+  conversationFabricParentFeedbackMutations.set(parentUrl, pending);
+  return pending.finally(() => {
+    if (conversationFabricParentFeedbackMutations.get(parentUrl) === pending) {
+      conversationFabricParentFeedbackMutations.delete(parentUrl);
+    }
+  });
+}
 
 function conversationFabricParentFeedbackKey(parentUrl) {
   const chatId = conversationId(String(parentUrl || ""));
@@ -26,6 +38,7 @@ async function conversationFabricExplicitFeedbackQueue(parentUrl) {
 }
 
 async function queueConversationFabricExplicitFeedback(parentUrl, { id, kind, prompt }) {
+  return serializeConversationFabricParentFeedback(parentUrl, async () => {
   const feedbackId = String(id || "");
   const feedbackPrompt = String(prompt || "");
   if (!feedbackId || feedbackId.length > 160) throw new Error("Conversation Fabric feedback id is invalid");
@@ -53,6 +66,7 @@ async function queueConversationFabricExplicitFeedback(parentUrl, { id, kind, pr
   queue.items.push(item);
   await chrome.storage.local.set({ [key]: queue });
   return item;
+  });
 }
 
 async function conversationFabricExplicitFeedbackForParent(parentUrl) {
@@ -61,17 +75,19 @@ async function conversationFabricExplicitFeedbackForParent(parentUrl) {
 }
 
 async function acknowledgeConversationFabricExplicitFeedback(parentUrl, feedbackId) {
-  const key = conversationFabricParentFeedbackKey(parentUrl);
-  const queue = await conversationFabricExplicitFeedbackQueue(parentUrl);
-  const next = queue.items.filter((item) => item.id !== feedbackId);
-  if (next.length === queue.items.length) return false;
-  if (next.length) {
-    queue.items = next;
-    await chrome.storage.local.set({ [key]: queue });
-  } else {
-    await chrome.storage.local.remove(key);
-  }
-  return true;
+  return serializeConversationFabricParentFeedback(parentUrl, async () => {
+    const key = conversationFabricParentFeedbackKey(parentUrl);
+    const queue = await conversationFabricExplicitFeedbackQueue(parentUrl);
+    const next = queue.items.filter((item) => item.id !== feedbackId);
+    if (next.length === queue.items.length) return false;
+    if (next.length) {
+      queue.items = next;
+      await chrome.storage.local.set({ [key]: queue });
+    } else {
+      await chrome.storage.local.remove(key);
+    }
+    return true;
+  });
 }
 
 async function conversationFabricParentReserved(parentUrl) {
