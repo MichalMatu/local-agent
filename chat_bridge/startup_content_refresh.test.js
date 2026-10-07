@@ -1,7 +1,15 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const protocol = require("./control_protocol.js");
+const runtimeExample = require("./runtime.example.json");
 const { createHarness } = require("./worker_test_harness.js");
+
+function normalizedInjectionCount(harness) {
+  return harness.injectedScripts.filter((entry) =>
+    Array.isArray(entry.files) && entry.files.includes("content.js")
+  ).length;
+}
 
 (async () => {
   const h = createHarness({
@@ -137,8 +145,54 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.ok(staleGuardProbes.length >= 2, "stale guard must be probed before and after reinjection");
   assert.ok(staleGuardProbes.every((entry) => entry.message.guardVersion === h.EXHAUSTION_GUARD_VERSION));
 
-  console.log("Chat Bridge startup refreshes stale content and stale assistant guards without sending a wake.");
-})().catch((error) => {
+  const coldUrl = "https://chatgpt.com/c/a";
+  const coldChatId = protocol.conversationId(coldUrl);
+  const matrix = runtimeExample.agents.find((agent) => agent.repository_id === "matrixhub");
+  let coldControl = null;
+  let cold;
+  cold = createHarness({
+    fetch: async () => ({
+      ok: true,
+      async json() {
+        return {
+          ...runtimeExample,
+          bootstrap_prompt: "BOOTSTRAP",
+          wake_prompt: "WAKE",
+          conversation_controls: coldControl ? [coldControl] : []
+        };
+      }
+    }),
+    contentScriptProbe: async ({ injectedScripts }) => {
+      const refreshed = injectedScripts.some((entry) =>
+        Array.isArray(entry.files) && entry.files.includes("content.js")
+      );
+      return {
+        ok: true,
+        reason: "ready",
+        protocolVersion: refreshed ? cold.CONTENT_PROTOCOL_VERSION : cold.CONTENT_PROTOCOL_VERSION - 1,
+        assistantIdentity: refreshed ? "cold-current" : "cold-stale"
+      };
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  coldControl = {
+    conversation_id: coldChatId,
+    repository_id: matrix.repository_id,
+    repository: matrix.repository,
+    agent_binding: matrix.agent_binding,
+    binding_revision: 1,
+    control_generation: 1,
+    enabled: true,
+    interval_minutes: 5,
+    next_wake_at: null,
+    updated_at: new Date().toISOString()
+  };
+  const coldStartup = await cold.startup();
+  assert.equal(cold.storage.bridgeState.conversations[coldChatId].preferredTabId, 11);
+  assert.equal(coldStartup.refreshed, 1);
+  assert.equal(normalizedInjectionCount(cold), 1);
+
+  console.log("Chat Bridge startup refreshes stale content and stale assistant guards without sending a wake.");})().catch((error) => {
   console.error(error);
   process.exitCode = 1;
 });
