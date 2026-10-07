@@ -6,7 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from local_agent.host_ops.capabilities.local.adb import AdbClient
+from local_agent.host_ops.capabilities.local.adb import AdbClient, AdbTransferError
+from local_agent.host_ops.capabilities.local.adb.models import AdbTransferResult
 from local_agent.host_ops.capabilities.local.files import LocalArtifactInspector
 from local_agent.host_ops.capabilities.remote.ssh import (
     SshClient,
@@ -20,6 +21,14 @@ from local_agent.tool_runtime.contract import AuthorityCeiling, SemanticEffect
 from local_agent.tool_runtime.host_ops_adapter import (
     ADB_IDENTITY_TOOL,
     ADB_LOGCAT_TOOL,
+    ADB_PUSH_TOOL,
+    ADB_PULL_TOOL,
+    adb_push_invocation,
+    adb_push_result,
+    adb_push_error,
+    adb_pull_invocation,
+    adb_pull_result,
+    adb_pull_error,
     ARTIFACT_INSPECT_TOOL,
     SSH_CHECK_TOOL,
     SSH_PULL_TOOL,
@@ -216,6 +225,136 @@ class ToolRuntimeHostOpsAdapterTests(unittest.TestCase):
                 ),
             ],
         )
+
+    def test_adb_push_keeps_stable_identity_separate_from_locator_and_resources(
+        self,
+    ) -> None:
+        limits = ExecutionLimits(timeout_seconds=8.0)
+        invocation = adb_push_invocation(
+            "phone-s22",
+            "192.168.0.100:38871",
+            Path("/tmp/firmware.bin"),
+            "/sdcard/firmware.bin",
+            replace=False,
+            max_bytes=2048,
+            limits=limits,
+            scheduler_resources=("device:phone-s22",),
+        )
+        legacy = AdbTransferResult(
+            direction="push",
+            serial="192.168.0.100:38871",
+            source="/tmp/firmware.bin",
+            destination="/sdcard/firmware.bin",
+            size_bytes=18,
+            sha256="a" * 64,
+            replaced_existing=False,
+        )
+        projected = adb_push_result(invocation, legacy)
+        self.assertEqual(projected.payload, legacy.as_dict())
+        self.assertEqual(projected.tool, ADB_PUSH_TOOL)
+        self.assertEqual(projected.tool.effect, SemanticEffect.MUTATION)
+        self.assertEqual(
+            projected.tool.authority,
+            AuthorityCeiling.FIXED_REMOTE_DEVICE_EXEC,
+        )
+        self.assertIs(invocation.execution_limits, limits)
+        self.assertEqual(invocation.scheduler_resources, ("device:phone-s22",))
+        self.assertEqual(projected.target.name, "phone-s22")
+        self.assertEqual(
+            projected.target.locator.attributes,
+            {"serial": "192.168.0.100:38871"},
+        )
+        self.assertEqual(projected.artifacts[0].sha256, legacy.sha256)
+        self.assertEqual(projected.artifacts[0].path, legacy.destination)
+        mismatched = AdbTransferResult(
+            direction="push",
+            serial="different",
+            source=legacy.source,
+            destination=legacy.destination,
+            size_bytes=legacy.size_bytes,
+            sha256=legacy.sha256,
+            replaced_existing=False,
+        )
+        with self.assertRaisesRegex(ValueError, "serial does not match"):
+            adb_push_result(invocation, mismatched)
+        with self.assertRaisesRegex(ValueError, "requires a push"):
+            adb_push_result(
+                invocation,
+                AdbTransferResult(
+                    direction="pull",
+                    serial=legacy.serial,
+                    source=legacy.source,
+                    destination=legacy.destination,
+                    size_bytes=legacy.size_bytes,
+                    sha256=legacy.sha256,
+                    replaced_existing=False,
+                ),
+            )
+
+        failure = AdbTransferError(
+            "remote commit ambiguous",
+            action_attempted=True,
+            committed=False,
+            cleanup_failed=True,
+        )
+        rejected = adb_push_error(invocation, failure)
+        self.assertFalse(rejected.ok)
+        self.assertEqual(rejected.error.code, "adb_transfer_failed")
+        self.assertTrue(rejected.partial_effect.action_attempted)
+        self.assertFalse(rejected.partial_effect.committed)
+        self.assertTrue(rejected.partial_effect.cleanup_failed)
+
+    def test_adb_pull_preserves_local_commit_and_cleanup_evidence(self) -> None:
+        limits = ExecutionLimits(timeout_seconds=8.0)
+        invocation = adb_pull_invocation(
+            "phone-s22",
+            "USB-SERIAL-123",
+            "/sdcard/report.bin",
+            Path("/tmp/report.bin"),
+            replace=True,
+            max_bytes=4096,
+            limits=limits,
+            scheduler_resources=(),
+        )
+        legacy = AdbTransferResult(
+            direction="pull",
+            serial="USB-SERIAL-123",
+            source="/sdcard/report.bin",
+            destination="/tmp/report.bin",
+            size_bytes=18,
+            sha256="b" * 64,
+            replaced_existing=True,
+            local_directory_synced=True,
+        )
+        projected = adb_pull_result(invocation, legacy)
+        self.assertEqual(projected.payload, legacy.as_dict())
+        self.assertEqual(projected.tool, ADB_PULL_TOOL)
+        self.assertEqual(projected.tool.effect, SemanticEffect.MUTATION)
+        self.assertEqual(
+            projected.tool.authority,
+            AuthorityCeiling.FIXED_REMOTE_DEVICE_EXEC,
+        )
+        self.assertIs(invocation.execution_limits, limits)
+        self.assertEqual(invocation.scheduler_resources, ())
+        self.assertEqual(projected.artifacts[0].path, legacy.destination)
+        self.assertEqual(projected.artifacts[0].sha256, legacy.sha256)
+        self.assertEqual(projected.target.name, "phone-s22")
+        self.assertEqual(
+            projected.target.locator.attributes,
+            {"serial": "USB-SERIAL-123"},
+        )
+        failure = AdbTransferError(
+            "cleanup failed after local commit",
+            action_attempted=True,
+            committed=True,
+            cleanup_failed=True,
+        )
+        rejected = adb_pull_error(invocation, failure)
+        self.assertFalse(rejected.ok)
+        self.assertEqual(rejected.error.code, "adb_transfer_failed")
+        self.assertTrue(rejected.partial_effect.action_attempted)
+        self.assertTrue(rejected.partial_effect.committed)
+        self.assertTrue(rejected.partial_effect.cleanup_failed)
 
     def test_ssh_pull_preserves_success_payload_and_partial_effect_failure(
         self,
