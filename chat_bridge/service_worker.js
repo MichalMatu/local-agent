@@ -1,5 +1,7 @@
 importScripts(
   "conversation_fabric_protocol.js",
+  "github_fabric_dispatch_model.js",
+  "github_fabric_intake_model.js",
   "worker_base.js",
   "worker_state.js",
   "worker_runtime.js",
@@ -17,6 +19,7 @@ importScripts(
   "worker_conversation_fabric.js",
   "worker_conversation_fabric_recovery.js",
   "worker_conversation_fabric_delivery_guard.js",
+  "worker_github_fabric_intake.js",
   "worker_lab_commands.js",
   "worker_github_legacy_gate.js",
   "worker_events.js"
