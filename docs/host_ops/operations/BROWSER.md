@@ -246,14 +246,22 @@ Interactive mode is for short user-driven work such as authentication that may r
 
 ## Managed one-navigation probe
 
-Install the optional Playwright adapter separately from the dependency-free core:
+Install the optional Playwright adapter separately from the default Local Agent runtime:
 
 ```bash
-.venv/bin/python -m pip install -e '.[browser]'
+.venv/bin/python -m pip install --disable-pip-version-check -r requirements-host-ops-browser.txt
+```
+
+CDP attach/readiness/reload against an already-running Chromium endpoint requires only the
+Python adapter above. A disposable `browser probe` also requires the selected Playwright-managed
+browser binary, installed explicitly, for example:
+
+```bash
 .venv/bin/python -m playwright install chromium
 ```
 
-Development environments that need both repository tooling and the adapter may install `'.[dev,browser]'` instead.
+The absorbed Host Ops subtree is no longer a standalone Python distribution, so Local Agent does
+not expose the donor repository's old `.[browser]` or `.[dev,browser]` extras.
 
 Run one disposable headless navigation:
 
