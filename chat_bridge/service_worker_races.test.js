@@ -168,17 +168,11 @@ async function add(harness, overrides = {}) {
     assert.equal(normalContentInjections(h).length, 1);
   }
 
-  // Delivery fails closed when duplicate matching tabs exist and the preferred tab is gone.
+  // Delivery fails closed when duplicate matching tabs exist and no preferred tab is available.
   {
     const h = createHarness();
-    const id = await add(h);
+    const id = await add(h, { preferredTabId: null });
     h.tabs.push({ id: 44, url: "https://chatgpt.com/c/a", title: "Duplicate" });
-    const updated = await h.sendRuntimeMessage({
-      type: "bridge:update-conversation",
-      conversationId: id,
-      patch: { preferredTabId: null }
-    });
-    assert.equal(updated.ok, true);
     const result = await h.sendRuntimeMessage({ type: "bridge:run-now", conversationId: id });
     assert.equal(result.reason, "conversation_tab_missing");
     assert.equal(h.sentMessages.length, 0);
