@@ -17,6 +17,7 @@ function normalContentInjections(harness) {
 }
 
 async function add(harness, overrides = {}) {
+  await new Promise((resolve) => setTimeout(resolve, 0));
   const result = await harness.sendRuntimeMessage({
     type: "bridge:upsert-conversation",
     conversation: {
