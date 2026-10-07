@@ -19,12 +19,15 @@ from local_agent.host_ops.core.execution import ExecutionLimits, ProcessResult, 
 from local_agent.tool_runtime.contract import AuthorityCeiling, SemanticEffect
 from local_agent.tool_runtime.host_ops_adapter import (
     ADB_IDENTITY_TOOL,
+    ADB_LOGCAT_TOOL,
     ARTIFACT_INSPECT_TOOL,
     SSH_CHECK_TOOL,
     SSH_PULL_TOOL,
     SSH_PUSH_TOOL,
     adb_identity_invocation,
     adb_identity_result,
+    adb_logcat_invocation,
+    adb_logcat_result,
     artifact_inspect_invocation,
     artifact_inspect_result,
     ssh_check_invocation,
@@ -99,6 +102,22 @@ class _AdbRunner:
             return _completed(self.properties[argv[-1]] + "\n")
         raise AssertionError(f"unexpected ADB command: {argv!r}")
 
+class _AdbLogcatRunner:
+    def __init__(self, serial: str, text: str) -> None:
+        self.serial = serial
+        self.text = text
+        self.commands: list[tuple[str, ...]] = []
+
+    def run(self, command, *, limits=None, **_kwargs):
+        argv = tuple(command)
+        self.commands.append(argv)
+        if argv[-1] == "get-state":
+            return _completed("device\n")
+        if "logcat" in argv:
+            return _completed(self.text)
+        raise AssertionError(f"unexpected ADB command: {argv!r}")
+
+
 class ToolRuntimeHostOpsAdapterTests(unittest.TestCase):
     def test_adb_identity_projects_real_client_without_promoting_wireless_locator(
         self,
@@ -136,6 +155,66 @@ class ToolRuntimeHostOpsAdapterTests(unittest.TestCase):
         self.assertEqual(
             identity.attributes["build_fingerprint"],
             "samsung/r0sxxx/r0s:16/test:user/release-keys",
+        )
+
+
+    def test_adb_logcat_projects_bounded_debug_output_without_identity_invention(
+        self,
+    ) -> None:
+        serial = "192.168.0.100:38871"
+        limits = ExecutionLimits(
+            timeout_seconds=7.0,
+            max_stdout_bytes=32 * 1024,
+            max_stderr_bytes=8 * 1024,
+        )
+        runner = _AdbLogcatRunner(serial, "line one\nline two\n")
+        invocation = adb_logcat_invocation(
+            serial,
+            lines=25,
+            limits=limits,
+            scheduler_resources=(),
+        )
+        legacy = AdbClient(
+            runner,
+            resolver=lambda name: "/opt/android/platform-tools/adb"
+            if name == "adb"
+            else None,
+        ).logcat(serial, lines=25, limits=limits)
+        projected = adb_logcat_result(invocation, legacy)
+
+        self.assertEqual(projected.payload, legacy.as_dict())
+        self.assertEqual(projected.tool, ADB_LOGCAT_TOOL)
+        self.assertEqual(projected.tool.effect, SemanticEffect.ACTIVE_READ)
+        self.assertEqual(
+            projected.tool.authority,
+            AuthorityCeiling.FIXED_REMOTE_DEVICE_EXEC,
+        )
+        self.assertEqual(invocation.arguments, {"lines": 25})
+        self.assertEqual(invocation.scheduler_resources, ())
+        self.assertEqual(projected.target.name, serial)
+        self.assertEqual(projected.target.locator.kind, "adb_serial")
+        self.assertEqual(projected.target.locator.attributes, {"serial": serial})
+        self.assertEqual(projected.target.identity_evidence, ())
+        self.assertEqual(projected.payload["line_count"], 2)
+        self.assertEqual(
+            runner.commands,
+            [
+                (
+                    "/opt/android/platform-tools/adb",
+                    "-s",
+                    serial,
+                    "get-state",
+                ),
+                (
+                    "/opt/android/platform-tools/adb",
+                    "-s",
+                    serial,
+                    "logcat",
+                    "-d",
+                    "-t",
+                    "25",
+                ),
+            ],
         )
 
     def test_ssh_pull_preserves_success_payload_and_partial_effect_failure(
