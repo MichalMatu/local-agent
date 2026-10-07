@@ -25,6 +25,7 @@ from .commands import (
 from .parser_support import (
     add_adb_arguments as _add_adb_arguments,
 )
+from .artifact_parser import add_artifact_arguments as _add_artifact_arguments
 from .parser_support import (
     add_browser_arguments as _add_browser_arguments,
 )
@@ -94,35 +95,7 @@ def build_parser() -> argparse.ArgumentParser:
         "artifact",
         help="inspect or deploy local artifacts",
     )
-    artifact_subparsers = artifact_parser.add_subparsers(
-        dest="artifact_command",
-        required=True,
-    )
-    inspect_parser = artifact_subparsers.add_parser(
-        "inspect",
-        help="inspect one regular file and report digest evidence",
-    )
-    inspect_parser.add_argument("source", help="regular file to inspect")
-    _add_json_argument(inspect_parser)
-
-    deploy_parser = artifact_subparsers.add_parser(
-        "deploy",
-        help="copy one artifact into an existing local directory",
-    )
-    deploy_parser.add_argument("source", help="source regular file")
-    deploy_parser.add_argument("destination_directory", help="existing destination directory")
-    deploy_parser.add_argument(
-        "--name",
-        default=None,
-        dest="destination_name",
-        help="destination filename; source basename is used by default",
-    )
-    deploy_parser.add_argument(
-        "--replace",
-        action="store_true",
-        help="explicitly allow replacing an existing regular destination file",
-    )
-    _add_json_argument(deploy_parser)
+    _add_artifact_arguments(artifact_parser, _add_json_argument)
 
     network_parser = subparsers.add_parser(
         "network",
@@ -213,13 +186,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "browser":
         return browser.run_command(args)
     if args.command == "artifact" and args.artifact_command == "inspect":
-        return artifact_inspect.run(args.source, as_json=args.as_json)
+        return artifact_inspect.run(
+            args.source,
+            max_bytes=args.max_bytes,
+            timeout_seconds=args.timeout_seconds,
+            as_json=args.as_json,
+        )
     if args.command == "artifact" and args.artifact_command == "deploy":
         return artifact.run_deploy(
             args.source,
             args.destination_directory,
             destination_name=args.destination_name,
             replace=args.replace,
+            max_bytes=args.max_bytes,
+            timeout_seconds=args.timeout_seconds,
             as_json=args.as_json,
         )
     if args.command == "network" and args.network_command == "resolve":

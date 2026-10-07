@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
+import local_agent.host_ops.capabilities.local.files.bounds as bounds_module
 import local_agent.host_ops.capabilities.local.files.inspect as inspect_module
 from local_agent.host_ops.capabilities.local.files import ArtifactInspectionError, LocalArtifactInspector
+from local_agent.host_ops.core.execution import ExecutionLimits
 
 
 def test_inspect_reports_digest_and_metadata(tmp_path: Path) -> None:
@@ -44,10 +46,10 @@ def test_inspect_rejects_path_replacement_after_open(
     replacement.write_bytes(b"replacement")
     original_hash = inspect_module._sha256_fd
 
-    def replace_path(descriptor: int) -> str:
+    def replace_path(descriptor: int, max_bytes: int, budget) -> str:
         source.unlink()
         source.symlink_to(replacement)
-        return original_hash(descriptor)
+        return original_hash(descriptor, max_bytes, budget)
 
     monkeypatch.setattr(inspect_module, "_sha256_fd", replace_path)
 
@@ -68,3 +70,27 @@ def test_inspect_reports_missing_file(tmp_path: Path) -> None:
 
     with pytest.raises(ArtifactInspectionError, match="could not inspect artifact"):
         LocalArtifactInspector().inspect(missing)
+
+
+def test_inspect_rejects_artifact_larger_than_explicit_limit(tmp_path: Path) -> None:
+    source = tmp_path / "artifact.bin"
+    source.write_bytes(b"12345")
+
+    with pytest.raises(ArtifactInspectionError, match="exceeds max_bytes"):
+        LocalArtifactInspector().inspect(source, max_bytes=4)
+
+
+def test_inspect_enforces_one_whole_operation_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "artifact.bin"
+    source.write_bytes(b"payload")
+    ticks = iter((100.0, 101.0, 106.0))
+    monkeypatch.setattr(bounds_module.time, "monotonic", lambda: next(ticks))
+
+    with pytest.raises(ArtifactInspectionError, match="whole-operation timeout"):
+        LocalArtifactInspector().inspect(
+            source,
+            limits=ExecutionLimits(timeout_seconds=5.0),
+        )

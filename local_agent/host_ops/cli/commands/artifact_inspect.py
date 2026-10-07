@@ -7,12 +7,23 @@ import sys
 from pathlib import Path
 
 from local_agent.host_ops.capabilities.local.files import ArtifactInspectionError, LocalArtifactInspector
+from local_agent.host_ops.core.execution import ExecutionLimits
 
 
-def run(source: str, *, as_json: bool) -> int:
+def run(
+    source: str,
+    *,
+    max_bytes: int,
+    timeout_seconds: float,
+    as_json: bool,
+) -> int:
     try:
-        result = LocalArtifactInspector().inspect(Path(source))
-    except ArtifactInspectionError as exc:
+        result = LocalArtifactInspector().inspect(
+            Path(source),
+            max_bytes=max_bytes,
+            limits=ExecutionLimits(timeout_seconds=timeout_seconds),
+        )
+    except (ArtifactInspectionError, ValueError) as exc:
         if as_json:
             print(json.dumps({"error": str(exc)}, sort_keys=True), file=sys.stderr)
         else:

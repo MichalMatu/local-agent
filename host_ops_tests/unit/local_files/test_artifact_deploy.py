@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
+import local_agent.host_ops.capabilities.local.files.bounds as bounds_module
 import local_agent.host_ops.capabilities.local.files.deploy as deploy_module
 from local_agent.host_ops.capabilities.local.files import ArtifactDeploymentError, LocalArtifactDeployer
+from local_agent.host_ops.core.execution import ExecutionLimits
 
 
 def test_deploy_copies_and_verifies_regular_file(tmp_path: Path) -> None:
@@ -140,3 +142,40 @@ def test_deploy_rejects_directory_source_and_non_directory_target(tmp_path: Path
     not_directory.write_text("x")
     with pytest.raises(ArtifactDeploymentError, match="is not a directory"):
         LocalArtifactDeployer().deploy(source, not_directory)
+
+
+def test_deploy_rejects_source_larger_than_explicit_limit_without_writing(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"12345")
+    target = tmp_path / "target"
+    target.mkdir()
+
+    with pytest.raises(ArtifactDeploymentError, match="exceeds max_bytes"):
+        LocalArtifactDeployer().deploy(source, target, max_bytes=4)
+
+    assert not (target / "source.bin").exists()
+    assert not list(target.glob(".source.bin.hostops-*"))
+
+
+def test_deploy_enforces_whole_operation_timeout_before_commit_and_cleans_stage(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.bin"
+    source.write_bytes(b"payload")
+    target = tmp_path / "target"
+    target.mkdir()
+    ticks = iter((100.0, 101.0, 106.0))
+    monkeypatch.setattr(bounds_module.time, "monotonic", lambda: next(ticks))
+
+    with pytest.raises(ArtifactDeploymentError, match="whole-operation timeout before commit"):
+        LocalArtifactDeployer().deploy(
+            source,
+            target,
+            limits=ExecutionLimits(timeout_seconds=5.0),
+        )
+
+    assert not (target / "source.bin").exists()
+    assert not list(target.glob(".source.bin.hostops-*"))

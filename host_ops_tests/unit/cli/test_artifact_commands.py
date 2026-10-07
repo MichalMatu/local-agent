@@ -8,11 +8,24 @@ cli_main = importlib.import_module("local_agent.host_ops.cli.main")
 
 
 def test_artifact_parser_exposes_inspect_contract() -> None:
-    args = cli_main.build_parser().parse_args(["artifact", "inspect", "input.bin", "--json"])
+    args = cli_main.build_parser().parse_args(
+        [
+            "artifact",
+            "inspect",
+            "input.bin",
+            "--max-bytes",
+            "1024",
+            "--timeout",
+            "7",
+            "--json",
+        ]
+    )
 
     assert args.command == "artifact"
     assert args.artifact_command == "inspect"
     assert args.source == "input.bin"
+    assert args.max_bytes == 1024
+    assert args.timeout_seconds == 7
     assert args.as_json is True
 
 
@@ -26,6 +39,10 @@ def test_artifact_parser_exposes_deploy_contract() -> None:
             "--name",
             "firmware.bin",
             "--replace",
+            "--max-bytes",
+            "2048",
+            "--timeout",
+            "9",
             "--json",
         ]
     )
@@ -35,6 +52,8 @@ def test_artifact_parser_exposes_deploy_contract() -> None:
     assert args.source == "input.bin"
     assert args.destination_name == "firmware.bin"
     assert args.replace is True
+    assert args.max_bytes == 2048
+    assert args.timeout_seconds == 9
     assert args.as_json is True
 
 
@@ -86,3 +105,54 @@ def test_artifact_deploy_reports_existing_destination(tmp_path: Path, capsys) ->
 
     assert result == 1
     assert "explicit replace intent" in json.loads(capsys.readouterr().err)["error"]
+
+
+def test_artifact_inspect_rejects_size_limit_and_invalid_timeout_as_json(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    source = tmp_path / "input.bin"
+    source.write_bytes(b"payload")
+
+    assert (
+        cli_main.main(
+            ["artifact", "inspect", str(source), "--max-bytes", "3", "--json"]
+        )
+        == 1
+    )
+    assert "exceeds max_bytes" in json.loads(capsys.readouterr().err)["error"]
+
+    assert (
+        cli_main.main(
+            ["artifact", "inspect", str(source), "--timeout", "0", "--json"]
+        )
+        == 1
+    )
+    assert "timeout_seconds" in json.loads(capsys.readouterr().err)["error"]
+
+
+def test_artifact_deploy_rejects_size_limit_without_destination(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    source = tmp_path / "input.bin"
+    source.write_bytes(b"payload")
+    target = tmp_path / "target"
+    target.mkdir()
+
+    assert (
+        cli_main.main(
+            [
+                "artifact",
+                "deploy",
+                str(source),
+                str(target),
+                "--max-bytes",
+                "3",
+                "--json",
+            ]
+        )
+        == 1
+    )
+    assert "exceeds max_bytes" in json.loads(capsys.readouterr().err)["error"]
+    assert not (target / "input.bin").exists()

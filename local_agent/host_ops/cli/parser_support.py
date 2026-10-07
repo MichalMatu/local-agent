@@ -70,6 +70,7 @@ def add_adb_arguments(parser: argparse.ArgumentParser) -> None:
     _add_adb_transfer_arguments(pull_parser)
 
 
+
 def add_browser_arguments(parser: argparse.ArgumentParser) -> None:
     subparsers = parser.add_subparsers(dest="browser_command", required=True)
     inspect_parser = subparsers.add_parser(

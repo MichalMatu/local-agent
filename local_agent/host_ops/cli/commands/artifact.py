@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from local_agent.host_ops.capabilities.local.files import ArtifactDeploymentError, LocalArtifactDeployer
+from local_agent.host_ops.core.execution import ExecutionLimits
 
 
 def run_deploy(
@@ -15,6 +16,8 @@ def run_deploy(
     *,
     destination_name: str | None,
     replace: bool,
+    max_bytes: int,
+    timeout_seconds: float,
     as_json: bool,
 ) -> int:
     try:
@@ -23,8 +26,10 @@ def run_deploy(
             Path(destination_directory),
             destination_name=destination_name,
             replace=replace,
+            max_bytes=max_bytes,
+            limits=ExecutionLimits(timeout_seconds=timeout_seconds),
         )
-    except ArtifactDeploymentError as exc:
+    except (ArtifactDeploymentError, ValueError) as exc:
         if as_json:
             print(json.dumps({"error": str(exc)}, sort_keys=True), file=sys.stderr)
         else:
