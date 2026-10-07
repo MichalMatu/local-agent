@@ -11,6 +11,7 @@ const elements = {
   operatorGoal: document.querySelector("#operatorGoal"),
   operatorCampaign: document.querySelector("#operatorCampaign"),
   operatorFeedback: document.querySelector("#operatorFeedback"),
+  operatorFabricIntake: document.querySelector("#operatorFabricIntake"),
   operatorDedupe: document.querySelector("#operatorDedupe"),
   conversationList: document.querySelector("#conversationList"),
   conversationCount: document.querySelector("#conversationCount"),
@@ -339,6 +340,12 @@ function renderOperatorStatus(response) {
     : null;
   const fabric = currentId ? response?.fabricStatus?.[currentId] || null : null;
   const campaign = fabric?.currentCampaign || null;
+  const diagnostic = currentId ? response?.fabricDiagnostics?.[currentId] || null : null;
+  setOperatorLine(
+    elements.operatorFabricIntake,
+    diagnostic ? `${diagnostic.event} · ${diagnostic.reason}` : "No control diagnostic",
+    diagnostic?.at ? `Last observed ${diagnostic.at}` : ""
+  );
 
   const bridgeVersion = String(bridge.extensionVersion || "?");
   const daemonVersion = String(daemon.daemon_version || "?");
