@@ -2,6 +2,12 @@
 
 Date: 2026-10-07
 
+## Active continuation checkpoint
+
+The active development handoff is now `docs/CHECKPOINT_2026-10-07_HOST_OPS_TOOLING_PHASE_B_HANDOFF.md`.
+
+That checkpoint supersedes the older Host Ops-retirement focus for **current forward work**. It records the completed ADB real-device hardening, current SSH/Termux state, exact live revisions, supervisor-control ownership and the frozen sequence toward the future Local Agent <-> Tool Runtime contract. Historical Conversation Fabric and Host Ops-retirement material below remains authoritative background and rollback evidence.
+
 Status: Local Agent remains on release line `v4.20.6`. The current post-release source candidate uses Chat Bridge `0.8.11` and browser-native Conversation Fabric inside the operator's already authenticated primary Chrome session. The old isolated-profile/Playwright production assumption is retired.
 
 Stable source rollback anchor: `main@59c5d699bc32283ebb98fc026f76128ec9db6d2a`. The current verification and branch-hygiene record is `docs/CHECKPOINT_2026-10-06_SEQUENTIAL_HARDENING_BASELINE.md`; the earlier `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md` remains historical evidence.
@@ -20,7 +26,10 @@ Read fresh repository/runtime evidence in this order:
 
 1. `AGENTS.md`
 2. this file
-3. `docs/CHECKPOINT_2026-10-07_HOST_OPS_RETIREMENT_HANDOFF.md`
+3. `docs/CHECKPOINT_2026-10-07_HOST_OPS_TOOLING_PHASE_B_HANDOFF.md`
+4. `docs/DEVELOPMENT_PLAN.md`
+5. `docs/host_ops/TOOL_INVENTORY.md`
+6. `docs/CHECKPOINT_2026-10-07_HOST_OPS_RETIREMENT_HANDOFF.md`
 4. `docs/HOST_OPS_ABSORPTION_PLAN.md`
 5. `docs/CHECKPOINT_2026-10-06_SEQUENTIAL_HARDENING_BASELINE.md` (historical source/branch snapshot, not the current branch inventory)
 6. `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md` (historical rollback evidence)

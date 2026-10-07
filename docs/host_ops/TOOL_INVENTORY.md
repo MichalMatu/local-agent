@@ -203,10 +203,19 @@ Transfers use a shared whole-operation budget, 512 MiB default / 16 GiB hard max
 
 Tests: `host_ops_tests/unit/ssh/*`, `host_ops_tests/integration/ssh/*`, CLI SSH tests.
 
-Hardening:
+Live evidence:
+- task `local-agent-host-ops-ssh-check-e2e-20261007-v1` passed against configured `termux-phone`;
+- TCP `192.168.0.100:8022` connected successfully;
+- pinned OpenSSH transport, strict host-key verification and configured public-key authentication succeeded;
+- remote user was `u0_a520` and `identity_matches=true`;
+- result had no timeout, truncation, background-process leak or repository edit.
+
+Hardening next:
+- run bounded `ssh exec` identity/environment smoke;
+- run verified disposable push/pull and exact cleanup;
 - `ssh exec` must be modeled as arbitrary-code-like authority in the future effect taxonomy;
-- resource identity should be the resolved remote target;
-- add/retain integration coverage for host-key/authentication failures and interrupted transfer cleanup.
+- keep target identity distinct from scheduler resource identity;
+- retain integration coverage for host-key/authentication failures and interrupted transfer cleanup.
 
 ### Remote Git workflows
 
