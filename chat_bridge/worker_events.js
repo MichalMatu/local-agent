@@ -27,7 +27,15 @@ async function handleGithubControlAlarm() {
   } catch (error) {
     console.error(error);
   }
-  return pollConversationFabricCampaigns();
+  const fabric = await pollConversationFabricCampaigns();
+  // Read-only, optional GitHub intake never delays existing Fabric recovery
+  // before its terminal feedback is handled and never owns an alarm.
+  try {
+    await pollGithubFabricReadOnlyIntake();
+  } catch (error) {
+    console.error("GitHub Fabric read-only intake:", error);
+  }
+  return fabric;
 }
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === GITHUB_CONTROL_ALARM_NAME) {
