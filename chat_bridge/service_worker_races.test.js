@@ -185,6 +185,15 @@ async function add(harness, overrides = {}) {
     assert.equal(h.storage.bridgeState.conversations[id].preferredTabId, null);
   }
 
+  // A content-refresh failure stays fail-soft and does not block the Fabric poll.
+  {
+    const h = createHarness({ console: { warn() {}, error() {} } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const result = await h.evaluate("(async () => {\n        refreshConfiguredContentScripts = async () => { throw new Error(\"refresh failed\"); };\n        pollConversationFabricCampaigns = async () => ({ ok: true, reason: \"fabric_polled\" });\n        return handleGithubControlAlarm();\n      })()");
+    assert.equal(result.ok, true);
+    assert.equal(result.reason, "fabric_polled");
+  }
+
   // A missing content script is re-injected before delivery.
   {
     let probes = 0;
