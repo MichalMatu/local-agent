@@ -21,6 +21,15 @@ _DEFAULT_LIMITS = ExecutionLimits(
     max_stderr_bytes=32 * 1024,
 )
 _MAX_LOGCAT_LINES = 10_000
+_IDENTITY_PROPERTIES = (
+    "ro.product.manufacturer",
+    "ro.product.model",
+    "ro.product.name",
+    "ro.product.device",
+    "ro.build.version.release",
+    "ro.build.version.sdk",
+    "ro.build.fingerprint",
+)
 
 
 class AdbInspectionError(RuntimeError):
@@ -72,12 +81,16 @@ class AdbClient:
                 f"ADB device {normalized_serial} is not ready; state={device.state!r}"
             )
 
-        result = self._runner.run(
-            (executable, "-s", normalized_serial, "shell", "getprop"),
-            limits=budget.remaining(),
-        )
-        _require_ok(result, f"inspect ADB device {normalized_serial}")
-        properties = _parse_properties(result.stdout)
+        properties = {
+            name: _read_property(
+                self._runner,
+                executable,
+                normalized_serial,
+                name,
+                budget,
+            )
+            for name in _IDENTITY_PROPERTIES
+        }
         return AdbIdentity(
             serial=normalized_serial,
             state=device.state,
@@ -218,20 +231,22 @@ def _metadata(fields: list[str]) -> dict[str, str]:
     return values
 
 
-def _parse_properties(stdout: str) -> dict[str, str]:
-    properties: dict[str, str] = {}
-    for raw_line in stdout.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        match = _PROPERTY_PATTERN.fullmatch(line)
-        if match is None:
-            raise AdbInspectionError("adb getprop returned malformed output")
-        key, value = match.groups()
-        properties[key] = value
-    if not properties:
-        raise AdbInspectionError("adb getprop returned no properties")
-    return properties
+def _read_property(
+    runner: ProcessRunner,
+    executable: str,
+    serial: str,
+    name: str,
+    budget: _OperationBudget,
+) -> str | None:
+    result = runner.run(
+        (executable, "-s", serial, "shell", "getprop", name),
+        limits=budget.remaining(),
+    )
+    _require_ok(result, f"read ADB property {name!r} for {serial}")
+    value = result.stdout.rstrip("\r\n")
+    if "\n" in value or "\r" in value:
+        raise AdbInspectionError(f"adb getprop {name!r} returned multiline output")
+    return value or None
 
 
 def _normalize_serial(serial: str) -> str:

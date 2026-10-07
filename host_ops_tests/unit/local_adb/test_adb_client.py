@@ -96,18 +96,16 @@ def test_devices_rejects_truncated_output() -> None:
         AdbClient(runner, resolver=_resolver).devices()
 
 
-def test_identity_requires_ready_explicit_serial_and_parses_getprop() -> None:
+def test_identity_requires_ready_explicit_serial_and_reads_only_fixed_properties() -> None:
     runner = FakeRunner(
         _completed("List of devices attached\nR58N123ABC device model:SM_S906B transport_id:1\n"),
-        _completed(
-            "[ro.product.manufacturer]: [samsung]\n"
-            "[ro.product.model]: [SM-S906B]\n"
-            "[ro.product.name]: [g0sxeea]\n"
-            "[ro.product.device]: [g0s]\n"
-            "[ro.build.version.release]: [16]\n"
-            "[ro.build.version.sdk]: [36]\n"
-            "[ro.build.fingerprint]: [samsung/g0sxeea/g0s:16/BUILD:user/release-keys]\n"
-        ),
+        _completed("samsung\n"),
+        _completed("SM-S906B\n"),
+        _completed("g0sxeea\n"),
+        _completed("g0s\n"),
+        _completed("16\n"),
+        _completed("36\n"),
+        _completed("samsung/g0sxeea/g0s:16/BUILD:user/release-keys\n"),
     )
 
     identity = AdbClient(runner, resolver=_resolver).identity("R58N123ABC")
@@ -118,13 +116,25 @@ def test_identity_requires_ready_explicit_serial_and_parses_getprop() -> None:
     assert identity.model == "SM-S906B"
     assert identity.android_version == "16"
     assert identity.sdk_level == "36"
-    assert runner.commands[1] == (
-        "/opt/android/platform-tools/adb",
-        "-s",
-        "R58N123ABC",
-        "shell",
-        "getprop",
-    )
+    assert runner.commands[1:] == [
+        (
+            "/opt/android/platform-tools/adb",
+            "-s",
+            "R58N123ABC",
+            "shell",
+            "getprop",
+            property_name,
+        )
+        for property_name in (
+            "ro.product.manufacturer",
+            "ro.product.model",
+            "ro.product.name",
+            "ro.product.device",
+            "ro.build.version.release",
+            "ro.build.version.sdk",
+            "ro.build.fingerprint",
+        )
+    ]
 
 
 def test_identity_rejects_non_ready_device_before_getprop() -> None:
@@ -152,11 +162,13 @@ def test_identity_rejects_invalid_serial_before_running_adb() -> None:
     assert runner.commands == []
 
 
-def test_identity_rejects_malformed_getprop_output() -> None:
+def test_identity_rejects_multiline_target_property_output() -> None:
     runner = FakeRunner(
         _completed("List of devices attached\nABC device transport_id:1\n"),
-        _completed("not a property line\n"),
+        _completed("samsung\nunexpected-second-line\n"),
     )
 
-    with pytest.raises(AdbInspectionError, match="malformed"):
+    with pytest.raises(AdbInspectionError, match="multiline"):
         AdbClient(runner, resolver=_resolver).identity("ABC")
+
+    assert runner.commands[-1][-1] == "ro.product.manufacturer"
