@@ -53,7 +53,7 @@ def _inspect_with_bounded_helper(endpoint: str, timeout_seconds: float) -> Brows
         [
             sys.executable,
             "-m",
-            "host_ops.capabilities.local.browser.playwright_attach",
+            "local_agent.host_ops.capabilities.local.browser.playwright_attach",
             "--timeout",
             f"{timeout_seconds:g}",
         ],

@@ -65,7 +65,7 @@ def _snapshot_with_bounded_helper(
         [
             sys.executable,
             "-m",
-            "host_ops.capabilities.local.browser.playwright_snapshot",
+            "local_agent.host_ops.capabilities.local.browser.playwright_snapshot",
             "--timeout",
             f"{timeout_seconds:g}",
         ],

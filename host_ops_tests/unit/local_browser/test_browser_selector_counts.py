@@ -101,6 +101,9 @@ def test_helper_uses_environment_and_parent_revalidates(monkeypatch) -> None:
     )
     assert result == _evidence()
     argv, env, limits = calls[0]
+    assert argv[2] == (
+        "local_agent.host_ops.capabilities.local.browser.playwright_selector_counts"
+    )
     assert "#prompt-textarea" not in argv
     assert json.loads(env[selector_counts._SELECTORS_ENV]) == [
         "#prompt-textarea",

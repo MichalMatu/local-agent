@@ -60,7 +60,7 @@ def _probe_with_bounded_helper(
         [
             sys.executable,
             "-m",
-            "host_ops.capabilities.local.browser.playwright_probe",
+            "local_agent.host_ops.capabilities.local.browser.playwright_probe",
             "--engine",
             engine,
             "--timeout",

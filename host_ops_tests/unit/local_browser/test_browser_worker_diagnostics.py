@@ -108,6 +108,9 @@ def test_worker_diagnostics_uses_bounded_helper_and_keeps_endpoint_out_of_argv(
 
     assert result == _evidence()
     argv, environment, limits = calls[0]
+    assert argv[2] == (
+        "local_agent.host_ops.capabilities.local.browser.playwright_worker_diagnostics"
+    )
     assert endpoint not in argv
     assert environment == {worker_diagnostics._ATTACH_ENDPOINT_ENV: endpoint}
     assert limits.timeout_seconds == 8.0

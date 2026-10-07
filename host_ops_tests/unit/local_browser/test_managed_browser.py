@@ -143,6 +143,9 @@ def test_bounded_helper_uses_core_runner_and_keeps_raw_url_out_of_argv(
 
     assert result == _evidence()
     argv, environment, limits = calls[0]
+    assert argv[2] == (
+        "local_agent.host_ops.capabilities.local.browser.playwright_probe"
+    )
     assert raw_url not in argv
     assert environment == {managed._PROBE_URL_ENV: raw_url}
     assert limits.timeout_seconds == 7.0

@@ -79,7 +79,7 @@ def _count_with_bounded_helper(
         [
             sys.executable,
             "-m",
-            "host_ops.capabilities.local.browser.playwright_selector_counts",
+            "local_agent.host_ops.capabilities.local.browser.playwright_selector_counts",
             "--timeout",
             f"{timeout_seconds:g}",
         ],

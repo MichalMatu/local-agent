@@ -80,6 +80,9 @@ def test_snapshot_helper_keeps_endpoint_and_target_out_of_argv(monkeypatch) -> N
     result = BrowserCdpSnapshotter().snapshot("http://127.0.0.1:9222", "page-1", timeout_seconds=7)
     assert result == _evidence()
     argv, env, limits = calls[0]
+    assert argv[2] == (
+        "local_agent.host_ops.capabilities.local.browser.playwright_snapshot"
+    )
     assert "http://127.0.0.1:9222" not in argv
     assert "page-1" not in argv
     assert env["HOST_OPS_BROWSER_ATTACH_ENDPOINT"] == "http://127.0.0.1:9222"

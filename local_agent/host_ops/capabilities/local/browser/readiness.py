@@ -122,7 +122,7 @@ def _inspect_with_bounded_helper(
         [
             sys.executable,
             "-m",
-            "host_ops.capabilities.local.browser.playwright_readiness",
+            "local_agent.host_ops.capabilities.local.browser.playwright_readiness",
             "--timeout",
             f"{timeout_seconds:g}",
         ],

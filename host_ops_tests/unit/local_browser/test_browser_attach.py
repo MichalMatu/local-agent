@@ -111,6 +111,9 @@ def test_bounded_attach_uses_core_runner_and_keeps_endpoint_out_of_argv(
 
     assert result == _evidence()
     argv, environment, limits = calls[0]
+    assert argv[2] == (
+        "local_agent.host_ops.capabilities.local.browser.playwright_attach"
+    )
     assert endpoint not in argv
     assert environment == {attach._ATTACH_ENDPOINT_ENV: endpoint}
     assert limits.timeout_seconds == 7.0

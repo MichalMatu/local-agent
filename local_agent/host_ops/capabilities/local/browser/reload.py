@@ -94,7 +94,7 @@ def _reload_with_bounded_helper(
         [
             sys.executable,
             "-m",
-            "host_ops.capabilities.local.browser.playwright_reload",
+            "local_agent.host_ops.capabilities.local.browser.playwright_reload",
             "--timeout",
             f"{timeout_seconds:g}",
         ],

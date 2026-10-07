@@ -103,6 +103,9 @@ def test_reload_helper_keeps_sensitive_inputs_out_of_argv(monkeypatch) -> None:
     )
     assert result == _evidence()
     argv, env, limits = calls[0]
+    assert argv[2] == (
+        "local_agent.host_ops.capabilities.local.browser.playwright_reload"
+    )
     assert "http://127.0.0.1:9222" not in argv
     assert "page-1" not in argv
     assert "https://example.test/path" not in argv
