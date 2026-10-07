@@ -1,3 +1,79 @@
+const CONVERSATION_FABRIC_PARENT_FEEDBACK_PREFIX = "conversation-fabric-parent-feedback:";
+const CONVERSATION_FABRIC_PARENT_FEEDBACK_LIMIT = 8;
+
+function conversationFabricParentFeedbackKey(parentUrl) {
+  const chatId = conversationId(String(parentUrl || ""));
+  if (!chatId) throw new Error("Conversation Fabric parent feedback requires a canonical parent URL");
+  return `${CONVERSATION_FABRIC_PARENT_FEEDBACK_PREFIX}${chatId}`;
+}
+
+async function conversationFabricExplicitFeedbackQueue(parentUrl) {
+  const key = conversationFabricParentFeedbackKey(parentUrl);
+  const stored = await chrome.storage.local.get(key);
+  const raw = stored?.[key];
+  if (!raw || raw.schema_version !== 1 || raw.parent_conversation_url !== parentUrl || !Array.isArray(raw.items)) {
+    return { schema_version: 1, parent_conversation_url: parentUrl, items: [] };
+  }
+  return {
+    schema_version: 1,
+    parent_conversation_url: parentUrl,
+    items: raw.items.filter((item) =>
+      item && typeof item === "object" &&
+      typeof item.id === "string" && item.id &&
+      typeof item.prompt === "string" && item.prompt.trim()
+    ).slice(0, CONVERSATION_FABRIC_PARENT_FEEDBACK_LIMIT)
+  };
+}
+
+async function queueConversationFabricExplicitFeedback(parentUrl, { id, kind, prompt }) {
+  const feedbackId = String(id || "");
+  const feedbackPrompt = String(prompt || "");
+  if (!feedbackId || feedbackId.length > 160) throw new Error("Conversation Fabric feedback id is invalid");
+  if (!feedbackPrompt.trim() || feedbackPrompt.length > 24_000) {
+    throw new Error("Conversation Fabric feedback prompt must be non-empty bounded text");
+  }
+  const key = conversationFabricParentFeedbackKey(parentUrl);
+  const queue = await conversationFabricExplicitFeedbackQueue(parentUrl);
+  const existing = queue.items.find((item) => item.id === feedbackId);
+  if (existing) {
+    if (existing.prompt !== feedbackPrompt || existing.kind !== String(kind || "feedback")) {
+      throw new Error("Conversation Fabric same-id feedback conflict");
+    }
+    return existing;
+  }
+  if (queue.items.length >= CONVERSATION_FABRIC_PARENT_FEEDBACK_LIMIT) {
+    throw new Error("Conversation Fabric parent feedback queue is full");
+  }
+  const item = {
+    id: feedbackId,
+    kind: String(kind || "feedback"),
+    prompt: feedbackPrompt,
+    queued_at: new Date().toISOString()
+  };
+  queue.items.push(item);
+  await chrome.storage.local.set({ [key]: queue });
+  return item;
+}
+
+async function conversationFabricExplicitFeedbackForParent(parentUrl) {
+  const queue = await conversationFabricExplicitFeedbackQueue(parentUrl);
+  return queue.items[0] || null;
+}
+
+async function acknowledgeConversationFabricExplicitFeedback(parentUrl, feedbackId) {
+  const key = conversationFabricParentFeedbackKey(parentUrl);
+  const queue = await conversationFabricExplicitFeedbackQueue(parentUrl);
+  const next = queue.items.filter((item) => item.id !== feedbackId);
+  if (next.length === queue.items.length) return false;
+  if (next.length) {
+    queue.items = next;
+    await chrome.storage.local.set({ [key]: queue });
+  } else {
+    await chrome.storage.local.remove(key);
+  }
+  return true;
+}
+
 async function conversationFabricParentReserved(parentUrl) {
   if (typeof listConversationFabricCampaigns !== "function") return false;
   const campaigns = await listConversationFabricCampaigns();
@@ -10,12 +86,29 @@ async function conversationFabricParentReserved(parentUrl) {
 async function runFeedbackCycle({ conversationId: chatId, manual = false, promptOverride = "" } = {}) {
   if (inFlightDeliveries.has(chatId)) return { ok: false, reason: "delivery_in_progress" };
   inFlightDeliveries.add(chatId);
+  let result;
   try {
-    return await deliverConversation(chatId, manual, { promptOverride });
+    result = await deliverConversation(chatId, manual, { promptOverride });
   } finally {
     inFlightDeliveries.delete(chatId);
     activeDeliveries.delete(chatId);
   }
+
+  // If an explicit Fabric response was queued while a normal wake/terminal delivery
+  // owned the single writer, drain it immediately after releasing the writer. Failure
+  // leaves the durable queue intact for the next scheduled cycle.
+  if (result?.ok && !result.explicitFabricFeedback && !promptOverride) {
+    const state = await getBridgeState();
+    const parent = state.conversations?.[chatId];
+    if (parent?.url && await conversationFabricExplicitFeedbackForParent(parent.url)) {
+      const drain = await runFeedbackCycle({ conversationId: chatId, manual: true });
+      return {
+        ...result,
+        explicitFeedbackDrain: drain?.ok ? "sent" : String(drain?.reason || "pending")
+      };
+    }
+  }
+  return result;
 }
 
 async function conversationFabricTerminalFeedbackAlreadySubmitted(tabId, expectedUrl, prompt) {
@@ -93,7 +186,11 @@ async function deliverConversation(chatId, manual, { promptOverride = "" } = {})
     return { ok: false, reason: "runtime_unavailable", runtime };
   }
 
-  const explicitPrompt = typeof promptOverride === "string" ? promptOverride.trim() : "";
+  const overridePrompt = typeof promptOverride === "string" ? promptOverride.trim() : "";
+  const explicitFeedback = overridePrompt
+    ? null
+    : await conversationFabricExplicitFeedbackForParent(conversation.url);
+  const explicitPrompt = overridePrompt || String(explicitFeedback?.prompt || "");
   const fabricFeedback = explicitPrompt
     ? null
     : await conversationFabricFeedbackForParent(conversation.url);
@@ -241,6 +338,9 @@ async function deliverConversation(chatId, manual, { promptOverride = "" } = {})
     response = { ok: false, reason: "content_script_protocol_mismatch", protocolVersion: response?.protocolVersion };
   }
   const status = response?.ok ? "sent" : String(response?.reason || "delivery_unconfirmed");
+  if (response?.ok && explicitFeedback) {
+    await acknowledgeConversationFabricExplicitFeedback(conversation.url, explicitFeedback.id);
+  }
   if (response?.ok && fabricFeedback) {
     const campaign = await loadConversationFabricCampaign(fabricFeedback.campaign.id);
     if (campaign) {
@@ -264,7 +364,7 @@ async function deliverConversation(chatId, manual, { promptOverride = "" } = {})
     return current;
   });
 
-  if (!manual) {
+  if (!manual || (explicitFeedback && !response?.ok)) {
     const delay = response?.ok
       ? runtime.intervalMinutes
       : status === "delivery_unconfirmed"
@@ -280,6 +380,7 @@ async function deliverConversation(chatId, manual, { promptOverride = "" } = {})
     runtime,
     status,
     conversationId: chatId,
+    explicitFabricFeedback: Boolean(explicitFeedback),
     bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
   };
 }
