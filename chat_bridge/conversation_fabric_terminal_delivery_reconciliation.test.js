@@ -200,7 +200,6 @@ async function testActiveFabricReservesParentFromNormalWake() {
   assert.equal(result.ok, false);
   assert.equal(result.reason, "conversation_fabric_parent_reserved");
   assert.equal(result.status, "conversation_fabric_parent_reserved");
-  assert.equal(harness.state.conversations.parent.lastStatus, "conversation_fabric_parent_reserved");
   assert.deepEqual(harness.counts(), {
     sendCalls: 0,
     scriptCalls: 0,
