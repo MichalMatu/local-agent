@@ -790,19 +790,60 @@ function createHarness({
   }
 
   {
+    const otherParent = "https://chatgpt.com/c/other-parent";
+    const storage = {
+      "conversation-fabric-campaign:cf-1111111111111111": {
+        schema_version: 1,
+        id: "cf-1111111111111111",
+        state: "running",
+        parent_conversation_url: otherParent,
+        parent_tab_id: 99,
+        assistant_identity: "assistant-other-parent",
+        fingerprint: "11111111",
+        created_at: "2026-10-07T00:00:00.000Z",
+        children: Array.from({ length: 4 }, (_, index) => ({
+          id: `other-${index}`,
+          role: "research",
+          state: "submitted",
+          child_conversation_url: `https://chatgpt.com/c/other-child-${index}`,
+          intent: {}
+        })),
+        results: [],
+        failed_children: []
+      }
+    };
+    const h = createHarness({ storage });
+    const result = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.reason, "conversation_fabric_started");
+    assert.equal(
+      h.created.length,
+      2,
+      "one full four-child campaign in another parent must not block a new bounded campaign"
+    );
+  }
+
+  {
     const h = createHarness();
     const started = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
     const campaign = await h.context.loadConversationFabricCampaign(started.campaignId);
     campaign.state = "failed";
     campaign.cleanup_pending = true;
-    campaign.children = [...campaign.children, ...campaign.children];
+    campaign.children = Array.from({ length: 16 }, (_, index) => ({
+      ...campaign.children[index % campaign.children.length],
+      id: `orphan-${index}`
+    }));
     await h.context.saveConversationFabricCampaign(campaign);
     const result = await h.context.applyConversationFabricControl(
       { ...h.delegateMessage, assistantIdentity: "new-delegation" },
       h.sender
     );
     assert.equal(result.reason, "conversation_fabric_capacity");
-    assert.equal(h.created.length, 2, "unclosed failed child tabs must continue to consume the global capacity");
+    assert.equal(
+      h.created.length,
+      2,
+      "unclosed child tabs must continue to consume the bounded global capacity"
+    );
   }
 
   console.log("Conversation Fabric worker tests passed.");

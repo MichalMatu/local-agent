@@ -14,6 +14,7 @@ const CONVERSATION_FABRIC_SUBMIT_RETRY_BASE_MS = 350;
 const CONVERSATION_FABRIC_SUBMIT_RETRY_MAX_MS = 2_800;
 const CONVERSATION_FABRIC_TIMEOUT_MS = 15 * 60 * 1000;
 const CONVERSATION_FABRIC_HISTORY_LIMIT = 32;
+const CONVERSATION_FABRIC_GLOBAL_CHILD_CAPACITY = 16;
 const CONVERSATION_FABRIC_OPERATOR_SNAPSHOT_CACHE_MS = 5 * 60 * 1000;
 const conversationFabricOperations = new Map();
 let conversationFabricOperatorSnapshotCache = null;
@@ -915,10 +916,13 @@ async function delegateConversationFabric(authority) {
     return { ok: false, reason: "conversation_fabric_parent_busy" };
   }
   const occupied = campaigns.filter(value => ["spawning", "running"].includes(value.state) || value.cleanup_pending);
+  const occupiedChildCount = occupied.reduce(
+    (count, value) => count + value.children.length,
+    0
+  );
   if (
-    occupied.reduce((count, value) => count + value.children.length, 0) +
-    authority.control.children.length >
-    conversationFabricProtocol.MAX_CHILDREN
+    occupiedChildCount + authority.control.children.length >
+    CONVERSATION_FABRIC_GLOBAL_CHILD_CAPACITY
   ) {
     return { ok: false, reason: "conversation_fabric_capacity" };
   }
