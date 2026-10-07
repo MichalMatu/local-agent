@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from local_agent.host_ops.capabilities.local.adb.models import AdbIdentity
+from local_agent.host_ops.capabilities.local.adb.models import AdbIdentity, AdbLogcatResult
 from local_agent.host_ops.capabilities.local.files.models import ArtifactInspectionResult
 from local_agent.host_ops.capabilities.remote.ssh.checks import SshCheckResult
 from local_agent.host_ops.capabilities.remote.ssh.transfer import (
@@ -39,6 +39,11 @@ ARTIFACT_INSPECT_TOOL = ToolDescriptor(
 )
 ADB_IDENTITY_TOOL = ToolDescriptor(
     tool_id="host_ops.adb.identity",
+    effect=SemanticEffect.ACTIVE_READ,
+    authority=AuthorityCeiling.FIXED_REMOTE_DEVICE_EXEC,
+)
+ADB_LOGCAT_TOOL = ToolDescriptor(
+    tool_id="host_ops.adb.logcat",
     effect=SemanticEffect.ACTIVE_READ,
     authority=AuthorityCeiling.FIXED_REMOTE_DEVICE_EXEC,
 )
@@ -148,6 +153,42 @@ def adb_identity_result(
         tool=ADB_IDENTITY_TOOL,
         ok=True,
         target=target,
+        payload=result.as_dict(),
+    )
+
+
+def adb_logcat_invocation(
+    serial: str,
+    *,
+    lines: int,
+    limits: ExecutionLimits,
+    scheduler_resources: tuple[str, ...],
+) -> ToolInvocation:
+    return ToolInvocation(
+        tool=ADB_LOGCAT_TOOL,
+        arguments={"lines": lines},
+        target=_adb_target(serial),
+        scheduler_resources=_resources(scheduler_resources),
+        execution_limits=limits,
+    )
+
+
+def adb_logcat_result(
+    invocation: ToolInvocation,
+    result: AdbLogcatResult,
+) -> ToolResult:
+    _require_tool(invocation, ADB_LOGCAT_TOOL)
+    if invocation.target is None:
+        raise ValueError("ADB logcat invocation requires an operation target")
+    if invocation.target.name != result.serial:
+        raise ValueError(
+            "ADB logcat serial does not match invocation target: "
+            f"{result.serial!r} != {invocation.target.name!r}"
+        )
+    return ToolResult(
+        tool=ADB_LOGCAT_TOOL,
+        ok=True,
+        target=invocation.target,
         payload=result.as_dict(),
     )
 
