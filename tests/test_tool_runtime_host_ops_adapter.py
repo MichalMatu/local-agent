@@ -91,12 +91,12 @@ class _AdbRunner:
         self.commands.append(argv)
         if argv[-2:] == ("devices", "-l"):
             return _completed(
-                "List of devices attached\\n"
+                "List of devices attached\n"
                 f"{self.serial} device product:r0sxxx model:SM-S906B "
-                "device:r0s transport_id:1\\n"
+                "device:r0s transport_id:1\n"
             )
         if len(argv) >= 6 and argv[-2] == "getprop":
-            return _completed(self.properties[argv[-1]] + "\\n")
+            return _completed(self.properties[argv[-1]] + "\n")
         raise AssertionError(f"unexpected ADB command: {argv!r}")
 
 class ToolRuntimeHostOpsAdapterTests(unittest.TestCase):
