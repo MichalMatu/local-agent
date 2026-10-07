@@ -121,7 +121,7 @@ class SshFileTransfer:
             action_attempted = True
             stage_may_exist = True
             command = build_scp_push_command(target, source.path, stage, options=self._options)
-            self._require_process_ok(
+            _require_process_ok(
                 self._runner.run(command, limits=budget.remaining()),
                 "SCP upload",
             )
@@ -155,7 +155,7 @@ class SshFileTransfer:
 
             staging_cleaned = True
             if stage_present:
-                staging_cleaned = self._cleanup_remote_stage(target, stage, budget)
+                staging_cleaned = _cleanup_remote_stage(self._client, target, stage, budget)
                 stage_present = not staging_cleaned
             return SshTransferResult(
                 direction="push",
@@ -171,7 +171,7 @@ class SshFileTransfer:
             cleanup_failed = False
             if stage_present or (stage_may_exist and not committed):
                 try:
-                    cleanup_failed = not self._cleanup_remote_stage(
+                    cleanup_failed = not _cleanup_remote_stage(self._client, 
                         target,
                         stage,
                         budget,
@@ -216,7 +216,7 @@ class SshFileTransfer:
         try:
             action_attempted = True
             command = build_scp_pull_command(target, source, stage, options=self._options)
-            self._require_process_ok(
+            _require_process_ok(
                 self._runner.run(command, limits=budget.remaining()),
                 "SCP download",
             )
@@ -367,33 +367,34 @@ class SshFileTransfer:
         context: str,
     ) -> ProcessResult:
         result = self._client.execute(target, argv, limits=budget.remaining())
-        self._require_process_ok(result, context)
+        _require_process_ok(result, context)
         return result
 
-    def _cleanup_remote_stage(
-        self,
-        target: HostTarget,
-        stage: str,
-        budget: _TransferBudget,
-        *,
-        best_effort: bool = False,
-    ) -> bool:
-        try:
-            result = self._client.execute(target, ("rm", "-f", stage), limits=budget.remaining())
-        except SshTransferError:
-            if best_effort:
-                return False
-            raise
-        if result.ok:
-            return True
+
+def _cleanup_remote_stage(
+    client: SshClient,
+    target: HostTarget,
+    stage: str,
+    budget: _TransferBudget,
+    *,
+    best_effort: bool = False,
+) -> bool:
+    try:
+        result = client.execute(target, ("rm", "-f", stage), limits=budget.remaining())
+    except SshTransferError:
         if best_effort:
             return False
-        raise SshTransferError(_process_failure("remote staging cleanup", result))
+        raise
+    if result.ok:
+        return True
+    if best_effort:
+        return False
+    raise SshTransferError(_process_failure("remote staging cleanup", result))
 
-    @staticmethod
-    def _require_process_ok(result: ProcessResult, context: str) -> None:
-        if not result.ok:
-            raise SshTransferError(_process_failure(context, result))
+
+def _require_process_ok(result: ProcessResult, context: str) -> None:
+    if not result.ok:
+        raise SshTransferError(_process_failure(context, result))
 
 
 def _commit_remote_no_clobber(
