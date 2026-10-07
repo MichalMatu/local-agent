@@ -46,6 +46,20 @@
     });
   }
 
+  async function reportFabricIntakeDiagnostic(event, reason) {
+    try {
+      await chrome.runtime.sendMessage({
+        type: "bridge:conversation-fabric-diagnostic",
+        conversationUrl: normalizeConversationUrl(location.href),
+        contentProtocolVersion: CONTENT_PROTOCOL_VERSION,
+        event,
+        reason
+      });
+    } catch (_error) {
+      // Diagnostics must not alter control admission or create parent messages.
+    }
+  }
+
   function childCompletionMarker(fingerprint, childId) {
     const checksum = fnv1a32(`${fingerprint}\n${childId}`);
     return `<<<LOCAL_AGENT_CF_CHILD_COMPLETE:${fingerprint}:${childId}:${checksum}>>>`;
@@ -144,6 +158,7 @@
       // completed assistant turn has a different signature and will still be scanned.
       lastScannedSignature = signature;
       retryGate.reset(signature);
+      await reportFabricIntakeDiagnostic("control_rejected", diagnostic.reason);
       console.warn(
         "Local Agent Conversation Fabric control rejected:",
         diagnostic.reason,
@@ -163,6 +178,7 @@
       // them into synthetic user messages in the parent conversation.
       lastScannedSignature = signature;
       retryGate.reset(signature);
+      await reportFabricIntakeDiagnostic("control_rejected", "completion_guard_failed");
       console.warn("Local Agent Conversation Fabric completion guard failed:", error);
       return;
     }
@@ -183,6 +199,12 @@
         lastSubmittedFingerprint = fingerprint;
         lastScannedSignature = signature;
         retryGate.reset(signature);
+        await reportFabricIntakeDiagnostic(
+          "control_worker_rejected",
+          /^[a-z0-9][a-z0-9_:-]{0,79}$/.test(String(response?.reason || ""))
+            ? response.reason
+            : "unknown"
+        );
         console.warn(
           "Local Agent Conversation Fabric worker rejected control:",
           response?.reason || "conversation_fabric_rejected",
@@ -201,8 +223,15 @@
       lastSubmittedFingerprint = fingerprint;
       lastScannedSignature = signature;
       retryGate.reset(signature);
+      await reportFabricIntakeDiagnostic(
+        "control_accepted",
+        /^[a-z0-9][a-z0-9_:-]{0,79}$/.test(String(response?.reason || ""))
+          ? response.reason
+          : "accepted"
+      );
     } catch (error) {
       retryGate.defer(signature);
+      await reportFabricIntakeDiagnostic("control_transport_failed", "message_failed");
       console.warn("Local Agent Conversation Fabric control failed:", error);
     } finally {
       scanInFlight = false;
