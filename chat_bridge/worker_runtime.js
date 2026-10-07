@@ -94,6 +94,10 @@ function validateRuntimeConfig(raw, settings) {
   if (!raw || typeof raw !== "object" || raw.schema_version !== 3) {
     throw new Error("runtime config must use schema_version=3");
   }
+  if (raw.github_fabric_read_only_intake_enabled !== undefined &&
+      typeof raw.github_fabric_read_only_intake_enabled !== "boolean") {
+    throw new Error("github_fabric_read_only_intake_enabled must be boolean");
+  }
   const agents = validateRuntimeAgents(raw.agents);
   const operatorStatus = operatorStatusRuntimeConfig(raw.operator_status_url);
   return {
@@ -117,6 +121,7 @@ function validateRuntimeConfig(raw, settings) {
       "runtime wake prompt"
     ),
     agents,
+    githubFabricReadOnlyIntakeEnabled: raw.github_fabric_read_only_intake_enabled === true,
     ...operatorStatus,
     conversationControls: githubControlModel.validateConversationControls(raw.conversation_controls, agents)
   };
@@ -144,6 +149,7 @@ function fallbackRuntime(settings) {
       "fallback wake prompt"
     ),
     agents: [],
+    githubFabricReadOnlyIntakeEnabled: false,
     operatorStatusUrl: "",
     operatorStatusConfigError: "",
     conversationControls: []
