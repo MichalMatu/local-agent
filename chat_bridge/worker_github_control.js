@@ -159,17 +159,96 @@ async function githubOwnershipSnapshot(state, runtime = null) {
   return ownership;
 }
 
+async function recoverGithubControlledConversations(state, runtime) {
+  const missing = (runtime.conversationControls || []).filter(
+    (control) => !state.conversations?.[control.conversationId]
+  );
+  if (!missing.length) return { recovered: [], conflicts: [] };
+
+  const wanted = new Set(missing.map((control) => control.conversationId));
+  const tabs = await chrome.tabs.query({
+    url: ["https://chatgpt.com/*", "https://chat.openai.com/*"]
+  });
+  const candidates = new Map();
+  for (const tab of tabs) {
+    if (!Number.isInteger(tab?.id)) continue;
+    const url = normalizeConversationUrl(tab.url || "");
+    if (!url) continue;
+    const chatId = conversationId(url);
+    if (!wanted.has(chatId)) continue;
+    const matches = candidates.get(chatId) || [];
+    matches.push({
+      tabId: tab.id,
+      url,
+      label: String(tab.title || "GitHub-managed conversation")
+    });
+    candidates.set(chatId, matches);
+  }
+
+  const recovered = [];
+  const conflicts = [];
+  for (const control of missing) {
+    const matches = candidates.get(control.conversationId) || [];
+    if (matches.length > 1) {
+      conflicts.push({
+        chatId: control.conversationId,
+        controlGeneration: control.controlGeneration,
+        reason: "conversation_recovery_ambiguous"
+      });
+      continue;
+    }
+    if (matches.length !== 1) continue;
+
+    const candidate = matches[0];
+    const mutation = await mutateState((currentState) => {
+      if (currentState.conversations?.[control.conversationId]) {
+        return { state: currentState, value: { recovered: false } };
+      }
+      const upserted = stateModel.upsertConversation(currentState, {
+        url: candidate.url,
+        label: candidate.label,
+        enabled: control.enabled,
+        preferredTabId: candidate.tabId,
+        intervalOverrideMinutes: control.intervalMinutes,
+        bootstrapPending: false,
+        lastStatus: "github_control_recovered",
+        lastRuntimeSource: runtime.source
+      });
+      const sameIdentity = upserted.conversation.id === control.conversationId;
+      return {
+        state: sameIdentity ? upserted.state : currentState,
+        value: {
+          recovered: sameIdentity,
+          chatId: upserted.conversation.id,
+          tabId: candidate.tabId
+        }
+      };
+    });
+    if (mutation.value?.recovered) {
+      recovered.push({
+        chatId: mutation.value.chatId,
+        tabId: mutation.value.tabId,
+        controlGeneration: control.controlGeneration
+      });
+    }
+  }
+  return { recovered, conflicts };
+}
+
 async function reconcileGithubConversationControlsOnce() {
-  const state = await getBridgeState();
+  let state = await getBridgeState();
   const runtime = await fetchRuntime(state.settings, { fresh: true });
   if (runtime.source !== "remote") {
     return { ok: false, reason: "runtime_unavailable", configured: 0, applied: [], conflicts: [] };
   }
 
   const configured = runtime.conversationControls.length;
+  const recovery = await recoverGithubControlledConversations(state, runtime);
+  if (recovery.recovered.length) state = await getBridgeState();
+
   const applied = await readAppliedGithubControls();
   const appliedNow = [];
-  const conflicts = [];
+  const conflicts = [...recovery.conflicts];
 
   for (const conversation of Object.values(state.conversations)) {
     const control = githubControlModel.findConversationControl(runtime, conversation.id);
@@ -282,7 +361,14 @@ async function reconcileGithubConversationControlsOnce() {
     });
   }
 
-  return { ok: true, reason: "reconciled", configured, applied: appliedNow, conflicts };
+  return {
+    ok: true,
+    reason: "reconciled",
+    configured,
+    recovered: recovery.recovered,
+    applied: appliedNow,
+    conflicts
+  };
 }
 
 function reconcileGithubConversationControls() {
