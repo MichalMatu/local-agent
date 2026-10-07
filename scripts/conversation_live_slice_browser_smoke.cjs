@@ -107,6 +107,19 @@ module.exports = {
         }
         return route.abort();
       });
+      // Chromium can restore a tab while launchPersistentContext is still
+      // returning, before the isolated fixture route above is installed.
+      // Reload only synthetic ChatGPT tabs in this disposable test profile
+      // through the fixture route; keep their URLs and session claims intact.
+      for (const page of context.pages()) {
+        const url = page.url();
+        if (
+          !page.isClosed() &&
+          (url.startsWith("https://chatgpt.com/") || url.startsWith("https://chat.openai.com/"))
+        ) {
+          await page.reload({ waitUntil: "domcontentloaded", timeout: 15_000 });
+        }
+      }
       return context;
     }
   }
