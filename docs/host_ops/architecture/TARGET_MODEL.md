@@ -1,6 +1,6 @@
 # Host Ops target model
 
-**Status: stable absorbed baseline / active consolidation.** The current Host Ops behavior is a green baseline beneath Local Agent. The next phase inventories, tests and hardens that baseline before introducing a shared internal tool contract and then broadening the reusable multi-tool surface.
+**Status: frozen Phase B baseline / active Phase C contract input.** Inventory and hardening are complete. The active work is to encode these target/identity invariants in the shared internal Local Agent <-> Tool Runtime contract before any capability expansion.
 
 ## Purpose
 
@@ -82,7 +82,7 @@ Scheduler-resource rules remain separate:
 - a scheduler resource key never substitutes for live target validation, and a tool-runtime lock
   never becomes a scheduler resource merely because both mechanisms use locking.
 
-This distinction is part of the Tool Runtime contract. Future target improvements should add better
+This distinction is a required invariant for the Phase C Tool Runtime contract. Future target improvements should add better
 durable evidence where needed without introducing a second scheduler or a universal target registry.
 
 ## Boundary rules
