@@ -17,6 +17,7 @@ importScripts(
   "worker_conversation_fabric.js",
   "worker_conversation_fabric_recovery.js",
   "worker_conversation_fabric_delivery_guard.js",
+  "worker_conversation_fabric_diagnostics.js",
   "worker_lab_commands.js",
   "worker_github_legacy_gate.js",
   "worker_events.js"
