@@ -40,6 +40,7 @@ function makeHarness({
   let scriptCalls = 0;
   let saveCalls = 0;
   let scheduleCalls = 0;
+  const sentPrompts = [];
 
   const userMessages = [...earlierUserTexts, latestUserText].map((text) => {
     const turn = {};
@@ -106,8 +107,9 @@ function makeHarness({
         }
       },
       tabs: {
-        sendMessage: async () => {
+        sendMessage: async (_tabId, message) => {
           sendCalls += 1;
+          sentPrompts.push(message.prompt);
           return { ok: true, reason: "sent", protocolVersion: 18 };
         }
       }
@@ -120,6 +122,7 @@ function makeHarness({
     context,
     state,
     campaign,
+    sentPrompts,
     counts: () => ({ sendCalls, scriptCalls, saveCalls, scheduleCalls })
   };
 }
@@ -208,6 +211,29 @@ async function testActiveFabricReservesParentFromNormalWake() {
   });
 }
 
+async function testExplicitFabricPromptUsesSingleWriterEvenWhileCampaignIsActive() {
+  const harness = makeHarness({
+    fabric: false,
+    activeFabric: true,
+    lastStatus: "sent"
+  });
+  const prompt = "Conversation Fabric result inspection: child=verify";
+  const result = await harness.context.runFeedbackCycle({
+    conversationId: "parent",
+    manual: true,
+    promptOverride: prompt
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.reason, "sent");
+  assert.deepEqual(harness.sentPrompts, [prompt]);
+  assert.deepEqual(harness.counts(), {
+    sendCalls: 1,
+    scriptCalls: 0,
+    saveCalls: 0,
+    scheduleCalls: 0
+  });
+}
+
 async function testSendButtonRetryReconcilesExactTerminalPromptAfterOperatorSubmit() {
   const harness = makeHarness({ lastStatus: "send_button_not_ready" });
   const result = await harness.context.deliverConversation("parent", false);
@@ -245,6 +271,7 @@ async function testSendButtonRetryWithDifferentUserHistoryFallsBackToNormalDeliv
   await testDifferentUserHistoryFallsBackToNormalDelivery();
   await testNormalWakeNeverUsesFabricReconciliation();
   await testActiveFabricReservesParentFromNormalWake();
+  await testExplicitFabricPromptUsesSingleWriterEvenWhileCampaignIsActive();
   await testSendButtonRetryReconcilesExactTerminalPromptAfterOperatorSubmit();
   await testSendButtonRetryWithDifferentUserHistoryFallsBackToNormalDelivery();
   console.log("conversation_fabric_terminal_delivery_reconciliation.test.js: OK");
