@@ -59,11 +59,11 @@
     },
     {
       "conversation_id": "chat-48a1aa2e",
-      "control_generation": 1,
-      "enabled": true,
+      "control_generation": 2,
+      "enabled": false,
       "interval_minutes": 10,
       "next_wake_at": null,
-      "updated_at": "2026-10-07T07:39:00Z"
+      "updated_at": "2026-10-07T17:25:00Z"
     }
   ],
   "agents": [
