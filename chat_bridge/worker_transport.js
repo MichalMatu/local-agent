@@ -5,7 +5,7 @@ async function findConversationTab(conversation) {
     const preferred = matches.find((tab) => tab.id === conversation.preferredTabId);
     if (preferred) return preferred;
   }
-  return matches[0] || null;
+  return matches.length === 1 ? matches[0] : null;
 }
 
 async function probeContentScript(tabId, expectedUrl) {
@@ -176,7 +176,11 @@ async function refreshConfiguredContentScripts() {
     const preferred = conversation.preferredTabId !== null
       ? matches.find((tab) => tab.id === conversation.preferredTabId)
       : null;
-    const tab = preferred || matches[0] || null;
+    if (!preferred && matches.length > 1) {
+      failed += 1;
+      continue;
+    }
+    const tab = preferred || (matches.length === 1 ? matches[0] : null);
     if (!tab?.id) continue;
 
     checked += 1;
