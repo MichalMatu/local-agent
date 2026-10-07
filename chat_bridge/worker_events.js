@@ -20,12 +20,18 @@ async function initializeBridgeLifecycle() {
 chrome.runtime.onInstalled.addListener(() => initializeBridgeLifecycle());
 chrome.runtime.onStartup.addListener(() => initializeBridgeLifecycle());
 
+async function handleGithubControlAlarm() {
+  await reconcileGithubConversationControls();
+  try {
+    await refreshConfiguredContentScripts();
+  } catch (error) {
+    console.error(error);
+  }
+  return pollConversationFabricCampaigns();
+}
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === GITHUB_CONTROL_ALARM_NAME) {
-    reconcileGithubConversationControls()
-      .then(() => refreshConfiguredContentScripts().catch((error) => console.error(error)))
-      .then(() => pollConversationFabricCampaigns())
-      .catch((error) => console.error(error));
+    handleGithubControlAlarm().catch((error) => console.error(error));
     return;
   }
   if (!alarm.name.startsWith(ALARM_PREFIX)) return;
