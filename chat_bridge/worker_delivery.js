@@ -1,3 +1,12 @@
+async function conversationFabricParentReserved(parentUrl) {
+  if (typeof listConversationFabricCampaigns !== "function") return false;
+  const campaigns = await listConversationFabricCampaigns();
+  return campaigns.some((campaign) =>
+    campaign?.parent_conversation_url === parentUrl &&
+    ["spawning", "running"].includes(campaign?.state)
+  );
+}
+
 async function runFeedbackCycle({ conversationId: chatId, manual = false } = {}) {
   if (inFlightDeliveries.has(chatId)) return { ok: false, reason: "delivery_in_progress" };
   inFlightDeliveries.add(chatId);
@@ -83,6 +92,27 @@ async function deliverConversation(chatId, manual) {
     if (!manual) await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes, conversation.generation);
     return { ok: false, reason: "runtime_unavailable", runtime };
   }
+
+  const fabricFeedback = await conversationFabricFeedbackForParent(conversation.url);
+  if (!fabricFeedback && await conversationFabricParentReserved(conversation.url)) {
+    const runAt = new Date().toISOString();
+    await updateConversationStatus(chatId, {
+      lastRunAt: runAt,
+      lastStatus: "conversation_fabric_parent_reserved",
+      lastRuntimeSource: runtime.source
+    }, conversation.generation);
+    if (!manual) {
+      await scheduleAfterMinutes(chatId, runtime.busyRetryMinutes, conversation.generation);
+    }
+    return {
+      ok: false,
+      reason: "conversation_fabric_parent_reserved",
+      status: "conversation_fabric_parent_reserved",
+      runtime,
+      conversationId: chatId,
+      bridgeMode: conversation.bootstrapPending ? "bootstrap" : "wake"
+    };
+  }
   const runAt = new Date().toISOString();
   const tab = await findConversationTab(conversation);
   if (!tab?.id) {
@@ -146,7 +176,6 @@ async function deliverConversation(chatId, manual) {
     }
   }
 
-  const fabricFeedback = await conversationFabricFeedbackForParent(conversation.url);
   const prompt = fabricFeedback?.prompt || (conversation.bootstrapPending
     ? buildBootstrapPrompt(runtime, conversation)
     : buildWakePrompt(runtime, conversation));
