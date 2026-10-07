@@ -6,6 +6,7 @@ import os
 import platform
 import shutil
 import socket
+import time
 
 from local_agent.host_ops.core.execution import ExecutionLimits, ProcessResult, ProcessRunner
 
@@ -22,6 +23,24 @@ _DEFAULT_LIMITS = ExecutionLimits(
 
 class HostProfileError(RuntimeError):
     """Raised when trustworthy local host facts cannot be produced."""
+
+
+class _OperationBudget:
+    def __init__(self, limits: ExecutionLimits) -> None:
+        self._limits = limits
+        self._deadline = time.monotonic() + limits.timeout_seconds
+
+    def remaining(self) -> ExecutionLimits:
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise HostProfileError("host profile exceeded its whole-operation timeout")
+        return ExecutionLimits(
+            timeout_seconds=remaining,
+            terminate_grace_seconds=self._limits.terminate_grace_seconds,
+            pipe_drain_seconds=self._limits.pipe_drain_seconds,
+            max_stdout_bytes=self._limits.max_stdout_bytes,
+            max_stderr_bytes=self._limits.max_stderr_bytes,
+        )
 
 
 class HostProfiler:
@@ -44,21 +63,36 @@ class HostProfiler:
             raise HostProfileError(f"could not inspect root filesystem capacity: {exc}") from exc
 
         effective_limits = limits or _DEFAULT_LIMITS
+        if system == "Darwin":
+            budget = _OperationBudget(effective_limits)
+            memory_total_bytes = self._memory_total_bytes(
+                system,
+                limits=budget.remaining(),
+            )
+            gpu_devices = discover_gpu_devices(
+                system,
+                runner=self._runner,
+                limits=budget.remaining(),
+            )
+        else:
+            memory_total_bytes = self._memory_total_bytes(
+                system,
+                limits=effective_limits,
+            )
+            gpu_devices = discover_gpu_devices(
+                system,
+                runner=self._runner,
+                limits=effective_limits,
+            )
+
         return HostProfile(
             hostname=hostname,
             system=system,
             release=release,
             architecture=architecture,
             logical_cpu_count=os.cpu_count(),
-            memory_total_bytes=self._memory_total_bytes(
-                system,
-                limits=effective_limits,
-            ),
-            gpu_devices=discover_gpu_devices(
-                system,
-                runner=self._runner,
-                limits=effective_limits,
-            ),
+            memory_total_bytes=memory_total_bytes,
+            gpu_devices=gpu_devices,
             root_total_bytes=disk.total,
             root_free_bytes=disk.free,
         )

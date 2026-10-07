@@ -5,6 +5,7 @@ from __future__ import annotations
 import platform
 import plistlib
 import re
+import time
 
 from local_agent.host_ops.core.execution import ExecutionLimits, ProcessResult, ProcessRunner
 
@@ -12,10 +13,29 @@ from .models import MacOSStorageActionResult
 
 _DISKUTIL = "/usr/sbin/diskutil"
 _DISK_IDENTIFIER = re.compile(r"^disk\d+(?:s\d+)?$")
+_DEFAULT_LIMITS = ExecutionLimits()
 
 
 class MacOSStorageControlError(RuntimeError):
     """Raised when a macOS storage action cannot be performed safely."""
+
+
+class _OperationBudget:
+    def __init__(self, limits: ExecutionLimits) -> None:
+        self._limits = limits
+        self._deadline = time.monotonic() + limits.timeout_seconds
+
+    def remaining(self) -> ExecutionLimits:
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise MacOSStorageControlError("macOS storage action exceeded its whole-operation timeout")
+        return ExecutionLimits(
+            timeout_seconds=remaining,
+            terminate_grace_seconds=self._limits.terminate_grace_seconds,
+            pipe_drain_seconds=self._limits.pipe_drain_seconds,
+            max_stdout_bytes=self._limits.max_stdout_bytes,
+            max_stderr_bytes=self._limits.max_stderr_bytes,
+        )
 
 
 class MacOSStorageController:
@@ -36,8 +56,9 @@ class MacOSStorageController:
         *,
         limits: ExecutionLimits | None = None,
     ) -> MacOSStorageActionResult:
-        self._require_external(identifier, limits=limits)
-        return self._action("mount", identifier, limits=limits)
+        budget = _OperationBudget(limits or _DEFAULT_LIMITS)
+        self._require_external(identifier, budget=budget)
+        return self._action("mount", identifier, budget=budget)
 
     def unmount(
         self,
@@ -45,8 +66,9 @@ class MacOSStorageController:
         *,
         limits: ExecutionLimits | None = None,
     ) -> MacOSStorageActionResult:
-        self._require_external(identifier, limits=limits)
-        return self._action("unmount", identifier, limits=limits)
+        budget = _OperationBudget(limits or _DEFAULT_LIMITS)
+        self._require_external(identifier, budget=budget)
+        return self._action("unmount", identifier, budget=budget)
 
     def eject(
         self,
@@ -54,20 +76,24 @@ class MacOSStorageController:
         *,
         limits: ExecutionLimits | None = None,
     ) -> MacOSStorageActionResult:
-        info = self._require_external(identifier, limits=limits)
+        budget = _OperationBudget(limits or _DEFAULT_LIMITS)
+        info = self._require_external(identifier, budget=budget)
         if info.get("Whole") is not True:
             raise MacOSStorageControlError("eject requires a whole external disk identifier")
-        return self._action("eject", identifier, limits=limits)
+        return self._action("eject", identifier, budget=budget)
 
     def _require_external(
         self,
         identifier: str,
         *,
-        limits: ExecutionLimits | None,
+        budget: _OperationBudget,
     ) -> dict[object, object]:
         self._require_macos()
         _validate_identifier(identifier)
-        result = self._runner.run((_DISKUTIL, "info", "-plist", identifier), limits=limits)
+        result = self._runner.run(
+            (_DISKUTIL, "info", "-plist", identifier),
+            limits=budget.remaining(),
+        )
         payload = _plist(result, f"inspect storage target {identifier}")
         if not isinstance(payload, dict):
             raise MacOSStorageControlError(
@@ -84,9 +110,12 @@ class MacOSStorageController:
         action: str,
         identifier: str,
         *,
-        limits: ExecutionLimits | None,
+        budget: _OperationBudget,
     ) -> MacOSStorageActionResult:
-        result = self._runner.run((_DISKUTIL, action, identifier), limits=limits)
+        result = self._runner.run(
+            (_DISKUTIL, action, identifier),
+            limits=budget.remaining(),
+        )
         _require_ok(result, f"{action} storage target {identifier}")
         return MacOSStorageActionResult(
             action=action,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import platform
 import plistlib
 import re
+import time
 from collections.abc import Iterator, Mapping
 
 from local_agent.host_ops.core.execution import ExecutionLimits, ProcessResult, ProcessRunner
@@ -17,10 +18,29 @@ _IOREG = "/usr/sbin/ioreg"
 _DISKUTIL = "/usr/sbin/diskutil"
 _DISK_IDENTIFIER = re.compile(r"^disk\d+(?:s\d+)?$")
 _HEX_LOCATION = re.compile(r"^[0-9a-fA-F]{8}$")
+_DEFAULT_LIMITS = ExecutionLimits()
 
 
 class MacOSInspectionError(RuntimeError):
     """Raised when macOS inspection cannot produce trustworthy structured evidence."""
+
+
+class _OperationBudget:
+    def __init__(self, limits: ExecutionLimits) -> None:
+        self._limits = limits
+        self._deadline = time.monotonic() + limits.timeout_seconds
+
+    def remaining(self) -> ExecutionLimits:
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise MacOSInspectionError("macOS inspection exceeded its whole-operation timeout")
+        return ExecutionLimits(
+            timeout_seconds=remaining,
+            terminate_grace_seconds=self._limits.terminate_grace_seconds,
+            pipe_drain_seconds=self._limits.pipe_drain_seconds,
+            max_stdout_bytes=self._limits.max_stdout_bytes,
+            max_stderr_bytes=self._limits.max_stderr_bytes,
+        )
 
 
 class MacOSInspector:
@@ -37,12 +57,13 @@ class MacOSInspector:
 
     def host_info(self, *, limits: ExecutionLimits | None = None) -> MacOSHostInfo:
         self._require_macos()
+        budget = _OperationBudget(limits or _DEFAULT_LIMITS)
         version = _single_line(
-            self._run((_SW_VERS, "-productVersion"), limits=limits),
+            self._run((_SW_VERS, "-productVersion"), limits=budget.remaining()),
             "read macOS product version",
         )
         architecture = _single_line(
-            self._run((_UNAME, "-m"), limits=limits),
+            self._run((_UNAME, "-m"), limits=budget.remaining()),
             "read host architecture",
         )
         return MacOSHostInfo(product_version=version, architecture=architecture)
@@ -119,8 +140,12 @@ class MacOSInspector:
         limits: ExecutionLimits | None = None,
     ) -> tuple[MacOSStorageDevice, ...]:
         self._require_macos()
+        budget = _OperationBudget(limits or _DEFAULT_LIMITS)
         listing = _plist(
-            self._run((_DISKUTIL, "list", "-plist", "external", "physical"), limits=limits),
+            self._run(
+                (_DISKUTIL, "list", "-plist", "external", "physical"),
+                limits=budget.remaining(),
+            ),
             "list external physical storage",
         )
         if not isinstance(listing, dict):
@@ -135,7 +160,10 @@ class MacOSInspector:
             if identifier is None or not _DISK_IDENTIFIER.fullmatch(identifier):
                 continue
             info = _plist(
-                self._run((_DISKUTIL, "info", "-plist", identifier), limits=limits),
+                self._run(
+                    (_DISKUTIL, "info", "-plist", identifier),
+                    limits=budget.remaining(),
+                ),
                 f"inspect storage device {identifier}",
             )
             if not isinstance(info, dict):

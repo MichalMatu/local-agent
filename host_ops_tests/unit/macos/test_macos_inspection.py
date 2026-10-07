@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import importlib
 import plistlib
 
 import pytest
 
 from local_agent.host_ops.capabilities.local.macos import MacOSInspectionError, MacOSInspector
-from local_agent.host_ops.core.execution import ProcessResult, ProcessState
+from local_agent.host_ops.core.execution import ExecutionLimits, ProcessResult, ProcessState
+
+inspection_module = importlib.import_module(
+    "local_agent.host_ops.capabilities.local.macos.inspection"
+)
 
 
 def _result(
@@ -33,9 +38,11 @@ class FakeRunner:
     def __init__(self, results: list[ProcessResult]) -> None:
         self._results = list(results)
         self.calls: list[tuple[str, ...]] = []
+        self.limits: list[ExecutionLimits | None] = []
 
     def run(self, argv, *, cwd=None, env_overrides=None, limits=None):
         self.calls.append(tuple(argv))
+        self.limits.append(limits)
         return self._results.pop(0)
 
 
@@ -49,6 +56,35 @@ def test_host_info_uses_pinned_native_tools() -> None:
         ("/usr/bin/sw_vers", "-productVersion"),
         ("/usr/bin/uname", "-m"),
     ]
+
+
+def test_host_info_uses_one_whole_operation_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner([_result(stdout="15.6.1\n"), _result(stdout="arm64\n")])
+    ticks = iter((100.0, 101.0, 104.0))
+    monkeypatch.setattr(inspection_module.time, "monotonic", lambda: next(ticks))
+
+    MacOSInspector(runner=runner, system_name="Darwin").host_info(
+        limits=ExecutionLimits(timeout_seconds=10.0)
+    )
+
+    assert [limit.timeout_seconds for limit in runner.limits if limit is not None] == [9.0, 6.0]
+
+
+def test_host_info_fails_before_second_process_when_budget_is_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner([_result(stdout="15.6.1\n")])
+    ticks = iter((100.0, 101.0, 110.0))
+    monkeypatch.setattr(inspection_module.time, "monotonic", lambda: next(ticks))
+
+    with pytest.raises(MacOSInspectionError, match="whole-operation timeout"):
+        MacOSInspector(runner=runner, system_name="Darwin").host_info(
+            limits=ExecutionLimits(timeout_seconds=10.0)
+        )
+
+    assert runner.calls == [("/usr/bin/sw_vers", "-productVersion")]
 
 
 def test_usb_devices_use_io_usb_host_device_plist() -> None:
@@ -223,6 +259,33 @@ def test_external_storage_inspects_each_diskutil_identifier() -> None:
         ("/usr/sbin/diskutil", "list", "-plist", "external", "physical"),
         ("/usr/sbin/diskutil", "info", "-plist", "disk4"),
         ("/usr/sbin/diskutil", "info", "-plist", "disk4s1"),
+    ]
+
+
+def test_external_storage_shares_budget_across_listing_and_info_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    listing = {"AllDisks": ["disk4", "disk4s1"]}
+    disk = {"Whole": True, "Internal": False}
+    volume = {"Whole": False, "PartOfWhole": "disk4", "Internal": False}
+    runner = FakeRunner(
+        [
+            _result(stdout=_plist(listing)),
+            _result(stdout=_plist(disk)),
+            _result(stdout=_plist(volume)),
+        ]
+    )
+    ticks = iter((100.0, 101.0, 104.0, 108.0))
+    monkeypatch.setattr(inspection_module.time, "monotonic", lambda: next(ticks))
+
+    MacOSInspector(runner=runner, system_name="Darwin").external_storage(
+        limits=ExecutionLimits(timeout_seconds=10.0)
+    )
+
+    assert [limit.timeout_seconds for limit in runner.limits if limit is not None] == [
+        9.0,
+        6.0,
+        2.0,
     ]
 
 
