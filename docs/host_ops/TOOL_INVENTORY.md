@@ -199,7 +199,7 @@ Canonical capability: `capabilities/remote/ssh/*`.
 
 Transport is pinned to system OpenSSH with `-F /dev/null`, strict host-key checking, explicit identity file/user, public-key-only authentication, disabled forwarding/agent mutation/control multiplexing and bounded `ProcessRunner` execution.
 
-Transfers use a shared whole-operation budget, 512 MiB default / 16 GiB hard maximum, staging, SHA-256 and size verification, explicit replace and cleanup evidence.
+Transfers use a shared whole-operation budget, 512 MiB default / 16 GiB hard maximum, staging, SHA-256 and size verification, explicit replace and cleanup evidence. No-clobber upload prefers a remote hard-link commit and falls back to a no-clobber rename when the target filesystem denies the hard link; the fallback verifies whether staging was consumed and fails closed if the destination appeared concurrently.
 
 Tests: `host_ops_tests/unit/ssh/*`, `host_ops_tests/integration/ssh/*`, CLI SSH tests.
 
@@ -208,14 +208,19 @@ Live evidence:
 - TCP `192.168.0.100:8022` connected successfully;
 - pinned OpenSSH transport, strict host-key verification and configured public-key authentication succeeded;
 - remote user was `u0_a520` and `identity_matches=true`;
-- result had no timeout, truncation, background-process leak or repository edit.
+- task `local-agent-host-ops-ssh-transfer-e2e-20261007-v1` then proved bounded `ssh exec` against the same target and reported the expected Termux environment: user `u0_a520`, home `/data/data/com.termux/files/home`, prefix `/data/data/com.termux/files/usr` and Bash under the Termux prefix;
+- that first live transfer exposed a real Android/Termux filesystem defect in the no-clobber upload commit: `ln` returned `Permission denied` for the verified SCP staging file even though the destination did not exist;
+- `5d6fe44415be47fe3a5225b4adcf2440b937f874` added a fail-closed `mv -n` fallback plus regression coverage for hard-link denial and a concurrent destination race; `3f3aa98c78b0209bdb641450c28e043671142fcc` preserved the same behavior while keeping the Host Ops design-budget gate green;
+- exact-head CI run `37561609068` for `3f3aa98c78b0209bdb641450c28e043671142fcc` passed `absorbed-host-ops`, `test`, `coverage`, `bridge-browser`, `python-314` and `macos-smoke`;
+- task `local-agent-host-ops-ssh-transfer-e2e-20261007-v2` then passed on that live revision: verified push and pull of one disposable 33-byte file both reported SHA-256 `fcfdcbeb2735095eb2049b7f426f38bd85d3adeab2e27a132160dcd6d6bbcfe2`, upload staging was cleaned, the pulled local directory was synced and the task had no timeout, truncation, background-process leak or repository edit;
+- task `local-agent-host-ops-ssh-cleanup-verify-20261007-v1` independently confirmed that the exact two local disposable paths and the exact remote disposable path were absent after cleanup.
 
-Hardening next:
-- run bounded `ssh exec` identity/environment smoke;
-- run verified disposable push/pull and exact cleanup;
-- `ssh exec` must be modeled as arbitrary-code-like authority in the future effect taxonomy;
-- keep target identity distinct from scheduler resource identity;
-- retain integration coverage for host-key/authentication failures and interrupted transfer cleanup.
+Hardening status before expansion:
+- current `ssh check`, bounded `ssh exec`, verified push and verified pull paths all have live Termux evidence;
+- `ssh exec` remains arbitrary-code-like authority for the future effect taxonomy;
+- keep SSH target identity distinct from scheduler resource identity; the live tasks correctly used `resources: []`;
+- retain integration coverage for host-key/authentication failures, interrupted transfer cleanup and no-clobber races;
+- defer broader SSH capability expansion until the existing-tool hardening phase is complete and the common Tool Runtime contract is defined.
 
 ### Remote Git workflows
 
