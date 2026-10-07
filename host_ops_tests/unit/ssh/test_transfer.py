@@ -39,11 +39,18 @@ def _target() -> HostTarget:
 
 class FakeTransferRunner:
     def __init__(
-        self, remote_files: dict[str, bytes] | None = None, *, corrupt_push: bool = False
+        self,
+        remote_files: dict[str, bytes] | None = None,
+        *,
+        corrupt_push: bool = False,
+        hardlink_error: str | None = None,
+        destination_appears_on_link: bytes | None = None,
     ) -> None:
         self.remote_files = dict(remote_files or {})
         self.remote_directories = {"/remote"}
         self.corrupt_push = corrupt_push
+        self.hardlink_error = hardlink_error
+        self.destination_appears_on_link = destination_appears_on_link
         self.scp_calls = 0
         self.commands: list[tuple[str, ...]] = []
 
@@ -89,12 +96,23 @@ class FakeTransferRunner:
             return _result(f"{digest}  {path}\n")
         if program == "ln":
             source, destination = remote[1], remote[2]
+            if self.destination_appears_on_link is not None:
+                self.remote_files[destination] = self.destination_appears_on_link
+                return _result(exit_code=1, stderr="File exists")
+            if self.hardlink_error is not None:
+                return _result(exit_code=1, stderr=self.hardlink_error)
             if destination in self.remote_files:
                 return _result(exit_code=1, stderr="File exists")
             self.remote_files[destination] = self.remote_files[source]
             return _result()
         if program == "mv":
-            source, destination = remote[1], remote[2]
+            no_clobber = remote[1] == "-n"
+            if no_clobber:
+                source, destination = remote[2], remote[3]
+                if destination in self.remote_files:
+                    return _result()
+            else:
+                source, destination = remote[1], remote[2]
             self.remote_files[destination] = self.remote_files.pop(source)
             return _result()
         if program == "rm":
@@ -120,6 +138,40 @@ def test_push_stages_verifies_and_commits_without_replace(tmp_path: Path) -> Non
     assert runner.remote_files["/remote/firmware.bin"] == b"firmware-data"
     assert not any(".hostops-upload-" in path for path in runner.remote_files)
     assert runner.scp_calls == 1
+
+
+def test_push_falls_back_to_noclobber_rename_when_hardlinks_are_denied(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "firmware.bin"
+    source.write_bytes(b"firmware-data")
+    runner = FakeTransferRunner(hardlink_error="Permission denied")
+
+    result = SshFileTransfer(runner).push(_target(), source, "/remote/firmware.bin")
+
+    assert result.replaced_existing is False
+    assert result.staging_cleaned is True
+    assert runner.remote_files["/remote/firmware.bin"] == b"firmware-data"
+    assert not any(".hostops-upload-" in path for path in runner.remote_files)
+    assert any(
+        tuple(shlex.split(command[-1])[:2]) == ("mv", "-n")
+        for command in runner.commands
+        if command[0] != SYSTEM_SCP_EXECUTABLE
+    )
+
+
+def test_push_noclobber_fallback_preserves_destination_that_appears(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "firmware.bin"
+    source.write_bytes(b"firmware-data")
+    runner = FakeTransferRunner(destination_appears_on_link=b"racer")
+
+    with pytest.raises(SshTransferError, match="destination appeared"):
+        SshFileTransfer(runner).push(_target(), source, "/remote/firmware.bin")
+
+    assert runner.remote_files["/remote/firmware.bin"] == b"racer"
+    assert not any(".hostops-upload-" in path for path in runner.remote_files)
 
 
 def test_push_requires_explicit_replace_for_existing_remote_file(tmp_path: Path) -> None:

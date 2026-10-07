@@ -121,11 +121,11 @@ class SshFileTransfer:
                 )
                 stage_present = False
             else:
-                self._require_remote_ok(
+                stage_present = not self._commit_remote_no_clobber(
                     target,
-                    ("ln", stage, destination),
+                    stage,
+                    destination,
                     budget,
-                    "remote no-clobber commit",
                 )
 
             final_size = self._remote_size(target, destination, budget)
@@ -259,6 +259,50 @@ class SshFileTransfer:
             raise SshTransferError("remote source must not be a symbolic link")
         if not self._remote_test(target, "-f", path, budget):
             raise SshTransferError("remote source is not a regular file")
+
+    def _commit_remote_no_clobber(
+        self,
+        target: HostTarget,
+        stage: str,
+        destination: str,
+        budget: _TransferBudget,
+    ) -> bool:
+        link_result = self._client.execute(
+            target,
+            ("ln", stage, destination),
+            limits=budget.remaining(),
+        )
+        if link_result.ok:
+            return False
+        if link_result.state is not ProcessState.COMPLETED:
+            raise SshTransferError(
+                _process_failure("remote no-clobber hard-link commit", link_result)
+            )
+
+        # Android/Termux can deny hard links for an SCP-uploaded staging file.
+        # A successful mv -n consumes the stage; a no-clobber no-op leaves it in place.
+        move_result = self._client.execute(
+            target,
+            ("mv", "-n", stage, destination),
+            limits=budget.remaining(),
+        )
+        if move_result.state is not ProcessState.COMPLETED:
+            raise SshTransferError(
+                _process_failure("remote no-clobber rename fallback", move_result)
+            )
+        if not self._remote_test(target, "-e", stage, budget):
+            return True
+        if self._remote_test(target, "-e", destination, budget):
+            raise SshTransferError(
+                "remote destination appeared during no-clobber commit"
+            )
+        if not move_result.ok:
+            raise SshTransferError(
+                _process_failure("remote no-clobber rename fallback", move_result)
+            )
+        raise SshTransferError(
+            "remote no-clobber rename fallback left the staging file in place"
+        )
 
     def _remote_test(
         self,
