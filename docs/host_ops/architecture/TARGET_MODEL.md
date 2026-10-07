@@ -36,6 +36,55 @@ The current baseline includes:
 
 These are generic primitives. Device protocols, project commands and task policy remain downstream.
 
+## Target, locator, lock-scope and scheduler-resource identity
+
+Host Ops and Local Agent use four different identity concepts. They are intentionally not aliases:
+
+| Concept | Meaning |
+| --- | --- |
+| operation target | the explicit logical object an operation intends to address |
+| transport locator | the current path/address used to reach that target; it may change without the target changing |
+| durable identity evidence | stable target properties used to reject accidental retargeting when the platform exposes them |
+| tool-runtime lock scope | a capability/workflow-internal correctness lock such as a remote-Git workspace lock |
+| scheduler resource | an explicit Local Agent cross-task contention key; it controls admission but never proves target identity |
+
+Canonical rules by maintained target family:
+
+- Serial: a resolved /dev character-device path is an operation locator, not durable physical identity.
+  Prefer USB VID:PID plus hardware serial number as durable evidence when available. macOS location_id is
+  a topology/re-discovery hint, not unit identity. Current discovery exposes USB and serial records
+  separately and does not yet prove a durable binding between them, so consequential project-device
+  work must rediscover immediately before use and fail on ambiguity.
+- ADB: AdbDevice.serial is the current operation selector. For wireless ADB, IP:port is only a
+  transport locator and must never be persisted as durable handset identity. Re-list immediately
+  before an effect and validate the ready device plus the fixed AdbIdentity profile. That profile is
+  mismatch evidence, not a universally unique immutable hardware identity.
+- Removable storage: diskN, diskNsN, /dev/disk*, mount point and volume name are locators/current
+  state, not durable media identity. Re-inventory before each effect and revalidate external,
+  whole/partition and read-only relationships. After disconnect/reconnect, require fresh selection
+  rather than assuming the same disk number is the same physical medium. A future durable identity
+  may use volume/media UUID or physical serial where the platform exposes trustworthy values.
+- SSH: HostTarget.alias is the stable logical configured target. host:port is its transport locator,
+  identity_file is a credential selector, and strict host-key verification authenticates the live
+  endpoint. Scheduler resources are not derived from the alias, address or credential path.
+- Remote Git: the remote target is the configured SSH target plus the exact repository_url string;
+  the source snapshot is the full revision. A workspace is a cache scope bound to that exact URL by
+  marker validation. The mandatory workspace lock and optional broader host lock are tool-runtime
+  correctness locks. They are not automatically Local Agent scheduler resources.
+
+Scheduler-resource rules remain separate:
+
+- resources: [] is the normal contract for project-dedicated hardware and ordinary target-specific
+  work;
+- add a named scheduler resource only for a real shared external conflict that must serialize across
+  repositories or tasks;
+- reserve machine for true whole-host exclusivity;
+- a scheduler resource key never substitutes for live target validation, and a tool-runtime lock
+  never becomes a scheduler resource merely because both mechanisms use locking.
+
+This distinction is part of the Tool Runtime contract. Future target improvements should add better
+durable evidence where needed without introducing a second scheduler or a universal target registry.
+
 ## Boundary rules
 
 The frozen boundary is responsibility, not today's feature count:

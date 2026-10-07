@@ -111,6 +111,7 @@ Live evidence:
 Hardening status before expansion:
 - current discovery, identity, bounded logcat, verified push and verified pull paths all have real-device evidence;
 - keep exact explicit serial targeting inside each operation, but rediscover ephemeral wireless transport immediately before use;
+- treat the fixed AdbIdentity profile as mismatch evidence rather than a universally unique immutable hardware identifier;
 - keep the distinction between tool target identity and scheduler lock/resource identity explicit in the future Local Agent <-> Tool Runtime contract;
 - defer wireless pair/connect/disconnect and broader general ADB authority until the existing-tool hardening phase is complete and the common Tool Runtime contract is defined.
 
@@ -163,8 +164,8 @@ Tests: unit validation plus real PTY integration in `host_ops_tests/integration/
 
 Hardening:
 - add physical-device smoke;
-- future resource identity should be the resolved serial device;
-- classify read-only and write transactions differently.
+- /dev serial paths are ephemeral operation locators; durable unit evidence should prefer USB VID:PID plus hardware serial when available, with location_id only as a re-discovery hint;
+- effect classification is fixed by the canonical matrix; fresh discovery and unambiguous target validation remain required before consequential physical-device work.
 
 ### macOS host/device/storage
 
@@ -181,14 +182,14 @@ Canonical capability: `capabilities/local/macos/*`.
 | eject | `macos eject IDENT` | disruptive whole-disk mutation |
 | verified media deployment | `macos deploy-media IDENT SOURCE` | composite mount/write/optional eject workflow |
 
-Guards include explicit `diskN`/`diskNsN` identity and fail-closed confirmation that targets are external; eject requires a whole disk.
+Guards require an explicit diskN/diskNsN locator plus fail-closed confirmation that targets are external; the disk number is not treated as durable physical-media identity, and eject still requires a whole disk.
 
 Tests: `host_ops_tests/unit/macos/*`, CLI storage/removable-media tests.
 
 Hardening:
 - add physical removable-media integration smoke;
-- convert multi-command storage workflows from per-process timeout reuse to a true whole-operation budget;
-- local artifact copy inside `deploy-media` currently has no independent wall-clock/size budget.
+- removable-media composition now uses one shared whole-operation deadline;
+- artifact deployment receives the workflow's remaining deadline and keeps its existing bounded size/verification contract.
 
 ### Local artifacts/files
 
@@ -268,7 +269,7 @@ Live evidence:
 Hardening status before expansion:
 - current `ssh check`, bounded `ssh exec`, verified push and verified pull paths all have live Termux evidence;
 - SSH exec is classified DISRUPTIVE / ARBITRARY_CODE_LIKE; target/resource identity remains independent;
-- keep SSH target identity distinct from scheduler resource identity; the live tasks correctly used `resources: []`;
+- HostTarget.alias is the stable logical SSH target; host:port is the transport locator, while scheduler resources remain an independent contention decision and the live tasks correctly used resources: [];
 - retain integration coverage for host-key/authentication failures, interrupted transfer cleanup and no-clobber races;
 - defer broader SSH capability expansion until the existing-tool hardening phase is complete and the common Tool Runtime contract is defined.
 
@@ -288,6 +289,7 @@ Canonical workflow: `workflows/remote_git/*`.
 Important current invariants:
 - full lowercase 40/64-hex revision only;
 - exact repository URL/workspace binding;
+- remote target identity is the configured SSH target plus exact repository URL; full revision identifies the requested source snapshot;
 - fetched commit reachability proof;
 - hard reset/clean before revision transitions;
 - workspace and optional host-wide `flock`;
@@ -297,7 +299,7 @@ Important current invariants:
 Tests: `host_ops_tests/unit/workflows/test_remote_git*.py`, CLI remote-Git tests.
 
 Hardening:
-- make remote workspace and optional heavy-job lock identities explicit future resources;
+- keep mandatory workspace locks and optional host locks as tool-runtime correctness scopes; do not automatically translate them into scheduler resources;
 - keep `run` classified as arbitrary-code-like, not merely a Git workflow;
 - review whether the single SSH process timeout is sufficient as a semantic whole workflow deadline for long remote commands.
 
@@ -312,7 +314,7 @@ Result: `RemovableMediaDeploymentResult`; failures retain stage and already-comp
 
 Hardening:
 - shared end-to-end monotonic deadline is complete; physical-media verification remains deferred until disposable media is attached;
-- explicit target-disk resource identity;
+- diskN/diskNsN remain current locators only; durable media identity needs UUID/serial evidence where available, and scheduler resources remain a separate contention decision;
 - physical-media smoke including partial failure after mount/deploy.
 
 ## Host Ops browser operations

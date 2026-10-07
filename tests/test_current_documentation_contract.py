@@ -160,6 +160,53 @@ class CurrentDocumentationContractTests(unittest.TestCase):
             security,
         )
 
+    def test_host_ops_target_locator_and_scheduler_resource_identity_are_separate(self) -> None:
+        target_model = (
+            REPO_ROOT / "docs" / "host_ops" / "architecture" / "TARGET_MODEL.md"
+        ).read_text(encoding="utf-8")
+        inventory = (
+            REPO_ROOT / "docs" / "host_ops" / "TOOL_INVENTORY.md"
+        ).read_text(encoding="utf-8")
+
+        required = (
+            "operation target",
+            "transport locator",
+            "durable identity evidence",
+            "tool-runtime lock scope",
+            "scheduler resource",
+            "For wireless ADB, IP:port is only a",
+            "diskN, diskNsN, /dev/disk*, mount point and volume name are locators",
+            "HostTarget.alias is the stable logical configured target",
+            "workspace lock and optional broader host lock are tool-runtime",
+            "resources: [] is the normal contract for project-dedicated hardware",
+            "a scheduler resource key never substitutes for live target validation",
+        )
+        for phrase in required:
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, target_model)
+
+        forbidden_inventory = (
+            "future resource identity should be the resolved serial device",
+            "explicit target-disk resource identity",
+            "make remote workspace and optional heavy-job lock identities explicit future resources",
+        )
+        for phrase in forbidden_inventory:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn(phrase, inventory)
+
+        self.assertIn(
+            "disk number is not treated as durable physical-media identity",
+            inventory,
+        )
+        self.assertIn(
+            "tool-runtime correctness scopes; do not automatically translate them into scheduler resources",
+            inventory,
+        )
+        self.assertIn(
+            "AdbIdentity profile as mismatch evidence rather than a universally unique immutable hardware identifier",
+            inventory,
+        )
+
     def test_golden_standard_release_state_matches_source_version(self) -> None:
         golden = (REPO_ROOT / "docs" / "GOLDEN_STANDARD.md").read_text(encoding="utf-8")
         released_match = re.search(
