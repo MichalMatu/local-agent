@@ -286,16 +286,25 @@ applyConversationFabricControl = async function applyConversationFabricControlRe
     typeof result.feedbackPrompt === "string" &&
     result.feedbackPrompt.trim()
   ) {
-    const delivery = await runFeedbackCycle({
-      conversationId: conversationId(String(message?.conversationUrl || "")),
-      manual: true,
-      promptOverride: result.feedbackPrompt
+    const parentUrl = String(message?.conversationUrl || "");
+    const feedbackId = `${result.reason}:${String(message?.fingerprint || "")}`;
+    await queueConversationFabricExplicitFeedback(parentUrl, {
+      id: feedbackId,
+      kind: result.reason,
+      prompt: result.feedbackPrompt
     });
+    const delivery = await runFeedbackCycle({
+      conversationId: conversationId(parentUrl),
+      manual: true
+    });
+    const pending = await conversationFabricExplicitFeedbackQueue(parentUrl);
+    const stillQueued = pending.items.some((item) => item.id === feedbackId);
     const safe = { ...result };
     delete safe.feedbackPrompt;
-    safe.feedback_delivered_by_worker = delivery?.ok === true;
-    if (!delivery?.ok) {
-      safe.feedback_delivery_reason = String(delivery?.reason || "delivery_unconfirmed");
+    safe.feedback_queued = true;
+    safe.feedback_delivered_by_worker = !stillQueued;
+    if (stillQueued) {
+      safe.feedback_delivery_reason = String(delivery?.reason || "delivery_pending");
     }
     return safe;
   }
