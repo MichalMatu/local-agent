@@ -41,6 +41,7 @@ function makeHarness({
   let saveCalls = 0;
   let scheduleCalls = 0;
   const sentPrompts = [];
+  const localStorage = {};
 
   const userMessages = [...earlierUserTexts, latestUserText].map((text) => {
     const turn = {};
@@ -96,6 +97,19 @@ function makeHarness({
     },
     definitelyNoContentReceiver: () => false,
     chrome: {
+      storage: {
+        local: {
+          get: async (key) => {
+            if (key === null) return { ...localStorage };
+            if (typeof key === "string") {
+              return Object.hasOwn(localStorage, key) ? { [key]: localStorage[key] } : {};
+            }
+            return {};
+          },
+          set: async (patch) => { Object.assign(localStorage, patch); },
+          remove: async (key) => { delete localStorage[key]; }
+        }
+      },
       scripting: {
         executeScript: async (options) => {
           scriptCalls += 1;
@@ -123,6 +137,7 @@ function makeHarness({
     state,
     campaign,
     sentPrompts,
+    localStorage,
     counts: () => ({ sendCalls, scriptCalls, saveCalls, scheduleCalls })
   };
 }
@@ -234,6 +249,50 @@ async function testExplicitFabricPromptUsesSingleWriterEvenWhileCampaignIsActive
   });
 }
 
+async function testQueuedFabricFeedbackPreemptsNormalWakeAndIsAcknowledged() {
+  const harness = makeHarness({
+    fabric: false,
+    activeFabric: false,
+    lastStatus: "sent"
+  });
+  const prompt = "Conversation Fabric result inspection: child=verify";
+  const queued = await harness.context.queueConversationFabricExplicitFeedback(URL, {
+    id: "conversation_fabric_inspect:deadbeef",
+    kind: "conversation_fabric_inspect",
+    prompt
+  });
+  assert.equal(queued.prompt, prompt);
+
+  const result = await harness.context.deliverConversation("parent", false);
+  assert.equal(result.ok, true);
+  assert.equal(result.explicitFabricFeedback, true);
+  assert.deepEqual(harness.sentPrompts, [prompt]);
+  assert.equal(await harness.context.conversationFabricExplicitFeedbackForParent(URL), null);
+  assert.deepEqual(harness.counts(), {
+    sendCalls: 1,
+    scriptCalls: 0,
+    saveCalls: 0,
+    scheduleCalls: 1
+  });
+}
+
+async function testSameFeedbackIdIsIdempotentAndConflictFailsClosed() {
+  const harness = makeHarness({ fabric: false });
+  const first = {
+    id: "conversation_fabric_inspect:deadbeef",
+    kind: "conversation_fabric_inspect",
+    prompt: "inspect one"
+  };
+  await harness.context.queueConversationFabricExplicitFeedback(URL, first);
+  await harness.context.queueConversationFabricExplicitFeedback(URL, { ...first });
+  const queue = await harness.context.conversationFabricExplicitFeedbackQueue(URL);
+  assert.equal(queue.items.length, 1);
+  await assert.rejects(
+    harness.context.queueConversationFabricExplicitFeedback(URL, { ...first, prompt: "inspect changed" }),
+    /same-id feedback conflict/
+  );
+}
+
 async function testSendButtonRetryReconcilesExactTerminalPromptAfterOperatorSubmit() {
   const harness = makeHarness({ lastStatus: "send_button_not_ready" });
   const result = await harness.context.deliverConversation("parent", false);
@@ -272,6 +331,8 @@ async function testSendButtonRetryWithDifferentUserHistoryFallsBackToNormalDeliv
   await testNormalWakeNeverUsesFabricReconciliation();
   await testActiveFabricReservesParentFromNormalWake();
   await testExplicitFabricPromptUsesSingleWriterEvenWhileCampaignIsActive();
+  await testQueuedFabricFeedbackPreemptsNormalWakeAndIsAcknowledged();
+  await testSameFeedbackIdIsIdempotentAndConflictFailsClosed();
   await testSendButtonRetryReconcilesExactTerminalPromptAfterOperatorSubmit();
   await testSendButtonRetryWithDifferentUserHistoryFallsBackToNormalDelivery();
   console.log("conversation_fabric_terminal_delivery_reconciliation.test.js: OK");
