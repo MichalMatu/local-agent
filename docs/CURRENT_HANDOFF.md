@@ -12,6 +12,19 @@ Status: Local Agent remains on release line `v4.20.6`. The current post-release 
 
 Stable source rollback anchor: `main@59c5d699bc32283ebb98fc026f76128ec9db6d2a`. The current verification and branch-hygiene record is `docs/CHECKPOINT_2026-10-06_SEQUENTIAL_HARDENING_BASELINE.md`; the earlier `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md` remains historical evidence.
 
+## Phase B pause note — Kobra serial smoke deferred
+
+Work is intentionally paused here.
+
+- The CH340/CH341 USB serial device currently visible at `/dev/cu.usbserial-110` (VID:PID `1a86:7523`) belongs to the ESP32-S3 connection.
+- It is **not** the Anycubic Kobra 2 Neo.
+- The 3D printer is currently **not connected**.
+- Do not treat the current CH340 port as printer identity or reuse it for printer probing by assumption.
+- When this slice is resumed later, first connect the printer and rerun fresh USB/serial discovery to identify its exact current port before any printer-specific transaction.
+- The passive serial smoke already run on `/dev/cu.usbserial-110` is evidence only for the bounded serial transport path, not for the printer.
+- Removable-media discovery returned no external physical storage, so that physical smoke also remains deferred.
+- Stop further Host Ops Phase B physical-device work until explicitly resumed.
+
 ## Current focus
 
 Single-goal Superchat acceptance, lifecycle/recovery, operator observability, corrective-intent dedupe and production-path test-architecture hardening are complete in current source. The sequential delegation-cycle source closeout now includes a production-shaped second-campaign proof in the same parent, covering fresh campaign identity, no inherited results/terminal receipt, exact child cleanup and no replay/mutation of the first campaign.
