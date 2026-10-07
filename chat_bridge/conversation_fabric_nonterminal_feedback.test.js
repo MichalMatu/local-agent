@@ -152,7 +152,8 @@ vm.runInContext(
   assert.equal(controlCalls, 1);
   assert.equal(feedbackAckCalls, 0, "started/pending feedback must not use terminal ACK");
   assert.equal(retryDefers, 0);
-  assert.equal(userMessage.innerText, "campaign started feedback");
+  assert.equal(userMessage.innerText, "", "nonterminal Fabric status must never become a parent user turn");
+  assert.equal(composer.value, "", "nonterminal Fabric status must never leave a parent draft");
 
   assert.ok(intervalCallback, "content retry interval should be installed");
   intervalCallback();
