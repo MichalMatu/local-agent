@@ -314,6 +314,63 @@ class AgentDaemonSafetyTests(unittest.TestCase):
             calls[1][1]["environment"]["HOME"],
         )
 
+    def test_self_update_publishes_busy_status_before_validation(self) -> None:
+        local_sha = "1" * 40
+        remote_sha = "2" * 40
+        self_repo = Path(self.tmp.name) / "self-repo"
+        (self_repo / ".git").mkdir(parents=True)
+        events: list[str] = []
+
+        def fake_git(args, timeout=60):
+            del timeout
+            if args == ["git", "fetch", "--quiet", "origin", agentd.SELF_BRANCH]:
+                return agentd.subprocess.CompletedProcess(args, 0, "")
+            if args == ["git", "rev-parse", "HEAD"]:
+                return agentd.subprocess.CompletedProcess(args, 0, local_sha)
+            if args == ["git", "rev-parse", f"origin/{agentd.SELF_BRANCH}"]:
+                return agentd.subprocess.CompletedProcess(args, 0, remote_sha)
+            if args == ["git", "merge-base", "--is-ancestor", local_sha, remote_sha]:
+                return agentd.subprocess.CompletedProcess(args, 0, "")
+            if args == ["git", "merge", "--ff-only", "--quiet", remote_sha]:
+                return agentd.subprocess.CompletedProcess(args, 0, "")
+            if args == ["git", "reset", "--hard", local_sha]:
+                return agentd.subprocess.CompletedProcess(args, 0, "")
+            raise AssertionError(f"unexpected git invocation: {args!r}")
+
+        def fake_status(state, **kwargs):
+            events.append("status")
+            self.assertEqual(state, "self_updating")
+            self.assertTrue(kwargs["force_remote"])
+            self.assertEqual(kwargs["current_revision"], local_sha)
+            self.assertEqual(kwargs["candidate_revision"], remote_sha)
+
+        def fake_validate():
+            events.append("validate")
+            return False, "synthetic validation failure"
+
+        with mock.patch.object(agentd, "SELF_REPO", self_repo), mock.patch.object(
+            agentd, "self_repo_on_main_branch", return_value=True
+        ), mock.patch.object(
+            agentd, "tracked_self_repo_clean", return_value=True
+        ), mock.patch.object(
+            agentd, "_git", side_effect=fake_git
+        ), mock.patch.object(
+            agentd, "_read_rejected_update", return_value={}
+        ), mock.patch.object(
+            agentd, "publish_daemon_status", side_effect=fake_status
+        ), mock.patch.object(
+            agentd, "begin_installation"
+        ), mock.patch.object(
+            agentd, "_validate_installed_update", side_effect=fake_validate
+        ), mock.patch.object(
+            agentd, "_remember_rejected_update"
+        ), mock.patch.object(
+            agentd, "finish_installation"
+        ):
+            self.assertFalse(agentd._self_update_transaction(force=True))
+
+        self.assertEqual(events, ["status", "validate"])
+
     def test_invalid_task_file_becomes_terminal_result(self) -> None:
         path = agentd.core.CONTROL / ".agent" / "tasks" / "broken-task.json"
         path.write_text("{broken", encoding="utf-8")

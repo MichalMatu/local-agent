@@ -936,6 +936,12 @@ def _self_update_transaction(*, force: bool) -> bool:
         return False
 
     log(f"self-update available {local_sha[:9]} -> {remote_sha[:9]}")
+    publish_daemon_status(
+        "self_updating",
+        force_remote=True,
+        current_revision=local_sha,
+        candidate_revision=remote_sha,
+    )
     begin_installation(STATE_DIR, local_sha, remote_sha)
     try:
         install = _git(["git", "merge", "--ff-only", "--quiet", remote_sha], timeout=120)
