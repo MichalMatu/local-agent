@@ -11,6 +11,7 @@ function makeHarness({
   latestUserText = PROMPT,
   earlierUserTexts = [],
   fabric = true,
+  activeFabric = false,
   lastStatus = "delivery_unconfirmed"
 } = {}) {
   const state = {
@@ -80,6 +81,9 @@ function makeHarness({
     ensureContentScript: async () => ({ ok: true }),
     kickAssistantRecovery: async () => ({ ok: true, recoverableAssistantError: false }),
     conversationFabricFeedbackForParent: async () => fabric ? { campaign, prompt: PROMPT } : null,
+    listConversationFabricCampaigns: async () => activeFabric
+      ? [{ id: "cf-active", parent_conversation_url: URL, state: "running" }]
+      : [],
     buildBootstrapPrompt: () => "bootstrap",
     buildWakePrompt: () => "wake",
     loadConversationFabricCampaign: async (campaignId) => campaignId === campaign.id ? campaign : null,
@@ -185,6 +189,26 @@ async function testNormalWakeNeverUsesFabricReconciliation() {
   });
 }
 
+
+async function testActiveFabricReservesParentFromNormalWake() {
+  const harness = makeHarness({
+    fabric: false,
+    activeFabric: true,
+    lastStatus: "sent"
+  });
+  const result = await harness.context.deliverConversation("parent", false);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "conversation_fabric_parent_reserved");
+  assert.equal(result.status, "conversation_fabric_parent_reserved");
+  assert.equal(harness.state.conversations.parent.lastStatus, "conversation_fabric_parent_reserved");
+  assert.deepEqual(harness.counts(), {
+    sendCalls: 0,
+    scriptCalls: 0,
+    saveCalls: 0,
+    scheduleCalls: 1
+  });
+}
+
 async function testSendButtonRetryReconcilesExactTerminalPromptAfterOperatorSubmit() {
   const harness = makeHarness({ lastStatus: "send_button_not_ready" });
   const result = await harness.context.deliverConversation("parent", false);
@@ -221,6 +245,7 @@ async function testSendButtonRetryWithDifferentUserHistoryFallsBackToNormalDeliv
   await testEarlierExactTerminalPromptSurvivesLaterOperatorTurn();
   await testDifferentUserHistoryFallsBackToNormalDelivery();
   await testNormalWakeNeverUsesFabricReconciliation();
+  await testActiveFabricReservesParentFromNormalWake();
   await testSendButtonRetryReconcilesExactTerminalPromptAfterOperatorSubmit();
   await testSendButtonRetryWithDifferentUserHistoryFallsBackToNormalDelivery();
   console.log("conversation_fabric_terminal_delivery_reconciliation.test.js: OK");
