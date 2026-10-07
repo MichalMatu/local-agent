@@ -1,7 +1,7 @@
 # Conversation Fabric delegation diagnostics
 
-The read-only **Fabric intake** row in the Chat Bridge popup reports the last
-machine-observed control admission event for the current managed chat. It never
+The existing **Fabric** row in the Chat Bridge popup reports the last
+machine-observed control admission event (in its text when no campaign exists, or its tooltip for an active campaign) for the current managed chat. It never
 sends a user message or changes campaign scheduling, spawn, recovery, or terminal
 feedback.
 
@@ -18,7 +18,7 @@ An accepted control can still lead to failed, ambiguous or pending children.
 ## Safe diagnosis without replay
 
 1. Open the exact managed parent tab and Chat Bridge popup.
-2. Check Master, current parent enabled state, **Fabric intake**,
+2. Check Master, current parent enabled state, **Fabric** intake diagnostic,
    **Fabric** campaign state, result counts, pending/ambiguous/failed child IDs,
    and **Feedback** status.
 3. If intake is absent, inspect the Chrome extension service-worker and parent
