@@ -10,11 +10,10 @@ from local_agent.host_ops.core.execution import ExecutionLimits, ProcessResult, 
 
 _REMOTE_PATH_SEGMENT = re.compile(r"^[A-Za-z0-9._@%+=,-]+$")
 _SHA256_PATTERN = re.compile(r"(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])")
-_REMOTE_HASH_SCRIPT = (
-    'if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; '
-    'elif command -v toybox >/dev/null 2>&1; then toybox sha256sum "$1"; '
-    'elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 "$1"; '
-    "else printf '%s\\n' 'no SHA-256 tool available' >&2; exit 127; fi"
+_REMOTE_HASH_COMMANDS = (
+    ("sha256sum",),
+    ("toybox", "sha256sum"),
+    ("openssl", "dgst", "-sha256"),
 )
 
 
@@ -100,14 +99,24 @@ class AdbRemoteFiles:
         return size
 
     def sha256(self, path: str) -> str:
-        result = self._shell(
-            ("sh", "-c", _REMOTE_HASH_SCRIPT, "hostops-sha256", path),
-            "remote SHA-256",
-        )
-        match = _SHA256_PATTERN.search(result.stdout)
-        if match is None:
-            raise AdbTransferError("remote SHA-256 command returned invalid output")
-        return match.group(0).lower()
+        for command in _REMOTE_HASH_COMMANDS:
+            result = self._runner.run(
+                (self._executable, "-s", self._serial, "shell", *command, path),
+                limits=self._limits(),
+            )
+            if result.stdout_truncated or result.stderr_truncated:
+                raise AdbTransferError("remote SHA-256: command output was truncated")
+            if result.state is not ProcessState.COMPLETED:
+                raise AdbTransferError(_process_failure("remote SHA-256", result))
+            if result.exit_code == 127:
+                continue
+            if result.exit_code != 0:
+                raise AdbTransferError(_process_failure("remote SHA-256", result))
+            match = _SHA256_PATTERN.search(result.stdout)
+            if match is None:
+                raise AdbTransferError("remote SHA-256 command returned invalid output")
+            return match.group(0).lower()
+        raise AdbTransferError("remote SHA-256: no supported hash command is available")
 
     def commit_stage(self, stage: str, destination: str, *, replace: bool) -> None:
         move_flag = "-fT" if replace else "-nT"
