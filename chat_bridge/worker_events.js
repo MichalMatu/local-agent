@@ -170,12 +170,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-// Every service-worker activation ensures the durable minute poll exists. This makes a
-// manually reloaded unpacked extension and a remotely paused chat independently capable of
-// discovering a later GitHub RESUME even if Chrome does not emit another startup event.
-initializeGithubControlPlane().catch((error) => console.error(error));
-
-// A manually reloaded unpacked extension starts a fresh service worker while existing
-// ChatGPT tabs stay open. Probe configured tabs immediately so stale/unavailable content
-// scripts are replaced with this worker's protocol without a page reload or a wake.
-refreshBridgeContentOnWorkerStart();
+// Every service-worker activation restores the GitHub control plane first, reconciles
+// schedules, and only then refreshes configured content scripts. This keeps cold-parent
+// recovery and content reinjection ordered instead of racing independent startup paths.
+initializeBridgeLifecycle().catch((error) => console.error(error));
