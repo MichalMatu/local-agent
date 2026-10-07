@@ -61,8 +61,13 @@ class AdbFileTransfer:
         replaced_existing = remote.validate_destination(destination, replace=replace)
         stage = str(PurePosixPath(destination).parent / f".hostops-adb-{secrets.token_hex(12)}.tmp")
         stage_present = False
+        stage_may_exist = False
+        action_attempted = False
+        committed = False
 
         try:
+            action_attempted = True
+            stage_may_exist = True
             remote.push(source.path, stage)
             stage_present = True
             remote_size = remote.size(stage)
@@ -73,6 +78,7 @@ class AdbFileTransfer:
                 raise AdbTransferError("local source changed while ADB push was in progress")
 
             remote.commit_stage(stage, destination, replace=replace)
+            committed = True
             stage_present = False
             remote.require_regular_file(destination, label="destination")
             if remote.size(destination) != source.size_bytes:
@@ -89,11 +95,18 @@ class AdbFileTransfer:
                 replaced_existing=replaced_existing,
             )
         except (AdbTransferError, OSError, ValueError) as exc:
-            if stage_present:
-                remote.cleanup(stage, best_effort=True)
-            if isinstance(exc, AdbTransferError):
-                raise
-            raise AdbTransferError(str(exc)) from exc
+            cleanup_failed = False
+            if stage_present or (stage_may_exist and not committed):
+                try:
+                    cleanup_failed = not remote.cleanup(stage, best_effort=True)
+                except (AdbTransferError, OSError, ValueError):
+                    cleanup_failed = True
+            raise _adb_transfer_error(
+                exc,
+                action_attempted=action_attempted,
+                committed=committed,
+                cleanup_failed=cleanup_failed,
+            ) from exc
 
     def pull(
         self,
@@ -121,8 +134,13 @@ class AdbFileTransfer:
             replace=replace,
         )
         stage = destination.parent / f".hostops-adb-{secrets.token_hex(12)}.tmp"
+        action_attempted = False
+        committed = False
+        failure: AdbTransferError | OSError | ValueError | None = None
+        result: AdbTransferResult | None = None
 
         try:
+            action_attempted = True
             remote.pull(source, stage)
             staged = _inspect_local_source(stage, maximum)
             if staged.size_bytes != remote_size or staged.sha256 != remote_sha256:
@@ -133,8 +151,9 @@ class AdbFileTransfer:
                 raise AdbTransferError("remote source changed while ADB pull was in progress")
             _fsync_file(stage)
             _commit_local_stage(stage, destination, replace=replace)
+            committed = True
             directory_synced = _sync_directory(destination.parent)
-            return AdbTransferResult(
+            result = AdbTransferResult(
                 direction="pull",
                 serial=normalized_serial,
                 source=source,
@@ -144,11 +163,32 @@ class AdbFileTransfer:
                 replaced_existing=replaced_existing,
                 local_directory_synced=directory_synced,
             )
-        except OSError as exc:
-            raise AdbTransferError(str(exc)) from exc
-        finally:
-            if stage.exists() or stage.is_symlink():
+        except (AdbTransferError, OSError, ValueError) as exc:
+            failure = exc
+
+        cleanup_failed = False
+        if stage.exists() or stage.is_symlink():
+            try:
                 stage.unlink(missing_ok=True)
+            except OSError:
+                cleanup_failed = True
+
+        if failure is not None:
+            raise _adb_transfer_error(
+                failure,
+                action_attempted=action_attempted,
+                committed=committed,
+                cleanup_failed=cleanup_failed,
+            ) from failure
+        if cleanup_failed:
+            raise AdbTransferError(
+                "local staging cleanup failed after ADB pull",
+                action_attempted=action_attempted,
+                committed=committed,
+                cleanup_failed=True,
+            )
+        assert result is not None
+        return result
 
     def _remote(self, serial: str, budget: _TransferBudget) -> AdbRemoteFiles:
         return AdbRemoteFiles(
@@ -166,6 +206,25 @@ class AdbFileTransfer:
         if not path.is_absolute():
             raise AdbTransferError("resolved adb executable path is not absolute")
         return str(path)
+
+
+def _adb_transfer_error(
+    exc: AdbTransferError | OSError | ValueError,
+    *,
+    action_attempted: bool,
+    committed: bool,
+    cleanup_failed: bool,
+) -> AdbTransferError:
+    if isinstance(exc, AdbTransferError):
+        action_attempted = action_attempted or exc.action_attempted
+        committed = committed or exc.committed
+        cleanup_failed = cleanup_failed or exc.cleanup_failed
+    return AdbTransferError(
+        str(exc),
+        action_attempted=action_attempted or committed,
+        committed=committed,
+        cleanup_failed=cleanup_failed,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,7 +322,15 @@ def _commit_local_stage(stage: Path, destination: Path, *, replace: bool) -> Non
         raise AdbTransferError("local destination appeared during no-clobber commit") from exc
     except OSError as exc:
         raise AdbTransferError(f"local no-clobber commit failed: {exc}") from exc
-    stage.unlink()
+    try:
+        stage.unlink()
+    except OSError as exc:
+        raise AdbTransferError(
+            f"local staging cleanup failed after no-clobber commit: {exc}",
+            action_attempted=True,
+            committed=True,
+            cleanup_failed=True,
+        ) from exc
 
 
 def _sha256_file(path: Path) -> str:

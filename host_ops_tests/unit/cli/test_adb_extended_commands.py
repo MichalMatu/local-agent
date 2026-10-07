@@ -121,7 +121,12 @@ def test_run_push_renders_verified_transfer(monkeypatch: pytest.MonkeyPatch, cap
 def test_run_pull_propagates_transfer_error(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     class FakeTransfer:
         def pull(self, *args, **kwargs):
-            raise AdbTransferError("remote source is not a regular file")
+            raise AdbTransferError(
+                "remote source is not a regular file",
+                action_attempted=True,
+                committed=True,
+                cleanup_failed=False,
+            )
 
     monkeypatch.setattr(adb_cmd, "AdbFileTransfer", FakeTransfer)
 
@@ -137,4 +142,8 @@ def test_run_pull_propagates_transfer_error(monkeypatch: pytest.MonkeyPatch, cap
         )
         == 1
     )
-    assert "not a regular file" in json.loads(capsys.readouterr().err)["error"]
+    payload = json.loads(capsys.readouterr().err)
+    assert "not a regular file" in payload["error"]
+    assert payload["action_attempted"] is True
+    assert payload["committed"] is True
+    assert payload["cleanup_failed"] is False

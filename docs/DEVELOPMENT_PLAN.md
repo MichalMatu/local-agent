@@ -166,15 +166,14 @@ The maintained Host Ops capability/workflow/CLI surface and semantic browser/cha
 
 Completed live/code slices now include ADB verified transfer, SSH/Termux check/exec/transfer, generic serial transport proof, isolated browser deterministic primitives, host/macOS whole-operation budgets and bounded local artifact inspect/deploy.
 
-Current non-physical closeout order:
+Non-physical Phase B semantics are complete: shared removable-media deadline, canonical
+effect/authority taxonomy, target/resource identity rules, JSON contract version 2 with the frozen
+command-family matrix, and structured ADB/SSH partial-effect evidence.
 
-1. one shared whole-operation deadline for the composed removable-media workflow;
-2. one effect/risk taxonomy across all maintained operations;
-3. canonical target/resource identity rules for serial, ADB, disks, SSH and remote-Git scopes;
-4. JSON success/error contract audit and normalization;
-5. small duplication/naming cleanup revealed by those contract audits.
-
-Physical printer and removable-media acceptance may remain deferred until hardware is actually connected/available. Do not substitute guessed device identity for live discovery.
+Before Phase C, require exact-head full CI and normal authenticated-Chrome acceptance for the
+production Bridge self-heal. Physical printer and removable-media acceptance may remain deferred
+until hardware is available. P2 naming/deduplication cleanup is not a Phase B blocker unless fresh
+correctness evidence requires it.
 
 Use Conversation Fabric to parallelize bounded **read-only audits** of independent questions. Children do not mutate code or run host commands; the parent synthesizes one architecture before implementation.
 

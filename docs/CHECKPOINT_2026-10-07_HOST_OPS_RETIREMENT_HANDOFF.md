@@ -22,7 +22,7 @@ Current live Local Agent evidence:
 - `local-agent/agent-control` exists;
 - daemon is healthy/idle and self-updated to `1571ac6458d58243f00960aa9777cf46272524e0` before this checkpoint commit;
 - execution model remains `multi_repository_worker` / parallel;
-- absorbed Host Ops JSON contract remains version `1`.
+- absorbed Host Ops JSON contract was version `1` at this retirement checkpoint; the maintained runtime later moved to version `2` through an explicit semantic migration.
 
 ## Accepted live cutover evidence
 

@@ -31,6 +31,33 @@ Version 2 makes one semantic correction without introducing a common JSON envelo
 Consumers that used remote-Git result ok must negotiate contract version 2 before relying on this
 corrected meaning. Consumers that only use other command shapes are unaffected by the migration.
 
+## Frozen command-family matrix
+
+Version 2 intentionally preserves command-specific top-level shapes. Callers consume the family
+they invoked rather than assume one common envelope.
+
+| Case | Machine-readable behavior | Exit |
+| --- | --- | ---: |
+| normal command success | command-specific object or array on stdout | 0 |
+| ADB/macOS/artifact/browser runtime failure | error object on stderr | 1 |
+| ADB verified transfer failure | error plus action_attempted, committed and cleanup_failed on stderr | 1 |
+| SSH/remote-Git input validation | ok=false error object on stdout | 2 |
+| SSH verified transfer failure | ok=false error plus action_attempted, committed and cleanup_failed on stderr | 1 |
+| removable-media partial failure | stage/effect object on stderr with artifact_committed and storage_action_attempted | 1 |
+| network probe failure | normal network result object with ok=false on stdout | 1 |
+| SSH exec / remote-Git process result | process-bearing object on stdout | mapped process exit; remote-Git missing readiness is 1 |
+| bounded serial deadline | normal serial result with deadline_reached=true on stdout | 0 |
+| argparse rejection before command dispatch | argparse text on stderr; no JSON envelope is promised | 2 |
+
+Transfer effect fields are conservative. action_attempted means a mutating transfer or commit
+started. committed is true only after the destination is known to have crossed its commit point.
+cleanup_failed means cleanup of unique staging could not be confirmed. An ambiguous timeout during
+rename, move or link must not be promoted to committed=true without positive evidence.
+
+Parser-level argparse failures remain outside the command JSON boundary in version 2. Making them
+JSON-aware, changing stdout/stderr ownership, or introducing a common envelope requires a future
+versioned migration.
+
 ## Versioning policy
 
 Contract version `2` covers the current machine-readable CLI output shapes.

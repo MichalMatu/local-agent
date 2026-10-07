@@ -24,6 +24,9 @@ class FakeRemote:
         self.size_values: list[int] = []
         self.sha_values: list[str] = []
         self.pull_payload = PAYLOAD
+        self.push_error: AdbTransferError | None = None
+        self.commit_error: AdbTransferError | None = None
+        self.cleanup_ok = True
 
     def require_ready(self) -> None:
         self.calls.append(("ready",))
@@ -37,6 +40,8 @@ class FakeRemote:
 
     def push(self, source: Path, destination: str) -> None:
         self.calls.append(("push", source, destination))
+        if self.push_error is not None:
+            raise self.push_error
 
     def pull(self, source: str, destination: Path) -> None:
         self.calls.append(("pull", source, destination))
@@ -56,13 +61,15 @@ class FakeRemote:
 
     def commit_stage(self, stage: str, destination: str, *, replace: bool) -> None:
         self.calls.append(("commit", stage, destination, replace))
+        if self.commit_error is not None:
+            raise self.commit_error
 
     def require_regular_file(self, path: str, *, label: str) -> None:
         self.calls.append(("regular", path, label))
 
     def cleanup(self, stage: str, *, best_effort: bool = False) -> bool:
         self.calls.append(("cleanup", stage, best_effort))
-        return True
+        return self.cleanup_ok
 
 
 def _resolver(name: str) -> str | None:
@@ -84,8 +91,12 @@ def test_push_rejects_post_commit_size_mismatch(
     remote = FakeRemote()
     remote.size_values = [len(PAYLOAD), len(PAYLOAD) + 1]
 
-    with pytest.raises(AdbTransferError, match="post-commit size"):
+    with pytest.raises(AdbTransferError, match="post-commit size") as exc_info:
         _client(monkeypatch, remote).push("ABC", source, "/sdcard/input.bin")
+
+    assert exc_info.value.action_attempted is True
+    assert exc_info.value.committed is True
+    assert exc_info.value.cleanup_failed is False
 
 
 def test_push_rejects_post_commit_digest_mismatch(
@@ -99,6 +110,44 @@ def test_push_rejects_post_commit_digest_mismatch(
 
     with pytest.raises(AdbTransferError, match="post-commit SHA-256"):
         _client(monkeypatch, remote).push("ABC", source, "/sdcard/input.bin")
+
+
+def test_push_commit_failure_reports_attempted_unknown_and_cleanup(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "input.bin"
+    source.write_bytes(PAYLOAD)
+    remote = FakeRemote()
+    remote.commit_error = AdbTransferError("commit timed out", action_attempted=True)
+    remote.cleanup_ok = False
+
+    with pytest.raises(AdbTransferError, match="commit timed out") as exc_info:
+        _client(monkeypatch, remote).push("ABC", source, "/sdcard/input.bin")
+
+    assert exc_info.value.action_attempted is True
+    assert exc_info.value.committed is False
+    assert exc_info.value.cleanup_failed is True
+    assert any(call[0] == "cleanup" for call in remote.calls)
+
+
+def test_pull_sync_failure_reports_committed_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    destination = tmp_path / "out.bin"
+    remote = FakeRemote()
+
+    def fail_sync(_path: Path) -> bool:
+        raise OSError(errno.EIO, "sync failed")
+
+    monkeypatch.setattr(transfer_module, "_sync_directory", fail_sync)
+    with pytest.raises(AdbTransferError, match="sync failed") as exc_info:
+        _client(monkeypatch, remote).pull("ABC", "/sdcard/out.bin", destination)
+
+    assert destination.read_bytes() == PAYLOAD
+    assert exc_info.value.action_attempted is True
+    assert exc_info.value.committed is True
 
 
 def test_pull_rejects_remote_source_larger_than_limit(

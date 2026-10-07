@@ -45,12 +45,14 @@ class FakeTransferRunner:
         corrupt_push: bool = False,
         hardlink_error: str | None = None,
         destination_appears_on_link: bytes | None = None,
+        rm_error: bool = False,
     ) -> None:
         self.remote_files = dict(remote_files or {})
         self.remote_directories = {"/remote"}
         self.corrupt_push = corrupt_push
         self.hardlink_error = hardlink_error
         self.destination_appears_on_link = destination_appears_on_link
+        self.rm_error = rm_error
         self.scp_calls = 0
         self.commands: list[tuple[str, ...]] = []
 
@@ -116,6 +118,8 @@ class FakeTransferRunner:
             self.remote_files[destination] = self.remote_files.pop(source)
             return _result()
         if program == "rm":
+            if self.rm_error:
+                return _result(exit_code=1, stderr="cleanup failed")
             self.remote_files.pop(remote[-1], None)
             return _result()
         raise AssertionError(f"unexpected remote command: {remote!r}")
@@ -214,6 +218,68 @@ def test_push_rejects_corrupted_staging_and_cleans_it(tmp_path: Path) -> None:
     assert not any(".hostops-upload-" in path for path in runner.remote_files)
 
 
+def test_push_post_commit_verification_failure_reports_committed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "firmware.bin"
+    source.write_bytes(b"firmware-data")
+    runner = FakeTransferRunner()
+    transfer = SshFileTransfer(runner)
+    original_size = transfer._remote_size
+
+    def mismatched_final_size(target, path, budget):
+        size = original_size(target, path, budget)
+        return size + 1 if path == "/remote/firmware.bin" else size
+
+    monkeypatch.setattr(transfer, "_remote_size", mismatched_final_size)
+    with pytest.raises(SshTransferError, match="post-commit verification") as exc_info:
+        transfer.push(_target(), source, "/remote/firmware.bin")
+
+    assert exc_info.value.action_attempted is True
+    assert exc_info.value.committed is True
+    assert exc_info.value.cleanup_failed is False
+
+
+def test_push_cleanup_failure_after_hardlink_commit_preserves_effects(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "firmware.bin"
+    source.write_bytes(b"firmware-data")
+    runner = FakeTransferRunner(rm_error=True)
+
+    with pytest.raises(SshTransferError, match="staging cleanup") as exc_info:
+        SshFileTransfer(runner).push(_target(), source, "/remote/firmware.bin")
+
+    assert runner.remote_files["/remote/firmware.bin"] == b"firmware-data"
+    assert exc_info.value.action_attempted is True
+    assert exc_info.value.committed is True
+    assert exc_info.value.cleanup_failed is True
+
+
+def test_push_ambiguous_commit_failure_does_not_claim_committed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "firmware.bin"
+    source.write_bytes(b"firmware-data")
+    runner = FakeTransferRunner()
+    transfer = SshFileTransfer(runner)
+
+    def fail_commit(*_args, **_kwargs):
+        raise SshTransferError("commit timed out", action_attempted=True)
+
+    monkeypatch.setattr(
+        "local_agent.host_ops.capabilities.remote.ssh.transfer._commit_remote_no_clobber",
+        fail_commit,
+    )
+    with pytest.raises(SshTransferError, match="commit timed out") as exc_info:
+        transfer.push(_target(), source, "/remote/firmware.bin")
+
+    assert exc_info.value.action_attempted is True
+    assert exc_info.value.committed is False
+
+
 def test_push_rejects_source_over_max_bytes(tmp_path: Path) -> None:
     source = tmp_path / "large.bin"
     source.write_bytes(b"12345")
@@ -282,6 +348,29 @@ def test_pull_replace_commits_verified_file(tmp_path: Path) -> None:
 
     assert destination.read_bytes() == b"new"
     assert result.replaced_existing is True
+
+
+def test_pull_sync_failure_reports_committed_destination(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    payload = b"remote-result"
+    runner = FakeTransferRunner({"/remote/result.bin": payload})
+    destination = tmp_path / "result.bin"
+
+    def fail_sync(_path: Path) -> bool:
+        raise OSError("sync failed")
+
+    monkeypatch.setattr(
+        "local_agent.host_ops.capabilities.remote.ssh.transfer._sync_directory",
+        fail_sync,
+    )
+    with pytest.raises(SshTransferError, match="sync failed") as exc_info:
+        SshFileTransfer(runner).pull(_target(), "/remote/result.bin", destination)
+
+    assert destination.read_bytes() == payload
+    assert exc_info.value.action_attempted is True
+    assert exc_info.value.committed is True
 
 
 def test_pull_rejects_remote_file_over_max_bytes(tmp_path: Path) -> None:

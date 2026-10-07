@@ -71,7 +71,7 @@ The isolated CPU/GPU routing experiment on `work/cpu-gpu-routing` is not part of
    - the complete donor pytest regression suite is retained under `host_ops_tests/`.
 
 3. **Add the Local Agent integration seam — implemented in PR #176**
-   - the compatibility CLI is `python -m local_agent.host_ops` and preserves JSON contract version 1;
+   - the compatibility CLI is `python -m local_agent.host_ops`; absorption preserved JSON contract version 1, while the maintained runtime now exposes intentionally versioned contract 2;
    - new `host-maintenance` task preparation targets `local-agent`, not the standalone donor repository;
    - existing Local Agent task admission/scheduling remains the only orchestration authority; no new queue, planner or daemon is introduced.
 
@@ -102,7 +102,7 @@ Evidence:
 - the machine-local registry was extended without reordering existing repositories and now provisions `local-agent` with canonical binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`;
 - `local-agent/agent-control` was created through the supported repository-admin provisioning path and its `.agent/binding.json` was committed with exact catalog/registry/control identity equality;
 - `repository.admin validate --repository-id local-agent` and explicit hard-binding validation passed;
-- an executable smoke targeted directly at `local-agent` and returned JSON contract version `1` plus valid bounded Apple M1 host-profile JSON;
+- the absorption-time executable smoke targeted directly at `local-agent` and returned the then-current JSON contract version `1` plus valid bounded Apple M1 host-profile JSON; contract version `2` later superseded that maintained-runtime value;
 - the machine registry then set the standalone `host-ops` target to `enabled=false`;
 - the supervisor was restarted through the canonical first-registry control repository (`growclip`) and returned healthy/idle;
 - a second executable smoke targeted directly at `local-agent` after donor disable and passed with the same absorbed CLI contract;

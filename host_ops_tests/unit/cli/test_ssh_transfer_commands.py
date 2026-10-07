@@ -111,7 +111,12 @@ def test_run_push_reports_transfer_failure_as_runtime_error(
 
     class FakeTransfer:
         def push(self, *args, **kwargs):
-            raise SshTransferError("digest mismatch")
+            raise SshTransferError(
+                "digest mismatch",
+                action_attempted=True,
+                committed=True,
+                cleanup_failed=True,
+            )
 
     monkeypatch.setattr(ssh_cmd, "SshFileTransfer", FakeTransfer)
 
@@ -126,7 +131,12 @@ def test_run_push_reports_transfer_failure_as_runtime_error(
     )
 
     assert code == 1
-    assert "digest mismatch" in json.loads(capsys.readouterr().err)["error"]
+    payload = json.loads(capsys.readouterr().err)
+    assert "digest mismatch" in payload["error"]
+    assert payload["ok"] is False
+    assert payload["action_attempted"] is True
+    assert payload["committed"] is True
+    assert payload["cleanup_failed"] is True
 
 
 def test_run_pull_reports_unknown_target_as_input_error(

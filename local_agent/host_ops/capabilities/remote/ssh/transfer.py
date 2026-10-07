@@ -38,6 +38,19 @@ _REMOTE_HASH_SCRIPT = (
 class SshTransferError(RuntimeError):
     """Raised when a verified SSH file transfer cannot be completed safely."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        action_attempted: bool = False,
+        committed: bool = False,
+        cleanup_failed: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.action_attempted = action_attempted or committed
+        self.committed = committed
+        self.cleanup_failed = cleanup_failed
+
 
 @dataclass(frozen=True, slots=True)
 class SshTransferResult:
@@ -100,8 +113,13 @@ class SshFileTransfer:
         )
         stage = str(PurePosixPath(parent) / f".hostops-upload-{secrets.token_hex(12)}.tmp")
         stage_present = False
+        stage_may_exist = False
+        action_attempted = False
+        committed = False
 
         try:
+            action_attempted = True
+            stage_may_exist = True
             command = build_scp_push_command(target, source.path, stage, options=self._options)
             self._require_process_ok(
                 self._runner.run(command, limits=budget.remaining()),
@@ -128,6 +146,7 @@ class SshFileTransfer:
                     destination,
                     budget,
                 )
+            committed = True
 
             final_size = self._remote_size(target, destination, budget)
             final_sha256 = self._remote_sha256(target, destination, budget)
@@ -149,11 +168,23 @@ class SshFileTransfer:
                 staging_cleaned=staging_cleaned,
             )
         except (OSError, SshTransferError, ValueError) as exc:
-            if stage_present:
-                self._cleanup_remote_stage(target, stage, budget, best_effort=True)
-            if isinstance(exc, SshTransferError):
-                raise
-            raise SshTransferError(str(exc)) from exc
+            cleanup_failed = False
+            if stage_present or (stage_may_exist and not committed):
+                try:
+                    cleanup_failed = not self._cleanup_remote_stage(
+                        target,
+                        stage,
+                        budget,
+                        best_effort=True,
+                    )
+                except (OSError, SshTransferError, ValueError):
+                    cleanup_failed = True
+            raise _ssh_transfer_error(
+                exc,
+                action_attempted=action_attempted,
+                committed=committed,
+                cleanup_failed=cleanup_failed,
+            ) from exc
 
     def pull(
         self,
@@ -177,8 +208,13 @@ class SshFileTransfer:
             local_destination, replace=replace
         )
         stage = destination.parent / f".hostops-download-{secrets.token_hex(12)}.tmp"
+        action_attempted = False
+        committed = False
+        failure: OSError | SshTransferError | ValueError | None = None
+        result: SshTransferResult | None = None
 
         try:
+            action_attempted = True
             command = build_scp_pull_command(target, source, stage, options=self._options)
             self._require_process_ok(
                 self._runner.run(command, limits=budget.remaining()),
@@ -192,6 +228,7 @@ class SshFileTransfer:
             _fsync_file(stage)
             if replace:
                 os.replace(stage, destination)
+                committed = True
             else:
                 try:
                     os.link(stage, destination)
@@ -201,9 +238,18 @@ class SshFileTransfer:
                     ) from exc
                 except OSError as exc:
                     raise SshTransferError(f"local no-clobber commit failed: {exc}") from exc
-                stage.unlink()
+                committed = True
+                try:
+                    stage.unlink()
+                except OSError as exc:
+                    raise SshTransferError(
+                        f"local staging cleanup failed after no-clobber commit: {exc}",
+                        action_attempted=True,
+                        committed=True,
+                        cleanup_failed=True,
+                    ) from exc
             directory_synced = _sync_directory(destination.parent)
-            return SshTransferResult(
+            result = SshTransferResult(
                 direction="pull",
                 target=target.alias,
                 source=source,
@@ -213,11 +259,32 @@ class SshFileTransfer:
                 replaced_existing=replaced_existing,
                 local_directory_synced=directory_synced,
             )
-        except OSError as exc:
-            raise SshTransferError(str(exc)) from exc
-        finally:
-            if stage.exists() or stage.is_symlink():
+        except (OSError, SshTransferError, ValueError) as exc:
+            failure = exc
+
+        cleanup_failed = False
+        if stage.exists() or stage.is_symlink():
+            try:
                 stage.unlink(missing_ok=True)
+            except OSError:
+                cleanup_failed = True
+
+        if failure is not None:
+            raise _ssh_transfer_error(
+                failure,
+                action_attempted=action_attempted,
+                committed=committed,
+                cleanup_failed=cleanup_failed,
+            ) from failure
+        if cleanup_failed:
+            raise SshTransferError(
+                "local staging cleanup failed after SSH pull",
+                action_attempted=action_attempted,
+                committed=committed,
+                cleanup_failed=True,
+            )
+        assert result is not None
+        return result
 
     def _require_remote_directory(
         self,
@@ -345,7 +412,8 @@ def _commit_remote_no_clobber(
         return False
     if link_result.state is not ProcessState.COMPLETED:
         raise SshTransferError(
-            _process_failure("remote no-clobber hard-link commit", link_result)
+            _process_failure("remote no-clobber hard-link commit", link_result),
+            action_attempted=True,
         )
 
     # Android/Termux can deny hard links for an SCP-uploaded staging file.
@@ -357,18 +425,24 @@ def _commit_remote_no_clobber(
     )
     if move_result.state is not ProcessState.COMPLETED:
         raise SshTransferError(
-            _process_failure("remote no-clobber rename fallback", move_result)
+            _process_failure("remote no-clobber rename fallback", move_result),
+            action_attempted=True,
         )
     if not _remote_test(client, target, "-e", stage, budget):
         return True
     if _remote_test(client, target, "-e", destination, budget):
-        raise SshTransferError("remote destination appeared during no-clobber commit")
+        raise SshTransferError(
+            "remote destination appeared during no-clobber commit",
+            action_attempted=True,
+        )
     if not move_result.ok:
         raise SshTransferError(
-            _process_failure("remote no-clobber rename fallback", move_result)
+            _process_failure("remote no-clobber rename fallback", move_result),
+            action_attempted=True,
         )
     raise SshTransferError(
-        "remote no-clobber rename fallback left the staging file in place"
+        "remote no-clobber rename fallback left the staging file in place",
+        action_attempted=True,
     )
 
 
@@ -387,6 +461,25 @@ def _remote_test(
     if result.exit_code == 1:
         return False
     raise SshTransferError(_process_failure("remote test", result))
+
+
+def _ssh_transfer_error(
+    exc: OSError | SshTransferError | ValueError,
+    *,
+    action_attempted: bool,
+    committed: bool,
+    cleanup_failed: bool,
+) -> SshTransferError:
+    if isinstance(exc, SshTransferError):
+        action_attempted = action_attempted or exc.action_attempted
+        committed = committed or exc.committed
+        cleanup_failed = cleanup_failed or exc.cleanup_failed
+    return SshTransferError(
+        str(exc),
+        action_attempted=action_attempted or committed,
+        committed=committed,
+        cleanup_failed=cleanup_failed,
+    )
 
 
 @dataclass(frozen=True, slots=True)

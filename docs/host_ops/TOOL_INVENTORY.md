@@ -214,8 +214,8 @@ Live hardening evidence:
 - focused host task `local-agent-host-ops-artifact-bounds-focused-20261007-v5` passed compile, architecture/design gates, bounded inspect/deploy success, explicit size-limit failures, invalid-timeout failure and exact temporary-file cleanup;
 - commit `48b34d36c3bf98e1f3d2ea01867d8198ead153ce` preserves atomic/no-clobber behavior while adding the bounds; exact-head CI run `37569437598` passed `absorbed-host-ops`, `test`, `coverage`, `bridge-browser`, `python-314` and `macos-smoke`.
 
-Remaining hardening:
-- effect classification is fixed by the canonical matrix above; target/resource identity normalization remains a separate Phase B item.
+Hardening status:
+- effect classification and target/resource identity rules are fixed for the Phase B contract.
 
 ### Local Git context
 
@@ -406,10 +406,15 @@ No known current P0 data-loss or authority bypass is open. Any newly discovered 
 
 ### P1 — normalize execution semantics
 
-1. Give `MacOSRemovableMediaDeployer` one shared whole-operation deadline across inspect, optional mount, validation/re-inspection, artifact deploy and optional eject.
-2. Define one effect/risk taxonomy across every maintained operation: passive read, active network/device read, local process execution, write/mutation, disruptive device/storage effect and arbitrary-code-like execution.
-3. Record canonical target/resource identity rules for serial ports, ADB devices, disks, SSH targets and remote-Git workspace/heavy-lock scopes. Keep target identity separate from scheduler resource identity.
-4. Audit and normalize CLI JSON success/error shapes before freezing the shared tool-result contract.
+Complete:
+1. MacOSRemovableMediaDeployer uses one shared whole-operation deadline.
+2. The canonical effect/authority matrix covers every maintained operation.
+3. TARGET_MODEL.md records target/resource identity rules for serial, ADB, storage, SSH and remote-Git.
+4. JSON contract version 2 documents and regression-tests the command-family success/failure matrix.
+5. ADB/SSH verified transfers preserve action_attempted, committed and cleanup_failed on failure.
+
+No further non-physical semantic normalization is required before the Tool Runtime contract. P2
+cleanup remains optional unless it exposes a correctness defect.
 
 ### P1 — physical / integration proof
 
@@ -422,7 +427,7 @@ Completed:
 Deferred until hardware/authority is available:
 - removable-media inspect/mount/deploy/eject with disposable media;
 - printer-specific serial proof after fresh discovery of the actual connected printer;
-- live normal-Chrome acceptance only when production Chat Bridge lifecycle/recovery code changes.
+- live normal-Chrome acceptance is required for the current GitHub-controlled parent self-heal because production Chat Bridge lifecycle/recovery code changed.
 
 Physical deferrals do not block the non-physical contract work above.
 

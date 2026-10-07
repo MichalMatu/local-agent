@@ -112,7 +112,7 @@ def run_push(
         _emit_input_error(str(exc), as_json=as_json)
         return 2
     except SshTransferError as exc:
-        _emit_transfer_error(str(exc), as_json=as_json)
+        _emit_transfer_error(exc, as_json=as_json)
         return 1
     _emit_transfer_result(result.as_dict(), as_json=as_json)
     return 0
@@ -144,7 +144,7 @@ def run_pull(
         _emit_input_error(str(exc), as_json=as_json)
         return 2
     except SshTransferError as exc:
-        _emit_transfer_error(str(exc), as_json=as_json)
+        _emit_transfer_error(exc, as_json=as_json)
         return 1
     _emit_transfer_result(result.as_dict(), as_json=as_json)
     return 0
@@ -188,8 +188,21 @@ def _emit_input_error(message: str, *, as_json: bool) -> None:
         print(f"hostops: {message}", file=sys.stderr)
 
 
-def _emit_transfer_error(message: str, *, as_json: bool) -> None:
+def _emit_transfer_error(error: SshTransferError, *, as_json: bool) -> None:
+    message = str(error)
     if as_json:
-        print(json.dumps({"ok": False, "error": message}, sort_keys=True), file=sys.stderr)
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": message,
+                    "action_attempted": error.action_attempted,
+                    "committed": error.committed,
+                    "cleanup_failed": error.cleanup_failed,
+                },
+                sort_keys=True,
+            ),
+            file=sys.stderr,
+        )
     else:
         print(f"SSH transfer failed: {message}", file=sys.stderr)

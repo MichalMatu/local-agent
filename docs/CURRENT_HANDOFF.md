@@ -69,17 +69,20 @@ Do not block non-physical Phase B on unavailable hardware.
 - No removable external media was present during discovery. Physical inspect/mount/deploy/eject smoke remains deferred until disposable media exists.
 - Normal authenticated Chrome / Chat Bridge must remain untouched by Host Ops isolated-browser tests. Live normal-Chrome acceptance is required only when production lifecycle/recovery behavior changes; do not enable or reload it implicitly.
 
-## Immediate non-physical queue
+## Phase B closeout status
 
-Finish these before Phase C:
+The non-physical semantic hardening queue is complete:
 
-1. give the composed removable-media workflow one shared deadline across inspect -> mount -> deploy -> eject, including the local artifact portion;
-2. define one cross-tool effect/risk taxonomy for every maintained operation;
-3. define canonical target/resource identities for serial, ADB, disks, SSH and remote-Git workspace/lock scopes;
-4. audit and normalize CLI JSON success/error contracts before freezing the shared tool-result contract;
-5. perform the small cleanup that becomes obvious from those audits: duplicate validation/rendering, repeated operation-budget helpers and browser/chat primitive result naming.
+1. removable-media composition has one shared whole-operation deadline;
+2. every maintained operation has a canonical effect/authority classification;
+3. target identity, transport locator, tool-runtime lock and scheduler-resource identity are separate;
+4. JSON contract version 2 fixes Remote-Git ok/readiness truth and freezes the command-family matrix;
+5. ADB and SSH transfer failures preserve action-attempted, committed and cleanup evidence.
 
-Do not expand capability breadth while these are open.
+Before Phase B is frozen, require exact-head full six-job CI and normal authenticated-Chrome
+acceptance for the GitHub-controlled parent self-heal. Only unavailable printer/removable-media
+physical proofs may remain deferred. P2 naming/deduplication cleanup is not a blocker unless it
+reveals a correctness defect.
 
 ## Preferred use of Conversation Fabric
 

@@ -20,6 +20,19 @@ _REMOTE_HASH_COMMANDS = (
 class AdbTransferError(RuntimeError):
     """Raised when verified ADB transfer cannot complete safely."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        action_attempted: bool = False,
+        committed: bool = False,
+        cleanup_failed: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.action_attempted = action_attempted or committed
+        self.committed = committed
+        self.cleanup_failed = cleanup_failed
+
 
 class AdbRemoteFiles:
     """Execute the fixed ADB command set needed for one file transfer."""

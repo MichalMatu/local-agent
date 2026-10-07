@@ -11,16 +11,16 @@ python -m local_agent.host_ops macos deploy-media disk4s1 ./firmware.bin --name 
 
 ## Contract
 
-The workflow:
+The workflow inventories the exact external volume, validates external/read-write state, mounts only
+when needed, re-inspects after mount, deploys through LocalArtifactDeployer, and optionally ejects
+the containing whole disk only after verified deployment.
 
-1. inventories external physical storage and finds the exact requested volume;
-2. requires `Internal=false`, a non-whole volume and a confirmed external containing whole disk;
-3. rejects read-only volume/media state;
-4. accepts an existing mount point only below `/Volumes`, otherwise mounts the explicit volume and re-inspects it;
-5. delegates the file write to `LocalArtifactDeployer`, preserving staging, fsync, SHA-256 verification and explicit replacement semantics;
-6. when `--eject` is requested, ejects the containing whole disk only after verified deployment succeeds.
+One monotonic workflow deadline spans inspect, optional mount, re-inspection, artifact deployment
+and optional eject. Every stage receives only the remaining budget.
 
-There is no automatic eject after deployment failure. If eject itself fails, structured error evidence includes the completed deployment so the caller knows the artifact was already written. The workflow also reports whether it mounted the volume itself.
+There is no automatic eject after deployment failure. Structured failures preserve stage,
+mounted_by_workflow, artifact_committed and storage_action_attempted evidence. A timeout after a
+side effect therefore cannot be rendered as a false clean failure.
 
 ## Non-goals
 

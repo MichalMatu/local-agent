@@ -79,36 +79,18 @@ This did not alter production browser authority. Normal authenticated Chrome + i
 - focused task `local-agent-host-ops-artifact-bounds-focused-20261007-v5` passed architecture/design gates and real CLI success/failure/cleanup smoke.
 - documentation evidence head `05e44c55b2071b0ff7e8384c664fc6436a780505` passed exact-head CI run `37569986670` with all six canonical jobs green.
 
-## Exact remaining Phase B work
+## Phase B closeout
 
-### P1 — code/contract hardening
+Non-physical contract hardening is complete: shared removable-media deadline, canonical
+effect/authority taxonomy, target/resource identity rules, JSON contract version 2 and structured
+ADB/SSH partial-effect evidence.
 
-1. **Removable-media shared deadline**
-   - audit `workflows/removable_media/deploy.py::MacOSRemovableMediaDeployer`;
-   - one deadline must cover inspect, optional mount, re-inspect/validation, artifact deploy and optional eject;
-   - preserve stage-aware error evidence and make post-side-effect timeout state explicit.
+Remaining non-physical freeze gates are evidence only:
+- exact-head full six-job CI must be green;
+- the GitHub-controlled parent self-heal must pass normal authenticated-Chrome acceptance after the
+  verified code is loaded.
 
-2. **Effect/risk taxonomy**
-   - classify every maintained operation consistently;
-   - minimum useful classes: passive read, active network/device read, local process execution, write/mutation, disruptive device/storage effect, arbitrary-code-like execution;
-   - do not infer authorization from command names alone.
-
-3. **Canonical target/resource identity**
-   - document identity rules for serial ports, ADB devices, disks, SSH targets and remote-Git workspace/heavy-lock scopes;
-   - keep operation target identity separate from scheduler resource locks;
-   - reject aliases/ephemeral locators as durable identity where unsafe.
-
-4. **JSON result contract**
-   - compare all CLI success and failure shapes;
-   - identify inconsistent envelope/error fields, partial-side-effect reporting and text-vs-JSON exceptions;
-   - normalize only after one common contract is chosen.
-
-### P2 — cleanup after semantics are settled
-
-- remove duplicated validation/rendering between CLI and capability layers where ownership is clear;
-- consolidate repeated operation-budget helpers only when behavior is identical;
-- standardize browser/chat primitive result naming without moving production authority out of Chat Bridge;
-- remove obsolete wording instead of maintaining parallel “old/new” descriptions.
+P2 cleanup remains optional after freeze unless fresh correctness evidence requires it.
 
 ## Physical-only deferred proof
 
@@ -126,16 +108,11 @@ Deterministic browser/chat-UI primitives may later share a semantic Tool Runtime
 
 Children are reasoning-only. A child must not create Local Agent tasks, mutate repositories, run host commands or choose the final architecture.
 
-## Recommended first swarm in a fresh parent
+## Conversation Fabric audit status
 
-Run four bounded children in parallel:
-
-1. `deadline-audit` — removable-media deadline and partial-side-effect semantics;
-2. `effects-audit` — complete effect/risk classification proposal;
-3. `identity-audit` — target/resource identity proposal;
-4. `json-contract-audit` — current CLI success/error contract matrix and inconsistencies.
-
-Require exact file/symbol evidence and no code changes. The parent should synthesize the four results before implementing anything, because these contracts overlap and parallel code edits would create competing abstractions.
+The deadline, effect, identity and JSON-contract audits were completed in bounded reasoning-only
+campaigns and have been incorporated into the maintained code and documentation. Do not replay the
+completed swarm unless fresh evidence creates a new independent question.
 
 ## Runtime / execution invariants
 

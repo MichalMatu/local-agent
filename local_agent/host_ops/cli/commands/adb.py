@@ -87,7 +87,7 @@ def run_push(
             limits=_transfer_limits(timeout_seconds),
         )
     except (AdbTransferError, ValueError) as exc:
-        return _transfer_error(str(exc), as_json=as_json)
+        return _transfer_error(exc, as_json=as_json)
     return _render_transfer(result.as_dict(), as_json=as_json)
 
 
@@ -111,7 +111,7 @@ def run_pull(
             limits=_transfer_limits(timeout_seconds),
         )
     except (AdbTransferError, ValueError) as exc:
-        return _transfer_error(str(exc), as_json=as_json)
+        return _transfer_error(exc, as_json=as_json)
     return _render_transfer(result.as_dict(), as_json=as_json)
 
 
@@ -155,9 +155,17 @@ def _inspection_error(message: str, *, as_json: bool) -> int:
     return 1
 
 
-def _transfer_error(message: str, *, as_json: bool) -> int:
+def _transfer_error(error: AdbTransferError | ValueError, *, as_json: bool) -> int:
+    message = str(error)
     if as_json:
-        print(json.dumps({"error": message}, sort_keys=True), file=sys.stderr)
+        payload: dict[str, object] = {"error": message}
+        if isinstance(error, AdbTransferError):
+            payload.update(
+                action_attempted=error.action_attempted,
+                committed=error.committed,
+                cleanup_failed=error.cleanup_failed,
+            )
+        print(json.dumps(payload, sort_keys=True), file=sys.stderr)
     else:
         print(f"ADB transfer failed: {message}", file=sys.stderr)
     return 1

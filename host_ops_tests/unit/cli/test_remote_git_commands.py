@@ -350,6 +350,98 @@ def test_run_workspace_json_ok_matches_missing_readiness_exit(monkeypatch, capsy
     assert payload["process"]["exit_code"] == 0
 
 
+def test_run_workspace_json_success_contract_and_key_set(monkeypatch, capsys) -> None:
+    result = _result(prepared=True)
+
+    class FakeRunner:
+        def prepare(self, target, workspace, *, limits=None):
+            return result
+
+    monkeypatch.setattr(remote_git, "load_host_target", lambda alias: object())
+    monkeypatch.setattr(remote_git, "RemoteGitRunner", FakeRunner)
+    rc = remote_git._run_workspace(
+        "phone",
+        _workspace(),
+        timeout_seconds=20.0,
+        as_json=True,
+        remote_argv=None,
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert payload["ok"] is True
+    assert payload["prepared"] is True
+    assert set(payload) == {
+        "target",
+        "ok",
+        "prepared",
+        "repository_url",
+        "revision",
+        "workspace",
+        "lock",
+        "clean_mode",
+        "process",
+    }
+
+
+def test_run_workspace_json_process_failure_keeps_readiness_truth(monkeypatch, capsys) -> None:
+    result = _result(exit_code=7, prepared=True)
+
+    class FakeRunner:
+        def run(self, target, workspace, remote_argv, *, limits=None):
+            return result
+
+    monkeypatch.setattr(remote_git, "load_host_target", lambda alias: object())
+    monkeypatch.setattr(remote_git, "RemoteGitRunner", FakeRunner)
+    rc = remote_git._run_workspace(
+        "phone",
+        _workspace(),
+        timeout_seconds=20.0,
+        as_json=True,
+        remote_argv=("false",),
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 7
+    assert payload["ok"] is False
+    assert payload["prepared"] is True
+    assert payload["process"]["exit_code"] == 7
+
+
+def test_run_workspace_json_current_adds_only_local_repository(monkeypatch, capsys) -> None:
+    result = _result(prepared=True)
+
+    class FakeRunner:
+        def prepare(self, target, workspace, *, limits=None):
+            return result
+
+    monkeypatch.setattr(remote_git, "load_host_target", lambda alias: object())
+    monkeypatch.setattr(remote_git, "RemoteGitRunner", FakeRunner)
+    rc = remote_git._run_workspace(
+        "phone",
+        _workspace(),
+        timeout_seconds=20.0,
+        as_json=True,
+        remote_argv=None,
+        local_context=_context(),
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert rc == 0
+    assert set(payload) == {
+        "target",
+        "ok",
+        "prepared",
+        "repository_url",
+        "revision",
+        "workspace",
+        "lock",
+        "clean_mode",
+        "process",
+        "local_repository",
+    }
+
+
 def test_run_workspace_reports_target_error(monkeypatch, capsys) -> None:
     def fail_target(alias):
         raise remote_git.HostTargetResolutionError("unknown target")
