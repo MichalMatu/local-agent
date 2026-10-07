@@ -56,6 +56,14 @@
       "interval_minutes": 10,
       "next_wake_at": null,
       "updated_at": "2026-10-04T04:01:30+02:00"
+    },
+    {
+      "conversation_id": "chat-48a1aa2e",
+      "control_generation": 1,
+      "enabled": true,
+      "interval_minutes": 10,
+      "next_wake_at": null,
+      "updated_at": "2026-10-07T07:39:00Z"
     }
   ],
   "agents": [
