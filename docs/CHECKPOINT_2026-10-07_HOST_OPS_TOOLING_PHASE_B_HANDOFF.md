@@ -2,39 +2,15 @@
 
 Date: 2026-10-07
 
-Status: **ready for fresh-chat continuation**.
+Status: **current Phase B continuation checkpoint**.
 
-Canonical source at handoff: `main@ca08bb848c5911aa6f7f87581c8c858b41888f11`.
+This checkpoint intentionally records only information needed to continue current work. Historical implementation detail remains available in Git history, task results and older checkpoints.
 
-Production daemon release line remains `v4.20.6`. The live Local Agent daemon and the parallel supervisor both report `self_revision=ca08bb848c5911aa6f7f87581c8c858b41888f11`. The designated supervisor-control repository is `growclip`. Both the repository worker view and supervisor view are idle at handoff. `local-agent/agent-control` has no pending tasks.
+## Product direction
 
-Exact-head GitHub Actions run `37558788662` for `ca08bb848c5911aa6f7f87581c8c858b41888f11` passed all canonical jobs:
+Host Ops is absorbed into `local_agent.host_ops`. The standalone `MichalMatu/host-ops` repository is archived/history-only and is not an execution target.
 
-- `absorbed-host-ops`;
-- `test`;
-- `coverage`;
-- `bridge-browser`;
-- `python-314`;
-- `macos-smoke`.
-
-## Active product direction
-
-Host Ops has been absorbed into `local_agent.host_ops`; the standalone `MichalMatu/host-ops` repository remains archived/history-only and must not return to the source catalog or machine registry.
-
-The active development sequence is intentionally frozen:
-
-```text
-inventory existing tools
-  -> debug / test / harden every existing tool
-  -> define Local Agent <-> Tool Runtime contract
-  -> migrate existing tools onto that contract without semantic drift
-  -> broaden Host Ops into a complete reusable multi-tool runtime
-  -> later expose better ChatGPT-plugin ergonomics over the same GitHub control/evidence plane
-```
-
-Do not skip directly to a generic registry, new plugin framework or broad capability expansion.
-
-The future product transport remains:
+The architecture is frozen:
 
 ```text
 ChatGPT / future plugin
@@ -44,226 +20,142 @@ ChatGPT / future plugin
         -> machine / device / remote / browser effects
 ```
 
-There is no target MCP server, no direct ChatGPT-to-Local-Agent execution transport and no second scheduler/control plane.
+Local Agent remains the single product-level orchestrator. A future Tool Runtime is an internal deterministic execution contract, not another planner, scheduler, daemon, browser RPC or ChatGPT transport.
 
-## Tool Runtime mental model
+The key distinction established during live device work remains:
 
-The consolidation goal is to turn Host Ops from a collection of unrelated CLI commands into one coherent deterministic toolbox.
+**tool target identity != scheduler resource identity**
 
-A future internal tool definition should eventually describe at least:
+Project-dedicated hardware work normally remains `resources: []`; exact device/endpoint identity is discovered and validated inside the operation. Named resources are for genuine shared external conflicts, and `machine` means whole-host exclusivity.
 
-- stable tool identity;
-- validated input;
-- structured result/error;
-- effect/risk class;
-- execution bounds;
-- target identity;
-- scheduler-resource requirements when genuinely shared;
-- artifact behavior.
+## Completed Phase B evidence
 
-Important distinction discovered during real ADB work:
+### ADB
 
-**tool target identity is not the same thing as scheduler resource identity.**
+Real Samsung Galaxy S22+ proof covers discovery, exact identity, bounded logcat and verified push/pull.
 
-Project-dedicated hardware tasks currently remain `resources: []`. Device/endpoint discovery and exact-target validation happen inside the task immediately before use. Named resources are only for genuinely shared external conflicts across repositories; `machine` remains whole-host exclusivity.
+Important fixes:
+- `f92feebd3b2dafe5e5de36f5e40d83ab25fa72ec` — query fixed identity properties rather than parsing an unsafe full multiline `getprop` dump;
+- `a2808e0352d36c0d3958e12284712dee468a1a31` — bounded remote SHA-256 fallback compatible with Android shell/tooling;
+- final transfer task `local-agent-host-ops-adb-transfer-e2e-20261007-v4` passed round-trip SHA verification and exact cleanup.
 
-## Conversation Fabric / Chat Bridge boundary
+Wireless ADB `IP:port` was observed changing on the same phone and is therefore a transport locator, not durable device identity.
 
-Conversation Fabric remains Local Agent orchestration. It owns:
+### SSH / Termux
 
-- whether children are delegated;
-- campaign identity/capacity/ownership;
-- retry/retire policy;
-- stable-result adoption;
-- Result Vault policy;
-- campaign completion;
-- synthesis.
+Configured target `termux-phone` at the time of live proof used `192.168.0.100:8022`, user `u0_a520`, strict host-key verification, explicit configured key and `-F /dev/null`.
 
-Deterministic browser/chat-UI lifecycle primitives may later share the Tool Runtime contract semantically, for example exact tab creation, prompt insertion/submission, route/ownership observation, result extraction and exact owned-tab close.
+Real hardening:
+- `5d6fe44415be47fe3a5225b4adcf2440b937f874` — hardened no-clobber push when Termux denies hardlinks, with fail-closed race handling;
+- `3f3aa98c78b0209bdb641450c28e043671142fcc` — kept implementation within design budget;
+- `local-agent-host-ops-ssh-transfer-e2e-20261007-v2` passed bounded push/pull with identical SHA and cleanup;
+- cleanup task confirmed all exact disposable files absent.
 
-Do **not** physically move those extension-owned primitives into Python Host Ops by inventing a new browser RPC/control transport. The authenticated primary-Chrome production authority remains in Chat Bridge until an architecture-preserving migration exists.
+SSH `exec` is arbitrary-code-like authority even when a particular smoke command is harmless.
 
-A delegate request is not proof that children started. Parent waiting/collection begins only after explicit `conversation_fabric_started`. Rejection is terminal for that request and explicitly means no new delegation started.
+### Serial and removable-media discovery
 
-The fix for this contract is in `3e5462881695ee54fd4aa6a6b201422b0326ef19`.
+USB/serial discovery identified `/dev/cu.usbserial-110`, VID:PID `1a86:7523`, as the ESP32-S3 CH340/CH341 connection.
 
-## Canonical inventory
+A passive bounded serial transaction wrote zero bytes and proved the generic transport path only. It is not printer evidence.
 
-The current inventory is:
+No external removable media was present, so physical mount/deploy/eject remains deferred.
 
-`docs/host_ops/TOOL_INVENTORY.md`
+### Browser Host Ops
 
-It covers:
+Isolated Host Ops browser work is complete for the current deterministic primitives:
 
-- core bounded process execution/config/diagnostics;
-- ADB;
-- host profile;
-- executable inspection;
-- network;
-- serial;
-- macOS USB/serial/storage;
-- local artifacts/files;
-- local Git support;
-- SSH;
-- remote-Git workflows;
-- removable-media deployment;
-- Host Ops browser operations;
-- deterministic Chat Bridge primitives that are semantic Tool Runtime candidates.
+- `5a836b8ea033e71250e50d43d91763efa023bb98` fixed seven absorbed Playwright helper module paths;
+- `3479b067166e03a1d1d12e47f778553ee632bc89` restored the optional exact `playwright==1.63.0` dependency without adding it to default runtime requirements;
+- `local-agent-host-ops-browser-owned-attach-e2e-20261007-v3` passed isolated session start, CDP target inventory, snapshot, selector counts, worker diagnostics, readiness, guarded reload, bounded recovery, stop and cleanup;
+- `87a48c23697f68302ea5c9fd9a5ea5ba2df3254d` records the browser hardening evidence.
 
-The inventory is descriptive. It does not itself authorize broader behavior.
+This did not alter production browser authority. Normal authenticated Chrome + installed Chat Bridge remains the accepted Conversation Fabric execution surface.
 
-## Phase B completed slice — ADB
+### Whole-operation budgets and local artifacts
 
-Existing ADB capability now has real Samsung Galaxy S22+ evidence for:
+- `6d2241da0f6c7709cc6502c2cfa6bd960c847014` gives host-profile and direct macOS inspection/storage multi-subprocess operations one monotonic operation deadline.
+- `48b34d36c3bf98e1f3d2ea01867d8198ead153ce` bounds local artifact inspect/deploy by size and time while preserving symlink rejection, staging, fsync, atomic/no-clobber commit and final digest verification.
+- focused task `local-agent-host-ops-artifact-bounds-focused-20261007-v5` passed architecture/design gates and real CLI success/failure/cleanup smoke.
+- documentation evidence head `05e44c55b2071b0ff7e8384c664fc6436a780505` passed exact-head CI run `37569986670` with all six canonical jobs green.
 
-- wireless discovery;
-- exact identity;
-- bounded logcat;
-- verified push;
-- verified pull.
+## Exact remaining Phase B work
 
-### ADB bugs found and fixed
+### P1 — code/contract hardening
 
-1. Real Samsung identity exposed a multiline vendor property that made parsing a full `getprop` dump invalid.
+1. **Removable-media shared deadline**
+   - audit `workflows/removable_media/deploy.py::MacOSRemovableMediaDeployer`;
+   - one deadline must cover inspect, optional mount, re-inspect/validation, artifact deploy and optional eject;
+   - preserve stage-aware error evidence and make post-side-effect timeout state explicit.
 
-   Fix: `f92feebd3b2dafe5e5de36f5e40d83ab25fa72ec` queries only the fixed identity properties under one shared operation budget.
+2. **Effect/risk taxonomy**
+   - classify every maintained operation consistently;
+   - minimum useful classes: passive read, active network/device read, local process execution, write/mutation, disruptive device/storage effect, arbitrary-code-like execution;
+   - do not infer authorization from command names alone.
 
-2. First verified transfer reached remote SHA-256 verification but Android `/system/bin/sh` rejected the compound hash helper script.
+3. **Canonical target/resource identity**
+   - document identity rules for serial ports, ADB devices, disks, SSH targets and remote-Git workspace/heavy-lock scopes;
+   - keep operation target identity separate from scheduler resource locks;
+   - reject aliases/ephemeral locators as durable identity where unsafe.
 
-   Fix: `a2808e0352d36c0d3958e12284712dee468a1a31` replaced that shell script with bounded fixed-command fallback:
-   `sha256sum -> toybox sha256sum -> openssl dgst -sha256`.
+4. **JSON result contract**
+   - compare all CLI success and failure shapes;
+   - identify inconsistent envelope/error fields, partial-side-effect reporting and text-vs-JSON exceptions;
+   - normalize only after one common contract is chosen.
 
-3. A parallel test cleanup removed the old broad `test_adb_remote_files.py` suite. Relevant protocol coverage was intentionally consolidated rather than blindly restoring the obsolete suite.
+### P2 — cleanup after semantics are settled
 
-   Consolidated coverage head: `cc234ddae3f44de21c1672b243684939531b35ce`.
+- remove duplicated validation/rendering between CLI and capability layers where ownership is clear;
+- consolidate repeated operation-budget helpers only when behavior is identical;
+- standardize browser/chat primitive result naming without moving production authority out of Chat Bridge;
+- remove obsolete wording instead of maintaining parallel “old/new” descriptions.
 
-### Wireless ADB identity finding
+## Physical-only deferred proof
 
-The same phone remained reachable while its observed transport changed from:
+- Anycubic Kobra 2 Neo: not connected. Fresh USB/serial discovery is mandatory before any printer command.
+- Removable media: unavailable during last discovery. Use disposable media when available for inspect/mount/deploy/eject and partial-failure proof.
+- Production normal-Chrome acceptance: required only when production Chat Bridge lifecycle/recovery behavior changes; current Host Ops browser hardening does not justify touching the user's authenticated session.
 
-`192.168.0.100:34791`
+These deferrals do not block the non-physical Phase B contract work above.
 
-to:
+## Conversation Fabric boundary
 
-`192.168.0.100:38871`.
+Conversation Fabric owns delegation policy, campaign identity/capacity, child roles, stable-result adoption, retry/retire policy, Result Vault, completion and synthesis.
 
-mDNS advertised the new `_adb-tls-connect._tcp` endpoint.
+Deterministic browser/chat-UI primitives may later share a semantic Tool Runtime contract, but their production implementation stays in the extension until an architecture-preserving migration exists.
 
-Therefore a wireless ADB `IP:port` is an ephemeral transport locator. Do not use it as durable device identity or as a scheduler lock identity.
+Children are reasoning-only. A child must not create Local Agent tasks, mutate repositories, run host commands or choose the final architecture.
 
-### Final verified transfer evidence
+## Recommended first swarm in a fresh parent
 
-Task:
+Run four bounded children in parallel:
 
-`local-agent-host-ops-adb-transfer-e2e-20261007-v4`
+1. `deadline-audit` — removable-media deadline and partial-side-effect semantics;
+2. `effects-audit` — complete effect/risk classification proposal;
+3. `identity-audit` — target/resource identity proposal;
+4. `json-contract-audit` — current CLI success/error contract matrix and inconsistencies.
 
-Result: `done`.
-
-It rediscovered one exact ready Samsung SM-S906B / product `g0sxeea`, then:
-
-- pushed a disposable 33-byte file to `/data/local/tmp`;
-- pulled it back through literal `/private/tmp` on macOS;
-- verified identical SHA-256 on both directions;
-- reported `local_directory_synced=true`;
-- cleaned the disposable local and remote files;
-- left Git worktrees unchanged.
-
-Verified SHA-256:
-
-`621a50e0895562e3d0bd28423d88921023b274332ccf171417af406494409545`.
-
-The earlier V3 pull failure was not a capability bug: macOS `/tmp` is symlinked to `/private/tmp`, and the capability intentionally rejects a symlinked local destination directory. V4 used the literal real path and passed.
-
-ADB expansion such as general wireless pair/connect/disconnect, broader shell/install/forward operations remains deferred until the existing-tool hardening phase is complete and the shared Tool Runtime contract is defined.
-
-## Phase B current slice — SSH / Termux
-
-SSH hardening has started.
-
-Configured target:
-
-`termux-phone`
-
-Current documented endpoint:
-
-`192.168.0.100:8022`
-
-Expected remote user:
-
-`u0_a520`.
-
-Baseline task:
-
-`local-agent-host-ops-ssh-check-e2e-20261007-v1`
-
-Result: `done`.
-
-Evidence:
-
-- TCP probe to `192.168.0.100:8022` connected successfully;
-- `ssh check termux-phone --timeout 10 --json` passed;
-- strict host-key verification and configured public-key authentication passed;
-- remote account reported `u0_a520`;
-- `identity_matches=true`;
-- no repository edits, timeout, truncation or background leak.
-
-### Exact next work
-
-Continue SSH/Termux hardening in this order:
-
-1. bounded `ssh exec termux-phone` identity/environment smoke;
-2. verified SSH push of one disposable small file;
-3. verified SSH pull of that file/result;
-4. cleanup only the exact disposable remote/local files;
-5. inspect failures and harden only real defects;
-6. record live evidence in `docs/host_ops/TOOL_INVENTORY.md`;
-7. require exact-head full CI before declaring SSH existing surface complete.
-
-Do not weaken strict host-key checking, batch public-key auth, explicit configured user/key or `-F /dev/null`.
-
-`ssh exec` is general remote-code authority and must later be classified as arbitrary-code-like in the Tool Runtime effect taxonomy.
-
-## Remaining Phase B queue after SSH
-
-After SSH existing surface is proven, continue the current tools rather than expanding breadth:
-
-1. physical serial-device transaction;
-2. macOS removable storage inspect/mount/deploy/eject with disposable media when available;
-3. browser/Chat Bridge deterministic primitives and lifecycle hardening;
-4. whole-operation timeout normalization for multi-process workflows;
-5. explicit size/time bounds for local artifact hash/copy;
-6. JSON success/error consistency audit;
-7. effect/risk classification and target/resource-identity review across all maintained tools.
-
-Only after this queue is sufficiently closed should work begin on the shared Local Agent <-> Tool Runtime contract.
+Require exact file/symbol evidence and no code changes. The parent should synthesize the four results before implementing anything, because these contracts overlap and parallel code edits would create competing abstractions.
 
 ## Runtime / execution invariants
 
-- Executable host-maintenance target: `local-agent`.
+- Executable target: `local-agent`.
 - Canonical binding: `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`.
-- Use direct GitHub edits for exact source/documentation diffs that CI can verify.
-- Use Local Agent for Mac commands, local builds/tests, physical devices and host state.
-- Conversation Fabric children are reasoning-only; they do not mutate repositories or run machine commands.
-- Resolve actual execution target from the runtime catalog before every executable task.
-- Repositories with `execution_enabled=false` may be inspected but must not receive executable tasks.
-- Current project/dedicated-hardware task policy is `resources: []`; use named resources only for genuine shared conflicts and `machine` only for whole-host exclusivity.
-- Global restart/self-update/status control belongs to the **first enabled machine-registry repository**, currently `growclip`; repository-scoped status/task evidence for Local Agent itself remains under `local-agent/agent-control`.
-- Production supervisor: parallel multi-repository scheduler, max workers 4.
-- Do not alter frozen scheduler/model/worker settings as part of tooling cleanup.
+- Global supervisor control repository: first enabled machine-registry entry, currently `growclip`.
+- Production scheduler: bounded parallel supervisor, max workers 4.
+- Resolve fresh runtime catalog before executable work.
+- Follow an already active/pending equivalent task instead of queuing a duplicate.
+- Direct GitHub edits are appropriate for exact source/documentation changes that CI can validate.
+- Local Agent is required for machine-local commands, local host/device state and physical I/O.
+- Preserve `cli -> workflows -> capabilities -> core`.
+- Do not widen capability authority during this hardening pass.
 
-## Handoff start procedure
+## Fresh-parent start procedure
 
-A fresh parent should:
-
-1. read `AGENTS.md`;
-2. read `docs/CURRENT_HANDOFF.md`;
-3. read this checkpoint;
-4. read `docs/DEVELOPMENT_PLAN.md`;
-5. read `docs/host_ops/TOOL_INVENTORY.md`;
-6. read `docs/MULTI_REPOSITORY.md`;
-7. inspect fresh `main`, exact-head CI, `local-agent/agent-control` status/results and `growclip/agent-control` supervisor status;
-8. follow an already-active/pending equivalent task instead of queuing a duplicate;
-9. if clean, continue from SSH bounded exec + transfer;
-10. keep documenting each completed hardening slice before moving to the next tool.
-
-Do not repeat ADB work unless fresh evidence shows a regression.
+1. Read `AGENTS.md`, `docs/CURRENT_HANDOFF.md`, this checkpoint, `docs/DEVELOPMENT_PLAN.md`, `docs/host_ops/TOOL_INVENTORY.md` and `docs/MULTI_REPOSITORY.md`.
+2. Resolve fresh `main` and exact-head CI.
+3. Inspect Local Agent repository status/pending/running/results and `growclip` supervisor status.
+4. If clean, launch the four read-only audit children above.
+5. Synthesize one contract direction.
+6. Implement the smallest first hardening slice, starting with the composed removable-media shared deadline.
+7. Add focused regressions, run full exact-head CI and record only durable evidence needed for the next handoff.

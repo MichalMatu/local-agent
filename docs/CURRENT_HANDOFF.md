@@ -1,134 +1,108 @@
-# Current handoff — browser-native Conversation Fabric
+# Current handoff — Host Ops Tooling Phase B
 
 Date: 2026-10-07
 
-## Active continuation checkpoint
+Status: **ready for a fresh parent chat**.
 
-The active development handoff is now `docs/CHECKPOINT_2026-10-07_HOST_OPS_TOOLING_PHASE_B_HANDOFF.md`.
+## Active goal
 
-That checkpoint supersedes the older Host Ops-retirement focus for **current forward work**. It records the completed ADB real-device hardening, current SSH/Termux state, exact live revisions, supervisor-control ownership and the frozen sequence toward the future Local Agent <-> Tool Runtime contract. Historical Conversation Fabric and Host Ops-retirement material below remains authoritative background and rollback evidence.
+Continue Milestone 7, Phase B: harden the already-absorbed Host Ops surface before defining the shared Local Agent <-> Tool Runtime contract.
 
-Status: Local Agent remains on release line `v4.20.6`. The current post-release source candidate uses Chat Bridge `0.8.11` and browser-native Conversation Fabric inside the operator's already authenticated primary Chrome session. The old isolated-profile/Playwright production assumption is retired.
+Do not reopen completed Host Ops absorption, donor retirement, ADB transfer hardening, SSH transfer hardening, browser helper absorption, direct host/macOS timeout work or local artifact bounds unless fresh evidence shows a regression.
 
-Stable source rollback anchor: `main@59c5d699bc32283ebb98fc026f76128ec9db6d2a`. The current verification and branch-hygiene record is `docs/CHECKPOINT_2026-10-06_SEQUENTIAL_HARDENING_BASELINE.md`; the earlier `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md` remains historical evidence.
+Frozen progression:
 
-## Phase B physical-device deferrals and resumed non-physical work
+```text
+inventory existing tools
+  -> harden existing tools
+  -> define Local Agent <-> Tool Runtime contract
+  -> migrate existing tools without semantic drift
+  -> expand reusable capabilities
+  -> future ChatGPT plugin over the same GitHub control/evidence plane
+```
 
-Phase B resumed after the operator pause, but the unavailable physical-device slices remain explicitly deferred.
+No MCP replacement, direct ChatGPT -> Local Agent transport, second scheduler or second browser-control plane is part of this work.
 
-- The CH340/CH341 USB serial device currently visible at `/dev/cu.usbserial-110` (VID:PID `1a86:7523`) belongs to the ESP32-S3 connection.
-- It is **not** the Anycubic Kobra 2 Neo.
-- The 3D printer is currently **not connected**.
-- Do not treat the current CH340 port as printer identity or reuse it for printer probing by assumption.
-- When the printer slice resumes later, first connect the printer and rerun fresh USB/serial discovery to identify its exact current port before any printer-specific transaction.
-- The passive serial smoke already run on `/dev/cu.usbserial-110` is evidence only for the bounded serial transport path, not for the printer.
-- Removable-media discovery returned no external physical storage, so mount/deploy/eject physical smoke also remains deferred.
-- Non-physical Host Ops Phase B work may continue independently.
+## Read first
 
-The browser deterministic-primitives slice has since been hardened on isolated Host Ops-owned Chrome only. Commit `5a836b8ea033e71250e50d43d91763efa023bb98` repaired seven absorbed Playwright helper launchers that still referenced the retired `host_ops...` namespace; exact-head CI run `37565016584` passed all canonical jobs. Commit `3479b067166e03a1d1d12e47f778553ee632bc89` restored the donor's optional Playwright pin as `requirements-host-ops-browser.txt` without making it a default Local Agent runtime dependency; exact-head CI run `37565697928` also passed all canonical jobs. Host task `local-agent-host-ops-browser-adapter-install-20261007-v1` installed and verified `playwright==1.63.0`. Retry `local-agent-host-ops-browser-owned-attach-e2e-20261007-v3` then passed isolated session start, CDP attach inventory, exact-page snapshot, selector counts, worker diagnostics, readiness, guarded reload, bounded content-script recovery, stop and exact profile cleanup. The normal authenticated Chrome profile and live Chat Bridge remained untouched.
-
-Whole-operation timeout budgeting for the host profile and macOS inspection/storage primitives is complete in `6d2241da0f6c7709cc6502c2cfa6bd960c847014`. Local artifact hashing/copying is now bounded in `48b34d36c3bf98e1f3d2ea01867d8198ead153ce`: `artifact inspect` and `artifact deploy` expose `--max-bytes` and `--timeout`, default to 512 MiB / 300 s, reject configured sizes above 16 GiB, and share one monotonic operation deadline across hashing/copying, fsync and post-commit verification while preserving no-clobber/replace semantics. Focused task `local-agent-host-ops-artifact-bounds-focused-20261007-v5` passed compile, architecture/design gates and real CLI success/failure/cleanup smoke; exact-head CI run `37569437598` passed all six canonical jobs. The next non-physical Phase B item is one whole-operation budget across the composed removable-media workflow, then JSON success/error consistency plus effect/risk and target/resource-identity review. The optional disposable `browser probe` still requires an explicitly installed Playwright-managed engine binary and was not provisioned as part of the existing-CDP attach/lifecycle proof.
-
-## Current focus
-
-Single-goal Superchat acceptance, lifecycle/recovery, operator observability, corrective-intent dedupe and production-path test-architecture hardening are complete in current source. The sequential delegation-cycle source closeout now includes a production-shaped second-campaign proof in the same parent, covering fresh campaign identity, no inherited results/terminal receipt, exact child cleanup and no replay/mutation of the first campaign.
-
-Host Ops source absorption, live cutover and final machine-target retirement are complete. `local-agent` remains the execution target with binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; exact-head CI #2330 passed for checkpoint `41e653110a4e8d6c88884ff58f34787c774cb0de`. Final preflight `local-agent-final-host-ops-retirement-preflight-20261007-v3` passed, the disabled `host-ops` machine-registry record was removed without reordering any remaining entry, the parallel supervisor accepted a supported restart through canonical first-registry control `growclip`, and `local-agent-post-host-ops-registry-removal-smoke-20261007-v1` passed afterward. The donor repository is now archived/history-only and no longer exists in either the canonical source catalog or machine registry. Archival completed through `local-agent-archive-host-ops-donor-20261007-v2`; `work/cpu-gpu-routing` remains preserved at `901c9c0844beadb8cbe545103b70ba23c7720f7e`. See `docs/CHECKPOINT_2026-10-07_HOST_OPS_RETIREMENT_HANDOFF.md` and `docs/HOST_OPS_ABSORPTION_PLAN.md`.
-
-The operator later disabled the live normal-Chrome Bridge after a field regression repeatedly inserted Conversation Fabric feedback without reliably submitting it and retries began to spam the composer. The source submit path has since been repaired and strengthened, but the post-fix source has not been reloaded or live-accepted. Keep the live Bridge disabled until an explicit operator validation step. Activation of the optional live `operator_status_url` has not been verified and must not be inferred.
-
-## Source of truth
-
-Read fresh repository/runtime evidence in this order:
+Use only this compact source-of-truth chain for current continuation:
 
 1. `AGENTS.md`
-2. this file
+2. `docs/CURRENT_HANDOFF.md`
 3. `docs/CHECKPOINT_2026-10-07_HOST_OPS_TOOLING_PHASE_B_HANDOFF.md`
 4. `docs/DEVELOPMENT_PLAN.md`
 5. `docs/host_ops/TOOL_INVENTORY.md`
-6. `docs/CHECKPOINT_2026-10-07_HOST_OPS_RETIREMENT_HANDOFF.md`
-4. `docs/HOST_OPS_ABSORPTION_PLAN.md`
-5. `docs/CHECKPOINT_2026-10-06_SEQUENTIAL_HARDENING_BASELINE.md` (historical source/branch snapshot, not the current branch inventory)
-6. `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md` (historical rollback evidence)
-7. `docs/GOLDEN_STANDARD.md`
-8. `docs/OPERATIONS.md`
-9. `docs/AUTONOMOUS_CHAT_LOOP.md`
-10. `docs/GITHUB_BRIDGE_CONTROL.md`
-11. `docs/conversation_fabric/CURRENT_PLAN.md`
+6. `docs/MULTI_REPOSITORY.md`
 
-Historical isolated-profile, DEV-lab, self-diagnostic, older checkpoint and release-note documents are evidence only.
+Older checkpoints are historical evidence and rollback material. Do not read them unless a current document explicitly points to one for a disputed invariant.
 
-## Current authority model
+## Locked authority model
 
-- Chat Bridge conversation identity is transport/scheduling identity only. It never grants repository execution authority.
-- Every executable Local Agent task resolves its actual target through the canonical runtime catalog, requires `execution_enabled=true`, and uses the target repository's exact canonical `agent_binding`.
-- Registry/control agreement without a matching canonical catalog record fails closed.
-- The current canonical catalog enables only `local-agent` for this absorbed Host Ops ownership boundary; self-execution follows the same binding, lease, resource and emergency-control gates as every other target. There is no permanent special-case self-execution ban.
-- `local-agent` is provisioned live on the Mac with binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; `local-agent/agent-control` publishes healthy idle status. The standalone `host-ops` identity is absent from both the canonical source catalog and the machine registry.
-- The supported `agentd.py` launcher requires the machine repository registry and fails closed when it is absent; it does not fall back to the legacy single-repository executor loop.
-- Use direct GitHub edits when an exact repository diff plus CI is sufficient. Use Local Agent only for work that genuinely requires machine-local commands, local builds/tests, devices or host state.
-- Conversation Fabric children are reasoning-only. They do not create `.agent/tasks`, run machine commands, mutate repositories or make the final parent execution decision.
+- `local-agent` is the executable target for Host Ops work.
+- Canonical binding: `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`.
+- Chat Bridge conversation identity is transport/scheduling identity only and never grants repository execution authority.
+- Resolve the actual executable target from the runtime catalog before creating a task; `execution_enabled=false` targets are inspection-only.
+- The parallel supervisor owns production scheduling; its global restart/self-update/status control repository is the first enabled machine-registry entry, currently `growclip`.
+- Project/dedicated-hardware tasks use `resources: []` unless there is a real shared external conflict. Tool target identity is not scheduler resource identity.
+- Conversation Fabric children are reasoning-only. They inspect bounded scope and return evidence; they do not create tasks, mutate repositories, run host commands or make the final parent decision.
+- Use direct GitHub edits when an exact repository diff plus CI is sufficient. Use Local Agent for machine-local commands, builds/tests that require the host, devices and host state.
 
-## Accepted production browser model
+## Phase B already completed
 
-```text
-normal authenticated Chrome
-  -> managed parent Superchat tab
-  -> installed Chat Bridge
-  -> LOCAL_AGENT_CF delegate control
-  -> existing worker_spawn.js ownership primitives
-  -> ordinary reasoning-only child tabs in the same Chrome session
-  -> stable child result capture into durable campaign state
-  -> owned-tab cleanup
-  -> terminal parent feedback at most once
-  -> parent synthesis
-  -> exact target .agent/tasks only when machine execution is justified
-```
+| Slice | Current evidence |
+| --- | --- |
+| ADB | Real Samsung discovery/identity/logcat and verified push/pull complete; transfer hardening is closed. |
+| SSH / Termux | Strict configured target check/exec plus verified push/pull and cleanup complete; Termux no-clobber fallback hardened. |
+| Serial transport | Bounded passive transaction completed on `/dev/cu.usbserial-110`; that CH340/CH341 device is the ESP32-S3, not the printer. |
+| Browser Host Ops | Absorbed Playwright helper paths fixed, optional `playwright==1.63.0` dependency restored, isolated owned-session lifecycle/CDP primitives live-smoked. |
+| Host/macOS operation budgets | Host profile and direct macOS inspection/storage multi-subprocess operations share whole-operation deadlines. |
+| Local artifacts | Inspect/deploy now have 512 MiB default / 16 GiB hard size bounds and 300 s default whole-operation timeout while preserving atomic/no-clobber semantics. |
 
-Production Conversation Fabric must not launch a second Chrome/Chromium process, maintain a separate ChatGPT profile, copy cookies, use CDP as a second browser-control plane, require another login, or treat Cloudflare recovery as normal orchestration.
+Latest behavior-changing artifact commit: `48b34d36c3bf98e1f3d2ea01867d8198ead153ce`.
+Documentation evidence commit `05e44c55b2071b0ff7e8384c664fc6436a780505` passed exact-head CI run `37569986670` with all six canonical jobs green.
 
-Isolation is logical: exact parent conversation, tab id, child URL, spawn transaction, request/bootstrap digests and durable local campaign state. Ambiguous ownership fails closed.
+## Deferred physical-only work
 
-## Conversation Fabric recovery and delivery
+Do not block non-physical Phase B on unavailable hardware.
 
-- Campaign state is durable in `chrome.storage.local`; every stable child result is additionally copied into a separately retained bounded Result Vault before cleanup or terminal feedback.
-- A submitted child survives service-worker restart/reload. Lost session ownership may be reconstructed only from the child page's exact transaction/request/bootstrap/current-URL claim; a reused tab id is never sufficient.
-- Pre-submit interruption fails closed. Post-submit routing ambiguity remains recoverable while exact identity can still be proven. Neither state permits automatic child-prompt replay.
-- Stable results require the explicit completion marker plus repeated identical observation; successful sibling results survive later child/campaign failures.
-- Transient child observation failures remain pending and recoverable rather than becoming permanent child failures.
-- A manually closed or explicitly retired child is surfaced as missing coverage when no stable result was captured. Safe failure classes are marked retryable so the parent may intentionally delegate the bounded work again with a new child id; the Bridge never creates that replacement itself.
-- The existing GitHub-control alarm normally observes/collects campaigns while the parent and Master are enabled. Explicit `collect` performs bounded recovery for already-submitted children, read-only `inspect` recovers status/vaulted results, and explicit `retire` closes one exact-owned child without replay.
-- Terminal feedback uses a durable per-campaign delivery claim before crossing the send boundary. A surviving ambiguous claim suppresses resend after restart, intentionally preferring a possibly missed terminal notification to duplicate terminal delivery.
-- A new delegation for a parent is rejected while an older terminal campaign still has undelivered feedback, preventing stale cross-campaign terminal replay.
-- Completed/failed campaign cleanup closes only exact owned child tabs.
+- Anycubic Kobra 2 Neo is **not connected**. Never probe `/dev/cu.usbserial-110` as the printer. When the printer is connected, rerun fresh USB/serial discovery before printer-specific commands.
+- No removable external media was present during discovery. Physical inspect/mount/deploy/eject smoke remains deferred until disposable media exists.
+- Normal authenticated Chrome / Chat Bridge must remain untouched by Host Ops isolated-browser tests. Live normal-Chrome acceptance is required only when production lifecycle/recovery behavior changes; do not enable or reload it implicitly.
 
-## Runtime hardening now in `main`
+## Immediate non-physical queue
 
-The current source includes the audit repairs that:
+Finish these before Phase C:
 
-- require canonical runtime-catalog admission for workers;
-- fail closed when the operational daemon registry is absent;
-- reconcile an admitted dedupe receipt from matching durable `result_published` run evidence after a crash, preventing equivalent work from being admitted again solely because the claim disappeared;
-- prevent stale Conversation Fabric terminal replay across campaigns and settle nonterminal started/pending feedback without terminal-only ACK retries.
+1. give the composed removable-media workflow one shared deadline across inspect -> mount -> deploy -> eject, including the local artifact portion;
+2. define one cross-tool effect/risk taxonomy for every maintained operation;
+3. define canonical target/resource identities for serial, ADB, disks, SSH and remote-Git workspace/lock scopes;
+4. audit and normalize CLI JSON success/error contracts before freezing the shared tool-result contract;
+5. perform the small cleanup that becomes obvious from those audits: duplicate validation/rendering, repeated operation-budget helpers and browser/chat primitive result naming.
 
-These are production-path invariants, not compatibility hints. New changes must preserve them and add regressions through the real consumer path whenever feasible.
+Do not expand capability breadth while these are open.
 
-## Task authoring and dedupe
+## Preferred use of Conversation Fabric
 
-- `python -m local_agent.cli.diagnostics prepare-task` compiles inline drafts using an explicit catalog target and execution profile, then writes the existing immutable task/payload bundle into a publication checkout.
-- `validate-task --repository` adds read-only local admission preflight without weakening worker binding checks or taking execution leases.
-- Corrective plans use a new task id and higher `dedupe_revision` after completion. Conflicting queued/active intents are reported as `dedupe_intent_conflict`; revisions never bypass an active claim.
-- Local Codex invocation policy rejects recognizable invocations but is not a shell sandbox.
+The next parent should fan out bounded read-only audits early instead of doing all repository reading serially.
 
-## Verification standard
+Recommended first campaign:
 
-For runtime or Bridge behavior changes:
+- **deadline-audit** — removable-media end-to-end deadline propagation and failure/cleanup semantics;
+- **effects-audit** — effect/risk classes across the complete maintained surface;
+- **identity-audit** — canonical target/resource identity model and collision/race implications;
+- **json-contract-audit** — CLI success/error schema consistency and exact inconsistencies to fix.
 
-1. start from current `main`;
-2. add a regression reproducing the real production path;
-3. run full exact-head CI, including browser and macOS smoke;
-4. merge only with green jobs and an expected-head guard;
-5. perform bounded live/real-browser acceptance when browser lifecycle/recovery semantics changed;
-6. retire only branches proven fully merged.
+Children must receive the exact current `main` SHA and bounded files/scope. They return findings with file/symbol evidence only. The parent synthesizes one design, prevents parallel competing abstractions, then owns any source changes and Local Agent tasks.
 
-Children receive bounded source context explicitly; the parent synthesizes results and owns any exact target-bound executable task. No automatic child-prompt replay is permitted after interrupted spawning.
+## Verification before handoff or merge
+
+For every source change:
+
+1. start from fresh current `main`;
+2. preserve the dependency direction `cli -> workflows -> capabilities -> core`;
+3. add focused regression coverage for real behavior changes;
+4. run exact-head full CI: `absorbed-host-ops`, `test`, `coverage`, `bridge-browser`, `python-314`, `macos-smoke`;
+5. use bounded live proof when physical/host/browser semantics require it;
+6. retire only temporary branches proven equivalent/merged.
+
+The parent should inspect current `main`, CI, Local Agent repository status/results and the `growclip` supervisor status before queuing executable work, and follow an already pending equivalent task instead of duplicating it.

@@ -336,7 +336,8 @@ A future Tool Runtime may execute browser/chat primitives for those workflows; i
 
 ## Current verification baseline
 
-The initial inventory baseline `3e5462881695ee54fd4aa6a6b201422b0326ef19` passed all canonical jobs. Phase-B hardening has since also passed exact-head CI at `f92feebd3b2dafe5e5de36f5e40d83ab25fa72ec`:
+The latest behavior-changing Host Ops head is `48b34d36c3bf98e1f3d2ea01867d8198ead153ce`, which bounds local artifact inspect/deploy. The following documentation evidence head `05e44c55b2071b0ff7e8384c664fc6436a780505` passed exact-head CI run `37569986670` with all canonical jobs green:
+
 - `absorbed-host-ops`;
 - `test`;
 - `coverage`;
@@ -344,47 +345,59 @@ The initial inventory baseline `3e5462881695ee54fd4aa6a6b201422b0326ef19` passed
 - `python-314`;
 - `macos-smoke`.
 
-A real Mac read-only sweep additionally passed 12/12 maintained inspection operations (doctor, host, tool inspection, DNS/TCP, ADB discovery, macOS inventories, browser inspection and local artifact inspection) without writes, timeout, output truncation or leaked background processes.
+Live proof already covers:
+- ADB discovery/identity/logcat and verified push/pull on the Samsung device;
+- SSH strict configured-target check/exec and verified push/pull on Termux, including cleanup;
+- one passive bounded generic serial transaction on the ESP32-S3 CH340/CH341 connection;
+- isolated Host Ops-owned Chrome lifecycle plus existing-CDP deterministic primitives;
+- a broad read-only Mac inspection sweep;
+- bounded local artifact success/failure/cleanup smoke.
 
-This proves the current source and broad read-only host baseline are green; it does not replace missing write-path, removable-media or remote-host smokes.
+Missing live proof is physical-only: removable media is unavailable, the Anycubic printer is not connected, and normal authenticated Chrome is intentionally untouched unless production lifecycle/recovery behavior changes.
 
 ## Hardening queue before Tool Runtime contract
 
 ### P0 — contract correctness
 
-No known current P0 data-loss or authority bypass was found in this inventory. Treat any newly discovered wrong-target execution, lease/resource escape, unbounded replay or destructive no-clobber violation as P0 and stop consolidation until fixed.
+No known current P0 data-loss or authority bypass is open. Any newly discovered wrong-target execution, lease/resource escape, unbounded replay or destructive no-clobber violation becomes P0 and stops consolidation.
 
 ### P1 — normalize execution semantics
 
-1. Whole-operation budgets are complete for host-profile composition and direct macOS inspection/storage operations at `6d2241da0f6c7709cc6502c2cfa6bd960c847014`; the composed removable-media workflow still needs one shared deadline across inspect/mount/deploy/eject.
-2. Explicit local artifact size/time bounds are complete at `48b34d36c3bf98e1f3d2ea01867d8198ead153ce`.
-3. Define current operation effect classes accurately: passive read, active network/device read, local process execution, write/mutation, disruptive device/storage effect, arbitrary-code-like execution.
-4. Record canonical resource identity for serial ports, ADB devices, disks, remote SSH targets and remote-Git workspace/lock scopes.
-5. Verify JSON success/error shape consistency across CLI groups before freezing a shared tool result contract.
+1. Give `MacOSRemovableMediaDeployer` one shared whole-operation deadline across inspect, optional mount, validation/re-inspection, artifact deploy and optional eject.
+2. Define one effect/risk taxonomy across every maintained operation: passive read, active network/device read, local process execution, write/mutation, disruptive device/storage effect and arbitrary-code-like execution.
+3. Record canonical target/resource identity rules for serial ports, ADB devices, disks, SSH targets and remote-Git workspace/heavy-lock scopes. Keep target identity separate from scheduler resource identity.
+4. Audit and normalize CLI JSON success/error shapes before freezing the shared tool-result contract.
 
 ### P1 — physical / integration proof
 
-1. ADB real-device verified push/pull (discovery, identity and bounded logcat are complete).
-2. macOS removable-media inspect/mount/deploy/eject.
-3. one physical serial-device transaction.
-4. bounded real SSH target check/exec/transfer path.
-5. browser/Chat Bridge live normal-Chrome acceptance when lifecycle code changes.
+Completed:
+- ADB verified push/pull;
+- SSH target check/exec/transfer plus cleanup;
+- generic bounded serial transport transaction;
+- isolated browser deterministic-primitives lifecycle/attach proof.
 
-### P2 — cleanup and duplication
+Deferred until hardware/authority is available:
+- removable-media inspect/mount/deploy/eject with disposable media;
+- printer-specific serial proof after fresh discovery of the actual connected printer;
+- live normal-Chrome acceptance only when production Chat Bridge lifecycle/recovery code changes.
 
-1. inventory duplicated validation/rendering between CLI and capability layers;
-2. normalize repeated operation-budget helpers after semantics are proven;
+Physical deferrals do not block the non-physical contract work above.
+
+### P2 — cleanup after semantics are fixed
+
+1. remove duplicated validation/rendering between CLI and capability layers where one owner is clear;
+2. consolidate repeated operation-budget helpers only after equivalent semantics are proven;
 3. standardize browser/chat-UI primitive result names without changing extension execution locality;
-4. remove obsolete narrow-boundary wording only when the capability is actually expanded.
+4. remove stale/narrow-boundary wording rather than maintaining parallel descriptions.
 
 ## Exit criteria for the inventory/hardening phase
 
-Do not introduce the shared Tool Runtime registry merely because the inventory exists.
-
 Proceed to the Local Agent <-> Tool Runtime contract only when:
-- every maintained operation has a canonical owner and effect/resource classification;
-- current success/failure JSON contracts are documented and tested;
-- P1 timeout/boundary inconsistencies are either fixed or explicitly accepted;
-- hardware/remote operations have at least one realistic smoke path where feasible;
-- Chat Bridge primitive ownership is separated from Conversation Fabric orchestration;
-- exact-head CI remains green.
+- every maintained operation has a canonical owner plus effect/risk and target/resource classification;
+- current success/failure JSON contracts are documented and regression-tested;
+- the removable-media composed workflow has a real shared deadline;
+- remaining unavailable-hardware smokes are clearly marked physical-only deferrals;
+- Chat Bridge primitive ownership remains separated from Conversation Fabric orchestration;
+- exact-head full CI is green.
+
+Do not introduce the shared Tool Runtime registry merely because the inventory exists.
