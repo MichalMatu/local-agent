@@ -441,7 +441,14 @@ async function campaignSnapshot(worker, campaignId) {
     for (const page of fabricChildren(context)) {
       assert.equal(await page.evaluate(() => window.submitted.length), 1, "every bootstrap is submitted exactly once");
     }
-    await waitFor("started feedback", () => parent.evaluate(() => window.submitted.length >= 2));
+    assert.deepEqual(
+      await parent.evaluate(() => ({
+        submitted: [...window.submitted],
+        composer: document.querySelector("#prompt-textarea")?.textContent || ""
+      })),
+      { submitted: ["INITIAL_PARENT"], composer: "" },
+      "child spawning must never inject started/status feedback or leave a parent draft"
+    );
 
     // Only the fast child is terminal. The three real post-submit ambiguous children
     // stay recoverable and must not be reported as failed or replayed.
