@@ -22,7 +22,10 @@ chrome.runtime.onStartup.addListener(() => initializeBridgeLifecycle());
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === GITHUB_CONTROL_ALARM_NAME) {
-    reconcileGithubConversationControls().then(() => pollConversationFabricCampaigns()).catch((error) => console.error(error));
+    reconcileGithubConversationControls()
+      .then(() => refreshConfiguredContentScripts().catch((error) => console.error(error)))
+      .then(() => pollConversationFabricCampaigns())
+      .catch((error) => console.error(error));
     return;
   }
   if (!alarm.name.startsWith(ALARM_PREFIX)) return;
