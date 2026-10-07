@@ -277,6 +277,30 @@ async function testQueuedFabricFeedbackPreemptsNormalWakeAndIsAcknowledged() {
   });
 }
 
+async function testQueuedFabricFeedbackWaitsBehindActiveParentReservation() {
+  const harness = makeHarness({
+    fabric: false,
+    activeFabric: true,
+    lastStatus: "sent"
+  });
+  const prompt = "Conversation Fabric result inspection: child=verify";
+  await harness.context.queueConversationFabricExplicitFeedback(URL, {
+    id: "conversation_fabric_inspect:reserved",
+    kind: "conversation_fabric_inspect",
+    prompt
+  });
+
+  const result = await harness.context.deliverConversation("parent", false);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "conversation_fabric_parent_reserved");
+  assert.deepEqual(harness.sentPrompts, []);
+  assert.equal(
+    (await harness.context.conversationFabricExplicitFeedbackForParent(URL))?.prompt,
+    prompt,
+    "active campaign must preserve explicit feedback without touching the parent"
+  );
+}
+
 async function testSameFeedbackIdIsIdempotentAndConflictFailsClosed() {
   const harness = makeHarness({ fabric: false });
   const first = {
@@ -333,6 +357,7 @@ async function testSendButtonRetryWithDifferentUserHistoryFallsBackToNormalDeliv
   await testActiveFabricReservesParentFromNormalWake();
   await testExplicitFabricPromptUsesSingleWriterEvenWhileCampaignIsActive();
   await testQueuedFabricFeedbackPreemptsNormalWakeAndIsAcknowledged();
+  await testQueuedFabricFeedbackWaitsBehindActiveParentReservation();
   await testSameFeedbackIdIsIdempotentAndConflictFailsClosed();
   await testSendButtonRetryReconcilesExactTerminalPromptAfterOperatorSubmit();
   await testSendButtonRetryWithDifferentUserHistoryFallsBackToNormalDelivery();
