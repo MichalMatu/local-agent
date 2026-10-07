@@ -12,18 +12,22 @@ Status: Local Agent remains on release line `v4.20.6`. The current post-release 
 
 Stable source rollback anchor: `main@59c5d699bc32283ebb98fc026f76128ec9db6d2a`. The current verification and branch-hygiene record is `docs/CHECKPOINT_2026-10-06_SEQUENTIAL_HARDENING_BASELINE.md`; the earlier `docs/CHECKPOINT_2026-10-06_STABLE_MAIN.md` remains historical evidence.
 
-## Phase B pause note — Kobra serial smoke deferred
+## Phase B physical-device deferrals and resumed non-physical work
 
-Work is intentionally paused here.
+Phase B resumed after the operator pause, but the unavailable physical-device slices remain explicitly deferred.
 
 - The CH340/CH341 USB serial device currently visible at `/dev/cu.usbserial-110` (VID:PID `1a86:7523`) belongs to the ESP32-S3 connection.
 - It is **not** the Anycubic Kobra 2 Neo.
 - The 3D printer is currently **not connected**.
 - Do not treat the current CH340 port as printer identity or reuse it for printer probing by assumption.
-- When this slice is resumed later, first connect the printer and rerun fresh USB/serial discovery to identify its exact current port before any printer-specific transaction.
+- When the printer slice resumes later, first connect the printer and rerun fresh USB/serial discovery to identify its exact current port before any printer-specific transaction.
 - The passive serial smoke already run on `/dev/cu.usbserial-110` is evidence only for the bounded serial transport path, not for the printer.
-- Removable-media discovery returned no external physical storage, so that physical smoke also remains deferred.
-- Stop further Host Ops Phase B physical-device work until explicitly resumed.
+- Removable-media discovery returned no external physical storage, so mount/deploy/eject physical smoke also remains deferred.
+- Non-physical Host Ops Phase B work may continue independently.
+
+The browser deterministic-primitives slice has since been hardened on isolated Host Ops-owned Chrome only. Commit `5a836b8ea033e71250e50d43d91763efa023bb98` repaired seven absorbed Playwright helper launchers that still referenced the retired `host_ops...` namespace; exact-head CI run `37565016584` passed all canonical jobs. Commit `3479b067166e03a1d1d12e47f778553ee632bc89` restored the donor's optional Playwright pin as `requirements-host-ops-browser.txt` without making it a default Local Agent runtime dependency; exact-head CI run `37565697928` also passed all canonical jobs. Host task `local-agent-host-ops-browser-adapter-install-20261007-v1` installed and verified `playwright==1.63.0`. Retry `local-agent-host-ops-browser-owned-attach-e2e-20261007-v3` then passed isolated session start, CDP attach inventory, exact-page snapshot, selector counts, worker diagnostics, readiness, guarded reload, bounded content-script recovery, stop and exact profile cleanup. The normal authenticated Chrome profile and live Chat Bridge remained untouched.
+
+The next non-physical Phase B queue item is true whole-operation timeout budgeting for multi-subprocess host/macOS workflows, followed by bounded local artifact hashing/copying. The optional disposable `browser probe` still requires an explicitly installed Playwright-managed engine binary and was not provisioned as part of this attach/lifecycle proof.
 
 ## Current focus
 

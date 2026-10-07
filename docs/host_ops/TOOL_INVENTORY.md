@@ -284,6 +284,17 @@ Current user-visible groups include:
 
 Focused coverage lives in `host_ops_tests/unit/local_browser/*` plus CLI tests and the repository's browser smoke gates.
 
+Live hardening evidence:
+- `local-agent-host-ops-browser-owned-lifecycle-e2e-20261007-v1` passed isolated profile start/status/stop/status and exact cleanup against the installed Chrome without touching the operator's normal profile;
+- `local-agent-host-ops-browser-owned-attach-e2e-20261007-v1` exposed a real post-absorption defect: all seven Playwright helper launchers still used the retired `host_ops...` module namespace;
+- commit `5a836b8ea033e71250e50d43d91763efa023bb98` changed only those helper module paths to `local_agent.host_ops...` and added exact argv-module regressions; exact-head CI run `37565016584` passed every canonical job;
+- retry v2 then exposed a second real absorption/provisioning defect: the Local Agent venv had no Playwright adapter and the inherited donor documentation pointed to a nonexistent `.[browser]` extra;
+- commit `3479b067166e03a1d1d12e47f778553ee632bc89` restored a standalone optional pin in `requirements-host-ops-browser.txt` as `playwright==1.63.0`, kept it out of default `requirements-runtime.txt`, and corrected the install contract; exact-head CI run `37565697928` passed every canonical job;
+- `local-agent-host-ops-browser-adapter-install-20261007-v1` installed and import-verified exactly `playwright==1.63.0` in the deployed Local Agent venv;
+- `local-agent-host-ops-browser-owned-attach-e2e-20261007-v3` passed isolated session start, CDP target inventory, exact-page snapshot, `html`/`body` selector counts, worker diagnostics, missing-content-script readiness diagnosis, one guarded reload, one bounded not-recovered recovery cycle, stop and exact temporary-profile cleanup with no timeout, truncation, background-process leak or repository edit.
+
+This live proof covers the existing-CDP and owned-session primitives without changing the production browser authority boundary. It did not install a Playwright-managed browser engine, so the disposable `browser probe` remains explicitly optional and was not host-proven in this slice.
+
 Current production boundary remains intentionally narrower than general page automation. Broader browser automation should only be considered after the existing browser and Chat Bridge primitives are normalized and hardened.
 
 ## Chat Bridge primitives that are semantic Tool Runtime candidates
