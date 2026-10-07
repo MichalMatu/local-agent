@@ -339,6 +339,9 @@ function renderOperatorStatus(response) {
     : null;
   const fabric = currentId ? response?.fabricStatus?.[currentId] || null : null;
   const campaign = fabric?.currentCampaign || null;
+  const diagnostic = currentId ? response?.fabricDiagnostics?.[currentId] || null : null;
+  const diagnosticLabel = diagnostic ? `intake ${diagnostic.event} · ${diagnostic.reason}` : "";
+  const diagnosticTitle = diagnostic ? `${diagnosticLabel}; last observed ${diagnostic.at}` : "";
 
   const bridgeVersion = String(bridge.extensionVersion || "?");
   const daemonVersion = String(daemon.daemon_version || "?");
@@ -407,7 +410,8 @@ function renderOperatorStatus(response) {
       [
         campaign.pendingChildIds?.length ? `pending: ${campaign.pendingChildIds.join(", ")}` : "",
         campaign.failedChildIds?.length ? `failed: ${campaign.failedChildIds.join(", ")}` : "",
-        campaign.ambiguousChildIds?.length ? `ambiguous: ${campaign.ambiguousChildIds.join(", ")}` : ""
+        campaign.ambiguousChildIds?.length ? `ambiguous: ${campaign.ambiguousChildIds.join(", ")}` : "",
+        diagnosticTitle
       ].filter(Boolean).join("; ")
     );
     setOperatorLine(
@@ -418,7 +422,10 @@ function renderOperatorStatus(response) {
   } else {
     setOperatorLine(
       elements.operatorCampaign,
-      currentId ? "No Fabric campaign for current chat" : "Open a ChatGPT conversation"
+      currentId
+        ? diagnostic ? `Fabric: ${diagnostic.event} · ${diagnostic.reason}` : "No Fabric campaign for current chat"
+        : "Open a ChatGPT conversation",
+      diagnosticTitle
     );
     setOperatorLine(elements.operatorFeedback, "No terminal feedback pending");
   }
