@@ -7,11 +7,11 @@ async function conversationFabricParentReserved(parentUrl) {
   );
 }
 
-async function runFeedbackCycle({ conversationId: chatId, manual = false } = {}) {
+async function runFeedbackCycle({ conversationId: chatId, manual = false, promptOverride = "" } = {}) {
   if (inFlightDeliveries.has(chatId)) return { ok: false, reason: "delivery_in_progress" };
   inFlightDeliveries.add(chatId);
   try {
-    return await deliverConversation(chatId, manual);
+    return await deliverConversation(chatId, manual, { promptOverride });
   } finally {
     inFlightDeliveries.delete(chatId);
     activeDeliveries.delete(chatId);
@@ -61,7 +61,7 @@ async function conversationFabricTerminalFeedbackAlreadySubmitted(tabId, expecte
   }
 }
 
-async function deliverConversation(chatId, manual) {
+async function deliverConversation(chatId, manual, { promptOverride = "" } = {}) {
   const state = await getBridgeState();
   const conversation = state.conversations[chatId];
   if (!conversation) return { ok: false, reason: "conversation_not_found" };
@@ -93,8 +93,11 @@ async function deliverConversation(chatId, manual) {
     return { ok: false, reason: "runtime_unavailable", runtime };
   }
 
-  const fabricFeedback = await conversationFabricFeedbackForParent(conversation.url);
-  if (!fabricFeedback && await conversationFabricParentReserved(conversation.url)) {
+  const explicitPrompt = typeof promptOverride === "string" ? promptOverride.trim() : "";
+  const fabricFeedback = explicitPrompt
+    ? null
+    : await conversationFabricFeedbackForParent(conversation.url);
+  if (!explicitPrompt && !fabricFeedback && await conversationFabricParentReserved(conversation.url)) {
     const runAt = new Date().toISOString();
     await updateConversationStatus(chatId, {
       lastRunAt: runAt,
@@ -176,7 +179,7 @@ async function deliverConversation(chatId, manual) {
     }
   }
 
-  const prompt = fabricFeedback?.prompt || (conversation.bootstrapPending
+  const prompt = explicitPrompt || fabricFeedback?.prompt || (conversation.bootstrapPending
     ? buildBootstrapPrompt(runtime, conversation)
     : buildWakePrompt(runtime, conversation));
   const deliveryId = crypto.randomUUID();
@@ -250,7 +253,7 @@ async function deliverConversation(chatId, manual) {
     const latest = current.conversations[chatId];
     if (!latest || latest.bindingRevision !== conversation.bindingRevision) return current;
     if (response?.ok) {
-      latest.bootstrapPending = false;
+      if (!explicitPrompt) latest.bootstrapPending = false;
       latest.assistantBaseline = active.assistantBaseline || latest.assistantBaseline || "";
     }
     if (latest.generation === conversation.generation) {
