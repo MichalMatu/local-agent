@@ -8,7 +8,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from local_agent.host_ops.capabilities.local.adb.models import AdbIdentity, AdbLogcatResult
+from local_agent.host_ops.capabilities.local.adb.models import (
+    AdbIdentity,
+    AdbLogcatResult,
+    AdbTransferResult,
+)
+from local_agent.host_ops.capabilities.local.adb.remote_files import AdbTransferError
 from local_agent.host_ops.capabilities.local.files.models import ArtifactInspectionResult
 from local_agent.host_ops.capabilities.remote.ssh.checks import SshCheckResult
 from local_agent.host_ops.capabilities.remote.ssh.transfer import (
@@ -45,6 +50,16 @@ ADB_IDENTITY_TOOL = ToolDescriptor(
 ADB_LOGCAT_TOOL = ToolDescriptor(
     tool_id="host_ops.adb.logcat",
     effect=SemanticEffect.ACTIVE_READ,
+    authority=AuthorityCeiling.FIXED_REMOTE_DEVICE_EXEC,
+)
+ADB_PUSH_TOOL = ToolDescriptor(
+    tool_id="host_ops.adb.push",
+    effect=SemanticEffect.MUTATION,
+    authority=AuthorityCeiling.FIXED_REMOTE_DEVICE_EXEC,
+)
+ADB_PULL_TOOL = ToolDescriptor(
+    tool_id="host_ops.adb.pull",
+    effect=SemanticEffect.MUTATION,
     authority=AuthorityCeiling.FIXED_REMOTE_DEVICE_EXEC,
 )
 SSH_CHECK_TOOL = ToolDescriptor(
@@ -190,6 +205,160 @@ def adb_logcat_result(
         ok=True,
         target=invocation.target,
         payload=result.as_dict(),
+    )
+
+
+def _adb_transfer_target(device_name: str, serial: str) -> OperationTarget:
+    """Separate stable caller-owned device identity from its ADB transport locator."""
+    return OperationTarget(
+        kind="adb_device",
+        name=device_name,
+        locator=TransportLocator(kind="adb_serial", attributes={"serial": serial}),
+    )
+
+
+def _require_adb_transfer(
+    invocation: ToolInvocation,
+    expected_tool: ToolDescriptor,
+    result: AdbTransferResult,
+    *,
+    direction: str,
+) -> None:
+    _require_tool(invocation, expected_tool)
+    if result.direction != direction:
+        raise ValueError(f"ADB {direction} projection requires a {direction} transfer result")
+    if invocation.target is None or invocation.target.locator is None:
+        raise ValueError("ADB transfer invocation requires a device target and locator")
+    locator = invocation.target.locator
+    if locator.kind != "adb_serial" or locator.attributes.get("serial") != result.serial:
+        raise ValueError("ADB transfer result serial does not match transport locator")
+
+
+def adb_push_invocation(
+    device_name: str,
+    serial: str,
+    local_source: Path,
+    remote_destination: str,
+    *,
+    replace: bool,
+    max_bytes: int,
+    limits: ExecutionLimits,
+    scheduler_resources: tuple[str, ...],
+) -> ToolInvocation:
+    return ToolInvocation(
+        tool=ADB_PUSH_TOOL,
+        arguments={
+            "source": str(Path(local_source).expanduser()),
+            "destination": remote_destination,
+            "replace": replace,
+            "max_bytes": max_bytes,
+        },
+        target=_adb_transfer_target(device_name, serial),
+        scheduler_resources=_resources(scheduler_resources),
+        execution_limits=limits,
+    )
+
+
+def adb_push_result(
+    invocation: ToolInvocation,
+    result: AdbTransferResult,
+) -> ToolResult:
+    _require_adb_transfer(invocation, ADB_PUSH_TOOL, result, direction="push")
+    return ToolResult(
+        tool=ADB_PUSH_TOOL,
+        ok=True,
+        target=invocation.target,
+        payload=result.as_dict(),
+        artifacts=(
+            ArtifactEvidence(
+                path=result.destination,
+                size_bytes=result.size_bytes,
+                sha256=result.sha256,
+            ),
+        ),
+    )
+
+
+def adb_push_error(
+    invocation: ToolInvocation,
+    error: AdbTransferError,
+) -> ToolResult:
+    _require_tool(invocation, ADB_PUSH_TOOL)
+    return ToolResult(
+        tool=ADB_PUSH_TOOL,
+        ok=False,
+        target=invocation.target,
+        payload={},
+        partial_effect=PartialEffectEvidence(
+            action_attempted=error.action_attempted,
+            committed=error.committed,
+            cleanup_failed=error.cleanup_failed,
+        ),
+        error=ToolError(code="adb_transfer_failed", message=str(error)),
+    )
+
+
+def adb_pull_invocation(
+    device_name: str,
+    serial: str,
+    remote_source: str,
+    local_destination: Path,
+    *,
+    replace: bool,
+    max_bytes: int,
+    limits: ExecutionLimits,
+    scheduler_resources: tuple[str, ...],
+) -> ToolInvocation:
+    return ToolInvocation(
+        tool=ADB_PULL_TOOL,
+        arguments={
+            "source": remote_source,
+            "destination": str(Path(local_destination).expanduser()),
+            "replace": replace,
+            "max_bytes": max_bytes,
+        },
+        target=_adb_transfer_target(device_name, serial),
+        scheduler_resources=_resources(scheduler_resources),
+        execution_limits=limits,
+    )
+
+
+def adb_pull_result(
+    invocation: ToolInvocation,
+    result: AdbTransferResult,
+) -> ToolResult:
+    _require_adb_transfer(invocation, ADB_PULL_TOOL, result, direction="pull")
+    return ToolResult(
+        tool=ADB_PULL_TOOL,
+        ok=True,
+        target=invocation.target,
+        payload=result.as_dict(),
+        artifacts=(
+            ArtifactEvidence(
+                path=result.destination,
+                size_bytes=result.size_bytes,
+                sha256=result.sha256,
+            ),
+        ),
+    )
+
+
+def adb_pull_error(
+    invocation: ToolInvocation,
+    error: AdbTransferError,
+) -> ToolResult:
+    _require_tool(invocation, ADB_PULL_TOOL)
+    return ToolResult(
+        tool=ADB_PULL_TOOL,
+        ok=False,
+        target=invocation.target,
+        payload={},
+        partial_effect=PartialEffectEvidence(
+            action_attempted=error.action_attempted,
+            committed=error.committed,
+            cleanup_failed=error.cleanup_failed,
+        ),
+        error=ToolError(code="adb_transfer_failed", message=str(error)),
     )
 
 
