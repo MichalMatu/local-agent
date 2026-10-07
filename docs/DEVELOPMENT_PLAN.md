@@ -162,26 +162,37 @@ Canonical inventory: `docs/host_ops/TOOL_INVENTORY.md`.
 
 The maintained Host Ops capability/workflow/CLI surface and semantic browser/chat-UI candidates are inventoried. Phase A remains descriptive: update the inventory when evidence changes, but do not redesign behavior merely to make the table uniform.
 
-### Phase B — active: debug, test and harden the existing tools
+### Phase B — complete/frozen: debug, test and harden the existing tools
 
-Completed live/code slices now include ADB verified transfer, SSH/Termux check/exec/transfer, generic serial transport proof, isolated browser deterministic primitives, host/macOS whole-operation budgets and bounded local artifact inspect/deploy.
+Phase B is frozen at `main@915ac2e47170a9e4d8c0b3e6d45852de7994d63b`.
+Exact-head CI run `37588594285` passed all six canonical jobs, and normal authenticated-Chrome
+acceptance returned `PHASE_B_LIVE_BRIDGE_ACCEPTANCE_OK`.
 
-Non-physical Phase B semantics are complete: shared removable-media deadline, canonical
-effect/authority taxonomy, target/resource identity rules, JSON contract version 2 with the frozen
-command-family matrix, and structured ADB/SSH partial-effect evidence.
+The frozen semantics include the shared removable-media deadline, canonical effect/authority
+taxonomy, target/resource identity rules, JSON contract version 2 with the command-family matrix,
+and structured ADB/SSH partial-effect evidence.
 
-Before Phase C, require exact-head full CI and normal authenticated-Chrome acceptance for the
-production Bridge self-heal. Physical printer and removable-media acceptance may remain deferred
-until hardware is available. P2 naming/deduplication cleanup is not a Phase B blocker unless fresh
-correctness evidence requires it.
+Unavailable printer and removable-media proofs remain physical-only deferrals. P2 cleanup is not a
+Phase B blocker unless fresh correctness evidence reveals a regression.
 
-Use Conversation Fabric to parallelize bounded **read-only audits** of independent questions. Children do not mutate code or run host commands; the parent synthesizes one architecture before implementation.
+### Phase C — active: define the Local Agent <-> Tool Runtime contract
 
-### Phase C — define the Local Agent <-> Tool Runtime contract
+Define and regression-protect the versioned internal contract before capability expansion.
 
-Begin only after Phase B exit criteria in `docs/host_ops/TOOL_INVENTORY.md` are met or an explicit remaining physical-only deferral is documented.
+Required outputs:
+- stable code-owned tool identity;
+- validated arguments and structured results;
+- frozen effect and authority metadata;
+- explicit target/locator/durable-identity semantics;
+- scheduler-resource requirements that remain owned by Local Agent;
+- whole-operation execution bounds/deadlines;
+- artifact metadata plus structured partial-effect/error evidence;
+- bounded deterministic serialization and schema/version rejection;
+- migration rules that preserve existing Host Ops Python behavior and CLI JSON contract version 2.
 
-The internal contract should describe stable tool identity, validated arguments/results, effect/risk class, target identity, scheduler-resource requirements, execution bounds and artifact behavior. It must reuse Local Agent admission/scheduling/evidence rather than create another executor.
+Start with a dependency-light contract and prove it on a passive operation, one target-bearing read
+and one existing mutation/partial-failure path. Do not build a generic registry or expand the
+capability surface until those examples preserve existing semantics.
 
 ### Phase D — expand into a complete reusable multi-tool surface
 
