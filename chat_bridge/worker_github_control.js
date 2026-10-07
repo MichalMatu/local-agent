@@ -159,7 +159,7 @@ async function githubOwnershipSnapshot(state, runtime = null) {
   return ownership;
 }
 
-async function recoverGithubControlledConversations(state, runtime) {
+async function recoverGithubControlledConversations(state, runtime, applied) {
   const missing = (runtime.conversationControls || []).filter(
     (control) => !state.conversations?.[control.conversationId]
   );
@@ -188,6 +188,29 @@ async function recoverGithubControlledConversations(state, runtime) {
   const recovered = [];
   const conflicts = [];
   for (const control of missing) {
+    const appliedEntry = applied[control.conversationId] || null;
+    const appliedGeneration = Number(appliedEntry?.generation || 0);
+    const controlSignature = githubControlSignature(control);
+    if (control.controlGeneration < appliedGeneration) {
+      conflicts.push({
+        chatId: control.conversationId,
+        controlGeneration: control.controlGeneration,
+        reason: "stale_generation"
+      });
+      continue;
+    }
+    if (
+      control.controlGeneration === appliedGeneration &&
+      appliedEntry?.controlSignature &&
+      appliedEntry.controlSignature !== controlSignature
+    ) {
+      conflicts.push({
+        chatId: control.conversationId,
+        controlGeneration: control.controlGeneration,
+        reason: "same_generation_rewritten"
+      });
+      continue;
+    }
     const matches = candidates.get(control.conversationId) || [];
     if (matches.length > 1) {
       conflicts.push({
@@ -243,10 +266,10 @@ async function reconcileGithubConversationControlsOnce() {
   }
 
   const configured = runtime.conversationControls.length;
-  const recovery = await recoverGithubControlledConversations(state, runtime);
+  const applied = await readAppliedGithubControls();
+  const recovery = await recoverGithubControlledConversations(state, runtime, applied);
   if (recovery.recovered.length) state = await getBridgeState();
 
-  const applied = await readAppliedGithubControls();
   const appliedNow = [];
   const conflicts = [...recovery.conflicts];
 
