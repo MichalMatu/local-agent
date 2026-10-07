@@ -25,63 +25,49 @@ assert.doesNotMatch(
   /form\.requestSubmit\(sendButton\)/,
   "Bridge must not prefer requestSubmit(button) over the live button click path"
 );
+assert.match(
+  content,
+  /dispatchComposerBeforeInput\(composer, text\);/,
+  "normal Bridge must begin contenteditable mutation with a beforeinput lifecycle event"
+);
+assert.match(
+  content,
+  /dispatchComposerInput\(composer, text\);/,
+  "normal Bridge must always finish contenteditable mutation with an explicit input event"
+);
+assert.doesNotMatch(
+  content,
+  /formFallbackAt|formFallbackAttempted|submitBoundaryCrossed/,
+  "normal Bridge must never cross a delayed second submit mechanism"
+);
 
-for (const [name, source] of [
-  ["normal Bridge", content],
-  ["Conversation Fabric", fabricContent]
+for (const forbidden of [
+  "findComposer",
+  "setComposerText",
+  "submitComposer",
+  "findSendButton",
+  "dispatchComposerBeforeInput",
+  "dispatchComposerInput",
+  "ownedComposerPrompts",
+  "composerInputVersions",
+  "deliverFabricFeedback"
 ]) {
-  assert.match(
-    source,
-    /dispatchComposerBeforeInput\(composer, text\);/,
-    `${name} must begin contenteditable mutation with a beforeinput lifecycle event`
-  );
-  assert.match(
-    source,
-    /dispatchComposerInput\(composer, text\);/,
-    `${name} must always finish contenteditable mutation with an explicit input event`
-  );
   assert.doesNotMatch(
-    source,
-    /formFallbackAt|formFallbackAttempted|submitBoundaryCrossed/,
-    `${name} must never cross a delayed second submit mechanism`
+    fabricContent,
+    new RegExp("\\b" + forbidden + "\\b"),
+    `Conversation Fabric control scanner must not own parent-composer primitive: ${forbidden}`
   );
 }
 
 assert.match(
   fabricContent,
-  /const form = composer\?\.closest\?\.\("form"\);[\s\S]*form\.requestSubmit\(\);[\s\S]*sendButton\.click\(\);/,
-  "Conversation Fabric must prefer one native form submit boundary and use button click only when no form submit path exists"
+  /Machine diagnostics must never be injected into the parent composer/,
+  "Fabric malformed-control handling must remain machine-only"
+);
+assert.match(
+  fabricContent,
+  /single journaled feedback path/,
+  "Fabric feedback must be delegated to the worker delivery path"
 );
 
-assert.match(
-  fabricContent,
-  /const composerInputVersions = new WeakMap\(\);/,
-  "Fabric must track composer input generations for prompt provenance"
-);
-assert.match(
-  fabricContent,
-  /const ownedComposerPrompts = new WeakMap\(\);/,
-  "Fabric must retain only same-content-script prompt ownership"
-);
-assert.match(
-  fabricContent,
-  /existingComposerText && composerOwnedPromptMatches\(composer, prompt\)/,
-  "Fabric may reuse pre-existing text only when this content-script instance owns it"
-);
-assert.match(
-  fabricContent,
-  /document\.removeEventListener\("input", trackComposerInput, true\)/,
-  "Fabric must release its composer provenance listener on reinjection"
-);
-assert.match(
-  fabricContent,
-  /submitComposer\(composer, button\);[\s\S]*ownership\.submissionAttempted = true;/,
-  "Fabric must mark its exact owned prompt only after a submit attempt was actually issued"
-);
-assert.match(
-  fabricContent,
-  /composerOwnedPromptSubmissionAttempted\(composer, prompt\)/,
-  "Fabric retries must not click the same unchanged owned prompt twice"
-);
-
-console.log("Chat Bridge live Send submission contract tests passed.");
+console.log("Chat Bridge parent composer ownership contract tests passed.");
