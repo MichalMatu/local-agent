@@ -57,17 +57,21 @@ Canonical capability: `capabilities/local/adb/*`.
 Tests: `host_ops_tests/unit/local_adb/*`, CLI tests in `host_ops_tests/unit/cli/test_adb*.py`.
 
 Live evidence:
-- read-only discovery on the real Samsung S22+ succeeds over wireless ADB at the explicit serial `192.168.0.100:34791`;
+- read-only discovery on the real Samsung S22+ succeeds over wireless ADB; the observed transport changed from `192.168.0.100:34791` to `192.168.0.100:38871` while the device remained the same, and `adb mdns services` advertised the replacement `_adb-tls-connect._tcp` endpoint;
+- therefore an Android wireless `IP:port` is an ephemeral transport locator, not a durable device identity and not, by itself, a scheduler resource identity; current project/hardware task policy remains `resources: []` unless a genuinely shared external resource needs cross-repository locking;
 - the first real `adb identity` smoke exposed a Samsung-specific multiline value in the full `getprop` dump (`persist.sys.boot.reason.history`), proving that line-oriented parsing of the whole vendor property set was invalid;
 - `f92feebd3b2dafe5e5de36f5e40d83ab25fa72ec` hardened identity inspection to request only the seven fixed identity properties under one shared operation budget;
 - the post-fix real-device smoke passed both `adb identity` and bounded `adb logcat --lines 50`; identity reported Samsung SM-S906B, Android 16 and SDK 36;
-- exact-head CI for `f92feebd3b2dafe5e5de36f5e40d83ab25fa72ec` passed every canonical job.
+- the first verified transfer smoke then exposed an Android-shell incompatibility in the remote SHA-256 helper; `a2808e0352d36c0d3958e12284712dee468a1a31` replaced the remote shell script with a fixed bounded command fallback (`sha256sum` -> `toybox sha256sum` -> `openssl dgst -sha256`);
+- focused protocol coverage was consolidated into `test_adb_remote_files_io.py` at `cc234ddae3f44de21c1672b243684939531b35ce`, and exact-head CI run `37557974161` passed all canonical jobs;
+- real-device verified push and pull then passed against `/data/local/tmp` with identical SHA-256 `621a50e0895562e3d0bd28423d88921023b274332ccf171417af406494409545`; the pulled local file was committed through literal `/private/tmp` because the capability intentionally rejects the symlinked macOS `/tmp` parent;
+- the transfer smoke used live device discovery immediately before execution and left repository worktrees unchanged.
 
-Hardening before expansion:
-- add real-device verified `push`/`pull` smoke with an intentionally disposable file;
-- classify device-scoped resource identity explicitly;
-- keep exact serial targeting;
-- only after the current surface is proven, expand toward wireless pair/connect/disconnect and broader general ADB operations.
+Hardening status before expansion:
+- current discovery, identity, bounded logcat, verified push and verified pull paths all have real-device evidence;
+- keep exact explicit serial targeting inside each operation, but rediscover ephemeral wireless transport immediately before use;
+- keep the distinction between tool target identity and scheduler lock/resource identity explicit in the future Local Agent <-> Tool Runtime contract;
+- defer wireless pair/connect/disconnect and broader general ADB authority until the existing-tool hardening phase is complete and the common Tool Runtime contract is defined.
 
 ### Generic host and executable inspection
 
