@@ -56,8 +56,15 @@ Canonical capability: `capabilities/local/adb/*`.
 
 Tests: `host_ops_tests/unit/local_adb/*`, CLI tests in `host_ops_tests/unit/cli/test_adb*.py`.
 
+Live evidence:
+- read-only discovery on the real Samsung S22+ succeeds over wireless ADB at the explicit serial `192.168.0.100:34791`;
+- the first real `adb identity` smoke exposed a Samsung-specific multiline value in the full `getprop` dump (`persist.sys.boot.reason.history`), proving that line-oriented parsing of the whole vendor property set was invalid;
+- `f92feebd3b2dafe5e5de36f5e40d83ab25fa72ec` hardened identity inspection to request only the seven fixed identity properties under one shared operation budget;
+- the post-fix real-device smoke passed both `adb identity` and bounded `adb logcat --lines 50`; identity reported Samsung SM-S906B, Android 16 and SDK 36;
+- exact-head CI for `f92feebd3b2dafe5e5de36f5e40d83ab25fa72ec` passed every canonical job.
+
 Hardening before expansion:
-- add real-device smoke for discovery/identity/logcat and verified push/pull;
+- add real-device verified `push`/`pull` smoke with an intentionally disposable file;
 - classify device-scoped resource identity explicitly;
 - keep exact serial targeting;
 - only after the current surface is proven, expand toward wireless pair/connect/disconnect and broader general ADB operations.
@@ -291,7 +298,7 @@ A future Tool Runtime may execute browser/chat primitives for those workflows; i
 
 ## Current verification baseline
 
-At inventory closeout the exact-head CI for `3e5462881695ee54fd4aa6a6b201422b0326ef19` passed all canonical jobs:
+The initial inventory baseline `3e5462881695ee54fd4aa6a6b201422b0326ef19` passed all canonical jobs. Phase-B hardening has since also passed exact-head CI at `f92feebd3b2dafe5e5de36f5e40d83ab25fa72ec`:
 - `absorbed-host-ops`;
 - `test`;
 - `coverage`;
@@ -299,7 +306,9 @@ At inventory closeout the exact-head CI for `3e5462881695ee54fd4aa6a6b201422b032
 - `python-314`;
 - `macos-smoke`.
 
-This proves the current source baseline is green; it does not replace missing real-device/media/remote-host smokes.
+A real Mac read-only sweep additionally passed 12/12 maintained inspection operations (doctor, host, tool inspection, DNS/TCP, ADB discovery, macOS inventories, browser inspection and local artifact inspection) without writes, timeout, output truncation or leaked background processes.
+
+This proves the current source and broad read-only host baseline are green; it does not replace missing write-path, removable-media or remote-host smokes.
 
 ## Hardening queue before Tool Runtime contract
 
@@ -317,7 +326,7 @@ No known current P0 data-loss or authority bypass was found in this inventory. T
 
 ### P1 — physical / integration proof
 
-1. ADB real-device discovery/identity/logcat/push/pull.
+1. ADB real-device verified push/pull (discovery, identity and bounded logcat are complete).
 2. macOS removable-media inspect/mount/deploy/eject.
 3. one physical serial-device transaction.
 4. bounded real SSH target check/exec/transfer path.
