@@ -214,8 +214,8 @@ Live hardening evidence:
 - focused host task `local-agent-host-ops-artifact-bounds-focused-20261007-v5` passed compile, architecture/design gates, bounded inspect/deploy success, explicit size-limit failures, invalid-timeout failure and exact temporary-file cleanup;
 - commit `48b34d36c3bf98e1f3d2ea01867d8198ead153ce` preserves atomic/no-clobber behavior while adding the bounds; exact-head CI run `37569437598` passed `absorbed-host-ops`, `test`, `coverage`, `bridge-browser`, `python-314` and `macos-smoke`.
 
-Hardening status:
-- effect classification and target/resource identity rules are fixed for the Phase B contract.
+Contract status:
+- effect classification and target/resource identity rules are frozen inputs to the Phase C Tool Runtime contract.
 
 ### Local Git context
 
@@ -377,9 +377,12 @@ The following stay with Local Agent / Conversation Fabric:
 
 A future Tool Runtime may execute browser/chat primitives for those workflows; it must not own the reasoning workflow itself.
 
-## Current verification baseline
+## Frozen Phase B verification baseline
 
-The latest behavior-changing Host Ops head is `48b34d36c3bf98e1f3d2ea01867d8198ead153ce`, which bounds local artifact inspect/deploy. The following documentation evidence head `05e44c55b2071b0ff7e8384c664fc6436a780505` passed exact-head CI run `37569986670` with all canonical jobs green:
+The inventory/hardening baseline is frozen at
+`main@915ac2e47170a9e4d8c0b3e6d45852de7994d63b`.
+
+Exact-head CI run `37588594285` passed:
 
 - `absorbed-host-ops`;
 - `test`;
@@ -388,64 +391,45 @@ The latest behavior-changing Host Ops head is `48b34d36c3bf98e1f3d2ea01867d8198e
 - `python-314`;
 - `macos-smoke`.
 
-Live proof already covers:
-- ADB discovery/identity/logcat and verified push/pull on the Samsung device;
-- SSH strict configured-target check/exec and verified push/pull on Termux, including cleanup;
-- one passive bounded generic serial transaction on the ESP32-S3 CH340/CH341 connection;
-- isolated Host Ops-owned Chrome lifecycle plus existing-CDP deterministic primitives;
-- a broad read-only Mac inspection sweep;
-- bounded local artifact success/failure/cleanup smoke.
+Normal authenticated-Chrome acceptance for the GitHub-controlled parent self-heal returned
+`PHASE_B_LIVE_BRIDGE_ACCEPTANCE_OK`.
 
-Missing live proof is physical-only: removable media is unavailable, the Anycubic printer is not connected, and normal authenticated Chrome is intentionally untouched unless production lifecycle/recovery behavior changes.
+Live proof already covers ADB discovery/identity/logcat and verified push/pull, SSH configured-target
+check/exec and verified push/pull, one passive bounded generic serial transaction on the ESP32-S3,
+isolated Host Ops-owned Chrome lifecycle/primitives, broad read-only Mac inspection and bounded local
+artifact success/failure/cleanup.
 
-## Hardening queue before Tool Runtime contract
+Missing proof is physical-only: disposable removable media and the actually connected Anycubic
+printer.
 
-### P0 — contract correctness
+## Phase C contract notes
 
-No known current P0 data-loss or authority bypass is open. Any newly discovered wrong-target execution, lease/resource escape, unbounded replay or destructive no-clobber violation becomes P0 and stops consolidation.
+The inventory is now an input to the Local Agent <-> Tool Runtime contract, not an active hardening
+queue.
 
-### P1 — normalize execution semantics
+The contract must preserve:
 
-Complete:
-1. MacOSRemovableMediaDeployer uses one shared whole-operation deadline.
-2. The canonical effect/authority matrix covers every maintained operation.
-3. TARGET_MODEL.md records target/resource identity rules for serial, ADB, storage, SSH and remote-Git.
-4. JSON contract version 2 documents and regression-tests the command-family success/failure matrix.
-5. ADB/SSH verified transfers preserve action_attempted, committed and cleanup_failed on failure.
+1. this document's canonical effect/authority matrix;
+2. the target/locator/durable-identity/tool-lock/scheduler-resource separation in
+   `architecture/TARGET_MODEL.md`;
+3. JSON contract version 2 at the Host Ops CLI boundary;
+4. whole-operation bounds and deadlines;
+5. structured partial-effect evidence such as
+   `action_attempted`, `committed`, `cleanup_failed`,
+   `artifact_committed` and `storage_action_attempted`;
+6. Local Agent ownership of admission, scheduling, resource arbitration and durable task evidence.
 
-No further non-physical semantic normalization is required before the Tool Runtime contract. P2
-cleanup remains optional unless it exposes a correctness defect.
+P2 cleanup may remove duplicated validation/rendering, consolidate equivalent operation-budget
+helpers and standardize browser/chat primitive result names, but it must not silently change
+semantics while the contract is being defined.
 
-### P1 — physical / integration proof
-
-Completed:
-- ADB verified push/pull;
-- SSH target check/exec/transfer plus cleanup;
-- generic bounded serial transport transaction;
-- isolated browser deterministic-primitives lifecycle/attach proof.
-
-Deferred until hardware/authority is available:
+Deferred physical proof remains:
 - removable-media inspect/mount/deploy/eject with disposable media;
-- printer-specific serial proof after fresh discovery of the actual connected printer;
-- live normal-Chrome acceptance is required for the current GitHub-controlled parent self-heal because production Chat Bridge lifecycle/recovery code changed.
+- printer-specific serial proof after fresh discovery of the actual connected printer.
 
-Physical deferrals do not block the non-physical contract work above.
+Do not introduce a generic Tool Runtime registry merely because this inventory exists.
 
-### P2 — cleanup after semantics are fixed
+## Inventory/hardening exit status
 
-1. remove duplicated validation/rendering between CLI and capability layers where one owner is clear;
-2. consolidate repeated operation-budget helpers only after equivalent semantics are proven;
-3. standardize browser/chat-UI primitive result names without changing extension execution locality;
-4. remove stale/narrow-boundary wording rather than maintaining parallel descriptions.
-
-## Exit criteria for the inventory/hardening phase
-
-Proceed to the Local Agent <-> Tool Runtime contract only when:
-- every maintained operation has a canonical owner plus effect/risk and target/resource classification;
-- current success/failure JSON contracts are documented and regression-tested;
-- the removable-media composed workflow has a real shared deadline;
-- remaining unavailable-hardware smokes are clearly marked physical-only deferrals;
-- Chat Bridge primitive ownership remains separated from Conversation Fabric orchestration;
-- exact-head full CI is green.
-
-Do not introduce the shared Tool Runtime registry merely because the inventory exists.
+Complete/frozen. Phase C may use this inventory as contract input. Any new correctness regression
+reopens only the affected invariant; it does not restore the old Phase B work queue.
