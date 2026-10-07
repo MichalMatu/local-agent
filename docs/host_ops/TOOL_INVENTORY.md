@@ -30,6 +30,47 @@ Local Agent owns planning, task/repository admission, scheduling, resource arbit
 
 Conversation Fabric remains orchestration. Browser/chat-UI lifecycle effects may eventually share the same internal tool contract, but delegation policy, campaign ownership, retry/retire semantics, Result Vault and synthesis remain outside Host Ops.
 
+## Canonical effect / authority matrix
+
+The table below is the canonical cross-tool classification. Per-section prose may describe finer
+details, but it must not contradict this matrix. Classification is based on the strongest behavior
+reachable through the current accepted inputs.
+
+| Maintained operation | Semantic effect | Authority ceiling | Boundary note |
+| --- | --- | --- | --- |
+| diagnostics / JSON-contract inspection | PASSIVE_READ | NONE | deterministic local evidence only |
+| artifact inspect | PASSIVE_READ | NONE | bounded local file read/hash |
+| host profile | PASSIVE_READ | FIXED_LOCAL_EXEC | pinned native host probes |
+| tools inspect | PASSIVE_READ | FIXED_LOCAL_EXEC | fixed --version command shape; caller-selected executable still deserves admission scrutiny |
+| local Git inspection | PASSIVE_READ | FIXED_LOCAL_EXEC | fixed Git inspection commands only |
+| DNS resolve / TCP probe | ACTIVE_READ | FIXED_LOCAL_EXEC | externally observable network activity |
+| ADB devices / identity / logcat | ACTIVE_READ | FIXED_REMOTE_DEVICE_EXEC | bounded fixed ADB command set |
+| ADB verified push | MUTATION | FIXED_REMOTE_DEVICE_EXEC | remote-device filesystem write |
+| ADB verified pull | MUTATION | FIXED_REMOTE_DEVICE_EXEC | remote read plus atomic local filesystem write |
+| serial transact | DISRUPTIVE | FIXED_DEVICE_IO | opening/configuring a TTY may reset or otherwise affect hardware even without payload bytes |
+| macOS host / USB / serial / storage inventory | PASSIVE_READ | FIXED_LOCAL_EXEC | pinned native inspection tools |
+| macOS mount | MUTATION | FIXED_LOCAL_EXEC | explicit external volume only |
+| macOS unmount / eject | DISRUPTIVE | FIXED_LOCAL_EXEC | availability-changing external-storage action |
+| artifact deploy | MUTATION | NONE | staged/fsynced local file commit |
+| removable-media deploy without eject | MUTATION | FIXED_LOCAL_EXEC | inspect + optional mount + verified artifact deployment |
+| removable-media deploy with eject | DISRUPTIVE | FIXED_LOCAL_EXEC | same workflow plus whole-disk eject |
+| SSH check | ACTIVE_READ | FIXED_REMOTE_DEVICE_EXEC | fixed remote identity command |
+| SSH verified push / pull | MUTATION | FIXED_REMOTE_DEVICE_EXEC | bounded transfer plus fixed verification/commit commands |
+| SSH exec | DISRUPTIVE | ARBITRARY_CODE_LIKE | caller-selected remote argv can perform general effects |
+| remote-Git prepare / prepare-current | MUTATION | FIXED_REMOTE_DEVICE_EXEC | clone/fetch/reset/clean exact-revision workspace |
+| remote-Git run / run-current | DISRUPTIVE | ARBITRARY_CODE_LIKE | caller-selected project command after exact-revision preparation |
+| remote-Git cache list | MUTATION | FIXED_REMOTE_DEVICE_EXEC | listing may create lock directory/file state before reading cache metadata |
+| remote-Git cache remove | DISRUPTIVE | FIXED_REMOTE_DEVICE_EXEC | scoped recursive removal of one validated cache workspace |
+| browser inspect / attach / snapshot / selector / readiness / worker diagnostics | ACTIVE_READ | FIXED_LOCAL_EXEC | bounded local helper plus loopback CDP/HTTP interaction |
+| disposable browser navigation probe | ACTIVE_READ | FIXED_LOCAL_EXEC | one bounded HTTP(S) navigation |
+| guarded browser reload / content-script recovery | MUTATION | FIXED_LOCAL_EXEC | exact-target reload may repeat network/server-side effects |
+| managed / interactive browser status | ACTIVE_READ | FIXED_LOCAL_EXEC | owned-process/profile status and loopback inspection |
+| managed / interactive browser start | MUTATION | ARBITRARY_CODE_LIKE | executable/extension paths can cause local code execution; trusted-path policy belongs above the capability |
+| managed / interactive browser stop | DISRUPTIVE | FIXED_LOCAL_EXEC | terminates an explicitly owned browser session |
+
+This matrix describes authority only. It does not imply a scheduler lock. Project-dedicated
+hardware remains resources: [] unless a real cross-repository conflict exists.
+
 ## Shared execution primitives
 
 | Primitive | Canonical owner | Current contract | Main hardening concern |
@@ -86,7 +127,7 @@ Tests: `host_ops_tests/unit/local_host/*`, `host_ops_tests/unit/local_tools/*`, 
 
 Hardening:
 - standardize one whole-profile deadline rather than independent native-probe deadlines where practical;
-- future effect taxonomy must distinguish metadata reads from local process execution.
+- the canonical effect/authority matrix above distinguishes metadata reads from process-backed local execution.
 
 ### Network
 
@@ -100,7 +141,7 @@ Canonical capability: `capabilities/local/network/*`.
 Tests: `host_ops_tests/unit/local_network/*` including loopback success/refusal behavior.
 
 Hardening:
-- future tool contract should identify network effect separately from pure reads;
+- the canonical effect/authority matrix above separates externally observable network reads from passive reads;
 - preserve no-scan semantics at current boundary until broader discovery is intentionally designed.
 
 ### Serial
@@ -173,7 +214,7 @@ Live hardening evidence:
 - commit `48b34d36c3bf98e1f3d2ea01867d8198ead153ce` preserves atomic/no-clobber behavior while adding the bounds; exact-head CI run `37569437598` passed `absorbed-host-ops`, `test`, `coverage`, `bridge-browser`, `python-314` and `macos-smoke`.
 
 Remaining hardening:
-- inspection/deployment still need final effect/resource metadata classification as part of the cross-tool review.
+- effect classification is fixed by the canonical matrix above; target/resource identity normalization remains a separate Phase B item.
 
 ### Local Git context
 
@@ -226,7 +267,7 @@ Live evidence:
 
 Hardening status before expansion:
 - current `ssh check`, bounded `ssh exec`, verified push and verified pull paths all have live Termux evidence;
-- `ssh exec` remains arbitrary-code-like authority for the future effect taxonomy;
+- SSH exec is classified DISRUPTIVE / ARBITRARY_CODE_LIKE; target/resource identity remains independent;
 - keep SSH target identity distinct from scheduler resource identity; the live tasks correctly used `resources: []`;
 - retain integration coverage for host-key/authentication failures, interrupted transfer cleanup and no-clobber races;
 - defer broader SSH capability expansion until the existing-tool hardening phase is complete and the common Tool Runtime contract is defined.
@@ -241,7 +282,7 @@ Canonical workflow: `workflows/remote_git/*`.
 | prepare + project command | `remote git run` | remote arbitrary command after exact revision preparation |
 | derive from local checkout | `remote git prepare-current` | local Git inspection + remote mutation |
 | derive + run | `remote git run-current` | local inspection + remote arbitrary execution |
-| cache inventory | `remote git cache list` | remote read |
+| cache inventory | remote git cache list | remote filesystem mutation (lock state may be created) |
 | cache removal | `remote git cache remove` | destructive remote filesystem mutation |
 
 Important current invariants:
@@ -270,7 +311,7 @@ Composition:
 Result: `RemovableMediaDeploymentResult`; failures retain stage and already-completed side-effect evidence through `RemovableMediaDeploymentError`.
 
 Hardening:
-- true end-to-end operation budget;
+- shared end-to-end monotonic deadline is complete; physical-media verification remains deferred until disposable media is attached;
 - explicit target-disk resource identity;
 - physical-media smoke including partial failure after mount/deploy.
 

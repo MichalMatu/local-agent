@@ -111,6 +111,55 @@ class CurrentDocumentationContractTests(unittest.TestCase):
                 self.assertIn("local_agent.host_ops", text)
                 self.assertNotIn("execution-enabled compatibility workspace", text)
 
+    def test_host_ops_effect_taxonomy_is_canonical_and_complete(self) -> None:
+        security = (
+            REPO_ROOT / "docs" / "host_ops" / "security" / "SECURITY_MODEL.md"
+        ).read_text(encoding="utf-8")
+        inventory = (
+            REPO_ROOT / "docs" / "host_ops" / "TOOL_INVENTORY.md"
+        ).read_text(encoding="utf-8")
+
+        for label in (
+            "PASSIVE_READ",
+            "ACTIVE_READ",
+            "MUTATION",
+            "DISRUPTIVE",
+            "NONE",
+            "FIXED_LOCAL_EXEC",
+            "FIXED_REMOTE_DEVICE_EXEC",
+            "FIXED_DEVICE_IO",
+            "ARBITRARY_CODE_LIKE",
+        ):
+            with self.subTest(label=label):
+                self.assertIn(label, security)
+
+        required_rows = (
+            "| ADB devices / identity / logcat |",
+            "| serial transact |",
+            "| macOS unmount / eject |",
+            "| artifact deploy |",
+            "| SSH exec |",
+            "| remote-Git run / run-current |",
+            "| remote-Git cache list |",
+            "| managed / interactive browser start |",
+        )
+        for row in required_rows:
+            with self.subTest(row=row):
+                self.assertIn(row, inventory)
+
+        self.assertIn(
+            "| remote-Git cache list | MUTATION | FIXED_REMOTE_DEVICE_EXEC |",
+            inventory,
+        )
+        self.assertIn(
+            "| SSH exec | DISRUPTIVE | ARBITRARY_CODE_LIKE |",
+            inventory,
+        )
+        self.assertIn(
+            "effect/authority classification never creates scheduler resources",
+            security,
+        )
+
     def test_golden_standard_release_state_matches_source_version(self) -> None:
         golden = (REPO_ROOT / "docs" / "GOLDEN_STANDARD.md").read_text(encoding="utf-8")
         released_match = re.search(

@@ -36,6 +36,48 @@ macOS, remote SSH hosts, Android devices, browsers and network services are exte
 6. **One effect owner** — process lifecycle, SSH semantics, ADB selection, browser state and macOS GUI control each have one code owner.
 7. **No hidden self-escalation** — a capability must not silently widen its own permissions, disable validation or rewrite Local Agent authority state.
 
+## Canonical effect and authority classification
+
+Host Ops classifies every maintained operation on two orthogonal axes. This is the canonical
+classification used during Phase B hardening; it is descriptive contract metadata, not a new runtime
+registry or scheduler.
+
+Semantic effect describes what the operation can do to observable state:
+
+| Class | Meaning |
+| --- | --- |
+| PASSIVE_READ | Reads local state without intentionally interacting with an external target or changing persistent state. |
+| ACTIVE_READ | Performs an externally observable network/device/remote read or probe while intending no persistent mutation. |
+| MUTATION | Can create or change persistent state while remaining within a bounded non-destructive contract. |
+| DISRUPTIVE | Can disconnect, stop, remove, reset, or otherwise materially disturb target availability/state. |
+
+Authority ceiling describes the strongest execution authority exposed by the capability:
+
+| Class | Meaning |
+| --- | --- |
+| NONE | No child program, remote command, or direct device I/O is required by the effect implementation. |
+| FIXED_LOCAL_EXEC | Executes capability-selected local commands/helpers with bounded, non-general command shape. |
+| FIXED_REMOTE_DEVICE_EXEC | Executes a bounded fixed command set against an explicit remote host/device. |
+| FIXED_DEVICE_IO | Performs bounded direct device/protocol I/O where opening or writing may itself affect hardware. |
+| ARBITRARY_CODE_LIKE | Accepted inputs can select general executable/command/code behavior; treat this as the authority ceiling even when a specific invocation is read-only. |
+
+Classification rules:
+
+- classify the strongest behavior reachable through the accepted operation inputs, not the friendly
+  command name or the intent of one typical call;
+- a composite workflow inherits the strongest semantic effect and authority ceiling of any stage it
+  can execute; conditional disruptive branches should be called out explicitly;
+- process-backed inspection is not NONE merely because its returned data is read-only;
+- ARBITRARY_CODE_LIKE is an authority label, not a claim of sandbox escape or malicious intent;
+- effect/authority classification never creates scheduler resources and never substitutes for target
+  identity; Local Agent resource admission remains an independent conflict-control decision;
+- tool target identity, transport locator, effect classification and scheduler resource identity are
+  four separate concerns and must not be collapsed into one field.
+
+The maintained-operation mapping is owned by docs/host_ops/TOOL_INVENTORY.md. New or broadened
+operations must update that matrix and focused tests/documentation before the authority is treated as
+part of the stable Tool Runtime contract.
+
 ## Credentials and secrets
 
 Never commit or generate into repository-tracked paths:
