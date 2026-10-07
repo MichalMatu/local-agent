@@ -2,8 +2,9 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
-## Unreleased — Chat Bridge 0.8.11 candidate
+## Unreleased — Chat Bridge 0.8.12 candidate
 
+- Isolate Conversation Fabric control diagnostics/status from the parent composer, reserve normal Bridge delivery while a parent campaign is spawning/running, and advance the Bridge to 0.8.12 / content protocol v25.
 - Retire the standalone `host-ops` execution identity after successful live cutover: machine registry target disabled, `local-agent` self-target provisioned, absorbed CLI smokes passed, and canonical catalog/runtime example now route host maintenance only through `local-agent` + `local_agent.host_ops`.
 - Begin Host Ops absorption in PR #176: import donor `host-ops@b12b6f33` under `local_agent.host_ops`, preserve JSON contract v1, migrate the full donor regression suite plus architecture/design gates, and move new host-maintenance task preparation to the `local-agent` target while retaining the standalone binding only for migration compatibility.
 - Add a production-shaped second Conversation Fabric campaign in the same parent to prove fresh campaign identity, no state/terminal-receipt leakage, exact child cleanup and no replay of the earlier terminal feedback.
