@@ -39,7 +39,7 @@ macOS, remote SSH hosts, Android devices, browsers and network services are exte
 ## Canonical effect and authority classification
 
 Host Ops classifies every maintained operation on two orthogonal axes. This is the canonical
-classification used during Phase B hardening; it is descriptive contract metadata, not a new runtime
+classification consumed by the Phase C Tool Runtime contract; it is descriptive contract metadata, not a new runtime
 registry or scheduler.
 
 Semantic effect describes what the operation can do to observable state:
