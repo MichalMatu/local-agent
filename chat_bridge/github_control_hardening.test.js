@@ -61,6 +61,61 @@ async function addConversation(h, enabled = true) {
 }
 
 (async () => {
+  // A missing local parent is recovered only from one exact open tab.
+  {
+    let control = null;
+    const h = harnessWithControl(() => control);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    control = controlRecord();
+    const result = await h.evaluate("reconcileGithubConversationControls()");
+    assert.equal(result.recovered.length, 1);
+    assert.equal(result.conflicts.length, 0);
+    assert.equal(h.storage.bridgeState.conversations[chatId].preferredTabId, 11);
+  }
+
+  // A stale remote generation cannot recreate a missing local parent.
+  {
+    let control = null;
+    const h = harnessWithControl(() => control);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    h.storage.bridgeGithubControlApplied = {
+      [chatId]: { generation: 2, bindingRevision: 0, localGeneration: 1, controlSignature: "cached", at: Date.now() }
+    };
+    control = controlRecord({ control_generation: 1 });
+    const result = await h.evaluate("reconcileGithubConversationControls()");
+    assert.equal(result.recovered.length, 0);
+    assert.equal(result.conflicts[0].reason, "stale_generation");
+    assert.equal(h.storage.bridgeState?.conversations?.[chatId], undefined);
+  }
+
+  // A same-generation rewrite cannot recreate a missing local parent.
+  {
+    let control = null;
+    const h = harnessWithControl(() => control);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    h.storage.bridgeGithubControlApplied = {
+      [chatId]: { generation: 1, bindingRevision: 0, localGeneration: 1, controlSignature: "different", at: Date.now() }
+    };
+    control = controlRecord();
+    const result = await h.evaluate("reconcileGithubConversationControls()");
+    assert.equal(result.recovered.length, 0);
+    assert.equal(result.conflicts[0].reason, "same_generation_rewritten");
+    assert.equal(h.storage.bridgeState?.conversations?.[chatId], undefined);
+  }
+
+  // Ambiguous duplicate tabs are never adopted.
+  {
+    let control = null;
+    const h = harnessWithControl(() => control);
+    h.tabs.push({ id: 44, url, title: "Duplicate Project A" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    control = controlRecord();
+    const result = await h.evaluate("reconcileGithubConversationControls()");
+    assert.equal(result.recovered.length, 0);
+    assert.equal(result.conflicts[0].reason, "conversation_recovery_ambiguous");
+    assert.equal(h.storage.bridgeState?.conversations?.[chatId], undefined);
+  }
+
   // Concurrent reconciliation of one remote generation is serialized and applies once.
   {
     let control = null;
