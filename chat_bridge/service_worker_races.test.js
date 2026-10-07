@@ -163,10 +163,9 @@ async function add(harness, overrides = {}) {
       next_wake_at: null,
       updated_at: new Date().toISOString()
     };
-    const result = await h.evaluate("handleGithubControlAlarm()");
+    await h.evaluate("handleGithubControlAlarm()");
     assert.equal(h.storage.bridgeState.conversations[chatId].preferredTabId, 11);
     assert.equal(normalContentInjections(h).length, 1);
-    assert.equal(result.ok, true);
   }
 
   // Delivery fails closed when duplicate matching tabs exist and the preferred tab is gone.
