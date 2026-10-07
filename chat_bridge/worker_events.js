@@ -67,6 +67,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     "bridge:operator-control": applyOperatorLabControl,
     "bridge:conversation-fabric-control": applyConversationFabricControl,
     "bridge:conversation-fabric-diagnostic-context": conversationFabricDiagnosticContext,
+    "bridge:conversation-fabric-diagnostic": reportConversationFabricDiagnostic,
     "bridge:conversation-fabric-feedback": acknowledgeConversationFabricFeedback,
     "bridge:conversation-exhausted": reportConversationExhausted,
     "bridge:assistant-error": reportAssistantError,
@@ -87,10 +88,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
       await reconcileGithubConversationControls();
       const state = await getBridgeState();
-      const [runtime, schedules, fabricStatus] = await Promise.all([
+      const [runtime, schedules, fabricStatus, fabricDiagnostics] = await Promise.all([
         loadRuntimeConfig(state),
         getScheduleSnapshot(state),
-        conversationFabricOperatorSnapshot()
+        conversationFabricOperatorSnapshot(),
+        conversationFabricDiagnosticSnapshot()
       ]);
       const [githubOwnership, operatorStatus] = await Promise.all([
         githubOwnershipSnapshot(state, runtime),
@@ -113,6 +115,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         schedules,
         githubOwnership,
         fabricStatus,
+        fabricDiagnostics,
         operatorStatus,
         bridgeInfo: {
           extensionVersion: chrome.runtime.getManifest().version,
