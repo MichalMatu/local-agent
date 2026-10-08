@@ -1445,13 +1445,23 @@ async function conversationFabricDiagnosticContext(message, sender) {
     if (!conversationUrl || senderUrl !== conversationUrl) {
       return { ok: false, reason: "conversation_fabric_diagnostic_conversation_mismatch" };
     }
-    const parent = await conversationFabricManagedParent({
-      conversationUrl,
-      parentTabId: sender.tab.id
-    });
-    return parent
+    // Diagnosis is allowed for the exact locally registered parent even when
+    // its Master or conversation switch is off. This does not authorize controls
+    // or child tabs: applyConversationFabricControl keeps its strict live gate.
+    const state = await getBridgeState();
+    const parent = state.conversations?.[conversationId(conversationUrl)] || null;
+    if (
+      !parent ||
+      parent.url !== conversationUrl ||
+      (parent.preferredTabId !== null &&
+        parent.preferredTabId !== undefined &&
+        parent.preferredTabId !== sender.tab.id)
+    ) {
+      return { ok: false, reason: "conversation_fabric_parent_not_managed" };
+    }
+    return state.settings.masterEnabled && parent.enabled
       ? { ok: true, reason: "conversation_fabric_diagnostic_ready" }
-      : { ok: false, reason: "conversation_fabric_parent_not_managed" };
+      : { ok: true, reason: "conversation_fabric_diagnostic_parent_disabled" };
   } catch (error) {
     return {
       ok: false,
