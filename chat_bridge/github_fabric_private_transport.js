@@ -37,7 +37,7 @@
   function validateCatalog(value, field, pattern, maximum) {
     const fields = Object.keys(value || {}).sort();
     if (!value || typeof value !== "object" || Array.isArray(value) ||
-        fields.join(",") !== field + ",schema_version" ||
+        fields.join(",") !== [field, "schema_version"].sort().join(",") ||
         value.schema_version !== 1 || !Array.isArray(value[field]) ||
         value[field].length > maximum ||
         value[field].some(id => typeof id !== "string" || !pattern.test(id)) ||
