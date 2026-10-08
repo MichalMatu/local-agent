@@ -226,7 +226,7 @@ class GithubFabricTrustedWriterTests(unittest.TestCase):
         self.assertEqual(len(self.api.commits), 0)
 
     def test_publisher_rejects_invalid_header_token(self):
-        for token in ("", "token\\r\\nBearer evil", " token", "token ", "tok\\nen"):
+        for token in ("", "token\r\nBearer evil", " token", "token ", "tok\nen"):
             with self.subTest(token=token), self.assertRaises(PermissionError):
                 publisher.GitHubFabricREST(token)
 
