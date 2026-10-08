@@ -86,7 +86,7 @@ class FakeGitDataAPI:
             self.commits[sha] = body
             self.commit_trees[sha] = body["tree"]
             return {"sha": sha}
-        if method == "PATCH" and path == publisher.GITHUB_REF_PATH:
+        if method == "PATCH" and path == publisher.GITHUB_REF_UPDATE_PATH:
             if body.get("force") is not False:
                 raise AssertionError("force-updating the ref is forbidden")
             if self.reject_next_ref:
@@ -125,6 +125,10 @@ class GithubFabricTrustedWriterTests(unittest.TestCase):
         self.assertEqual(self.api.operations, [])
         with self.assertRaises(PermissionError):
             publisher.GitHubFabricREST("")
+
+    def test_github_ref_read_and_update_endpoints_are_distinct(self):
+        self.assertEqual(publisher.GITHUB_REF_PATH, "/git/ref/heads/chat-bridge-state")
+        self.assertEqual(publisher.GITHUB_REF_UPDATE_PATH, "/git/refs/heads/chat-bridge-state")
 
     def test_full_record_first_round_trip_and_restart_replay(self):
         result = self.publish()
