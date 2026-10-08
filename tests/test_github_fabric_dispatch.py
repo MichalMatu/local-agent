@@ -177,5 +177,135 @@ class GithubFabricDispatchTests(unittest.TestCase):
             github_fabric_dispatch.build_github_fabric_dispatch(request, children + [extra])
 
 
+class GithubFabricSyntheticPublicationTests(unittest.TestCase):
+    HEAD = "b" * 40
+
+    def _plan(self, **changes):
+        from local_agent.conversation import github_fabric_publication
+
+        arguments = {
+            "existing_record": None,
+            "existing_index": None,
+            "expected_head_sha": self.HEAD,
+            "enabled": True,
+            "writer_authorized": True,
+        }
+        arguments.update(changes)
+        return github_fabric_publication.preflight_synthetic_publication(
+            operator_request(), admitted_children(), **arguments
+        )
+
+    def test_disabled_by_default_and_permission_denied(self) -> None:
+        from local_agent.conversation import github_fabric_publication
+
+        with self.assertRaises(PermissionError):
+            github_fabric_publication.preflight_synthetic_publication(
+                operator_request(), admitted_children(),
+                existing_record=None, existing_index=None, expected_head_sha=self.HEAD
+            )
+        with self.assertRaises(PermissionError):
+            self._plan(writer_authorized=False)
+        with self.assertRaises(PermissionError):
+            self._plan(enabled=False)
+
+    def test_exact_fixture_only_rejects_private_content_and_forged_identity(self) -> None:
+        from local_agent.conversation import github_fabric_publication
+
+        for field, value in [("workflow_id", "secret-workflow"), ("id", "forged-id")]:
+            altered = operator_request()
+            altered[field] = value
+            with self.subTest(field=field), self.assertRaises(PermissionError):
+                github_fabric_publication.preflight_synthetic_publication(
+                    altered, admitted_children(), existing_record=None,
+                    existing_index=None, expected_head_sha=self.HEAD,
+                    enabled=True, writer_authorized=True
+                )
+
+        altered_children = admitted_children()
+        altered_children[0]["scope"]["summary"] = "Private client task"
+        with self.assertRaises(PermissionError):
+            github_fabric_publication.preflight_synthetic_publication(
+                operator_request(), altered_children, existing_record=None,
+                existing_index=None, expected_head_sha=self.HEAD,
+                enabled=True, writer_authorized=True
+            )
+
+    def test_proposes_record_before_index_and_replays_after_restart(self) -> None:
+        from local_agent.conversation import github_fabric_publication
+
+        first = self._plan()
+        self.assertEqual(first.operation, "create_record")
+        self.assertEqual(
+            first.path,
+            github_fabric_publication.RECORD_ROOT + first.payload["id"] + ".json"
+        )
+        self.assertEqual(first.expected_head_sha, self.HEAD)
+        self.assertEqual(first.payload, github_fabric_dispatch.build_github_fabric_dispatch(
+            operator_request(), admitted_children()
+        ))
+
+        # Lost success acknowledgement: only a fresh view of the immutable record
+        # advances to index publication, without proposing a second record.
+        second = self._plan(existing_record=first.payload, expected_head_sha="c" * 40)
+        self.assertEqual(second.operation, "update_index")
+        self.assertEqual(second.path, github_fabric_publication.INDEX_PATH)
+        self.assertEqual(second.payload, {
+            "schema_version": 1, "dispatch_ids": [first.payload["id"]]
+        })
+        self.assertEqual(second.expected_head_sha, "c" * 40)
+
+        # A lost index acknowledgement or process restart is a replay/no-op.
+        final = self._plan(
+            existing_record=first.payload,
+            existing_index=second.payload,
+            expected_head_sha="d" * 40
+        )
+        self.assertEqual(final.operation, "replay")
+        self.assertIsNone(final.path)
+        self.assertIsNone(final.payload)
+
+    def test_order_independent_fixture_and_no_overwrite(self) -> None:
+        from local_agent.conversation import github_fabric_publication
+
+        first = self._plan()
+        second = github_fabric_publication.preflight_synthetic_publication(
+            copy.deepcopy(operator_request()), list(reversed(admitted_children())),
+            existing_record=None, existing_index=None, expected_head_sha=self.HEAD,
+            enabled=True, writer_authorized=True
+        )
+        self.assertEqual(first, second)
+        changed = copy.deepcopy(first.payload)
+        changed["children"][0]["spawn"]["bootstrap_text"] += "\nmodified"
+        with self.assertRaisesRegex(ValueError, "same-id dispatch conflict"):
+            self._plan(existing_record=changed)
+        with self.assertRaisesRegex(ValueError, "missing immutable record"):
+            self._plan(existing_index={"schema_version": 1, "dispatch_ids": [first.payload["id"]]})
+
+    def test_index_capacity_duplicate_and_malformed_fail_closed(self) -> None:
+        first = self._plan()
+        full = {"schema_version": 1, "dispatch_ids": [
+            "fabric-" + c * 32 for c in "abcd"
+        ]}
+        with self.assertRaisesRegex(ValueError, "capacity exhausted"):
+            self._plan(existing_record=first.payload, existing_index=full)
+        for index in [
+            {"schema_version": True, "dispatch_ids": []},
+            {"schema_version": 1, "dispatch_ids": ["fabric-" + "a" * 32] * 2},
+            {"schema_version": 1, "dispatch_ids": ["../escape"]},
+            {"schema_version": 1, "dispatch_ids": [0]},
+            {"schema_version": 1, "dispatch_ids": [] , "url": "https://example.invalid"},
+            {"schema_version": 1, "dispatch_ids": ["fabric-" + c * 32 for c in "abcde"]},
+        ]:
+            with self.subTest(index=index), self.assertRaises(ValueError):
+                self._plan(existing_index=index)
+
+    def test_missing_or_unverified_remote_head_fails_closed(self) -> None:
+        for head in ["", "main", "A" * 40, "a" * 39, None]:
+            with self.subTest(head=head), self.assertRaises(ValueError):
+                self._plan(expected_head_sha=head)
+
+
+
+
 if __name__ == "__main__":
     unittest.main()
