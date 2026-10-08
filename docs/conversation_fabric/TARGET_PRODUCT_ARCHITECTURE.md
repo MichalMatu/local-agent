@@ -1,6 +1,6 @@
 # Local Agent — target product architecture
 
-Status: **canonical long-term target-product direction on `main`**. This is a design decision and acceptance contract, not a statement that the GitHub-first transport is already deployed.
+Status: **adopted canonical target-product direction** (documentation proposed in PR #194; not yet a production implementation). This defines the desired end state, not a claim that GitHub-first delegation is already deployed.
 
 This document defines the desired end state. `CURRENT_PLAN.md` remains the staged execution/checkpoint ledger. Historical Conversation Fabric plans are implementation history, not competing target architectures.
 
@@ -175,6 +175,37 @@ result-writeback and live recovery gates, and retain the existing DOM delegation
 as an exclusively arbitrated compatibility fallback until parity and rollback
 are proven. DOM is still necessary for ChatGPT UI interactions and bounded
 result observation, but it does not define durable workflow truth.
+
+### The everyday experience we are building
+
+The operator can say on a Mac: "Continue Growclip; inspect the latest failures and
+prepare safe fixes." ChatGPT plans and reviews; Local Agent executes only accepted
+bounded work; every admitted step and significant result is checkpointed to the
+GitHub-backed project ledger. The operator can then **close ChatGPT**.
+
+Hours later, from a phone and possibly a fresh ChatGPT conversation, the operator
+can ask "What happened with Growclip?" After explicitly resolving that project's
+authorized GitHub records, the assistant should answer from durable evidence:
+
+```text
+Growclip — last confirmed synchronization: <timestamp>
+Completed: 2 tasks, with commit/result references
+Running: 1 admitted task, last observed <timestamp>
+Waiting: 1 decision about a failed verification
+Next safe action: review the failure evidence before retrying
+```
+
+The example is a **target UI contract, not current behavior**. The response
+must distinguish known progress from stale/offline state. If the Mac or browser
+driver is offline, previously accepted GitHub records remain inspectable, but
+new local effects cannot magically execute there. A newly opened chat is only
+a reader/decision interface until it obtains the required authority.
+
+The lasting benefit is not merely persistent task lists. It is an inspectable
+chain of **what was requested, accepted, attempted, confirmed, failed, decided
+and recovered**, with exact proof references. An unknown result is recorded
+as unknown, so the next assistant can reconcile or ask for approval instead
+of inventing completion or repeating an irreversible effect.
 
 ### Acceptance scenario — Mac to phone after chat closure
 

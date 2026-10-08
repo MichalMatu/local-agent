@@ -206,7 +206,11 @@ Exit for Milestone 7: existing tools are hardened and regression-protected, the 
 
 ## Milestone 8 — planned: GitHub-first Conversation Fabric coordination
 
-**Target product direction: ADOPTED; implementation status: PLANNED.**
+**Target product direction: ADOPTED; implementation status: PLANNED.** See the
+[implementation reaudit and new-chat handoff](conversation_fabric/GITHUB_FIRST_IMPLEMENTATION_HANDOFF.md).
+The user-facing promise is one durable project across Mac, closed ChatGPT tabs
+and a later phone/new-chat session, reconstructed from acknowledged GitHub evidence
+rather than model memory.
 The target is **one persistent Local Agent project/workflow regardless of which
 ChatGPT tab or device displays it**: Superchat is the interface, GitHub-backed
 versioned coordination/evidence is authoritative, Local Agent controls deterministic
@@ -214,9 +218,13 @@ execution, and Chat Bridge is one of the narrow effect providers. Read the
 canonical cross-device durability contract in
 `docs/conversation_fabric/TARGET_PRODUCT_ARCHITECTURE.md`.
 
-Begin migration only after current Milestone 7 Tool Runtime work and the
-separate live Bridge 0.8.13 in-campaign restart acceptance are settled.
-Do not replace the working browser-native flow in one rollout.
+The next explicitly selected implementation track may begin with **one bounded
+non-executing, default-disabled GitHub-first foundation slice**, after verifying
+fresh main and the exact existing contracts. The independent Tool Runtime Phase C
+work remains unfinished and must not be declared complete or redone. **Before
+any new production Chrome spawn/submit behavior**, complete the separate live
+Bridge 0.8.13 in-campaign restart acceptance and the relevant privacy and
+idempotency gates. Do not replace the working browser-native flow in one rollout.
 
 ### Product objective and boundaries
 
@@ -265,6 +273,26 @@ no independent scheduler and no direct OpenAI API inference replacement.
 - `docs/conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md`:
   normal Chrome single-child (1/1) and parallel (3/3) acceptance on Bridge 0.8.13/v26.
   In-campaign extension reload remains a **separate unverified live gate**.
+
+### Reaudit checkpoint — implement gaps, not existing contracts
+
+The Python `operator_contract`, `github_fabric_dispatch`, `contract`,
+`bootstrap` and `spawn` modules already model requests, admitted child
+identities and exact immutable browser intent. Bridge already implements the
+GitHub scheduling alarm, default-disabled read-only intake, validated dispatch
+projection and DOM spawn/result recovery. **Do not rewrite these foundations.**
+The missing production boundaries are trusted publication/admission-to-index,
+private-safe transport for `bootstrap_text`, durable result writeback, and
+GitHub-authoritative lifecycle projection / cross-device rehydration. Existing
+local workflow/spawn stores must be assessed before proposing a new event journal.
+
+For the *first implementation PR*, reuse existing dispatch contracts and
+implement/test the smallest safely isolated **publisher/preflight or equivalent
+missing connective slice** with synthetic non-sensitive fixtures. No public
+publication of real bootstrap text, no automatic tabs, no activation of
+`github_fabric_read_only_intake_enabled`, no result-writeback privilege and no
+second execution path. Detailed first-PR scope and multi-child audit assignments
+are in `GITHUB_FIRST_IMPLEMENTATION_HANDOFF.md`.
 
 ### Proposed delivery slices and acceptance gates
 
