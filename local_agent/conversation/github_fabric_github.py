@@ -29,6 +29,7 @@ from local_agent.conversation import github_fabric_publication as preflight
 GITHUB_API_ROOT = "https://api.github.com/repos/MichalMatu/local-agent"
 GITHUB_BRANCH = "chat-bridge-state"
 GITHUB_REF_PATH = f"/git/ref/heads/{GITHUB_BRANCH}"
+GITHUB_REF_UPDATE_PATH = f"/git/refs/heads/{GITHUB_BRANCH}"
 MAX_API_RESPONSE_BYTES = 512 * 1024
 MAX_ATTEMPTS = 4
 _SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
@@ -181,7 +182,7 @@ def _commit_step(api: Any, *, head: str, tree: str, step: preflight.SyntheticPub
         },
     )
     new_head = _require_sha(commit.get("sha"), label="new commit")
-    api.request("PATCH", GITHUB_REF_PATH, {"sha": new_head, "force": False})
+    api.request("PATCH", GITHUB_REF_UPDATE_PATH, {"sha": new_head, "force": False})
 
 
 @dataclass(frozen=True, slots=True)
