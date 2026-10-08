@@ -143,10 +143,21 @@ const snapshot = page => page.evaluate(() => ({
     const concurrent = await context.newPage();
     await concurrent.goto(url);
     await load(concurrent, true);
-    const pair = await Promise.all([
-      send(concurrent, "bridge:spawn-bootstrap-v2"),
-      send(concurrent, "bridge:spawn-bootstrap")
-    ]);
+    // Deliver both messages inside one browser task, rather than through
+    // separate Playwright evaluate calls which may be serialized by CDP.
+    const pair = await concurrent.evaluate(intent => {
+      const deliver = type => new Promise((resolve, reject) => {
+        const message = { type, ...intent };
+        for (const listener of globalThis.__messageListeners) {
+          if (listener(message, {}, resolve) === true) return;
+        }
+        reject(new Error("missing spawn content listener"));
+      });
+      return Promise.all([
+        deliver("bridge:spawn-bootstrap-v2"),
+        deliver("bridge:spawn-bootstrap")
+      ]);
+    }, intent);
     assert.equal(pair.filter(x => x.reason === "spawn_submission_in_progress").length, 1);
     assert.equal(pair.filter(x => x.reason === "identity_discovered").length, 1);
     assert.equal((await snapshot(concurrent)).tabSends, 1);
