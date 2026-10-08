@@ -14,7 +14,11 @@ from local_agent.host_ops.capabilities.local.adb.models import (
     AdbTransferResult,
 )
 from local_agent.host_ops.capabilities.local.adb.remote_files import AdbTransferError
-from local_agent.host_ops.capabilities.local.files.models import ArtifactInspectionResult
+from local_agent.host_ops.capabilities.local.files.deploy import ArtifactDeploymentError
+from local_agent.host_ops.capabilities.local.files.models import (
+    ArtifactDeploymentResult,
+    ArtifactInspectionResult,
+)
 from local_agent.host_ops.capabilities.remote.ssh.checks import SshCheckResult
 from local_agent.host_ops.capabilities.remote.ssh.transfer import (
     SshTransferError,
@@ -40,6 +44,11 @@ from .contract import (
 ARTIFACT_INSPECT_TOOL = ToolDescriptor(
     tool_id="host_ops.artifact.inspect",
     effect=SemanticEffect.PASSIVE_READ,
+    authority=AuthorityCeiling.NONE,
+)
+ARTIFACT_DEPLOY_TOOL = ToolDescriptor(
+    tool_id="host_ops.artifact.deploy",
+    effect=SemanticEffect.MUTATION,
     authority=AuthorityCeiling.NONE,
 )
 ADB_IDENTITY_TOOL = ToolDescriptor(
@@ -423,6 +432,83 @@ def artifact_inspect_result(
                 sha256=result.sha256,
             ),
         ),
+    )
+
+
+
+def artifact_deploy_invocation(
+    source: Path,
+    destination_directory: Path,
+    *,
+    destination_name: str | None,
+    replace: bool,
+    max_bytes: int,
+    limits: ExecutionLimits,
+    scheduler_resources: tuple[str, ...],
+) -> ToolInvocation:
+    requested_directory = str(Path(destination_directory).expanduser())
+    return ToolInvocation(
+        tool=ARTIFACT_DEPLOY_TOOL,
+        arguments={
+            "source": str(Path(source).expanduser()),
+            "destination_directory": requested_directory,
+            "destination_name": destination_name,
+            "replace": replace,
+            "max_bytes": max_bytes,
+        },
+        target=OperationTarget(
+            kind="local_directory",
+            name=requested_directory,
+            locator=TransportLocator(
+                kind="filesystem_path",
+                attributes={"path": requested_directory},
+            ),
+        ),
+        scheduler_resources=_resources(scheduler_resources),
+        execution_limits=limits,
+    )
+
+
+def artifact_deploy_result(
+    invocation: ToolInvocation,
+    result: ArtifactDeploymentResult,
+) -> ToolResult:
+    _require_tool(invocation, ARTIFACT_DEPLOY_TOOL)
+    if invocation.target is None:
+        raise ValueError("artifact deploy invocation requires a destination directory")
+    return ToolResult(
+        tool=ARTIFACT_DEPLOY_TOOL,
+        ok=True,
+        target=invocation.target,
+        payload=result.as_dict(),
+        artifacts=(
+            ArtifactEvidence(
+                path=str(result.destination),
+                size_bytes=result.size_bytes,
+                sha256=result.sha256,
+            ),
+        ),
+    )
+
+
+def artifact_deploy_error(
+    invocation: ToolInvocation,
+    error: ArtifactDeploymentError,
+) -> ToolResult:
+    _require_tool(invocation, ARTIFACT_DEPLOY_TOOL)
+    # The legacy error proves only whether the final commit happened.
+    # Staging may have been attempted, and cleanup failures are not reported.
+    return ToolResult(
+        tool=ARTIFACT_DEPLOY_TOOL,
+        ok=False,
+        target=invocation.target,
+        payload={},
+        partial_effect=PartialEffectEvidence(
+            action_attempted=True if error.committed else None,
+            committed=error.committed,
+            cleanup_failed=None,
+        ),
+        error=ToolError(code="artifact_deployment_failed", message=str(error)),
     )
 
 

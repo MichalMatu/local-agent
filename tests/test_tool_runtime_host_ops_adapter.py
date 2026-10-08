@@ -8,7 +8,12 @@ from unittest.mock import patch
 
 from local_agent.host_ops.capabilities.local.adb import AdbClient, AdbTransferError
 from local_agent.host_ops.capabilities.local.adb.models import AdbTransferResult
-from local_agent.host_ops.capabilities.local.files import LocalArtifactInspector
+from local_agent.host_ops.capabilities.local.files import (
+    ArtifactDeploymentError,
+    LocalArtifactDeployer,
+    LocalArtifactInspector,
+)
+from local_agent.host_ops.capabilities.local.files.bounds import ArtifactOperationTimeout
 from local_agent.host_ops.capabilities.remote.ssh import (
     SshClient,
     SshFileTransfer,
@@ -30,6 +35,7 @@ from local_agent.tool_runtime.host_ops_adapter import (
     adb_pull_result,
     adb_pull_error,
     ARTIFACT_INSPECT_TOOL,
+    ARTIFACT_DEPLOY_TOOL,
     SSH_CHECK_TOOL,
     SSH_PULL_TOOL,
     SSH_PUSH_TOOL,
@@ -39,6 +45,9 @@ from local_agent.tool_runtime.host_ops_adapter import (
     adb_logcat_result,
     artifact_inspect_invocation,
     artifact_inspect_result,
+    artifact_deploy_invocation,
+    artifact_deploy_result,
+    artifact_deploy_error,
     ssh_check_invocation,
     ssh_check_result,
     ssh_pull_error,
@@ -438,6 +447,117 @@ class ToolRuntimeHostOpsAdapterTests(unittest.TestCase):
             projected.target.identity_evidence[0].attributes["real_path"],
             str(legacy.real_path),
         )
+
+    def test_artifact_deploy_projects_verified_commit_without_legacy_drift(self) -> None:
+        limits = ExecutionLimits(timeout_seconds=5.0)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.bin"
+            source.write_bytes(b"artifact-data")
+            destination_directory = root / "out"
+            destination_directory.mkdir()
+            invocation = artifact_deploy_invocation(
+                source,
+                destination_directory,
+                destination_name="firmware.bin",
+                replace=False,
+                max_bytes=1024,
+                limits=limits,
+                scheduler_resources=(),
+            )
+            legacy = LocalArtifactDeployer().deploy(
+                source,
+                destination_directory,
+                destination_name="firmware.bin",
+                max_bytes=1024,
+                limits=limits,
+            )
+            projected = artifact_deploy_result(invocation, legacy)
+            self.assertEqual((destination_directory / "firmware.bin").read_bytes(), b"artifact-data")
+
+        self.assertEqual(projected.payload, legacy.as_dict())
+        self.assertEqual(projected.tool, ARTIFACT_DEPLOY_TOOL)
+        self.assertEqual(projected.tool.effect, SemanticEffect.MUTATION)
+        self.assertEqual(projected.tool.authority, AuthorityCeiling.NONE)
+        self.assertIs(invocation.execution_limits, limits)
+        self.assertEqual(invocation.scheduler_resources, ())
+        self.assertEqual(invocation.arguments["destination_name"], "firmware.bin")
+        self.assertEqual(projected.target.name, str(destination_directory))
+        self.assertEqual(projected.artifacts[0].path, str(legacy.destination))
+        self.assertEqual(projected.artifacts[0].sha256, legacy.sha256)
+        with self.assertRaisesRegex(ValueError, "tool invocation identity mismatch"):
+            artifact_deploy_result(
+                artifact_inspect_invocation(
+                    source, max_bytes=1024, limits=limits, scheduler_resources=()
+                ),
+                legacy,
+            )
+
+    def test_artifact_deploy_error_retains_known_commit_and_unknown_cleanup(self) -> None:
+        limits = ExecutionLimits(timeout_seconds=5.0)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.bin"
+            source.write_bytes(b"payload")
+            destination_directory = root / "out"
+            destination_directory.mkdir()
+            invocation = artifact_deploy_invocation(
+                source,
+                destination_directory,
+                destination_name=None,
+                replace=False,
+                max_bytes=1024,
+                limits=limits,
+                scheduler_resources=(),
+            )
+            with patch(
+                "local_agent.host_ops.capabilities.local.files.deploy._sync_directory",
+                side_effect=ArtifactOperationTimeout,
+            ):
+                with self.assertRaises(ArtifactDeploymentError) as captured:
+                    LocalArtifactDeployer().deploy(
+                        source, destination_directory, max_bytes=1024, limits=limits
+                    )
+            self.assertTrue((destination_directory / "source.bin").exists())
+            rejected = artifact_deploy_error(invocation, captured.exception)
+
+        self.assertFalse(rejected.ok)
+        self.assertEqual(rejected.error.code, "artifact_deployment_failed")
+        self.assertEqual(rejected.error.message, str(captured.exception))
+        self.assertTrue(rejected.partial_effect.committed)
+        self.assertTrue(rejected.partial_effect.action_attempted)
+        self.assertIsNone(rejected.partial_effect.cleanup_failed)
+
+    def test_artifact_deploy_precommit_error_does_not_invent_attempt(self) -> None:
+        limits = ExecutionLimits(timeout_seconds=5.0)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.bin"
+            source.write_bytes(b"new")
+            destination_directory = root / "out"
+            destination_directory.mkdir()
+            (destination_directory / "source.bin").write_bytes(b"original")
+            invocation = artifact_deploy_invocation(
+                source,
+                destination_directory,
+                destination_name=None,
+                replace=False,
+                max_bytes=1024,
+                limits=limits,
+                scheduler_resources=(),
+            )
+            with self.assertRaises(ArtifactDeploymentError) as captured:
+                LocalArtifactDeployer().deploy(
+                    source, destination_directory, max_bytes=1024, limits=limits
+                )
+            projected = artifact_deploy_error(invocation, captured.exception)
+            self.assertEqual((destination_directory / "source.bin").read_bytes(), b"original")
+
+        self.assertFalse(projected.ok)
+        self.assertFalse(projected.partial_effect.committed)
+        self.assertIsNone(projected.partial_effect.action_attempted)
+        self.assertIsNone(projected.partial_effect.cleanup_failed)
+
 
     def test_ssh_check_projects_real_client_result_and_keeps_target_out_of_resources(
         self,
