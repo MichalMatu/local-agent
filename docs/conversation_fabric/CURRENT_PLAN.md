@@ -51,7 +51,13 @@ Collect control:
 LOCAL_AGENT_CF>>>
 ```
 
-Results must carry the expected completion marker and be stable across repeated observations before adoption. Each stable result is durably stored before sibling completion or tab cleanup.
+Results must carry the exact per-child completion marker as their final visible text and
+be stable across repeated observations before adoption. New child bootstraps use an
+ASCII-only `LOCAL_AGENT_CF_CHILD_COMPLETE:<fingerprint>:<child-id>:<checksum>`
+footer to avoid angle-bracket interpretation in ChatGPT's rich-text renderer.
+Existing children with `<<<LOCAL_AGENT_CF_CHILD_COMPLETE:...>>>` remain
+compatible; a missing, partial, or renderer-corrupted footer (such as `>>`)
+must stay pending, never be silently treated as successful completion. Each stable result is durably stored before sibling completion or tab cleanup.
 
 ## Result durability and operator recovery
 
