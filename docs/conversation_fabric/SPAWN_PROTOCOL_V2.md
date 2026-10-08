@@ -78,3 +78,22 @@ browser dispatch. Required next gates include exact-tab ownership, private
 bootstrap transport, durable event/result acknowledgment and an operator's
 real-Chrome acceptance with controlled interruption.
 
+## Same-tab v1/v2 exclusion and fixture evidence
+
+Both content handlers now share a synchronous, page-local per-transaction
+in-flight lock, held across asynchronous bootstrap validation and Send.
+This eliminates a same-tab v1/v2 interleaving that could previously bypass
+both protocols' early claim checks. The v2 handler also rejects a corrupt or
+inaccessible legacy session claim rather than interpreting it as missing.
+
+The isolated Chromium fixture derives the synthetic user echo from the actual
+composer DOM and distinguishes per-tab Send clicks from the origin-wide
+counter. This prevents a previously successful tab from masking a failed Send
+in a second tab. Race and corrupt-claim tests are included.
+
+**This remains insufficient for cross-tab, multi-device or DOM-vs-GitHub
+arbitration.** The page-local lock has no authority over cloned
+`sessionStorage`, other Chrome profiles, or independently hashed semantic
+requests. Production GitHub-first execution must remain disabled until a
+trusted durable ownership claim, original-tab fencing and private bootstrap
+transport are accepted.
