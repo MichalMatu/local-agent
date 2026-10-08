@@ -45,10 +45,12 @@ async function send(page, type = "bridge:spawn-bootstrap-v2") {
   return page.evaluate(({ intent, type }) => new Promise((resolve, reject) => {
     const listeners = globalThis.__messageListeners;
     const message = { type, ...intent };
-    let picked = false;
+    let settled = false;
     for (const listener of listeners) {
-      const async = listener(message, {}, result => { if (!picked) resolve(result); });
-      if (async === true) { picked = true; return; }
+      const async = listener(message, {}, result => {
+        if (!settled) { settled = true; resolve(result); }
+      });
+      if (async === true) return;
     }
     reject(new Error("no installed spawn content listener"));
   }), { intent, type });
