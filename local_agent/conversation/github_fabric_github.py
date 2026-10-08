@@ -48,7 +48,12 @@ class GitHubFabricREST:
     """Explicit credential holder on the trusted Local Agent side only."""
 
     def __init__(self, token: str) -> None:
-        if (\n            not isinstance(token, str)\n            or not 1 <= len(token) <= 4096\n            or token != token.strip()\n            or any(ord(char) < 33 or ord(char) > 126 for char in token)\n        ):
+        if (
+            not isinstance(token, str)
+            or not 1 <= len(token) <= 4096
+            or token != token.strip()
+            or any(ord(char) < 33 or ord(char) > 126 for char in token)
+        ):
             raise PermissionError("GitHub Fabric publisher requires an explicit API token")
         self._token = token
 
