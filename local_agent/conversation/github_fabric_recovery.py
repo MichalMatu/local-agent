@@ -15,7 +15,6 @@ from local_agent.conversation import github_fabric_claims as claims
 from local_agent.conversation import github_fabric_dispatch as dispatch_model
 from local_agent.conversation import github_fabric_github as git
 from local_agent.conversation import github_fabric_publication as dispatch_publication
-from local_agent.conversation import operator_contract
 
 SCHEMA_VERSION = 1
 SOURCE_KIND = "public_synthetic_observation_only"
