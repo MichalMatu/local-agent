@@ -18,10 +18,10 @@ This roadmap contains only active forward work. Historical rollout detail belong
 - durable campaign/result recovery in `chrome.storage.local`;
 - terminal Conversation Fabric feedback at-most-once across worker restart;
 - stale cross-campaign terminal replay prevention;
-- same-browser multi-child live acceptance;
+- Chat Bridge 0.8.13 live single-child (1/1) and three-child parallel (3/3) acceptance in the operator's Chrome;
 - supported `agentd.py` launcher fails closed when the machine repository registry is absent.
 
-The isolated child-browser/profile path is historical test/development tooling only. It is not the production Conversation Fabric architecture.
+The isolated child-browser/profile path is historical test/development tooling only. It is not the production Conversation Fabric architecture. Normal-Chrome **reload during an active campaign** still requires separate operator acceptance; Chromium CI coverage alone is not that live proof. See `docs/conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md`.
 
 ## Milestone 1 — complete restart/reload E2E acceptance
 
@@ -105,7 +105,7 @@ One normal read-only status surface now combines the existing Local Agent and br
 - Chat Bridge runtime schema 3 accepts an optional read-only `operator_status_url`, restricted to `https://raw.githubusercontent.com`, with bounded fetch timeout/cache and no write authority;
 - `bridge:get-state` combines that Local Agent snapshot with the installed Bridge manifest version and current Fabric/Vault campaign/result/cleanup/terminal-feedback state;
 - the normal Bridge popup renders the combined snapshot as one compact Operator status card;
-- Chat Bridge `0.8.4` carries this surface while content protocol `18` and repository execution authority remain unchanged.
+- The original Operator status surface predates 0.8.13; the current extension is **0.8.13 / content protocol v26**. Its telemetry remains read-only, and repository execution authority is unchanged.
 
 Telemetry failure is fail-soft and must never block control reconciliation, scheduling or task execution.
 
@@ -175,24 +175,13 @@ and structured ADB/SSH partial-effect evidence.
 Unavailable printer and removable-media proofs remain physical-only deferrals. P2 cleanup is not a
 Phase B blocker unless fresh correctness evidence reveals a regression.
 
-### Phase C — active: define the Local Agent <-> Tool Runtime contract
+### Phase C — active: validate and extend the existing Tool Runtime v1 projections
 
-Define and regression-protect the versioned internal contract before capability expansion.
+The versioned dependency-light contract is **implemented** in `local_agent/tool_runtime/contract.py` (PR #179); it already covers code-owned descriptor identity, validated calls/results, effect/authority classification, target/locator/identity evidence, scheduler-resource hints, whole-operation bounds, artifacts, partial-effect errors and deterministic schema/version handling.
 
-Required outputs:
-- stable code-owned tool identity;
-- validated arguments and structured results;
-- frozen effect and authority metadata;
-- explicit target/locator/durable-identity semantics;
-- scheduler-resource requirements that remain owned by Local Agent;
-- whole-operation execution bounds/deadlines;
-- artifact metadata plus structured partial-effect/error evidence;
-- bounded deterministic serialization and schema/version rejection;
-- migration rules that preserve existing Host Ops Python behavior and CLI JSON contract version 2.
+Existing `host_ops_adapter.py` projections preserve the Host Ops Python/CLI JSON v2 surface for artifact inspect/deploy, ADB identity/logcat/push/pull and SSH check/push/pull (subsequent PRs #180, #181, #184, #189). Adapters provide **contract projection**, not another executor, catalog or scheduler.
 
-Start with a dependency-light contract and prove it on a passive operation, one target-bearing read
-and one existing mutation/partial-failure path. Do not build a generic registry or expand the
-capability surface until those examples preserve existing semantics.
+Next: read the actual adapter/inventory/test code, identify one justified remaining mismatch or low-risk coverage gap, and add a focused regression. Preserve fail-closed partial effects and existing Host Ops behavior. Do not re-create the contract, invent a generic registry, or expand capabilities before this narrow proof.
 
 ### Phase D — expand into a complete reusable multi-tool surface
 

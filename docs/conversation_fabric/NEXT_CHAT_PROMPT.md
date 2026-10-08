@@ -1,38 +1,28 @@
-# Next chat prompt — bounded primary-Chrome live acceptance
+# Next live acceptance — controlled restart of an active Fabric campaign
 
-Use this for a fresh bounded acceptance when Chat Bridge `0.8.4` is loaded in the operator's normal Chrome session.
+Current as of 2026-10-08. This is an **operator-guided test plan**, not permission to launch tasks, change global Master state or automatically replay existing children.
 
----
+## Prerequisites
 
-Continue `MichalMatu/local-agent`, but do not use prior-chat memory as source of truth.
+Read `AGENTS.md`, `docs/conversation_fabric/CURRENT_PLAN.md` and [the verified 0.8.13 checkpoint](CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md). Confirm freshly:
 
-Read fresh:
+- the parent is the exact managed ChatGPT conversation in the normal authenticated Chrome session;
+- installed Chat Bridge reports **0.8.13 / content v26**, Master and parent enabled;
+- the previous `cf-a9f08cda8905ab33` and `cf-df084c77d84a5929` campaigns are terminal;
+- no pending/undelivered terminal feedback or preexisting live campaign would be overwritten;
+- the operator is ready to supervise **one** controlled extension/service-worker restart.
 
-1. `AGENTS.md`
-2. `docs/CURRENT_HANDOFF.md`
-3. `docs/GOLDEN_STANDARD.md`
-4. `docs/OPERATIONS.md`
-5. `docs/conversation_fabric/README.md`
-6. `docs/conversation_fabric/CURRENT_PLAN.md`
+## Bounded exercise
 
-Goal: run one bounded real Conversation Fabric acceptance in the already authenticated primary Chrome session. Do not repair or use an isolated profile, `chat-bridge-cft`, CDP, another production browser process, cookie migration or manual Cloudflare/login flow.
+1. Explicitly delegate **two** narrow reasoning-only children using one plain-text trailing `LOCAL_AGENT_CF` block; wait for worker admission evidence. No Local Agent tasks or GitHub state mutation.
+2. Allow child tabs to open and ensure each submitted bootstrap is unique; **do not manually close** child tabs.
+3. While a child is still working, have the operator reload the extension once. Leave child tabs open; do not force replay of the bootstrap.
+4. Observe exact tab/transaction/request/bootstrap/current-URL claim recovery. If ownership is not provable, preserve the failure evidence and stop.
+5. Wait for complete ASCII footer, repeated stable capture of each result, auto cleanup of exact owned tabs and one terminal parent feedback.
+6. Check campaign/vault, no duplicated child submissions, no stale feedback/replay after the next worker wake. Record PASS / PARTIAL / FAIL with campaign ID, child IDs and observed popup state.
 
-Before delegating, verify fresh `main`, exact installed Local Agent `self_revision`, Chat Bridge `0.8.4`, the exact managed parent conversation/tab and its GitHub `conversation_controls` record.
+Historical failed campaign `cf-0c2fd2d492856bc8` was impacted by a malformed legacy footer and a manually closed child tab. Do **not** reopen or automatically repeat it.
 
-Delegate 3–4 narrow non-overlapping reasoning-only children using one exact trailing `LOCAL_AGENT_CF` delegate block. Include all source context each child needs. Children may inspect/reason from bounded repository evidence but may not create `.agent/tasks`, run machine commands, mutate repositories or make the final parent decision.
+## Exit
 
-Require at least one child to complete quickly and another to remain active longer. Verify that the children open as ordinary tabs in the same existing Chrome session. Keep the managed parent and Master enabled while the existing minute GitHub-control alarm collects results automatically. Do not use LAB scheduling markers. Modify the exact GitHub `conversation_controls` record only when changing remotely managed parent pacing.
-
-During the active campaign exercise a real service-worker/extension lifecycle interruption when the harness/operator can do so safely. Confirm that already captured stable results remain durable, exact child ownership is recovered only from transaction/request/bootstrap/current-URL evidence, and no submitted child bootstrap is replayed. Exercise at least one transient observation failure and confirm later recovery.
-
-An explicit `LOCAL_AGENT_CF` collect block may inspect/recover already-submitted children after an observation failure without replaying their prompts. It is not the normal polling mechanism.
-
-Require stable result capture, final collection, exact owned child-tab cleanup and one terminal parent feedback delivery. Then reload/restart the Bridge worker again, poll/reconcile again, and verify the completed campaign is not replayed.
-
-If real machine execution is justified, resolve the actual target repository through the canonical runtime catalog, require `execution_enabled=true`, and queue at most one bounded `.agent/tasks` item with that target's exact canonical `agent_binding` and a stable branch-scoped `dedupe_key`. The current canonical catalog enables `local-agent`; self-execution is permitted only through the same catalog, binding, lease, resource and emergency-control gates as every other enabled target. If machine execution is not needed, create no task.
-
-Also cover runtime admission with production-shaped cases: valid task, wrong binding, execution-disabled target, stale/unknown registry identity, dedupe collision, malformed dedupe metadata, and intended serial/parallel semantics.
-
-Verify no equivalent duplicate work ran. End the managed parent in its intended paused state unless continued automation is explicitly required. Record PASS / PARTIAL / FAIL with exact evidence, relevant commit/run ids and one next blocker if any.
-
----
+This experiment closes only the **live recovery** gap. It does not establish machine execution authority or certify unrelated Host Ops/Tool Runtime code. Existing Chromium CI provides bounded restart regressions; it is not this operator Chrome experiment. Return to `docs/CURRENT_HANDOFF.md` for the independent Milestone 7 Phase C implementation track.

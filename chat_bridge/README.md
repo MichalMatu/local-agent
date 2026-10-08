@@ -101,6 +101,8 @@ Operator edits are never overwritten. Ordinary ambiguous/unconfirmed wake delive
 
 ## Browser-native Conversation Fabric
 
+**Live operator-Chrome acceptance on 2026-10-08:** installed Bridge 0.8.13 completed one verification child (1/1) and three parallel children (3/3), with stable result capture, automatic exact owned-tab cleanup and terminal parent feedback. See [checkpoint](../docs/conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md). **Not yet live-tested:** controlled extension reload while a campaign is active; that is the next distinct acceptance gate.
+
 A managed parent delegates bounded reasoning with one plain-text control block:
 
 ```text
@@ -117,7 +119,7 @@ Production children are ordinary tabs in the operator's already authenticated pr
 
 - Campaign identity and captured results are stored in `chrome.storage.local`.
 - Every stable child result is also copied into a separately retained bounded Result Vault record before sibling completion, terminal feedback or tab cleanup.
-- Stable child results require the explicit completion marker and repeated identical observation.
+- Stable child results require an exact completion marker and repeated identical observation. New bootstraps request the final ASCII-only `LOCAL_AGENT_CF_CHILD_COMPLETE:<fingerprint>:<child-id>:<checksum>` footer; fully formed legacy angle-bracket footers remain readable for previously started campaigns. Missing/truncated markers never imply success.
 - The normal campaign copy remains concise; the Result Vault keeps a larger bounded recovery copy plus child/campaign identity, source URL, timestamp and SHA-256 digest.
 - Transient observation failures remain pending/recoverable.
 - After service-worker/session restart, an existing child may be reattached only if the page proves the exact transaction id, child-request digest, bootstrap digest and current child conversation URL. Tab id alone never proves ownership.
@@ -158,7 +160,7 @@ A `LOCAL_AGENT_CF` control is supported only when it is visible in the parser-ow
 - A visible malformed, incomplete or non-terminal control in a managed parent is rejected with a stable diagnostic reason instead of being silently ignored.
 - An explicit worker `ok: false` response is surfaced as one rejected-control diagnostic rather than entering an opaque retry loop.
 - Transport exceptions and unavailable worker responses remain retryable; an explicit rejection does not.
-- Diagnostic feedback is gated by the same exact managed-parent authority as Fabric delegation, so markers in unmanaged/disabled chats are inert.
+- Disabled but exactly registered parents may report **only** a bounded worker-rejected admission diagnostic. Actual delegation stays blocked; unmanaged or wrong-tab controls remain inert.
 - If a model channel is not represented in the page DOM visible to the extension, the Bridge cannot diagnose that hidden channel. The runtime/model contract therefore requires the control block to be emitted in the final assistant response and as its final content.
 
 ### Terminal feedback

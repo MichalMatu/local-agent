@@ -13,6 +13,7 @@
 | Understand current release/runtime invariants | [`GOLDEN_STANDARD.md`](GOLDEN_STANDARD.md) |
 | Continue current development | [`DEVELOPMENT_PLAN.md`](DEVELOPMENT_PLAN.md) |
 | Resume from the current handoff | [`CURRENT_HANDOFF.md`](CURRENT_HANDOFF.md) |
+| Verify latest Bridge live checkpoint / next recovery gate | [`conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md`](conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md) |
 | Run the Superchat planner loop | [`AUTONOMOUS_CHAT_LOOP.md`](AUTONOMOUS_CHAT_LOOP.md) |
 | Control managed-chat pacing/status through GitHub | [`GITHUB_BRIDGE_CONTROL.md`](GITHUB_BRIDGE_CONTROL.md) |
 | Understand Host Ops and multirepo authority | [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md) |
@@ -79,7 +80,8 @@ Conversation Fabric campaign/results are durable in `chrome.storage.local`. The 
 - [`HOST_OPS_MULTIREPO.md`](HOST_OPS_MULTIREPO.md) — multirepo reasoning and target-execution authority boundaries.
 - [`CHATGPT_DOM_CONTRACT.md`](CHATGPT_DOM_CONTRACT.md) — browser DOM compatibility boundary.
 - [`../chat_bridge/README.md`](../chat_bridge/README.md) — current extension architecture and Conversation Fabric lifecycle.
-- [`conversation_fabric/README.md`](conversation_fabric/README.md) — Conversation Fabric surface and supporting evidence.
+- [`conversation_fabric/README.md`](conversation_fabric/README.md) — short Fabric navigation.
+- [`conversation_fabric/CURRENT_PLAN.md`](conversation_fabric/CURRENT_PLAN.md) — current 0.8.13 contract, live status and remaining reload acceptance.
 
 ### Development and verification
 

@@ -1,137 +1,51 @@
-# Current handoff — Tool Runtime Phase C
+# Current handoff — Tool Runtime Phase C and Bridge 0.8.13 checkpoint
 
-Date: 2026-10-07
+Updated: **2026-10-08**. Source baseline at start of this documentation handoff: `main@a7731b059fdab9b17ac8aa51df370814c101c257`; **always read fresh main before editing**.
 
-Status: **ready for a fresh parent chat**.
+## Current status, by independent track
 
-## Frozen baseline
+### Conversation Fabric / Chat Bridge
 
-Host Ops Tooling Phase B is complete and frozen at:
+- Installed operator Chrome reported **Chat Bridge 0.8.13**, content protocol **v26** after extension and parent-tab reload.
+- **Live acceptance PASS:** one-child campaign `cf-a9f08cda8905ab33` and three-child parallel campaign `cf-df084c77d84a5929`. In both, the worker reported stable result capture, automatic exact-tab cleanup and parent feedback.
+- The earlier `cf-0c2fd2d492856bc8` failure was closed without automatic replay; its child tab was closed manually after a missing legacy completion footer.
+- **Remaining Fabric live test:** service-worker/extension reload *during* an active new campaign, followed by exact-claim result recovery and no duplicate bootstrap or terminal feedback. Existing Chromium CI already exercises controlled worker recovery, but live Chrome interruption is not yet accepted.
+- Canonical details and evidence: [Fabric checkpoint](conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md), [current plan](conversation_fabric/CURRENT_PLAN.md), [next live test](conversation_fabric/NEXT_CHAT_PROMPT.md).
 
-- source: `main@915ac2e47170a9e4d8c0b3e6d45852de7994d63b`;
-- exact-head CI: run `37588594285`, all six canonical jobs green;
-- local verifier: `scripts/verify.py` passed on the same source before fast-forward to `main`;
-- production browser acceptance: `PHASE_B_LIVE_BRIDGE_ACCEPTANCE_OK`;
-- Local Agent supervisor/worker were loaded on the same source revision after closeout.
+### Local Agent — Milestone 7 Tool Runtime Phase C
 
-The historical freeze record is
-`docs/CHECKPOINT_2026-10-07_HOST_OPS_TOOLING_PHASE_B_HANDOFF.md`.
+Active implementation remains **Tool Runtime Phase C**, separate from Bridge acceptance:
 
-Do not reopen Phase B hardening unless fresh evidence shows a regression.
-
-## Active goal
-
-Continue Milestone 7, **Phase C**: define and regression-protect the internal
-`Local Agent <-> Tool Runtime` contract.
-
-The first Phase C slice is contract definition only. Do not expand the capability surface and do not
-build a generic registry/discovery framework yet.
-
-The contract must cover:
-
-1. stable code-owned tool identity;
-2. validated arguments and structured results;
-3. the frozen semantic-effect and authority-ceiling classes;
-4. operation target, transport locator and durable identity evidence;
-5. scheduler-resource requirements without deriving scheduler locks from tool target identity;
-6. whole-operation execution bounds/deadlines;
-7. artifact metadata and partial-effect/error evidence;
-8. bounded deterministic serialization plus explicit schema/version behavior;
-9. migration rules that preserve existing Host Ops Python behavior and CLI JSON contract version 2.
+- Frozen Host Ops Tooling Phase B: `915ac2e47170a9e4d8c0b3e6d45852de7994d63b`, six-job CI `37588594285`, and operator live Bridge acceptance `PHASE_B_LIVE_BRIDGE_ACCEPTANCE_OK`.
+- Phase C **contract v1 is already implemented** in `local_agent/tool_runtime/contract.py` (PR #179); do **not** restart the contract-design task as if no source existed.
+- Existing pure Host Ops projections in `local_agent/tool_runtime/host_ops_adapter.py`: artifact inspect/deploy; ADB identity/logcat/push/pull; SSH check/push/pull (PRs #180, #181, #184, #189 and related source). These are descriptive/validation adapters, **not** a second executor or a general registry.
+- Next engineering task: inspect the actual current adapter inventory and `docs/host_ops/TOOL_INVENTORY.md`; choose the smallest justified missing projection or contract regression, prove preservation of existing Host Ops behavior/error/partial-effect evidence, then validate with exact-head CI. Do not expand the capability set speculatively.
+- Physical tests still deferred: Anycubic Kobra 2 Neo printer not connected; `/dev/cu.usbserial-110` was ESP32-S3 CH340/CH341 evidence, not printer identity; removable-media destructive/live proof requires appropriate disposable hardware.
 
 ## Read first
 
-Use this compact source-of-truth chain:
+1. `AGENTS.md` — repository rules and authority.
+2. `docs/CURRENT_HANDOFF.md` — this document.
+3. `docs/DEVELOPMENT_PLAN.md` — active milestones.
+4. `docs/host_ops/TOOL_INVENTORY.md` and `docs/host_ops/architecture/TARGET_MODEL.md`.
+5. `docs/host_ops/security/SECURITY_MODEL.md` and `docs/host_ops/operations/JSON_CONTRACT.md`.
+6. `docs/conversation_fabric/CURRENT_PLAN.md` when changing Bridge/Fabric.
+7. `docs/OPERATIONS.md` for executable host/repository procedures.
 
-1. `AGENTS.md`
-2. `docs/CURRENT_HANDOFF.md`
-3. `docs/CHECKPOINT_2026-10-07_HOST_OPS_TOOLING_PHASE_B_HANDOFF.md`
-4. `docs/DEVELOPMENT_PLAN.md`
-5. `docs/host_ops/TOOL_INVENTORY.md`
-6. `docs/host_ops/architecture/TARGET_MODEL.md`
-7. `docs/host_ops/security/SECURITY_MODEL.md`
-8. `docs/host_ops/operations/JSON_CONTRACT.md`
-9. `docs/MULTI_REPOSITORY.md`
+The dated Phase B handoff and historical Conversation Fabric isolated-profile instructions are **evidence**, not instructions to restart completed milestones.
 
-Older checkpoints are historical evidence only unless a current document points to one for a disputed invariant.
+## Immutable authority rules
 
-## Locked authority model
+- `local-agent` remains the executable target for repository-host development. Resolve the target in the *current runtime catalog*; verify the exact canonical binding and `execution_enabled` at task publication, never rely on chat binding.
+- Chat Bridge is transport/scheduling and browser reasoning-child lifecycle only. GitHub `conversation_controls` owns remote chat pacing; no GitHub-backed child-chat spawn migration has replaced the Chrome worker.
+- Local Agent alone owns planner/executor boundaries, canonical repository/task admission, locks/resources, budgets/watchdogs, durable run evidence and emergency controls.
+- Tool Runtime describes deterministic capabilities, normalized targets/effects/results/deadlines and bounded serialization; descriptors never authorize execution.
+- **Tool target identity is not scheduler resource identity**. Dedicated project hardware normally has `resources: []`; claim named resources only for real cross-task conflicts.
+- Preserve existing Host Ops Python semantics and **CLI JSON contract v2**. No universal registry, second scheduler, MCP replacement, direct ChatGPT-to-daemon transport, child machine authority or general browser-controller duplication.
 
-- `local-agent` remains the executable target for this work.
-- Canonical binding: `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`.
-- Chat Bridge conversation identity is transport/scheduling identity only and never grants repository execution authority.
-- Local Agent remains the only owner of planning, repository/task admission, scheduling, resource arbitration, watchdogs and durable execution evidence.
-- Tool Runtime validates and executes deterministic effects; it does not own scheduling or planner policy.
-- Effect/authority metadata describes capability; it never grants permission.
-- **tool target identity != scheduler resource identity**.
-- Project-dedicated hardware normally remains `resources: []`; named resources exist only for genuine shared conflicts.
-- Conversation Fabric children are reasoning-only.
-- GitHub remains the durable control/evidence plane.
+## Verification / branch hygiene
 
-## Reuse before invention
-
-Phase C should start from existing abstractions rather than replace them:
-
-- execution bounds: `local_agent/host_ops/core/execution/limits.py::ExecutionLimits`;
-- normalized process evidence: `ProcessResult`;
-- scheduler resource authority: `local_agent/runtime/task_contract.py::task_resources_for` and supervisor resource admission;
-- effect/authority taxonomy: `docs/host_ops/TOOL_INVENTORY.md` and `docs/host_ops/security/SECURITY_MODEL.md`;
-- target semantics: `docs/host_ops/architecture/TARGET_MODEL.md`;
-- stable result models and validators in artifact, ADB, SSH, serial and remote-Git capabilities;
-- bounded artifact metadata pattern in `local_agent/mcp/artifacts.py`;
-- deterministic task serialization/version rejection patterns in existing Local Agent contracts.
-
-MCP policy/config patterns may be inspected for naming/versioning ideas, but Phase C is not an MCP
-migration and must not make the MCP registry the Tool Runtime registry.
-
-## Smallest proving sequence
-
-The initial contract should be dependency-light, for example under
-`local_agent/tool_runtime/contract.py`, and contain only DTOs/enums, validation and bounded
-canonical serialization.
-
-Prove it in this order:
-
-1. `artifact inspect` — passive, bounded, target-light;
-2. one target-bearing read such as `ssh check` or `adb identity`;
-3. one existing mutation/partial-failure path such as verified ADB or SSH transfer.
-
-Only after those examples preserve existing semantics should migration of the remaining tools be designed.
-
-## Explicit non-goals for the first Phase C slice
-
-Do not build:
-
-- a generic tool registry/catalog/discovery service;
-- a universal target registry;
-- a second executor, scheduler, daemon or browser control plane;
-- direct ChatGPT -> Local Agent execution transport;
-- an MCP replacement;
-- a common Host Ops CLI JSON envelope;
-- a task-schema redesign;
-- new ADB/SSH/browser/device capability expansion;
-- broad P2 naming/deduplication cleanup.
-
-## Physical-only deferred proof
-
-These remain intentionally outside the Phase C start gate:
-
-- Anycubic Kobra 2 Neo printer-specific serial proof, after fresh discovery when connected;
-- disposable removable-media inspect/mount/deploy/eject and post-side-effect live proof.
-
-`/dev/cu.usbserial-110` remains ESP32-S3 CH340/CH341 evidence, not printer identity.
-
-## Verification discipline
-
-For every source change:
-
-1. start from fresh current `main`;
-2. preserve existing dependency and authority boundaries;
-3. add focused contract regressions;
-4. preserve existing Host Ops behavior/CLI JSON v2 unless a separately versioned migration is intentional;
-5. run exact-head full CI: `absorbed-host-ops`, `test`, `coverage`, `bridge-browser`, `python-314`, `macos-smoke`;
-6. use Local Agent for machine-local tests/state and direct GitHub edits only when exact diff + CI are sufficient;
-7. retire temporary work branches once proven merged/equivalent.
-
-Use Conversation Fabric for bounded independent read-only design audits when useful, but do not replay
-the completed Phase B deadline/effect/identity/JSON audits.
+- Start every code change from the latest `main`; keep the diff small, add focused regression coverage and review actual ownership/partial-effect behavior.
+- Require all six exact-head CI jobs: `test`, `coverage`, `python-314`, `absorbed-host-ops`, `bridge-browser`, `macos-smoke`, plus bounded live acceptance when browser/device runtime semantics change.
+- Use connected GitHub source edits when reviewable diff and CI suffice; machine/device/local Chrome execution requires an authorized machine executor.
+- Source branches `work/*` are disposable **after exact PR state is verified**. Never touch `main` or control/evidence branches. Branch audit and deletion limitations: [2026-10-08 checkpoint](conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md).
