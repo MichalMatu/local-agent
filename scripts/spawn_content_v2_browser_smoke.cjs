@@ -100,6 +100,12 @@ const snapshot = page => page.evaluate(() => ({
     assert.equal(done.ok, true, JSON.stringify(done));
     assert.equal(done.reason, "identity_discovered");
     assert.equal((await snapshot(page)).sent, 1);
+    assert.equal((await snapshot(page)).tabSends, 1);
+    assert.equal(
+      (await snapshot(page)).submittedComposerText.replace(/\s+/g, " ").trim(),
+      bootstrap.replace(/\s+/g, " ").trim(),
+      "only actual composer text can produce a successful child echo"
+    );
     assert.equal(JSON.parse((await snapshot(page)).rawClaim).phase, "submitted");
     const duplicate = await send(page);
     assert.equal(duplicate.reason, "identity_discovered");
