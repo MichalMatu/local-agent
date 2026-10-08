@@ -54,9 +54,9 @@ class SyntheticSemanticClaimTests(unittest.TestCase):
         return claims.preflight_synthetic_claims(self.operator, self.children, **defaults)
 
     def publish(self, **updates):
-        return writer.publish_synthetic_claims(
-            self.operator, self.children, api=self.api, enabled=True, **updates
-        )
+        kwargs = {"api": self.api, "enabled": True}
+        kwargs.update(updates)
+        return writer.publish_synthetic_claims(self.operator, self.children, **kwargs)
 
     def test_semantic_identity_ignores_independent_transaction_algorithm(self):
         self.assertEqual(len(self.claims), 2)
