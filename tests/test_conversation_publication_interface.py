@@ -72,6 +72,7 @@ class OperatorPublisherInterfaceTests(unittest.TestCase):
         legacy.assert_not_called()
         writer.assert_called_once()
         args, kwargs = writer.call_args
+        self.assertEqual(args[0], ".agent/conversation/results/operator-request-001.json")
         self.assertEqual(args[1], self.result)
         self.assertEqual(kwargs["ensure_remote"], True)
         self.assertEqual(
