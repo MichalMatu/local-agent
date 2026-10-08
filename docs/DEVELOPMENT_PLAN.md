@@ -203,6 +203,193 @@ Conversation Fabric remains Local Agent orchestration. It owns child-request sem
 
 Exit for Milestone 7: existing tools are hardened and regression-protected, the Local Agent/tooling boundary is explicit, and new capabilities can be added without inventing one-off execution contracts.
 
+
+## Milestone 8 — planned: GitHub-first Conversation Fabric coordination
+
+**Target product direction: ADOPTED; implementation status: PLANNED.** See the
+[implementation reaudit and new-chat handoff](conversation_fabric/GITHUB_FIRST_IMPLEMENTATION_HANDOFF.md).
+The user-facing promise is one durable project across Mac, closed ChatGPT tabs
+and a later phone/new-chat session, reconstructed from acknowledged GitHub evidence
+rather than model memory.
+The target is **one persistent Local Agent project/workflow regardless of which
+ChatGPT tab or device displays it**: Superchat is the interface, GitHub-backed
+versioned coordination/evidence is authoritative, Local Agent controls deterministic
+execution, and Chat Bridge is one of the narrow effect providers. Read the
+canonical cross-device durability contract in
+`docs/conversation_fabric/TARGET_PRODUCT_ARCHITECTURE.md`.
+
+The next explicitly selected implementation track may begin with **one bounded
+non-executing, default-disabled GitHub-first foundation slice**, after verifying
+fresh main and the exact existing contracts. The independent Tool Runtime Phase C
+work remains unfinished and must not be declared complete or redone. **Before
+any new production Chrome spawn/submit behavior**, complete the separate live
+Bridge 0.8.13 in-campaign restart acceptance and the relevant privacy and
+idempotency gates. Do not replace the working browser-native flow in one rollout.
+
+### Product objective and boundaries
+
+Move durable Conversation Fabric requests, accepted child/campaign coordination, state and
+result evidence into the existing **GitHub-backed Local Agent contracts**. ChatGPT Superchat,
+using its authorized GitHub integration, proposes semantic requests and synthesizes results;
+Local Agent validates/adopts requests and owns durable coordination and authorized publication.
+Chat Bridge becomes a narrow, deterministic **ChatGPT browser driver** for physical UI effects
+and bounded DOM observation, rather than deriving task/campaign authority from assistant text.
+
+```text
+Superchat / GitHub integration
+    -> GitHub semantic conversation request
+    -> Local Agent admission + immutable child dispatch publication
+    -> GitHub browser-dispatch index/records
+    -> existing Chat Bridge GitHub-control poll
+    -> exact Chrome child create / submit / observe (DOM as sensor/effect only)
+    -> bounded browser receipt / child result evidence
+    -> trusted Local Agent publication to GitHub
+    -> Superchat reads durable result and synthesizes
+```
+
+**Do not confuse removing DOM as an authority source with removing DOM completely.**
+Ordinary ChatGPT tabs still require browser UI control to create conversations, submit exact
+bootstrap text, confirm routing and observe generated child answers. Browser/tab claims remain
+browser-local; they never authorize tasks, repository access or machine execution. Keep the
+existing authenticated primary Chrome profile, no CDP second production control plane,
+no independent scheduler and no direct OpenAI API inference replacement.
+
+### Existing reusable implementation
+
+- `chat_bridge/worker_github_control.js`: GitHub-managed conversation scheduling,
+  `conversation_controls` generations and the existing one-minute poll owner.
+- `chat_bridge/github_fabric_intake_model.js` and
+  `chat_bridge/worker_github_fabric_intake.js`: **opt-in, read-only, default-disabled**
+  GitHub dispatch intake; it currently cannot create children or publish results.
+- `chat_bridge/github_fabric_dispatch_model.js` and
+  `local_agent/conversation/github_fabric_dispatch.py`: bounded, immutable dispatch
+  validation/projection contracts with exact request, transaction and bootstrap digests.
+- `chat_bridge/worker_spawn*.js` and `spawn_result_content.js`: accepted tab,
+  submission, exact ownership, stable result and restart/reconciliation mechanisms.
+- `docs/conversation_fabric/GITHUB_READ_ONLY_INTAKE.md`,
+  `docs/conversation_fabric/SPAWN_PROTOCOL_V2.md` and
+  `docs/conversation_fabric/TARGET_PRODUCT_ARCHITECTURE.md`: staged read-only gate,
+  inactive page-local spawn-phase hardening and desired long-term authority split.
+- `docs/conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md`:
+  normal Chrome single-child (1/1) and parallel (3/3) acceptance on Bridge 0.8.13/v26.
+  In-campaign extension reload remains a **separate unverified live gate**.
+
+### Reaudit checkpoint — implement gaps, not existing contracts
+
+The Python `operator_contract`, `github_fabric_dispatch`, `contract`,
+`bootstrap` and `spawn` modules already model requests, admitted child
+identities and exact immutable browser intent. Bridge already implements the
+GitHub scheduling alarm, default-disabled read-only intake, validated dispatch
+projection and DOM spawn/result recovery. **Do not rewrite these foundations.**
+The missing production boundaries are trusted publication/admission-to-index,
+private-safe transport for `bootstrap_text`, durable result writeback, and
+GitHub-authoritative lifecycle projection / cross-device rehydration. Existing
+local workflow/spawn stores must be assessed before proposing a new event journal.
+
+For the *first implementation PR*, reuse existing dispatch contracts and
+implement/test the smallest safely isolated **publisher/preflight or equivalent
+missing connective slice** with synthetic non-sensitive fixtures. No public
+publication of real bootstrap text, no automatic tabs, no activation of
+`github_fabric_read_only_intake_enabled`, no result-writeback privilege and no
+second execution path. Detailed first-PR scope and multi-child audit assignments
+are in `GITHUB_FIRST_IMPLEMENTATION_HANDOFF.md`.
+
+### Proposed delivery slices and acceptance gates
+
+1. **Trusted publishing, without browser effects.** Preserve semantic
+   `.agent/conversation/requests/<request-id>.json` and deterministic Local Agent
+   admission. Publish immutable, bounded
+   `.agent/conversation/browser_dispatches/<dispatch-id>.json` and a bounded index
+   on the established GitHub control/evidence plane, reusing canonical request/child
+   identities. Require strict parent ownership, schema, digest, generation and
+   same-id/different-payload conflict handling. Do not let the extension transform
+   semantic requests into unvalidated child prompts.
+2. **Read-only GitHub intake acceptance.** Enable the existing intake only behind
+   an explicit opt-in, keeping it incapable of tab changes. Exercise the real
+   authenticated Chrome extension and its existing alarm against missing, stale,
+   malformed, oversized, truncated and conflicted GitHub records, cache/restart
+   persistence, remote permission errors and unchanged DOM path behavior. Never
+   overwrite operator settings or enable Master automatically.
+3. **Single-source browser dispatch.** After a separate feature gate and passing
+   recovery tests, project only **admitted immutable dispatches** into the existing
+   exact `worker_spawn` transaction path. Journal page-local claim state before
+   composer mutation; never resend after an ambiguous `submit_armed`/submit
+   boundary. Explicitly arbitrate GitHub dispatch vs legacy `LOCAL_AGENT_CF`
+   intake so one logical child/campaign can launch only once. First prove one
+   child, then 1–4 parallel children and multiple sequential campaigns.
+4. **Trusted result writeback.** Define a single authenticated, least-privilege
+   Bridge-result ingress to Local Agent (or equivalently authorized publisher).
+   A browser receipt is bounded **evidence**, not campaign truth. Local Agent
+   validates identity, result digest, stable completion, attempt and replay
+   policy, then publishes authoritative campaign/result/checkpoint records
+   to GitHub. A GitHub-read-only extension must **not** receive a broad or
+   long-lived write token; do not introduce a hidden independent server,
+   second scheduler or parallel result authority. Choose/test the ingress
+   explicitly before implementing this slice.
+5. **Superchat consumption and gradual DOM demotion.** Parent reads concise
+   GitHub-authoritative child statuses/results (references rather than full
+   transcripts by default); no requirement for a terminal
+   `LOCAL_AGENT_CF` assistant-DOM control. Keep the proven DOM delegation path
+   as a temporary compatibility fallback behind exclusive authority gates.
+   Remove obsolete parser/state responsibilities only after live parity and
+   measured rollback readiness. Preserve DOM as a scoped ChatGPT UI driver.
+
+### Durable history and cross-device recovery deliverables
+
+- Define an append-only, versioned, causally linked workflow event journal and
+  derived bounded snapshots; preserve exact project/campaign/child/task identity,
+  checkpoints, actor/authority evidence, pending decisions and observed errors.
+  Snapshots are rebuildable; conflicts/gaps fail closed.
+- Specify a **write-ack boundary**. Closing ChatGPT after confirmed persistence
+  cannot erase accepted coordination state, while unsent/unconfirmed browser
+  evidence remains explicitly uncertain, never silently called successful.
+- Verify resume on a different device: Mac project initiation -> close parent ->
+  continue/suspend appropriate work -> phone reads GitHub-backed state ->
+  later driver reconnection/repair without duplicate child submissions or tasks.
+  The replacement chat must deliberately read the authoritative project record;
+  no reliance on hidden chat memory or an always-open tab.
+- Plan bounded result summaries and protected evidence references rather than
+  copying full private transcripts. Set explicit integrity, retention, backup,
+  export and history-compaction semantics before promising durable audit history.
+- **GitHub Actions is CI, not a runtime dependency.** Quota exhaustion must
+  not halt Git-backed workflow observation, Local Agent execution or safe
+  recovery. Conversely, do not promote unverified source changes by calling
+  an Actions limit a passing test; keep changes in PR/branch pending an
+  available validation route.
+
+### Non-negotiable security and lifecycle gates
+
+- **Confidentiality before publication:** the existing canonical
+  `raw.githubusercontent.com` path targets a publicly readable GitHub surface.
+  Do **not** put private child prompts, user data, credentials or unredacted
+  transcripts there. Specify data minimization and an appropriate private
+  authenticated/encrypted evidence channel before publishing such content.
+  SHA-256 digests prove equality/integrity, **not** confidentiality or actor
+  authorization.
+- **Single authority and no replay:** immutable dispatch IDs and content digests,
+  exact parent/child identities, one durable request lifecycle owner, bounded
+  at-most-once transitions, and fail-closed handling of GitHub outages, tab
+  disappearance, extension restart and ambiguous submission. No implicit
+  re-delegation of terminal/failed children. Do not maintain two authoritative
+  campaign/result ledgers indefinitely.
+- **Safety isolation:** children remain reasoning-only; executable work still
+  requires an independently admitted `.agent/tasks` request with the actual
+  target repository's canonical `agent_binding` and `execution_enabled=true`.
+  GitHub dispatch/Bridge permissions must never grant this authority.
+- **Performance/operability:** reuse the current minute-scale GitHub-control
+  cadence initially; measure additional GitHub API traffic, latency, rate limits,
+  offline restart recovery, storage growth and operator-readable diagnostics
+  before considering bounded event-driven improvements.
+- **Exit and rollback:** exact-head six-job CI, negative/fault-injection browser
+  tests, a supervised normal-Chrome acceptance for single/parallel/restart
+  recovery, no duplicate prompts/results, and documented feature-gate rollback
+  without replaying submitted children. Switching back must not reinterpret
+  newer GitHub-owned campaigns as new DOM commands.
+
+**Dependency note:** This roadmap overlaps the GitHub-control consolidation and
+narrow Browser Driver direction in `docs/conversation_fabric/TARGET_PRODUCT_ARCHITECTURE.md`,
+but does **not** change the active Milestone 7 Phase C implementation priority.
+
 ## Not current work
 
 Do not reopen legacy repository-bound chat routing, isolated-profile production control, bounded multi-goal parent supervision, a second executor/scheduler, child machine authority, cookie migration, direct OpenAI API reasoning loops or predictive autonomous fan-out. Those directions conflict with the accepted architecture or add authority outside the current safety model.
