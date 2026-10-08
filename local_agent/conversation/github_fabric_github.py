@@ -12,9 +12,12 @@ reading GitHub again, never by blindly repeating a write.
 
 from __future__ import annotations
 
+import argparse
 import base64
 import json
+import os
 import re
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -45,7 +48,7 @@ class GitHubFabricREST:
     """Explicit credential holder on the trusted Local Agent side only."""
 
     def __init__(self, token: str) -> None:
-        if not isinstance(token, str) or not token.strip() or token != token.strip():
+        if (\n            not isinstance(token, str)\n            or not 1 <= len(token) <= 4096\n            or token != token.strip()\n            or any(ord(char) < 33 or ord(char) > 126 for char in token)\n        ):
             raise PermissionError("GitHub Fabric publisher requires an explicit API token")
         self._token = token
 
@@ -238,3 +241,49 @@ def publish_synthetic_fixture(
             # Never retry the same mutation without a new origin read.
             continue
     raise RuntimeError("GitHub Fabric publication did not converge after bounded rechecks")
+
+def main(argv: list[str] | None = None) -> int:
+    """Explicit Mac-side entrypoint for an allowlisted, public synthetic fixture."""
+    parser = argparse.ArgumentParser(description="Publish the exact synthetic Fabric fixture")
+    parser.add_argument("--source", type=Path, required=True)
+    parser.add_argument("--publish-public-synthetic", action="store_true")
+    args = parser.parse_args(argv)
+
+    if not args.publish_public_synthetic:
+        parser.error("explicit --publish-public-synthetic is required")
+    token = os.environ.get("LOCAL_AGENT_GITHUB_FABRIC_WRITE_TOKEN")
+    if not token:
+        parser.error("LOCAL_AGENT_GITHUB_FABRIC_WRITE_TOKEN is required")
+    path = args.source
+    if path.is_symlink() or not path.is_file():
+        parser.error("synthetic source must be a regular file")
+    if path.stat().st_size > preflight.MAX_PREFLIGHT_INPUT_BYTES:
+        parser.error("synthetic source exceeds size bound")
+    try:
+        source = json.loads(path.read_text(encoding="utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, OSError) as exc:
+        raise ValueError("synthetic source is invalid JSON") from exc
+    if (
+        not isinstance(source, dict)
+        or set(source) != {"operator_request", "child_requests"}
+        or not isinstance(source["operator_request"], dict)
+        or not isinstance(source["child_requests"], list)
+    ):
+        raise ValueError("synthetic source fields are invalid")
+    result = publish_synthetic_fixture(
+        source["operator_request"],
+        source["child_requests"],
+        enabled=True,
+        token=token,
+    )
+    print(json.dumps({
+        "dispatch_id": result.dispatch_id,
+        "status": result.status,
+        "head_sha": result.head_sha,
+        "applied_steps": list(result.applied_steps),
+    }, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
