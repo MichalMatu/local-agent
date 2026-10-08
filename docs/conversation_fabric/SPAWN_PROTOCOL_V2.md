@@ -52,3 +52,29 @@ different request/bootstrap digest is permanently conflicting.
 The pure model asserts allowed phases and fail-closed transitions, but it
 cannot prove browser atomicity or real tab identity on its own. Do not enable
 it in production until all seven integration gates pass.
+
+## Experimental content integration (disabled)
+
+The existing production Bridge still dispatches only `bridge:spawn-bootstrap` (v1).
+The content script now contains an explicit `bridge:spawn-bootstrap-v2` test-only
+handler. It returns `spawn_v2_inactive` unless the separate
+`spawn_phase_model.js` and `spawn_phase_storage.js` modules have already
+been injected into the same page. Neither is imported by the extension worker
+or its manifest; the production worker does not emit the v2 message.
+
+The experimental handler reuses v1 bootstrap validation and the existing
+composer writer but requires one visible composer in one active form,
+requires a persisted/read-back `prepared` claim before inserting text,
+verifies the exact draft, and persists `submit_armed` before clicking Send.
+A v2 claim also blocks a v1 submission of the same transaction. Any storage,
+route or Send ambiguity becomes reconciliation-only; no automatic replacement.
+The isolated Chromium test injects the modules explicitly and exercises
+duplicate editor, foreign draft, interrupted Send and restart cases.
+
+This **does not enable** the GitHub Fabric read-only intake to spawn children
+and does not arbitrate the same semantic work across distinct DOM and GitHub
+transaction identities. It is not authorization to activate real GitHub-first
+browser dispatch. Required next gates include exact-tab ownership, private
+bootstrap transport, durable event/result acknowledgment and an operator's
+real-Chrome acceptance with controlled interruption.
+

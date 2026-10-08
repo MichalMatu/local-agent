@@ -167,6 +167,10 @@ def run_bridge_browser() -> None:
         [node, "scripts/spawn_phase_storage_browser_smoke.cjs"],
     )
     _run(
+        "Opt-in spawn-v2 content integration browser smoke",
+        [node, "scripts/spawn_content_v2_browser_smoke.cjs"],
+    )
+    _run(
         "Conversation Fabric parent/child DOM smoke",
         [node, "scripts/conversation_fabric_dom_smoke.cjs"],
     )

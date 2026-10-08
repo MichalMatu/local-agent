@@ -499,6 +499,15 @@
       return { ok: false, reason: "spawn_intent_invalid", error: String(error) };
     }
 
+    // A previously armed v2 transaction must also block the old v1 Send
+    // path, including after an interrupted v2 legacy-claim write.
+    try {
+      if (sessionStorage.getItem("local-agent-spawn-phase-v2:" + validated.transactionId) !== null) {
+        return { ok: false, reason: "spawn_v2_claim_exists" };
+      }
+    } catch (error) {
+      return { ok: false, reason: "spawn_v2_claim_unavailable", error: String(error) };
+    }
     const existingClaim = readClaim(validated.transactionId);
     if (existingClaim) return reconcileValidatedSpawn(validated);
     if (routeState().kind !== "fresh") {
@@ -604,6 +613,107 @@
     return reconcileValidatedSpawn(validated);
   }
 
+  // Explicit, separate experimental entrypoint. The worker never sends
+  // bridge:spawn-bootstrap-v2 and the installed extension does not import the
+  // phase model/adapter. No production browser behavior changes until a
+  // separately accepted, enabled and exact-owned worker path is implemented.
+  function findVisibleComposerV2() {
+    const matches = [...new Set(document.querySelectorAll(
+      'form #prompt-textarea, form [contenteditable="true"], form textarea'
+    ))].filter(node => {
+      if (!node.isConnected || !node.closest("form") || !node.getClientRects().length) return false;
+      if (!(node instanceof HTMLTextAreaElement ||
+          (node instanceof HTMLElement && node.contentEditable === "true"))) return false;
+      const style = getComputedStyle(node);
+      return style.visibility !== "hidden" && style.display !== "none";
+    });
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  async function submitSpawnBootstrapV2(message) {
+    const phases = globalThis.LocalAgentSpawnPhaseStorage;
+    if (!phases || typeof phases.prepare !== "function") {
+      return { ok: false, reason: "spawn_v2_inactive" };
+    }
+    let validated;
+    try {
+      validated = await validateSpawnMessage(message);
+    } catch (error) {
+      return { ok: false, reason: "spawn_intent_invalid", error: String(error) };
+    }
+    const intent = {
+      transaction_id: validated.transactionId,
+      child_request_digest: validated.childRequestDigest,
+      bootstrap_digest: validated.bootstrapDigest
+    };
+    // A legacy session claim already owns this transaction. Do not promote
+    // the same work into a second browser submission path.
+    const legacy = readClaim(validated.transactionId);
+    if (legacy) return reconcileValidatedSpawn(validated);
+    if (routeState().kind !== "fresh" || assistantIsGenerating()) {
+      return { ok: false, reason: "spawn_unexpected_route" };
+    }
+    if (document.visibilityState === "prerender") {
+      return { ok: false, reason: "spawn_page_not_ready" };
+    }
+    let composer = findVisibleComposerV2();
+    if (!composer) return { ok: false, reason: "spawn_v2_composer_ambiguous" };
+    if (composerText(composer).trim() &&
+        !composerMatchesText(composer, validated.bootstrapText)) {
+      return { ok: false, reason: "spawn_composer_not_empty" };
+    }
+
+    let resolution;
+    try {
+      resolution = phases.prepare(sessionStorage, intent);
+    } catch (error) {
+      return { ok: false, reason: "spawn_v2_claim_invalid", error: String(error) };
+    }
+    if (resolution.action === "reconcile_only") {
+      return { ok: false, reason: "spawn_submission_ambiguous", claimState: resolution.claim.phase };
+    }
+    try {
+      if (resolution.claim.phase === "prepared") {
+        if (!composerMatchesText(composer, validated.bootstrapText)) {
+          if (composerText(composer).trim()) {
+            return { ok: false, reason: "spawn_composer_not_empty" };
+          }
+          phases.mutatePreparedComposer(sessionStorage, intent, () => {
+            setComposerText(composer, validated.bootstrapText);
+          });
+        }
+        composer = findVisibleComposerV2();
+        if (!composer || !composerMatchesText(composer, validated.bootstrapText)) {
+          return { ok: false, reason: "spawn_composer_write_failed" };
+        }
+        phases.advance(sessionStorage, intent, "draft_verified");
+      } else if (resolution.claim.phase !== "draft_verified" ||
+                 !composerMatchesText(composer, validated.bootstrapText)) {
+        return { ok: false, reason: "spawn_v2_draft_not_verified" };
+      }
+
+      let button = await waitForSendButton(composer);
+      composer = findVisibleComposerV2();
+      if (!button || !composer || routeState().kind !== "fresh" ||
+          !composerMatchesText(composer, validated.bootstrapText) ||
+          button.closest("form") !== composer.closest("form") ||
+          button.disabled || !button.getClientRects().length) {
+        return { ok: false, reason: "spawn_v2_send_not_ready" };
+      }
+      // Persist the irreversible page-local phase and read it back before
+      // touching legacy claim storage or clicking Send. Any error after the
+      // arm is ambiguous and is never an automatic retry.
+      await phases.armAndSend(sessionStorage, intent, () => {
+        writeClaim(validated, "submitting");
+        button.click();
+        writeClaim(validated, "submitted");
+      });
+    } catch (error) {
+      return { ok: false, reason: "spawn_v2_submission_ambiguous", error: String(error) };
+    }
+    return reconcileValidatedSpawn(validated);
+  }
+
   async function reconcileSpawn(message) {
     let validated;
     try {
@@ -650,6 +760,15 @@
           reason: "spawn_unexpected_error",
           error: String(error),
           protocolVersion: SPAWN_PROTOCOL_VERSION
+        }));
+      return true;
+    }
+    if (message?.type === "bridge:spawn-bootstrap-v2") {
+      submitSpawnBootstrapV2(message)
+        .then(response => sendResponse({ ...response, protocolVersion: SPAWN_PROTOCOL_VERSION, experimentalPhaseVersion: 2 }))
+        .catch(error => sendResponse({
+          ok: false, reason: "spawn_v2_unexpected_error", error: String(error),
+          protocolVersion: SPAWN_PROTOCOL_VERSION, experimentalPhaseVersion: 2
         }));
       return true;
     }
