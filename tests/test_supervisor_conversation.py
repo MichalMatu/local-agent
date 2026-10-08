@@ -137,7 +137,7 @@ class SupervisorConversationTests(unittest.TestCase):
             ) as remote_result, mock.patch.object(
                 conversation, "_refresh_remote_control"
             ) as refresh, mock.patch.object(
-                agentd.core, "publish_control_json", side_effect=publish_side_effect
+                agentd, "publish_control_json", side_effect=publish_side_effect
             ) as publish:
                 conversation.service_control_plane()
 
@@ -175,7 +175,7 @@ class SupervisorConversationTests(unittest.TestCase):
             ), mock.patch.object(
                 conversation, "_refresh_remote_control"
             ), mock.patch.object(
-                agentd.core, "publish_control_json", return_value=True
+                agentd, "publish_control_json", return_value=True
             ):
                 with self.assertRaisesRegex(RuntimeError, "not confirmed on origin"):
                     conversation.service_control_plane()
@@ -207,7 +207,7 @@ class SupervisorConversationTests(unittest.TestCase):
             ) as remote_result, mock.patch.object(
                 conversation, "_refresh_remote_control"
             ) as refresh, mock.patch.object(
-                agentd.core, "publish_control_json"
+                agentd, "publish_control_json"
             ) as publish:
                 conversation.service_control_plane()
             publish.assert_not_called()
@@ -242,7 +242,7 @@ class SupervisorConversationTests(unittest.TestCase):
             ), mock.patch.object(
                 conversation, "_refresh_remote_control"
             ), mock.patch.object(
-                agentd.core, "publish_control_json"
+                agentd, "publish_control_json"
             ) as publish:
                 with self.assertRaisesRegex(RuntimeError, "not confirmed on origin"):
                     conversation.service_control_plane()

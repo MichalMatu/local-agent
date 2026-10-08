@@ -64,3 +64,41 @@ No repository execution authorization is exposed or expanded.
    mutation, and no retry after `submit_armed`.
 4. Separate feature gate for actual browser dispatch, full real-Chrome E2E,
    failure injection, and rollback evidence.
+
+
+## Synthetic-only publisher test boundary
+
+The Local Agent Python publisher is `local_agent.conversation.github_fabric_github`.
+It is **not** called automatically by the daemon, Chrome, or the regular
+Conversation Fabric path. The only accepted source is the fixed public synthetic
+fixture fingerprint in `github_fabric_publication.py`. Every other input is
+rejected before a GitHub write, even if marked as synthetic.
+
+To exercise it manually in a trusted Local Agent checkout, create one JSON
+file with exactly `operator_request` and `child_requests` matching the
+synthetic fixture in `tests/test_github_fabric_dispatch.py`. With a
+repository-scoped write credential supplied securely in the **Mac** environment,
+run:
+
+```sh
+python -m local_agent.conversation.github_fabric_github \
+  --source /path/to/synthetic-fixture.json \
+  --publish-public-synthetic
+```
+
+The required environment variable is
+`LOCAL_AGENT_GITHUB_FABRIC_WRITE_TOKEN`. Never place its value in Git,
+Chrome extension state, task results, logs, or a shell command argument.
+The caller must explicitly opt in; no default credential is consumed.
+
+The trusted writer reads the exact `chat-bridge-state` origin ref, fetches
+commit-pinned record and index snapshots, creates the immutable record with a
+fast-forward-only Git ref update, then rereads origin and publishes the bounded
+index in a second fast-forward-only update. A conflict, timeout or lost ACK
+always triggers a fresh read rather than blind replay. A complete replay
+returns no new write.
+
+This is a **synthetic publication round trip only**. It does not activate
+`github_fabric_read_only_intake_enabled`, spawn tabs, produce terminal results,
+arbitrate DOM/GitHub duplicate execution, or prove Mac-to-phone recovery.
+Real private bootstrap text cannot be published on this public branch.
