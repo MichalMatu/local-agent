@@ -212,7 +212,7 @@ ChatGPT tab or device displays it**: Superchat is the interface, GitHub-backed
 versioned coordination/evidence is authoritative, Local Agent controls deterministic
 execution, and Chat Bridge is one of the narrow effect providers. Read the
 canonical cross-device durability contract in
-`docs/conversation_fabric/TARGET_PRODUCT_ARCHITECTURE.md#5a-durable-device-independent-project-continuity--product-target`.
+`docs/conversation_fabric/TARGET_PRODUCT_ARCHITECTURE.md`.
 
 Begin migration only after current Milestone 7 Tool Runtime work and the
 separate live Bridge 0.8.13 in-campaign restart acceptance are settled.
