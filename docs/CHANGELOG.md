@@ -2,7 +2,11 @@
 
 This changelog records the current operationally relevant Local Agent release line. The release tag and `local_agent.version.RELEASE_VERSION` are the version source of truth. The complete changelog through v4.19.10 is preserved verbatim in [`history/CHANGELOG_THROUGH_V4.19.10.md`](history/CHANGELOG_THROUGH_V4.19.10.md); historical per-release notes remain available under `docs/`.
 
-## Unreleased — Chat Bridge 0.8.12 candidate
+## Unreleased — Chat Bridge 0.8.13 candidate
+
+- Advance Chat Bridge to 0.8.13 and content protocol to v26 so a source refresh reinjects the changed Conversation Fabric content controllers in already-open tabs.
+- Accept an ASCII-only per-child completion footer while continuing to recognize exact legacy footers, and retain fail-closed rejection of missing or partial completion evidence; bounded browser tests cover both formats.
+- Surface read-only admission rejection diagnostics for a registered parent whose Master or conversation is disabled without weakening its delegation gate.
 
 - Isolate Conversation Fabric control diagnostics/status from the parent composer, reserve normal Bridge delivery while a parent campaign is spawning/running, and advance the Bridge to 0.8.12 / content protocol v25.
 - Retire the standalone `host-ops` execution identity after successful live cutover: machine registry target disabled, `local-agent` self-target provisioned, absorbed CLI smokes passed, and canonical catalog/runtime example now route host maintenance only through `local-agent` + `local_agent.host_ops`.

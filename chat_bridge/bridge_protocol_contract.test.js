@@ -12,7 +12,7 @@ assert.ok(
   Number.isInteger(protocol.CONTENT_PROTOCOL_VERSION) && protocol.CONTENT_PROTOCOL_VERSION > 0,
   "shared CONTENT_PROTOCOL_VERSION must be a positive integer"
 );
-assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 25, "Conversation Fabric parent composer isolation requires content protocol v25");
+assert.equal(protocol.CONTENT_PROTOCOL_VERSION, 26, "ASCII child completion and content refresh require content protocol v26");
 for (const name of ["content.js", "worker_base.js", "popup.js", "worker_test_harness.js"]) {
   assert.doesNotMatch(
     read(name),
@@ -37,7 +37,15 @@ assert.match(
 );
 
 const manifest = JSON.parse(read("manifest.json"));
-assert.equal(manifest.version, "0.8.12", "browser-native Conversation Fabric must have an unambiguous Bridge version");
+assert.equal(manifest.version, "0.8.13", "browser-native Conversation Fabric must have an unambiguous Bridge version");
+assert.ok(
+  read("conversation_fabric_content.js").includes("return `LOCAL_AGENT_CF_CHILD_COMPLETE:"),
+  "new child completion must use the ASCII-only footer"
+);
+assert.ok(
+  read("spawn_result_content.js").includes("<<<LOCAL_AGENT_CF_CHILD_COMPLETE:"),
+  "already-running legacy child completion must stay readable"
+);
 const scripts = manifest.content_scripts?.[0]?.js || [];
 const bridgeProtocolIndex = scripts.indexOf("control_protocol.js");
 const fabricProtocolIndex = scripts.indexOf("conversation_fabric_protocol.js");
