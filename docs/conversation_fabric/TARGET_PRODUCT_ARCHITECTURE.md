@@ -1,6 +1,6 @@
 # Local Agent — target product architecture
 
-Status: **canonical target-product direction** for the `develop/conversation-fabric` development line.
+Status: **canonical long-term target-product direction on `main`**. This is a design decision and acceptance contract, not a statement that the GitHub-first transport is already deployed.
 
 This document defines the desired end state. `CURRENT_PLAN.md` remains the staged execution/checkpoint ledger. Historical Conversation Fabric plans are implementation history, not competing target architectures.
 
@@ -99,6 +99,103 @@ Superchat
 ```
 
 No ephemeral chat text, browser event, DOM state, local socket or external server may silently replace this authority.
+
+## 5a. Durable, device-independent project continuity — product target
+
+**The Superchat is a user interface, not the project database.** The user must be able to
+start a project in an ordinary ChatGPT conversation on a Mac, close that chat/browser,
+later use a ChatGPT conversation on a phone or desktop, and rehydrate the project from
+its **GitHub-backed Local Agent state** without relying on the original ChatGPT DOM or
+the model remembering the earlier session. The new ChatGPT session must explicitly
+resolve the authorized project/workflow and read its durable state before proposing new
+actions; merely opening any chat does not automatically restore model context.
+
+The product view reconstructed from GitHub must show, at minimum:
+
+- **what exists:** canonical project and workflow identity, goal, bounded accepted plan,
+  current phase, task/delegation graph and exact causal links;
+- **what happened:** append-only, versioned and attributable events for requests,
+  admissions, dispatches, child acknowledgments, observations, result capture, local
+  task submission and execution, decisions, failures, recoveries and retirement;
+- **what is happening:** authoritative per-workflow and per-child state, last confirmed
+  checkpoint, required next action, source revision and last observation timestamp;
+- **what needs a decision:** explicit pending approvals, ambiguous outcomes, human
+  interventions and safe retry/retire options, rather than quietly assuming success;
+- **what can be recovered:** bounded immutable request/response evidence or approved
+  pointers, content digests, checkpoint snapshots and replay-safe reconciliation
+  metadata that allow state reconstruction after chat closure, browser restart,
+  network outage or interrupted execution.
+
+Use an **append-only event journal plus materialized bounded snapshots/indexes**.
+Every event is bound to a stable workflow/campaign/request identity, actor and authority,
+monotonic version/sequence or equivalent conflict-proof ordering, causal predecessor,
+timestamp and integrity evidence. A snapshot is a derived cache, not an independent
+source of truth. Consumers must detect gaps, duplicates, reordered/conflicting writes
+and stale snapshots; reconciliation must never silently erase evidence or replay an
+ambiguous side effect.
+
+**Durability guarantee:** once an authoritative write has been acknowledged and
+the required immutable evidence is persisted, closing the ChatGPT tab must not make
+that accepted state disappear. An unsent browser turn, unacknowledged result or
+non-durable in-memory observation can still be lost. Surface such uncertainty as
+`pending`, `unconfirmed` or `requires_reconciliation`, not as an invented success.
+For bounded disconnected operation, journal local browser evidence durably and
+reconcile it on reconnection with exact identity and idempotency checks. Never
+automatically resubmit an ambiguous child prompt or machine effect.
+
+**"Full history" means complete auditable history of admitted, recorded
+coordination transitions**, not automatic storage of hidden model reasoning,
+complete ChatGPT transcripts or arbitrary sensitive user data. Store minimal
+summaries, immutable digests and evidence references by default; use an appropriately
+authorized private/encrypted evidence store when source material is sensitive.
+GitHub repository history alone is not permanent backup: document pruning,
+access control, retention, integrity checks, backup/export and recovery procedures
+so compaction, force pushes or repository removal cannot silently destroy
+the accepted audit trail. The current public `raw.githubusercontent.com` intake
+must not receive confidential prompts or raw child transcripts.
+
+**GitHub Actions is not the workflow engine.** GitHub repositories and authenticated
+Git-backed records provide coordination/evidence; Local Agent owns long-running
+execution, scheduling and recovery, while Chat Bridge performs browser effects.
+GitHub Actions may test proposed source changes, but an exhausted Actions quota,
+queued CI job or disabled runner must not prevent the installed system from
+reading existing workflow state, preserving verified events or presenting a
+pending decision. Actions unavailability also does not excuse bypassing
+the required CI gate for merging new code.
+
+**Responsiveness target:** retain a safe minute-scale GitHub poll initially for
+durable multi-minute work, and surface freshness/last-sync status. Lower-latency
+push or notification paths may be explored later as optional wake hints, never
+as a competing control-plane authority.
+
+**Migration strategy:** do not rewrite or disable the accepted Chrome Bridge
+0.8.13 path in one step. Add an off-by-default GitHub-first read-only channel,
+advance through explicit publication/admission, browser-dispatch, trusted
+result-writeback and live recovery gates, and retain the existing DOM delegation
+as an exclusively arbitrated compatibility fallback until parity and rollback
+are proven. DOM is still necessary for ChatGPT UI interactions and bounded
+result observation, but it does not define durable workflow truth.
+
+### Acceptance scenario — Mac to phone after chat closure
+
+1. A parent conversation accepts a bounded request and receives a verified
+   durable GitHub receipt for its exact project/workflow identity.
+2. The operator closes the Mac ChatGPT tab; ongoing Local Agent tasks can continue,
+   and any browser-only child work is honestly marked suspended or awaiting an
+   available authenticated Browser Driver if needed.
+3. On the phone, the user opens ChatGPT and explicitly selects/resolves that
+   workflow; the authorized integration reads GitHub event/snapshot records.
+4. The new view shows completed, running, failed, waiting and decision-required
+   items with evidence references and last-sync age. Unknown outcomes remain
+   unknown, not silently marked done.
+5. When the browser driver and Local Agent reconnect, they reconcile exact
+   identities and previously acknowledged work without duplicate child prompts,
+   tasks or notifications. An intentional retry requires a new explicit identity
+   and operator/parent decision.
+
+Successful end-to-end recovery must be demonstrated across independently
+restarted ChatGPT/Chrome, Local Agent and network connections before this
+becomes a release-level durability claim.
 
 ## 6. Local Agent is the control and execution core
 
