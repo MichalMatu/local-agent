@@ -162,6 +162,20 @@ const snapshot = page => page.evaluate(() => ({
     assert.equal((await snapshot(corrupt)).tabSends, 0);
     assert.equal((await snapshot(corrupt)).draft, "");
 
+    const unreadable = await context.newPage();
+    await unreadable.goto(url);
+    await load(unreadable, true);
+    await unreadable.evaluate(() => {
+      const original = Storage.prototype.getItem;
+      Storage.prototype.getItem = function(key) {
+        if (key.startsWith("local-agent:conversation-spawn:")) throw Error("storage denied");
+        return original.call(this, key);
+      };
+    });
+    assert.equal((await send(unreadable)).reason, "spawn_legacy_claim_invalid");
+    assert.equal((await snapshot(unreadable)).tabSends, 0);
+    assert.equal((await snapshot(unreadable)).draft, "");
+
     // Reject foreign drafts and ambiguous duplicate editors without changes.
     const foreign = await context.newPage();
     await foreign.goto(url);
