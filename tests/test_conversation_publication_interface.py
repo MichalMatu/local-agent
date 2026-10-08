@@ -75,7 +75,7 @@ class OperatorPublisherInterfaceTests(unittest.TestCase):
             kwargs["commit_message"], "Conversation result: operator-request-001"
         )
         kwargs["post_pull_validate"]()
-        self.assertEqual(mocks[3].call_count, 2)
+        self.assertEqual(mocks[2].call_count, 2)
         mocks[6].assert_called_once()
         mocks[7].assert_called_once_with(self.item)
 
