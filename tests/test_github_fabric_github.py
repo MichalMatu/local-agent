@@ -24,6 +24,8 @@ class FakeGitDataAPI:
         self.counter = 0
         self.operations = []
         self.fail_after_ref = False
+        self.fail_after_ref_number = None
+        self.ref_successes = 0
         self.reject_next_ref = False
         self.deny_next_request = False
         self.corrupt_path = None
@@ -89,7 +91,8 @@ class FakeGitDataAPI:
                 raise publisher.GithubFabricHTTPError(422)
             self.head = body["sha"]
             self.snapshots[self.head] = copy.deepcopy(self.trees[commit["tree"]])
-            if self.fail_after_ref:
+            self.ref_successes += 1
+            if self.fail_after_ref or self.fail_after_ref_number == self.ref_successes:
                 self.fail_after_ref = False
                 raise publisher.GithubFabricTransportError("simulated lost acknowledgement")
             return {"ref": "refs/heads/chat-bridge-state"}
@@ -145,23 +148,16 @@ class GithubFabricTrustedWriterTests(unittest.TestCase):
         self.assertEqual(len(self.api.commits), 2)
 
     def test_index_acknowledgement_lost_reconciles_without_replay(self):
-        # First step commits record. Index update loses ACK but its Git ref moves.
-        first = self.publish()
-        prior = len(self.api.commits)
-        self.api.fail_after_ref = True
-        # A separate call is already a replay; create a new incomplete remote
-        # snapshot by withholding its index and preserving the record.
-        remote = self.api.snapshots[self.api.head]
-        index = remote.pop(publisher.preflight.INDEX_PATH)
+        # Record succeeds, index Git ref advances but its response is lost.
+        self.api.fail_after_ref_number = 2
         result = self.publish()
         self.assertEqual(result.status, "published")
-        self.assertEqual(len(self.api.commits), prior + 1)
-        self.assertEqual(result.applied_steps, ())
-        self.assertEqual(
-            json.loads(self.api.snapshots[self.api.head][publisher.preflight.INDEX_PATH])["dispatch_ids"],
-            json.loads(index)["dispatch_ids"],
-        )
-        self.assertEqual(first.dispatch_id, result.dispatch_id)
+        self.assertEqual(result.applied_steps, ("create_record",))
+        self.assertEqual(len(self.api.commits), 2)
+        index = json.loads(self.api.snapshots[self.api.head][publisher.preflight.INDEX_PATH])
+        self.assertEqual(index["dispatch_ids"], [result.dispatch_id])
+        self.assertEqual(self.publish().status, "replay")
+        self.assertEqual(len(self.api.commits), 2)
 
     def test_non_fast_forward_rechecks_new_origin_without_force(self):
         self.api.reject_next_ref = True
