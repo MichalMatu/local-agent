@@ -135,6 +135,7 @@ const snapshot = page => page.evaluate(() => ({
     await foreign.evaluate(() => { document.querySelector("#prompt-textarea").textContent = "USER DRAFT"; });
     assert.equal((await send(foreign)).reason, "spawn_composer_not_empty");
     assert.equal((await snapshot(foreign)).draft, "USER DRAFT");
+    assert.equal((await snapshot(foreign)).rawClaim, null);
     const duplicateComposer = await context.newPage();
     await duplicateComposer.goto(url);
     await load(duplicateComposer, true);
