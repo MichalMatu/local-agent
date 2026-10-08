@@ -134,3 +134,59 @@ def publish_synthetic_result_fixture(
             # Re-read the origin before ever considering another mutation.
             continue
     raise RuntimeError("GitHub Fabric synthetic result CAS did not converge")
+
+
+@dataclass(frozen=True, slots=True)
+class SyntheticResultObservation:
+    """Unattested result-fixture existence at a specific source commit."""
+
+    source_head_sha: str
+    result_id: str
+    kind: str
+    ack_state: str
+    execution_state: str
+    operator_result_digest: str
+
+
+def read_synthetic_result_projection(
+    operator_request: dict[str, Any],
+    child_requests: list[dict[str, Any]],
+    operator_result: dict[str, Any],
+    *,
+    enabled: bool = False,
+    token: str | None = None,
+    api: Any | None = None,
+) -> SyntheticResultObservation | None:
+    """Observe verified immutable fixture records; NEVER infer child execution.
+
+    None means the exact result projection is not yet durably indexed. An
+    orphan, malformed, conflicting or incomplete record always raises.
+    """
+    if enabled is not True:
+        raise PermissionError("GitHub Fabric synthetic result read is disabled")
+    projection = results.build_projection(
+        operator_request, child_requests, operator_result
+    )
+    if api is None:
+        api = git.GitHubFabricREST(token)
+    prior = recovery.recover_public_synthetic_snapshot(
+        operator_request, child_requests, enabled=True, api=api
+    )
+    head, _tree, index, records = _snapshot(api, projection["id"])
+    if head != prior.source_head_sha:
+        raise ValueError("Synthetic result source advanced during recovery")
+    plan = results.preflight_synthetic_result(
+        operator_request, child_requests, operator_result,
+        existing_index=index, existing_records=records,
+        expected_head_sha=head, enabled=True, writer_authorized=True,
+    )
+    if plan.operation != "replay":
+        return None
+    return SyntheticResultObservation(
+        source_head_sha=head,
+        result_id=projection["id"],
+        kind=results.SOURCE_KIND,
+        ack_state=results.ACK_STATE,
+        execution_state=results.EXECUTION_STATE,
+        operator_result_digest=projection["operator_result_digest"],
+    )
