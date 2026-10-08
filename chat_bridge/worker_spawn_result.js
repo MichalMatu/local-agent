@@ -1,5 +1,9 @@
 const CONVERSATION_SPAWN_RESULT_PROTOCOL_VERSION = 2;
-const CONVERSATION_SPAWN_COMPLETION_MARKER_RE = /^<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>$/gm;
+// The legacy angle-bracket marker stays readable for already-submitted children.
+// New campaigns use an ASCII-only footer to avoid losing the marker to
+// ChatGPT's rich-text rendering before the result reaches the DOM.
+const CONVERSATION_SPAWN_COMPLETION_MARKER_RE =
+  /^(?:<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>|LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8})$/gm;
 
 function conversationSpawnCompletionMarker(intent) {
   const matches = Array.from(

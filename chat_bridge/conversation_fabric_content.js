@@ -62,7 +62,7 @@
 
   function childCompletionMarker(fingerprint, childId) {
     const checksum = fnv1a32(`${fingerprint}\n${childId}`);
-    return `<<<LOCAL_AGENT_CF_CHILD_COMPLETE:${fingerprint}:${childId}:${checksum}>>>`;
+    return `LOCAL_AGENT_CF_CHILD_COMPLETE:${fingerprint}:${childId}:${checksum}`;
   }
 
   function decorateDelegateControl(control, fingerprint) {
@@ -70,7 +70,8 @@
     const children = control.children.map((child) => {
       const completionMarker = childCompletionMarker(fingerprint, child.id);
       const suffix = [
-        "When the bounded task is fully complete, append the exact marker below as the final non-whitespace text of your final answer.",
+        "When the bounded task is fully complete, append this exact ASCII completion token as the final non-whitespace line of your final answer.",
+        "Copy the token literally as plain text; do not add angle brackets, Markdown, code fences, quotes, or trailing prose.",
         "Never emit this marker in progress, commentary, tool-use, or any intermediate response.",
         completionMarker
       ].join("\n");

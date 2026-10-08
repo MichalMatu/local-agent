@@ -8,7 +8,10 @@
   const MAX_RESULT_CHARS = 24_000;
   const TRANSACTION_RE = /^spawn-[0-9a-f]{64}$/;
   const DIGEST_RE = /^sha256:[0-9a-f]{64}$/;
-  const COMPLETION_MARKER_RE = /^<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>$/;
+  // New child messages use ASCII-only completion tokens; accept the exact
+  // legacy footer only for already-running campaigns.
+  const COMPLETION_MARKER_RE =
+    /^(?:<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>|LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8})$/;
   const CLAIM_PREFIX = "local-agent:conversation-spawn:";
 
   const existing = globalThis.__localAgentConversationSpawnResultContent;

@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, "..");
 const bridge = path.join(root, "chat_bridge");
 const parentUrl = "https://chatgpt.com/c/cf-parent-smoke";
 const childUrl = "https://chatgpt.com/c/cf-child-smoke";
-const completionMarkerRe = /<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>/;
+const completionMarkerRe = /LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}/;
 
 const parentFixture = `<!doctype html><html><body>
 <form id="composer-form">
@@ -496,6 +496,15 @@ async function runChildSmoke(context, completionMarker) {
   assert.equal(activeToolUse.ok, true, JSON.stringify(activeToolUse));
   assert.equal(activeToolUse.reason, "child_generating");
 
+  // A plausible finished answer with the exact renderer-corrupted legacy
+  // suffix (">>") must never be counted as completion.
+  await setChildAssistant(page, "CHILD RESULT ALPHA\n>>");
+  const brokenFooter = await page.evaluate(
+    (payload) => window.__dispatchExtensionMessage(payload),
+    message
+  );
+  assert.equal(brokenFooter.reason, "child_generating");
+
   // Reinstall the result listener to exercise extension/content-script reload recovery.
   await page.addScriptTag({ path: path.join(bridge, "spawn_result_content.js") });
   await setChildAssistant(page, `CHILD RESULT ALPHA\n${completionMarker}`);
@@ -509,6 +518,17 @@ async function runChildSmoke(context, completionMarker) {
   assert.equal(result.assistantIdentity, "assistant-child-result");
   assert.equal(result.assistantText, "CHILD RESULT ALPHA");
   assert.doesNotMatch(result.assistantText, /LOCAL_AGENT_CF_CHILD_COMPLETE|USER SECRET|Copy/);
+
+  // Already-issued, exactly claimed legacy children remain collectible.
+  const legacyCompletionMarker = `<<<${completionMarker}>>>`;
+  await setChildAssistant(page, `LEGACY CHILD RESULT\n${legacyCompletionMarker}`);
+  const legacyResult = await page.evaluate(
+    (payload) => window.__dispatchExtensionMessage(payload),
+    { ...message, completionMarker: legacyCompletionMarker }
+  );
+  assert.equal(legacyResult.ok, true, JSON.stringify(legacyResult));
+  assert.equal(legacyResult.reason, "child_result_ready");
+  assert.equal(legacyResult.assistantText, "LEGACY CHILD RESULT");
 
   const rejected = await page.evaluate(
     (payload) => window.__dispatchExtensionMessage(payload),
