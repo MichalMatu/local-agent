@@ -658,6 +658,10 @@
     }
     let composer = findVisibleComposerV2();
     if (!composer) return { ok: false, reason: "spawn_v2_composer_ambiguous" };
+    if (composerText(composer).trim() &&
+        !composerMatchesText(composer, validated.bootstrapText)) {
+      return { ok: false, reason: "spawn_composer_not_empty" };
+    }
 
     let resolution;
     try {
