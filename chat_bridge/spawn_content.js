@@ -67,6 +67,27 @@
   if (existing?.protocolVersion === SPAWN_PROTOCOL_VERSION) return;
   try { existing?.dispose?.(); } catch (_error) {}
 
+  // One page-level transaction mutex, shared by v1 and the opt-in v2
+  // handler. Re-injection reuses the same Set while an older listener
+  // finishes, so two asynchronous validations cannot independently Send.
+  // This is only a same-tab exclusion; it is NOT a cross-device claim.
+  const inflightKey = "__localAgentSpawnSubmitInflight";
+  const inflight = globalThis[inflightKey] instanceof Set
+    ? globalThis[inflightKey] : new Set();
+  globalThis[inflightKey] = inflight;
+
+  function withSpawnSubmitLock(message, work) {
+    const transactionId = String(message?.transactionId || "");
+    if (!TRANSACTION_RE.test(transactionId)) {
+      return Promise.resolve({ ok: false, reason: "spawn_intent_invalid" });
+    }
+    if (inflight.has(transactionId)) {
+      return Promise.resolve({ ok: false, reason: "spawn_submission_in_progress" });
+    }
+    inflight.add(transactionId);
+    return Promise.resolve().then(work).finally(() => inflight.delete(transactionId));
+  }
+
   function routeState() {
     try {
       const url = new URL(location.href);
@@ -408,6 +429,31 @@
     }
   }
 
+  function readLegacyClaimStrict(transactionId) {
+    // Unlike the legacy v1 diagnostic reader, v2 must distinguish an absent
+    // claim from damaged or inaccessible evidence. Never treat corruption as
+    // permission to start a second browser submission.
+    let raw;
+    try {
+      raw = sessionStorage.getItem(claimKey(transactionId));
+    } catch (error) {
+      throw new Error("spawn_legacy_claim_unavailable");
+    }
+    if (raw === null) return null;
+    let claim;
+    try {
+      claim = JSON.parse(raw);
+    } catch (_error) {
+      throw new Error("spawn_legacy_claim_corrupt");
+    }
+    if (!claim || typeof claim !== "object" || Array.isArray(claim) ||
+        !["submitting", "submitted"].includes(claim.state) ||
+        typeof claim.sawProvisionalRoute !== "boolean") {
+      throw new Error("spawn_legacy_claim_corrupt");
+    }
+    return claim;
+  }
+
   function writeClaim(validated, state, evidence = {}) {
     const existing = readClaim(validated.transactionId);
     const claim = {
@@ -648,8 +694,18 @@
     };
     // A legacy session claim already owns this transaction. Do not promote
     // the same work into a second browser submission path.
-    const legacy = readClaim(validated.transactionId);
-    if (legacy) return reconcileValidatedSpawn(validated);
+    let legacy;
+    try {
+      legacy = readLegacyClaimStrict(validated.transactionId);
+    } catch (error) {
+      return { ok: false, reason: "spawn_legacy_claim_invalid", error: String(error) };
+    }
+    if (legacy) {
+      if (!claimMatches(legacy, validated)) {
+        return { ok: false, reason: "spawn_claim_conflict" };
+      }
+      return reconcileValidatedSpawn(validated);
+    }
     if (routeState().kind !== "fresh" || assistantIsGenerating()) {
       return { ok: false, reason: "spawn_unexpected_route" };
     }
@@ -764,7 +820,7 @@
       return true;
     }
     if (message?.type === "bridge:spawn-bootstrap-v2") {
-      submitSpawnBootstrapV2(message)
+      withSpawnSubmitLock(message, () => submitSpawnBootstrapV2(message))
         .then(response => sendResponse({ ...response, protocolVersion: SPAWN_PROTOCOL_VERSION, experimentalPhaseVersion: 2 }))
         .catch(error => sendResponse({
           ok: false, reason: "spawn_v2_unexpected_error", error: String(error),
@@ -773,7 +829,7 @@
       return true;
     }
     if (message?.type === "bridge:spawn-bootstrap") {
-      submitSpawnBootstrap(message)
+      withSpawnSubmitLock(message, () => submitSpawnBootstrap(message))
         .then((response) => sendResponse({ ...response, protocolVersion: SPAWN_PROTOCOL_VERSION }))
         .catch((error) => sendResponse({
           ok: false,
