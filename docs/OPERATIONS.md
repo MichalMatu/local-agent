@@ -8,7 +8,7 @@ This is the canonical operational workflow for `MichalMatu/local-agent`.
 Local Agent release line: 4.20.6
 immutable tag v4.20.6: 48eb9d8b6c26a9dfb317906d5099acabce8719c8
 released Bridge at tag: 0.8.1
-current source candidate Bridge: 0.8.12
+current source candidate Bridge: 0.8.13
 ```
 
 `main` is a moving production source branch and may contain later verified post-release patches. Before any live operation, read fresh daemon status and verify `daemon_version`, `self_revision`, repository registry identity, execution variant and installed Bridge version.
@@ -141,7 +141,7 @@ Runtime schema 3 may provide an optional `operator_status_url`. Chat Bridge acce
 
 The bounded arithmetic acceptance is recorded in `conversation_fabric/SAME_BROWSER_PROOF_2026-10-04.md`. For a fresh acceptance after verified code is loaded into the normal Chrome session:
 
-1. verify exact source/deployed revision, Bridge `0.8.12`, parent URL/tab and GitHub control state;
+1. verify exact source/deployed revision, Bridge `0.8.13`, parent URL/tab and GitHub control state;
 2. delegate at least two narrow non-overlapping reasoning jobs from one managed parent;
 3. visibly confirm both children open as normal tabs in the same Chrome session without another login/profile;
 4. wait for automatic result collection on the existing control alarm;
