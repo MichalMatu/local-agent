@@ -499,6 +499,15 @@
       return { ok: false, reason: "spawn_intent_invalid", error: String(error) };
     }
 
+    // A previously armed v2 transaction must also block the old v1 Send
+    // path, including after an interrupted v2 legacy-claim write.
+    try {
+      if (sessionStorage.getItem("local-agent-spawn-phase-v2:" + validated.transactionId) !== null) {
+        return { ok: false, reason: "spawn_v2_claim_exists" };
+      }
+    } catch (error) {
+      return { ok: false, reason: "spawn_v2_claim_unavailable", error: String(error) };
+    }
     const existingClaim = readClaim(validated.transactionId);
     if (existingClaim) return reconcileValidatedSpawn(validated);
     if (routeState().kind !== "fresh") {
