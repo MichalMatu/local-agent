@@ -209,6 +209,7 @@ def publish_synthetic_fixture(
     dispatch_id = build_github_fabric_dispatch(operator_request, child_requests)["id"]
     record_path = preflight.RECORD_ROOT + dispatch_id + ".json"
     steps: list[str] = []
+    mutation_attempted = False
     for _attempt in range(MAX_ATTEMPTS):
         head, tree, existing_record, existing_index = _snapshot(api, record_path)
         step = preflight.preflight_synthetic_publication(
@@ -221,9 +222,10 @@ def publish_synthetic_fixture(
         )
         if step.operation == "replay":
             return SyntheticPublicationResult(
-                dispatch_id, "published" if steps else "replay", head, tuple(steps)
+                dispatch_id, "published" if mutation_attempted else "replay", head, tuple(steps)
             )
         try:
+            mutation_attempted = True
             _commit_step(api, head=head, tree=tree, step=step)
             steps.append(step.operation)
         except GithubFabricHTTPError as exc:
