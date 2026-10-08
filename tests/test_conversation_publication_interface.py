@@ -40,7 +40,10 @@ class OperatorPublisherInterfaceTests(unittest.TestCase):
             mock.patch.object(conversation, "_remote_result_matches", side_effect=remote_matches),
             mock.patch.object(conversation, "_refresh_remote_control"),
             mock.patch.object(conversation.operator_queue, "discard_spool"),
-            mock.patch.object(conversation.agentd, "publish_control_json"),
+            mock.patch.object(
+                conversation.agentd, "publish_control_json",
+                side_effect=lambda *args, **kwargs: kwargs["post_pull_validate"](),
+            ),
             mock.patch.object(
                 conversation.agentd.core, "publish_control_json",
                 side_effect=AssertionError("wrong legacy publisher"),
@@ -74,7 +77,6 @@ class OperatorPublisherInterfaceTests(unittest.TestCase):
         self.assertEqual(
             kwargs["commit_message"], "Conversation result: operator-request-001"
         )
-        kwargs["post_pull_validate"]()
         self.assertEqual(mocks[2].call_count, 2)
         mocks[6].assert_called_once()
         mocks[7].assert_called_once_with(self.item)
