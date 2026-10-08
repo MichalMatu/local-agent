@@ -76,7 +76,10 @@
   }
 
   function mutatePreparedComposer(storage, intent, mutation) {
-    if (typeof mutation !== "function") throw new TypeError("composer mutation must be a function");
+    if (typeof mutation !== "function" ||
+        mutation.constructor?.name === "AsyncFunction") {
+      throw new TypeError("composer mutation callback must be synchronous");
+    }
     const claim = read(storage, intent);
     model.assertBeforeComposerMutation(claim, intent);
     // Callback must be synchronous, so there is no asynchronous gap between
