@@ -27,7 +27,8 @@ const pageHtml = "<!doctype html><html><head><style>" +
   "window.__sent=0; document.querySelector('button').onclick=()=>{" +
   "window.__sent++; localStorage.setItem('sent-count',String(Number(localStorage.getItem('sent-count')||0)+1));" +
   "const user=document.createElement('div'); user.dataset.messageAuthorRole='user';" +
-  "user.textContent=window.__sourceBootstrapText;" +
+  "window.__submittedComposerText=document.querySelector('#prompt-textarea').innerText;" +
+  "user.textContent=window.__submittedComposerText;" +
   "document.querySelector('#turns').appendChild(user);" +
   "history.pushState({},'', '/c/spawn-v2-synthetic-child');" +
   "};</script></body></html>";
