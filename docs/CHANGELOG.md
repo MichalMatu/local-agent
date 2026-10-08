@@ -4,6 +4,9 @@ This changelog records the current operationally relevant Local Agent release li
 
 ## Unreleased — Chat Bridge 0.8.13 candidate
 
+- Accept live normal-Chrome 0.8.13 reasoning delegation: 1/1 verification child and 3/3 independent parallel children completed with stable results, automatic exact-tab cleanup and terminal feedback. Operator evidence and the separate unverified active-campaign reload gate are in `docs/conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md`.
+- Refresh the current Phase C handoff and Fabric documentation to distinguish accepted live behavior from CI-only recovery coverage and retire obsolete 0.8.4 next-test guidance without deleting historical evidence.
+
 - Advance Chat Bridge to 0.8.13 and content protocol to v26 so a source refresh reinjects the changed Conversation Fabric content controllers in already-open tabs.
 - Accept an ASCII-only per-child completion footer while continuing to recognize exact legacy footers, and retain fail-closed rejection of missing or partial completion evidence; bounded browser tests cover both formats.
 - Surface read-only admission rejection diagnostics for a registered parent whose Master or conversation is disabled without weakening its delegation gate.
