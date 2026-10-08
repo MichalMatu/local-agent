@@ -33,6 +33,9 @@
   function bounded(value, maximum) {
     return new TextEncoder().encode(JSON.stringify(value)).length <= maximum;
   }
+  function matches(value, regex) {
+    return typeof value === "string" && regex.test(value);
+  }
   function validateIndex(index) {
     if (!exactFields(index, ["schema_version", "claim_ids"]) ||
         index.schema_version !== SCHEMA_VERSION ||
@@ -62,16 +65,16 @@
     if (!exactFields(record, FIELDS) ||
         record.schema_version !== SCHEMA_VERSION ||
         typeof record.id !== "string" || !CLAIM_ID.test(record.id) ||
-        !ID.test(String(record.workflow_id || "")) ||
-        !ID.test(String(record.workflow_node_id || "")) ||
-        !PARENT.test(String(record.parent_conversation_url || "")) ||
-        !ID.test(String(record.operator_request_id || "")) ||
-        !ID.test(String(record.child_request_id || "")) ||
-        !DIGEST.test(String(record.operator_request_digest || "")) ||
-        !DIGEST.test(String(record.child_request_digest || "")) ||
-        !DIGEST.test(String(record.bootstrap_digest || "")) ||
-        !DISPATCH.test(String(record.dispatch_id || "")) ||
-        !SHA_TX.test(String(record.spawn_transaction_id || "")) ||
+        !matches(record.workflow_id, ID) ||
+        !matches(record.workflow_node_id, ID) ||
+        !matches(record.parent_conversation_url, PARENT) ||
+        !matches(record.operator_request_id, ID) ||
+        !matches(record.child_request_id, ID) ||
+        !matches(record.operator_request_digest, DIGEST) ||
+        !matches(record.child_request_digest, DIGEST) ||
+        !matches(record.bootstrap_digest, DIGEST) ||
+        !matches(record.dispatch_id, DISPATCH) ||
+        !matches(record.spawn_transaction_id, SHA_TX) ||
         record.mode !== MODE || record.phase !== PHASE || !bounded(record, 4096)) {
       throw new Error("Fabric semantic claim is invalid");
     }
