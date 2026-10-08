@@ -6,8 +6,8 @@ Chrome Manifest V3 extension for managed ChatGPT conversation transport, GitHub-
 
 ```text
 Local Agent release line: 4.20.6
-Chat Bridge:             0.8.4
-content protocol:        18
+Chat Bridge:             0.8.13
+content protocol:        26
 assistant guard:         8
 runtime schema:          3 + optional conversation_controls / operator_status_url
 ```
