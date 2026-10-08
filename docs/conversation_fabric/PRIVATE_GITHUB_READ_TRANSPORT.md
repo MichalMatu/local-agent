@@ -2,9 +2,9 @@
 
 Status: **unimported contract prototype; no private repo or production token provisioned**.
 
-The target sensitive data repository name is reserved in code as
-`MichalMatu/local-agent-fabric-private`, branch `fabric-data`. The
-repository is **not created or configured by this change**. GitHub access
+The private repository `MichalMatu/local-agent-fabric-private` now exists,
+with a dedicated `fabric-data` branch and an empty `projects/index.json`.
+No private production prompts, child receipts, tokens or results have been published. GitHub access
 control works at repository level; a private branch in public
 `MichalMatu/local-agent` would **not** hide bootstrap text.
 
@@ -17,9 +17,17 @@ public, synthetic-only read-only path and DOM production delegation.
 
 ## Tested reader contract
 
-- Only `api.github.com`, the single reserved repository and a fixed
-  `fabric-data` ref are valid source endpoints. No caller-supplied URL,
-  alternate host, branch or repository is followed.
+- Only `api.github.com`, the one private repository and fixed `fabric-data`
+  ref are valid source endpoints. No caller-supplied URL, alternate host,
+  branch or repository is followed.
+- A dispatch read additionally requires a validated `projectId`, `workflowId`
+  and expected dispatch ID. The reader confirms the project is indexed in
+  `projects/index.json`, then the workflow in
+  `projects/<project-id>/workflows/index.json`, and finally resolves its
+  dispatch under `projects/<project-id>/workflows/<workflow-id>/dispatches/`.
+  Catalog and records are pinned to the same immutable commit SHA.
+- Folder membership organizes records; it is not separate GitHub authorization
+  and does not replace a durable global parent/semantic execution claim.
 - Caller must explicitly enable the read and supply a syntactically safe,
   read-only token. There is **no** token store, public runtime setting,
   GitHub write credential, child DOM injection or automatic credential
@@ -38,11 +46,11 @@ public, synthetic-only read-only path and DOM production delegation.
 
 ## Production prerequisites
 
-1. Explicitly provision the private repository and select an access
-   policy. Local Agent needs Contents:write scoped to this repo; the
-   authenticated browser reader needs **Contents:read only**, subject
-   to revocation and rotation. Never put either token in public runtime,
-   logs, page content or child prompts.
+1. Configure a scoped access policy for the existing private repository.
+   Trusted Local Agent needs Contents:write; the browser extension reader
+   needs **Contents:read only**, with explicit provisioning, revocation and
+   rotation. Never put either token in public runtime, logs, page content or
+   child prompts.
 2. Establish a protected extension-only credential lifecycle and
    operator-controlled enablement; review Chrome extension host access.
    The current prototype deliberately provides neither capability.
