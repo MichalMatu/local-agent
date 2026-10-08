@@ -12,6 +12,14 @@ feedback.
 | `control_accepted` | Worker acknowledged the control; inspect the existing Fabric campaign and feedback fields next |
 | `control_transport_failed` | Content-to-worker transport failed before acknowledgement |
 
+For a registered parent whose Master or conversation switch is disabled, the
+content-script worker rejection `control_worker_rejected · conversation_fabric_parent_not_managed`
+is retained and visible in the popup. This is read-only admission evidence:
+it does **not** enable the parent, restore scheduling, or create child tabs.
+While the parent is disabled, accepted controls and arbitrary parser events
+are not accepted as diagnostic evidence. An unregistered conversation or the
+wrong browser tab remains unable to submit diagnostics.
+
 The record is diagnostic, **not proof of child creation or result capture**.
 An accepted control can still lead to failed, ambiguous or pending children.
 

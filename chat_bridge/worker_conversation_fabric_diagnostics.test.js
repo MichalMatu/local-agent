@@ -9,6 +9,7 @@ const validParent = "https://chatgpt.com/c/fabric-diag-parent";
 const validSender = { id: "extension-id", frameId: 0, tab: { id: 42, url: validParent } };
 const protocol = require("./control_protocol.js");
 let queue = Promise.resolve();
+let parentDisabled = false;
 
 const context = vm.createContext({
   chrome: {
@@ -30,7 +31,9 @@ const context = vm.createContext({
     sender?.tab?.url === validParent &&
     message?.contentProtocolVersion === 25 &&
     message?.conversationUrl === validParent
-      ? { ok: true }
+      ? { ok: true, reason: parentDisabled
+          ? "conversation_fabric_diagnostic_parent_disabled"
+          : "conversation_fabric_diagnostic_ready" }
       : { ok: false, reason: "invalid_sender" },
   serializeConversationFabric: (_key, action) => {
     const pending = queue.then(action);
@@ -70,6 +73,18 @@ const record = (event, reason, sender = validSender) =>
     (await context.conversationFabricDiagnosticSnapshot())["chat-01234567"].event,
     "control_worker_rejected"
   );
+
+  parentDisabled = true;
+  assert.equal((await record("control_accepted", "conversation_fabric_started")).ok, false);
+  assert.equal((await record("control_rejected", "control_schema_invalid")).ok, false);
+  assert.equal((await record("control_worker_rejected", "conversation_fabric_parent_busy")).ok, false);
+  assert.equal((await record("control_worker_rejected", "conversation_fabric_parent_not_managed")).ok, true);
+  assert.equal(
+    (await context.conversationFabricDiagnosticSnapshot())["chat-01234567"].reason,
+    "conversation_fabric_parent_not_managed",
+    "only the blocked admission is observable while the exact registered parent is disabled"
+  );
+  parentDisabled = false;
 
   const recent = Object.fromEntries(Array.from({ length: 128 }, (_, i) => [
     "chat-" + i.toString(16).padStart(8, "0"),

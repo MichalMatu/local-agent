@@ -34,6 +34,16 @@ async function reportConversationFabricDiagnostic(message, sender) {
     return { ok: false, reason: "conversation_fabric_diagnostic_payload_invalid" };
   }
 
+  if (
+    context.reason === "conversation_fabric_diagnostic_parent_disabled" &&
+    (event !== "control_worker_rejected" ||
+      reason !== "conversation_fabric_parent_not_managed")
+  ) {
+    // An inactive parent may expose only its admission rejection. Never
+    // fabricate accepted/transport events while the admission gate is closed.
+    return { ok: false, reason: "conversation_fabric_diagnostic_parent_disabled" };
+  }
+
   const conversationUrl = normalizeConversationUrl(message.conversationUrl);
   const chatId = conversationId(conversationUrl);
   return serializeConversationFabric(CONVERSATION_FABRIC_DIAGNOSTIC_KEY, async () => {
