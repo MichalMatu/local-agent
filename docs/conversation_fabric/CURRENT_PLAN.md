@@ -1,49 +1,51 @@
-# Conversation Fabric current plan
+# Conversation Fabric — current contract and remaining acceptance
 
-## Goal
+Updated: 2026-10-08. Current source: **Chat Bridge 0.8.13 / content protocol v26**.
+Live proof and exact source baseline: [2026-10-08 checkpoint](CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md).
 
-Keep the accepted browser-native Conversation Fabric path reliable for repeated bounded delegation cycles inside one parent/project: finish one task campaign cleanly, then start the next without ownership, result or terminal-delivery leakage.
+## Accepted: single and parallel delegation in normal Chrome
 
-The separate-profile production approach is retired. Same-browser multi-child reasoning/transport, lifecycle/recovery and production-path E2E coverage are complete. The source closeout now includes the required fresh second-campaign proof; live normal-Chrome acceptance remains a separate operator validation step.
+The operator reloaded Bridge 0.8.13 in the authenticated primary Chrome profile, with Master and the managed parent enabled. Two independent campaigns completed and reported automatic exact owned-tab cleanup:
 
-## Implemented production model
+- `cf-a9f08cda8905ab33`: **1/1** verification child, `BRIDGE_0813_SMOKE_OK | product=323 | letters=6`.
+- `cf-df084c77d84a5929`: **3/3** parallel children, research `391`, verification `12`, integration `6`.
 
-Production Conversation Fabric uses:
+Both are live field observations, not just simulated CI. The earlier `cf-0c2fd2d492856bc8` attempt failed after the child tab was manually closed; it must not be automatically replayed. Complete details and evidence boundaries are retained in the checkpoint.
 
-- one managed parent Superchat in the operator's normal Chrome;
-- current source candidate uses Chat Bridge `0.8.13` / content protocol v26. A normal-Chrome field attempt proved one child tab could be opened, but its legacy completion footer was not emitted fully; the old campaign later terminated with `spawn_tab_unavailable` after the tab disappeared. A full live terminal-result acceptance of the new ASCII footer remains unverified; optional `operator_status_url` activation remains unverified;
-- a dedicated trailing `LOCAL_AGENT_CF` control envelope, separate from legacy LAB controls;
-- the existing `worker_spawn.js` `chrome.tabs` / `chrome.scripting` ownership primitives;
-- ordinary child tabs in the same authenticated Chrome session;
-- durable `chrome.storage.local` campaign/result state;
-- exact transaction/tab/request/bootstrap/current-child-URL ownership evidence;
-- bounded stable child-result capture and exact owned-tab cleanup;
-- GitHub `conversation_controls` for managed parent pacing;
-- the existing GitHub-control alarm for normal campaign polling;
-- durable terminal parent feedback at-most-once semantics.
+## Architecture and authority
 
-Production does **not** launch another browser, create/migrate another ChatGPT profile, copy cookies, use CDP as a second production control plane, add Native Messaging, create a Local Agent-to-browser RPC, or use LAB scheduling for normal Conversation Fabric pacing.
+```text
+managed parent ChatGPT chat (authenticated Chrome)
+  -> exact trailing LOCAL_AGENT_CF delegate
+  -> Bridge content script + MV3 worker
+  -> transaction-owned child tabs (reasoning only)
+  -> exact ASCII completion proof + stable observation
+  -> durable campaign / Result Vault
+  -> exact owned-tab cleanup
+  -> terminal parent feedback at most once
+  -> parent synthesis
+```
 
-## Control mechanics
+- **Bridge/Chrome** owns child-tab spawning, exact transaction/request/bootstrap/current-URL identity and result collection.
+- **GitHub conversation_controls** governs remotely managed pacing, not browser child creation. The existing GitHub-control alarm performs routine campaign observation. Manual `collect` only inspects/reconciles already-submitted children.
+- **Local Agent** alone owns repository execution admission, scheduling, leases/resources, watchdogs, and `.agent/tasks`. A child or parent chat identity never grants execution authority. Resolve the actual target from the canonical runtime catalog and use the exact target `agent_binding`.
+- No production CDP control plane, secondary Chrome profile, cookie migration, browser-to-daemon RPC, or automatic child replacement.
 
-A parent delegation ends with:
+## Control contract
+
+The **last visible content** in the parent's response must be an un-fenced, exact block:
 
 ```text
 <<<LOCAL_AGENT_CF
-{"schema_version":1,"action":"delegate","children":[
-  {"id":"audit","role":"research","prompt":"..."},
-  {"id":"verify","role":"verification","prompt":"..."}
-]}
+{"schema_version":1,"action":"delegate","children":[{"id":"audit","role":"research","prompt":"A bounded reasoning task with enough context."}]}
 LOCAL_AGENT_CF>>>
 ```
 
-The Bridge admits this only from the exact top-frame managed parent. Each child bootstrap states that it is reasoning-only and may not create Local Agent tasks, run machine commands, mutate repositories or make the final parent decision.
+Only registered, enabled parent conversation + Master + exact active top-frame/URL/tab can delegate. Roles: `research`, `implementation`, `verification`, `integration`; children are reasoning-only. A control is not a successful spawn until the worker admits it. The parent waits for actual child feedback, never repeats a pending delegation.
 
-A delegate control is only a request until the parent receives explicit Fabric feedback. The parent must enter a waiting/collection state only after a `conversation_fabric_started` acknowledgement. Any explicit rejection (for example capacity, parent-busy or startup failure) means no new delegation started from that control and the parent must not wait for child results.
+Every new child must end its final answer with the Bridge-provided **plain ASCII footer** `LOCAL_AGENT_CF_CHILD_COMPLETE:<fingerprint>:<child-id>:<checksum>`, as the final non-whitespace line. Legacy exact `<<<LOCAL_AGENT_CF_CHILD_COMPLETE:...>>>` tokens are accepted for previously started campaigns. Missing, partial, or malformed tokens are **not** accepted as success, even when the child appears to have finished writing.
 
-When a campaign is running, the existing minute GitHub-control alarm automatically observes/collects stable results while the parent and Master are enabled. The parent waits for actual feedback. An explicit collect block is available for bounded observation recovery without resubmitting child prompts; it is not the normal polling mechanism.
-
-Collect control:
+Explicit bounded recovery/inspection (not new work):
 
 ```text
 <<<LOCAL_AGENT_CF
@@ -51,95 +53,23 @@ Collect control:
 LOCAL_AGENT_CF>>>
 ```
 
-Results must carry the exact per-child completion marker as their final visible text and
-be stable across repeated observations before adoption. New child bootstraps use an
-ASCII-only `LOCAL_AGENT_CF_CHILD_COMPLETE:<fingerprint>:<child-id>:<checksum>`
-footer to avoid angle-bracket interpretation in ChatGPT's rich-text renderer.
-Existing children with `<<<LOCAL_AGENT_CF_CHILD_COMPLETE:...>>>` remain
-compatible; a missing, partial, or renderer-corrupted footer (such as `>>`)
-must stay pending, never be silently treated as successful completion. Each stable result is durably stored before sibling completion or tab cleanup.
+## Durability / fail-closed rules
 
-## Result durability and operator recovery
+- Persist exact transaction identity, child URL and stable captured result **before** owned-tab cleanup; retain result separately in the bounded Result Vault.
+- Never resend an ambiguously submitted child bootstrap or auto-create substitute tabs. If a child tab has been manually closed, record a bounded failure instead of guessing.
+- After worker restart, adopt only an exact transaction/request/bootstrap/current-child-URL claim; tab ID alone is insufficient.
+- Terminal feedback uses durable at-most-once delivery. An ambiguous send is not replayed automatically, and a newer campaign must not inherit the previous one's results/receipt.
+- Diagnostic `control_rejected`, `control_worker_rejected`, `control_accepted` and `control_transport_failed` events are **observability**, not delegation/result proof. See [diagnostics](DELEGATION_DIAGNOSTICS.md).
 
-- Stable child work is not only part of the campaign record: it is copied into a separate bounded Result Vault before tab cleanup or terminal feedback.
-- Result Vault retention is independent of the short completed-campaign history window and preserves enough metadata to identify the original child and conversation.
-- A managed parent may use a read-only `inspect` control to recover current child state and previously captured/vaulted result text without replaying terminal feedback.
-- A managed parent may explicitly `retire` one problematic child. Retirement never resubmits its bootstrap and closes a tab only through the existing exact ownership proof.
-- Any already-captured result survives retirement. A retired/missing child is reported as retryable missing coverage so the parent may intentionally issue a new delegation with a new child id.
-- Automatic replacement/replay remains forbidden.
-## Restart and terminal-delivery contract
+## Remaining live acceptance
 
-- Submitted children are never blindly replayed after service-worker/session restart.
-- A post-submit `spawn_submission_ambiguous` result is recoverable evidence uncertainty, not permission to resend the bootstrap or immediately terminally fail an actually submitted child.
-- Reattachment after lost session ownership requires exact page transaction/request/bootstrap/current-child-URL evidence; tab id alone is insufficient.
-- An ambiguous/submitting child with a durable exact tab/transaction/request/bootstrap claim remains eligible for bounded identity reconciliation across worker restart; it is promoted only after current child-route ownership is proven.
-- Transient observation failures remain pending/recoverable.
-- Completed/failed cleanup closes only exact owned child tabs.
-- Terminal feedback persists a campaign-specific delivery claim before the parent send boundary.
-- Definite no-send clears the claim; confirmation marks delivery; an ambiguous surviving claim suppresses resend after restart.
-- A new delegation for the same parent is blocked while an older terminal campaign still has undelivered feedback, preventing stale cross-campaign replay.
+**Not yet demonstrated in the operator's real Chrome:** controlled extension/MV3 worker reload **during an active campaign** and verified exact-claim recovery, no child-bootstrap replay, full capture, tab cleanup and no terminal-feedback duplication. Recovery behavior is covered by CI's Chromium harness, but the live interruption test is a separate gate. Optional remote Operator telemetry activation is also unverified.
 
-## Verification already encoded
+Recommended next test: one fresh, explicit bounded campaign with two reasoning children; keep child tabs open; trigger one controlled reload while they run; verify ownership, exact one-time bootstrap and completion, and inspect the resulting campaign and popup status. Do not replay the closed old failure.
 
-Current coverage includes:
+## Verification and next work
 
-- positive/negative protocol tests;
-- worker lifecycle tests for multi-child delegation, dedupe, managed-parent admission, stable collection, recovery and terminal delivery guards;
-- current content-protocol / Chat Bridge `0.8.13` contract tests;
-- real headless Chromium DOM/browser smoke for parent control, child result capture and ownership checks;
-- full repository CI through `bridge-browser`, test, coverage, Python 3.14 and macOS smoke jobs.
-
-The deterministic real-extension browser smoke now traverses the production routing for the lifecycle/recovery contract; direct helper calls are limited to harness setup, forced time advancement, bounded test-state inspection/awaiting and harness-only MV3 interruption, and do not replace production delegation/recovery/polling/ownership/terminal-delivery transitions.
-
-## Restart/reload E2E — complete
-
-`scripts/conversation_fabric_browser_smoke.cjs` now proves the complete bounded lifecycle:
-
-1. real parent content discovers/submits a delegate control;
-2. four ordinary child tabs are created in one extension-owned browser session;
-3. three children pass through real post-submit ambiguous routing while every bootstrap is submitted exactly once;
-4. stable sibling evidence is durably captured before the ambiguous children finish;
-5. the actual MV3 service worker is stopped and woken while ambiguity is still unresolved;
-6. durable campaign state and exact page ownership are reconstructed without bootstrap replay or duplicate child creation;
-7. all four children recover onto canonical child URLs and exact ownership is re-proven;
-8. all four final results are captured before exact owned-tab cleanup;
-9. normal production alarm routing reaches terminal state;
-10. terminal feedback is delivered exactly once;
-11. the worker is restarted a second time and the same production poll route proves no completed-campaign replay;
-12. read-only Result Vault inspection still works after child cleanup without resetting terminal delivery;
-13. explicit retire plus deliberate fresh-id re-delegation proves bounded operator-controlled rollover without automatic replay;
-14. an unresolved post-submit ambiguity is forced past the bounded deadline and fails closed with no second submit, replacement tab or orphaned owned tab;
-15. after campaign A is terminally delivered and cleaned, the same parent starts and completes a fresh campaign B with a new campaign id, empty initial result state, no inherited delivery receipt, exact child cleanup, no mutation of campaign A and no replay of campaign A terminal feedback.
-
-The test uses CDP only as a harness mechanism to stop/reattach to Chromium's real MV3 worker target; delegation, recovery, polling, ownership, durable state and terminal delivery remain the installed extension's production paths.
-
-## Sequential delegation-cycle source closeout
-
-Keep one parent conversation responsible for exactly one project/main goal. For each bounded task, the parent may delegate 1–4 reasoning-only children, durably collect and synthesize their work, report missing coverage explicitly, and close only exact owned tabs. A later task must use a fresh campaign only after the earlier campaign is terminally settled.
-
-The production-shaped browser smoke now exercises two consecutive campaigns in one parent and checks fresh campaign identity, empty initial result state, no inherited terminal receipt, exact child cleanup, no mutation of the first campaign and no terminal replay. Existing restart, timeout, ambiguous-submission and manual/retained-composer protections remain part of the gate. Automatic child replacement, re-delegation and multi-goal parent supervision remain out of scope.
-
-Host Ops absorption and standalone-donor retirement are complete; do not reopen that migration as the next Conversation Fabric step. Live normal-Chrome reload/acceptance remains an explicit operational validation and must not be inferred from CI.
-
-## Execution authority
-
-Conversation Fabric is reasoning transport only. If parent synthesis justifies machine work, resolve the actual target through the canonical runtime catalog, require `execution_enabled=true`, and use the exact canonical target `agent_binding`. The current catalog enables `local-agent`, but self-execution receives no special bypass.
-
-## Stop conditions
-
-Stop rather than weakening safety if:
-
-- the parent is not a managed exact conversation/tab;
-- child tab/transaction ownership is ambiguous;
-- a child obtains machine execution authority;
-- result identity is missing/unstable beyond bounded retry;
-- GitHub conversation-control ownership/generation is uncertain;
-- target catalog/binding identity is uncertain;
-- equivalent expensive tasks execute twice;
-- terminal feedback could be replayed after an ambiguous send or newer campaign.
-
-A missing isolated profile, isolated-profile login failure or Cloudflare challenge is not a production blocker because that path is no longer part of the accepted architecture.
-
-## Success criteria
-
-The final milestone passes when one managed parent can complete at least two successive bounded delegation campaigns for the same project: each campaign captures stable child work, reports any missing coverage, closes exact owned tabs and terminally settles before the next begins. Recovery from restart, timeout and manual/retained-composer submission must not replay prompts or leak campaign state, and any justified machine execution remains a separate parent decision through canonical target admission.
+- Source gates: `bridge-browser`, `test`, `coverage`, `python-314`, `macos-smoke`, `absorbed-host-ops` on the **exact PR head**.
+- Existing harness: `scripts/conversation_fabric_dom_smoke.cjs` and `scripts/conversation_fabric_browser_smoke.cjs`. No second production browser controller.
+- Main development continues in **Milestone 7 Tool Runtime Phase C**, independently of Fabric live acceptance. See [current handoff](../CURRENT_HANDOFF.md).
+- Historical Stage 8 isolated-profile / older 0.8.x instructions remain historical evidence, not active operation.
