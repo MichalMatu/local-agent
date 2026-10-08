@@ -139,6 +139,29 @@ const snapshot = page => page.evaluate(() => ({
     assert.equal((await send(ambiguous)).reason, "spawn_submission_ambiguous");
     assert.equal((await snapshot(ambiguous)).sent, 1);
 
+    // Two protocols racing on the same page cannot both Send.
+    const concurrent = await context.newPage();
+    await concurrent.goto(url);
+    await load(concurrent, true);
+    const pair = await Promise.all([
+      send(concurrent, "bridge:spawn-bootstrap-v2"),
+      send(concurrent, "bridge:spawn-bootstrap")
+    ]);
+    assert.equal(pair.filter(x => x.reason === "spawn_submission_in_progress").length, 1);
+    assert.equal(pair.filter(x => x.reason === "identity_discovered").length, 1);
+    assert.equal((await snapshot(concurrent)).tabSends, 1);
+
+    // Corrupt legacy claims fail closed rather than allowing a new v2 claim.
+    const corrupt = await context.newPage();
+    await corrupt.goto(url);
+    await load(corrupt, true);
+    await corrupt.evaluate(() => {
+      sessionStorage.setItem("local-agent:conversation-spawn:" + "spawn-" + "a".repeat(64), "{invalid");
+    });
+    assert.equal((await send(corrupt)).reason, "spawn_legacy_claim_invalid");
+    assert.equal((await snapshot(corrupt)).tabSends, 0);
+    assert.equal((await snapshot(corrupt)).draft, "");
+
     // Reject foreign drafts and ambiguous duplicate editors without changes.
     const foreign = await context.newPage();
     await foreign.goto(url);
