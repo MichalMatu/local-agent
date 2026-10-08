@@ -206,10 +206,17 @@ Exit for Milestone 7: existing tools are hardened and regression-protected, the 
 
 ## Milestone 8 — planned: GitHub-first Conversation Fabric coordination
 
-**Status: architectural roadmap, not active implementation.** Start only after the current
-Milestone 7 Tool Runtime work and the separate live 0.8.13 active-campaign restart/recovery gate
-are settled. This is a staged migration of **coordination authority**, not a request to replace
-the currently accepted browser-native delegation immediately.
+**Target product direction: ADOPTED; implementation status: PLANNED.**
+The target is **one persistent Local Agent project/workflow regardless of which
+ChatGPT tab or device displays it**: Superchat is the interface, GitHub-backed
+versioned coordination/evidence is authoritative, Local Agent controls deterministic
+execution, and Chat Bridge is one of the narrow effect providers. Read the
+canonical cross-device durability contract in
+`docs/conversation_fabric/TARGET_PRODUCT_ARCHITECTURE.md#5a-durable-device-independent-project-continuity--product-target`.
+
+Begin migration only after current Milestone 7 Tool Runtime work and the
+separate live Bridge 0.8.13 in-campaign restart acceptance are settled.
+Do not replace the working browser-native flow in one rollout.
 
 ### Product objective and boundaries
 
@@ -298,6 +305,29 @@ no independent scheduler and no direct OpenAI API inference replacement.
    as a temporary compatibility fallback behind exclusive authority gates.
    Remove obsolete parser/state responsibilities only after live parity and
    measured rollback readiness. Preserve DOM as a scoped ChatGPT UI driver.
+
+### Durable history and cross-device recovery deliverables
+
+- Define an append-only, versioned, causally linked workflow event journal and
+  derived bounded snapshots; preserve exact project/campaign/child/task identity,
+  checkpoints, actor/authority evidence, pending decisions and observed errors.
+  Snapshots are rebuildable; conflicts/gaps fail closed.
+- Specify a **write-ack boundary**. Closing ChatGPT after confirmed persistence
+  cannot erase accepted coordination state, while unsent/unconfirmed browser
+  evidence remains explicitly uncertain, never silently called successful.
+- Verify resume on a different device: Mac project initiation -> close parent ->
+  continue/suspend appropriate work -> phone reads GitHub-backed state ->
+  later driver reconnection/repair without duplicate child submissions or tasks.
+  The replacement chat must deliberately read the authoritative project record;
+  no reliance on hidden chat memory or an always-open tab.
+- Plan bounded result summaries and protected evidence references rather than
+  copying full private transcripts. Set explicit integrity, retention, backup,
+  export and history-compaction semantics before promising durable audit history.
+- **GitHub Actions is CI, not a runtime dependency.** Quota exhaustion must
+  not halt Git-backed workflow observation, Local Agent execution or safe
+  recovery. Conversely, do not promote unverified source changes by calling
+  an Actions limit a passing test; keep changes in PR/branch pending an
+  available validation route.
 
 ### Non-negotiable security and lifecycle gates
 
