@@ -186,7 +186,7 @@ def publish_pending_result_only() -> bool:
             operator_queue.require_control_request_match(agentd.core.CONTROL, request)
 
         agentd.publish_control_json(
-            relative,
+            relative.as_posix(),
             result,
             commit_message=f"Conversation result: {item.request_id}",
             ensure_remote=True,
