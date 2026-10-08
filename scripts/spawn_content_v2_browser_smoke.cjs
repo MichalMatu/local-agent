@@ -27,7 +27,8 @@ const pageHtml = "<!doctype html><html><head><style>" +
   "window.__sent=0; document.querySelector('button').onclick=()=>{" +
   "window.__sent++; localStorage.setItem('sent-count',String(Number(localStorage.getItem('sent-count')||0)+1));" +
   "const user=document.createElement('div'); user.dataset.messageAuthorRole='user';" +
-  "user.textContent=window.__sourceBootstrapText;" +
+  "window.__submittedComposerText=document.querySelector('#prompt-textarea').innerText;" +
+  "user.textContent=window.__submittedComposerText;" +
   "document.querySelector('#turns').appendChild(user);" +
   "history.pushState({},'', '/c/spawn-v2-synthetic-child');" +
   "};</script></body></html>";
@@ -45,9 +46,6 @@ async function send(page, type = "bridge:spawn-bootstrap-v2") {
   return page.evaluate(({ intent, type }) => new Promise((resolve, reject) => {
     const listeners = globalThis.__messageListeners;
     const message = { type, ...intent };
-    // The fixture models the server-rendered user echo of the exact validated
-    // submission. Real composer readback is checked by the v2 content handler.
-    globalThis.__sourceBootstrapText = intent.bootstrapText;
     let settled = false;
     for (const listener of listeners) {
       const async = listener(message, {}, result => {
@@ -60,6 +58,8 @@ async function send(page, type = "bridge:spawn-bootstrap-v2") {
 }
 const snapshot = page => page.evaluate(() => ({
   sent: Number(localStorage.getItem("sent-count") || 0),
+  tabSends: window.__sent,
+  submittedComposerText: window.__submittedComposerText || "",
   draft: document.querySelector("#prompt-textarea")?.textContent,
   rawClaim: sessionStorage.getItem("local-agent-spawn-phase-v2:" + "spawn-" + "a".repeat(64))
 }));
@@ -100,6 +100,12 @@ const snapshot = page => page.evaluate(() => ({
     assert.equal(done.ok, true, JSON.stringify(done));
     assert.equal(done.reason, "identity_discovered");
     assert.equal((await snapshot(page)).sent, 1);
+    assert.equal((await snapshot(page)).tabSends, 1);
+    assert.equal(
+      (await snapshot(page)).submittedComposerText.replace(/\s+/g, " ").trim(),
+      bootstrap.replace(/\s+/g, " ").trim(),
+      "only actual composer text can produce a successful child echo"
+    );
     assert.equal(JSON.parse((await snapshot(page)).rawClaim).phase, "submitted");
     const duplicate = await send(page);
     assert.equal(duplicate.reason, "identity_discovered");
@@ -124,12 +130,62 @@ const snapshot = page => page.evaluate(() => ({
     const failed = await send(ambiguous);
     assert.equal(failed.reason, "spawn_v2_submission_ambiguous");
     assert.equal(JSON.parse((await snapshot(ambiguous)).rawClaim).phase, "submit_armed");
+    assert.equal((await snapshot(ambiguous)).tabSends, 0,
+      "throwing button must not be misreported as a submitted message");
     assert.equal((await snapshot(ambiguous)).sent, 1);
     assert.equal((await send(ambiguous, "bridge:spawn-bootstrap")).reason, "spawn_v2_claim_exists");
     await ambiguous.reload();
     await load(ambiguous, true);
     assert.equal((await send(ambiguous)).reason, "spawn_submission_ambiguous");
     assert.equal((await snapshot(ambiguous)).sent, 1);
+
+    // Two protocols racing on the same page cannot both Send.
+    const concurrent = await context.newPage();
+    await concurrent.goto(url);
+    await load(concurrent, true);
+    // Deliver both messages inside one browser task, rather than through
+    // separate Playwright evaluate calls which may be serialized by CDP.
+    const pair = await concurrent.evaluate(intent => {
+      const deliver = type => new Promise((resolve, reject) => {
+        const message = { type, ...intent };
+        for (const listener of globalThis.__messageListeners) {
+          if (listener(message, {}, resolve) === true) return;
+        }
+        reject(new Error("missing spawn content listener"));
+      });
+      return Promise.all([
+        deliver("bridge:spawn-bootstrap-v2"),
+        deliver("bridge:spawn-bootstrap")
+      ]);
+    }, intent);
+    assert.equal(pair.filter(x => x.reason === "spawn_submission_in_progress").length, 1);
+    assert.equal(pair.filter(x => x.reason === "identity_discovered").length, 1);
+    assert.equal((await snapshot(concurrent)).tabSends, 1);
+
+    // Corrupt legacy claims fail closed rather than allowing a new v2 claim.
+    const corrupt = await context.newPage();
+    await corrupt.goto(url);
+    await load(corrupt, true);
+    await corrupt.evaluate(() => {
+      sessionStorage.setItem("local-agent:conversation-spawn:" + "spawn-" + "a".repeat(64), "{invalid");
+    });
+    assert.equal((await send(corrupt)).reason, "spawn_legacy_claim_invalid");
+    assert.equal((await snapshot(corrupt)).tabSends, 0);
+    assert.equal((await snapshot(corrupt)).draft, "");
+
+    const unreadable = await context.newPage();
+    await unreadable.goto(url);
+    await load(unreadable, true);
+    await unreadable.evaluate(() => {
+      const original = Storage.prototype.getItem;
+      Storage.prototype.getItem = function(key) {
+        if (key.startsWith("local-agent:conversation-spawn:")) throw Error("storage denied");
+        return original.call(this, key);
+      };
+    });
+    assert.equal((await send(unreadable)).reason, "spawn_legacy_claim_invalid");
+    assert.equal((await snapshot(unreadable)).tabSends, 0);
+    assert.equal((await snapshot(unreadable)).draft, "");
 
     // Reject foreign drafts and ambiguous duplicate editors without changes.
     const foreign = await context.newPage();
