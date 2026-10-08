@@ -27,7 +27,7 @@ const pageHtml = "<!doctype html><html><head><style>" +
   "window.__sent=0; document.querySelector('button').onclick=()=>{" +
   "window.__sent++; localStorage.setItem('sent-count',String(Number(localStorage.getItem('sent-count')||0)+1));" +
   "const user=document.createElement('div'); user.dataset.messageAuthorRole='user';" +
-  "user.textContent=document.querySelector('#prompt-textarea').textContent;" +
+  "user.textContent=window.__sourceBootstrapText;" +
   "document.querySelector('#turns').appendChild(user);" +
   "history.pushState({},'', '/c/spawn-v2-synthetic-child');" +
   "};</script></body></html>";
@@ -45,6 +45,9 @@ async function send(page, type = "bridge:spawn-bootstrap-v2") {
   return page.evaluate(({ intent, type }) => new Promise((resolve, reject) => {
     const listeners = globalThis.__messageListeners;
     const message = { type, ...intent };
+    // The fixture models the server-rendered user echo of the exact validated
+    // submission. Real composer readback is checked by the v2 content handler.
+    globalThis.__sourceBootstrapText = intent.bootstrapText;
     let settled = false;
     for (const listener of listeners) {
       const async = listener(message, {}, result => {
