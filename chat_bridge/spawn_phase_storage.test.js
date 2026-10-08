@@ -84,6 +84,15 @@ async function run() {
   assert.equal(await firstSend, "sent");
   assert.equal(count, 1);
 
+  const asyncComposer = storage();
+  phases.prepare(asyncComposer, intent);
+  let asyncMutations = 0;
+  assert.throws(
+    () => phases.mutatePreparedComposer(asyncComposer, intent, async () => ++asyncMutations),
+    /synchronous/
+  );
+  assert.equal(asyncMutations, 0, "reject async callback before executing DOM effects");
+
   const failedWrite = storage();
   failedWrite.setItem = () => { throw new Error("storage full"); };
   assert.throws(() => phases.prepare(failedWrite, intent), /storage full/);
