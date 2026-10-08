@@ -159,6 +159,10 @@ def run_bridge_browser() -> None:
     )
     _run("Conversation Fabric real extension delegation smoke", [node, "scripts/conversation_fabric_browser_smoke.cjs"])
     _run(
+        "GitHub Fabric installed read-only MV3 restart smoke",
+        [node, "scripts/github_fabric_readonly_browser_smoke.cjs"],
+    )
+    _run(
         "Conversation Fabric parent/child DOM smoke",
         [node, "scripts/conversation_fabric_dom_smoke.cjs"],
     )
