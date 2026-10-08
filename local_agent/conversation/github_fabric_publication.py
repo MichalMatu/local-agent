@@ -123,6 +123,8 @@ def preflight_synthetic_publication(
     if existing_record is None:
         if dispatch["id"] in index["dispatch_ids"]:
             raise ValueError("GitHub Fabric index refers to a missing immutable record")
+        if len(index["dispatch_ids"]) >= MAX_INDEX_IDS:
+            raise ValueError("GitHub Fabric publication index capacity exhausted")
         return SyntheticPublicationStep("create_record", record_path, dispatch, expected_head_sha)
 
     reconcile_github_fabric_dispatch(existing_record, dispatch)
