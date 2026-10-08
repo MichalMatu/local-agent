@@ -139,7 +139,7 @@ Runtime schema 3 may provide an optional `operator_status_url`. Chat Bridge acce
 
 ## Live acceptance
 
-The bounded arithmetic acceptance is recorded in `conversation_fabric/SAME_BROWSER_PROOF_2026-10-04.md`. For a fresh acceptance after verified code is loaded into the normal Chrome session:
+Live Bridge **0.8.13** operator-Chrome single-child (1/1) and parallel (3/3) PASS is recorded in `conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md`. Earlier simulated/historical proof remains in `conversation_fabric/SAME_BROWSER_PROOF_2026-10-04.md`. The **remaining** live acceptance is extension/MV3 worker reload while a child campaign is still active, with exact-claim recovery, no bootstrap replay and no duplicate terminal feedback. For that new explicit acceptance after verified code is loaded:
 
 1. verify exact source/deployed revision, Bridge `0.8.13`, parent URL/tab and GitHub control state;
 2. delegate at least two narrow non-overlapping reasoning jobs from one managed parent;
