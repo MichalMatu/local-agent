@@ -46,9 +46,6 @@ async function send(page, type = "bridge:spawn-bootstrap-v2") {
   return page.evaluate(({ intent, type }) => new Promise((resolve, reject) => {
     const listeners = globalThis.__messageListeners;
     const message = { type, ...intent };
-    // The fixture models the server-rendered user echo of the exact validated
-    // submission. Real composer readback is checked by the v2 content handler.
-    globalThis.__sourceBootstrapText = intent.bootstrapText;
     let settled = false;
     for (const listener of listeners) {
       const async = listener(message, {}, result => {
@@ -61,6 +58,8 @@ async function send(page, type = "bridge:spawn-bootstrap-v2") {
 }
 const snapshot = page => page.evaluate(() => ({
   sent: Number(localStorage.getItem("sent-count") || 0),
+  tabSends: window.__sent,
+  submittedComposerText: window.__submittedComposerText || "",
   draft: document.querySelector("#prompt-textarea")?.textContent,
   rawClaim: sessionStorage.getItem("local-agent-spawn-phase-v2:" + "spawn-" + "a".repeat(64))
 }));
