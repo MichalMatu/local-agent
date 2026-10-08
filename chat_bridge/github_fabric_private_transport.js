@@ -12,7 +12,7 @@
   "use strict";
 
   // NOT imported by the production extension. The configured repository is
-  // a reserved future private-data repo, not provisioned by this module.
+  // a private-data repo; only the read contract is implemented here.
   // No browser token store, worker integration or live child execution exists.
   const REPOSITORY = "MichalMatu/local-agent-fabric-private";
   const BRANCH = "fabric-data";
@@ -24,10 +24,27 @@
   const MAX_RECORD_BYTES = 128 * 1024;
   const SHA_RE = /^[0-9a-f]{40}$/;
   const TOKEN_RE = /^[A-Za-z0-9_-]{12,256}$/;
+  const PROJECT_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+  const WORKFLOW_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/;
 
+  // Never accept raw paths from a prompt or page. Every Contents path is
+  // derived from bounded project/workflow/dispatch IDs.
   function permittedPath(path) {
-    if (path === ".agent/conversation/browser_dispatches/index.json") return true;
-    return /^\.agent\/conversation\/browser_dispatches\/fabric-[0-9a-f]{32}\.json$/.test(path);
+    if (path === "projects/index.json") return true;
+    return /^projects\/[a-z0-9][a-z0-9-]{0,63}\/workflows\/(?:index\.json|[A-Za-z0-9][A-Za-z0-9._-]{0,119}\/dispatches\/(?:index\.json|fabric-[0-9a-f]{32}\.json))$/.test(path);
+  }
+
+  function validateCatalog(value, field, pattern, maximum) {
+    const fields = Object.keys(value || {}).sort();
+    if (!value || typeof value !== "object" || Array.isArray(value) ||
+        fields.join(",") !== field + ",schema_version" ||
+        value.schema_version !== 1 || !Array.isArray(value[field]) ||
+        value[field].length > maximum ||
+        value[field].some(id => typeof id !== "string" || !pattern.test(id)) ||
+        value[field].join(",") !== [...new Set(value[field])].sort().join(",")) {
+      throw new Error("Private GitHub Fabric project catalog invalid");
+    }
+    return value[field];
   }
 
   function requireAuthorizedToken(readToken) {
@@ -187,7 +204,7 @@
   }
 
   async function readPrivateDispatchSnapshot({
-    enabled = false, readToken, fetchImpl = globalThis.fetch, expectedId
+    enabled = false, readToken, fetchImpl = globalThis.fetch, expectedId, projectId, workflowId
   } = {}) {
     if (enabled !== true) {
       throw new Error("Private GitHub Fabric reader is default-disabled");
@@ -200,6 +217,10 @@
         !/^fabric-[0-9a-f]{32}$/.test(expectedId)) {
       throw new Error("Private GitHub Fabric expected dispatch identity invalid");
     }
+    if (typeof projectId !== "string" || !PROJECT_RE.test(projectId) ||
+        typeof workflowId !== "string" || !WORKFLOW_RE.test(workflowId)) {
+      throw new Error("Private GitHub Fabric project/workflow identity invalid");
+    }
     if (!dispatchModel || !intakeModel) {
       throw new Error("Private GitHub Fabric validators are not available");
     }
@@ -211,10 +232,25 @@
         typeof head !== "string" || !SHA_RE.test(head)) {
       throw new Error("Private GitHub Fabric origin ref rejected");
     }
+    const catalog = await pinnedContents({
+      readToken, fetchImpl, head,
+      path: "projects/index.json", maximum: intakeModel.MAX_INDEX_BYTES
+    });
+    if (!validateCatalog(catalog, "project_ids", PROJECT_RE, 32).includes(projectId)) {
+      throw new Error("Private GitHub Fabric project not indexed");
+    }
+    const scope = "projects/" + projectId + "/workflows/";
+    const workflows = await pinnedContents({
+      readToken, fetchImpl, head,
+      path: scope + "index.json", maximum: intakeModel.MAX_INDEX_BYTES
+    });
+    if (!validateCatalog(workflows, "workflow_ids", WORKFLOW_RE, 128).includes(workflowId)) {
+      throw new Error("Private GitHub Fabric workflow not indexed");
+    }
+    const dispatchRoot = scope + workflowId + "/dispatches/";
     const index = await pinnedContents({
       readToken, fetchImpl, head,
-      path: ".agent/conversation/browser_dispatches/index.json",
-      maximum: intakeModel.MAX_INDEX_BYTES
+      path: dispatchRoot + "index.json", maximum: intakeModel.MAX_INDEX_BYTES
     });
     intakeModel.validateIndex(index);
     if (!index.dispatch_ids.includes(expectedId)) {
@@ -222,7 +258,7 @@
     }
     const dispatch = await pinnedContents({
       readToken, fetchImpl, head,
-      path: ".agent/conversation/browser_dispatches/" + expectedId + ".json",
+      path: dispatchRoot + expectedId + ".json",
       maximum: MAX_RECORD_BYTES
     });
     dispatchModel.validateDispatch(dispatch);
@@ -233,6 +269,8 @@
     return Object.freeze({
       source: "authenticated_private_github",
       source_head_sha: head,
+      project_id: projectId,
+      workflow_id: workflowId,
       dispatch_id: expectedId,
       dispatch
     });
