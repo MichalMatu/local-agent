@@ -28,6 +28,8 @@ function createHarness({
   observationUrlByChild = {},
   allowActiveClose = false,
   managed = true,
+  masterEnabled = true,
+  parentEnabled = true,
   storage = {}
 } = {}) {
   const session = storage;
@@ -111,9 +113,9 @@ function createHarness({
     conversationId: context.LocalAgentBridgeProtocol.conversationId,
     async getBridgeState() {
       return {
-        settings: { masterEnabled: true },
+        settings: { masterEnabled },
         conversations: managed
-          ? { [parentId]: { id: parentId, url: parentUrl, preferredTabId: 11, enabled: true } }
+          ? { [parentId]: { id: parentId, url: parentUrl, preferredTabId: 11, enabled: parentEnabled } }
           : {}
       };
     },
@@ -527,6 +529,30 @@ function createHarness({
     );
     assert.equal(wrongTab.ok, false);
     assert.equal(wrongTab.reason, "conversation_fabric_parent_not_managed");
+  }
+
+  for (const option of [
+    { masterEnabled: false },
+    { parentEnabled: false }
+  ]) {
+    const h = createHarness(option);
+    const diagnostic = await h.context.conversationFabricDiagnosticContext(
+      { conversationUrl: parentUrl, contentProtocolVersion: h.context.CONTENT_PROTOCOL_VERSION },
+      h.sender
+    );
+    assert.equal(diagnostic.ok, true, JSON.stringify(diagnostic));
+    assert.equal(diagnostic.reason, "conversation_fabric_diagnostic_parent_disabled");
+
+    const blocked = await h.context.applyConversationFabricControl(h.delegateMessage, h.sender);
+    assert.equal(blocked.ok, false);
+    assert.equal(blocked.reason, "conversation_fabric_parent_not_managed");
+    assert.equal(h.created.length, 0, "disabled parents must not spawn child tabs");
+
+    const otherTab = await h.context.conversationFabricDiagnosticContext(
+      { conversationUrl: parentUrl, contentProtocolVersion: h.context.CONTENT_PROTOCOL_VERSION },
+      { ...h.sender, tab: { id: 12, url: parentUrl } }
+    );
+    assert.equal(otherTab.ok, false, "disabled parent diagnostics cannot cross tab ownership");
   }
 
   {
