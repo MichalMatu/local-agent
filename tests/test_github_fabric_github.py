@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import copy
+import io
 import json
+import os
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from local_agent.conversation import github_fabric_github as publisher
 from tests.test_github_fabric_dispatch import admitted_children, operator_request
@@ -218,6 +224,44 @@ class GithubFabricTrustedWriterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "branch head SHA"):
             self.publish(api=InvalidRef())
         self.assertEqual(len(self.api.commits), 0)
+
+    def test_publisher_rejects_invalid_header_token(self):
+        for token in ("", "token\\r\\nBearer evil", " token", "token ", "tok\\nen"):
+            with self.subTest(token=token), self.assertRaises(PermissionError):
+                publisher.GitHubFabricREST(token)
+
+    def test_cli_requires_explicit_public_consent_and_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "synthetic.json"
+            source.write_text(json.dumps({
+                "operator_request": self.request,
+                "child_requests": self.children,
+            }), encoding="utf-8")
+            with mock.patch.dict(os.environ, {}, clear=True):
+                with self.assertRaises(SystemExit):
+                    publisher.main(["--source", str(source)])
+                with self.assertRaises(SystemExit):
+                    publisher.main(["--source", str(source), "--publish-public-synthetic"])
+            with mock.patch.dict(
+                os.environ, {"LOCAL_AGENT_GITHUB_FABRIC_WRITE_TOKEN": "fixture-token"}
+            ), mock.patch.object(
+                publisher, "publish_synthetic_fixture",
+                return_value=publisher.SyntheticPublicationResult(
+                    "fabric-" + "a" * 32, "published", "a" * 40, ("create_record", "update_index")
+                ),
+            ) as publish:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    result = publisher.main([
+                        "--source", str(source), "--publish-public-synthetic"
+                    ])
+                self.assertEqual(result, 0)
+                self.assertEqual(json.loads(output.getvalue())["status"], "published")
+                self.assertNotIn("fixture-token", output.getvalue())
+                publish.assert_called_once_with(
+                    self.request, self.children, enabled=True, token="fixture-token"
+                )
+
 
 
 if __name__ == "__main__":
