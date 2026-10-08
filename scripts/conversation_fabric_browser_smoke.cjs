@@ -73,7 +73,7 @@ document.querySelector("form").onsubmit = (event) => {
   const child = text.match(/^child_id=(.+)$/m);
   if (child) {
     window.__childId = child[1];
-    const completion = text.match(/<<<LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}>>>/);
+    const completion = text.match(/LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}/);
     if (!completion) throw new Error("child bootstrap missing completion marker");
     window.__completionMarker = completion[0];
 
@@ -436,7 +436,10 @@ async function campaignSnapshot(worker, campaignId) {
     }), 30000);
     campaignId = campaign.id;
     assert.equal(campaign.children.length, 4);
-    assert.ok(campaign.children.every(child => /<<<LOCAL_AGENT_CF_CHILD_COMPLETE:/.test(child.intent.bootstrap_text)));
+    assert.ok(campaign.children.every(child =>
+      /^LOCAL_AGENT_CF_CHILD_COMPLETE:[0-9a-f]{8}:[A-Za-z0-9._-]{1,64}:[0-9a-f]{8}$/m
+        .test(child.intent.bootstrap_text)
+    ));
     await waitFor("four same-browser child tabs", () => fabricChildren(context).length === 4);
     for (const page of fabricChildren(context)) {
       assert.equal(await page.evaluate(() => window.submitted.length), 1, "every bootstrap is submitted exactly once");
