@@ -130,6 +130,8 @@ const snapshot = page => page.evaluate(() => ({
     const failed = await send(ambiguous);
     assert.equal(failed.reason, "spawn_v2_submission_ambiguous");
     assert.equal(JSON.parse((await snapshot(ambiguous)).rawClaim).phase, "submit_armed");
+    assert.equal((await snapshot(ambiguous)).tabSends, 0,
+      "throwing button must not be misreported as a submitted message");
     assert.equal((await snapshot(ambiguous)).sent, 1);
     assert.equal((await send(ambiguous, "bridge:spawn-bootstrap")).reason, "spawn_v2_claim_exists");
     await ambiguous.reload();
