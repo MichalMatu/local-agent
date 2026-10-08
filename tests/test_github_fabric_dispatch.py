@@ -288,6 +288,8 @@ class GithubFabricSyntheticPublicationTests(unittest.TestCase):
         ]}
         with self.assertRaisesRegex(ValueError, "capacity exhausted"):
             self._plan(existing_record=first.payload, existing_index=full)
+        with self.assertRaisesRegex(ValueError, "capacity exhausted"):
+            self._plan(existing_record=None, existing_index=full)
         for index in [
             {"schema_version": True, "dispatch_ids": []},
             {"schema_version": 1, "dispatch_ids": ["fabric-" + "a" * 32] * 2},
