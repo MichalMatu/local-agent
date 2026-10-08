@@ -334,6 +334,46 @@ are in `GITHUB_FIRST_IMPLEMENTATION_HANDOFF.md`.
    Remove obsolete parser/state responsibilities only after live parity and
    measured rollback readiness. Preserve DOM as a scoped ChatGPT UI driver.
 
+### Later UX milestone — supervised Superchat-to-Superchat handoff (NOT implemented)
+
+**Explicit backlog feature; separate from reasoning-child `LOCAL_AGENT_CF` delegation.**
+Once the GitHub-backed workflow ledger and safe browser intent transport are proven,
+the operator should be able to request: **"Przenieś tę pracę do nowego czatu."**
+This means opening a **new independent parent/Superchat**, not a disposable
+Fabric child; the new chat must remain open and must not inherit child
+reasoning-only lifecycle/automatic tab cleanup.
+
+Required bounded flow:
+
+1. The current parent first commits a concise durable checkpoint and an
+   immutable **handoff request** to the authorized GitHub workflow: exact
+   project/workflow id, accepted goal, latest source/evidence refs, pending
+   decisions, version/digest and one-use successor intent. Include a minimal
+   starting prompt or safe reference; no raw private conversation dump.
+2. After explicit operator approval, Chat Bridge may **create a new ordinary
+   ChatGPT conversation and submit that exact handoff bootstrap**, reusing
+   existing safe tab/composer submission and ambiguous-send guards; never
+   treat a `LOCAL_AGENT_CF` child spawn as an equivalent parent handoff.
+3. Resolve and register the exact successor conversation URL against the
+   same project. Any managed parent enable/bind or GitHub
+   `conversation_controls` change requires its own explicit authority and
+   generation-safe admission. Creating a tab alone grants no execution,
+   scheduling or parent privileges.
+4. The successor reads authoritative GitHub workflow evidence and reconciles
+   its checkpoint before it may continue planning. Keep predecessor and
+   successor identity/receipt transitions durable and reject conflicting or
+   repeated handoffs; do not silently launch two active supervisors.
+5. Only after confirmed successor registration/acknowledgment should the old
+   parent be offered a pause/retire option. **Never auto-close an operator
+   chat** or destroy state on an ambiguous acknowledgement. Manual
+   open/paste/bind remains the supported fallback.
+
+Acceptance: operator-triggered parent A -> independently open parent B ->
+GitHub rehydration -> authorized control handover with no duplicate execution,
+no child-auto-close and no lost accepted state; cover reload, lost acknowledgment,
+disabled/unbound successor, tab closure and cancel/rollback. This UX enhancement
+is **deferred**, not part of the first Milestone 8 publisher/preflight PR.
+
 ### Durable history and cross-device recovery deliverables
 
 - Define an append-only, versioned, causally linked workflow event journal and
