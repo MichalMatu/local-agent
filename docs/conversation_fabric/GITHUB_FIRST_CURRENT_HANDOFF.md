@@ -38,7 +38,7 @@ children that gain independent authority.
 
 | Surface | Handoff observation |
 | --- | --- |
-| Public code repo | `MichalMatu/local-agent`, `main@8bbd46f29ef1aa2a562660c1fd627c98d533df03` |
+| Public code repo | `MichalMatu/local-agent`, `main@186ad66480d884670e7043edd7fca340dca2eb9f` |
 | Private data repo | `MichalMatu/local-agent-fabric-private`, `fabric-data@b834209d99f088e093d503632717ae0aaeafbf7f` |
 | Local Agent | `agent-control` daemon `idle` at recheck; observed self revision `a1ba2be840098a727e9de06323ae8625955a6e1e` (may lag latest `main`; re-check) |
 | Canonical executable catalog entry | `local-agent` / `MichalMatu/local-agent`, execution enabled, binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; **re-check, do not hard-code** |
@@ -60,7 +60,7 @@ children that gain independent authority.
 | PR #222 | **MERGED**, latest prior canonical handoff checkpoint; squash `40c854d5112028aecf8dfcfad17b0130e8f005e1` |
 | PR #223 | **MERGED**, unconfirmed legacy DOM terminal feedback now appears as `assumed` in operator snapshot and inspect rather than falsely `delivered`; exact-head Mac + six CI passed; squash `8bbd46f29ef1aa2a562660c1fd627c98d533df03` |
 | PR #224 | **CLOSED / SUPERSEDED** by #225 due conflicts after #223 merged; not merged |
-| PR #225 | **OPEN / DRAFT**, ported uncertain receipt history retention to current `main`, head `fb3058bd2e19119776e1b1ed7bf5195fe787448b`; Mac test passed on exact head; six CI checks were still pending at this observation |
+| PR #225 | **MERGED**, unknown terminal feedback no-prune and bounded fail-closed retention, exact-head Mac and six CI checks passed; squash `186ad66480d884670e7043edd7fca340dca2eb9f` |
 
 Two reasoning-only child reviews were delegated in an earlier Chat Bridge
 parent conversation: `m8-parent-fence-verification` (security/correctness)
@@ -172,7 +172,7 @@ have been authorized in this private repository.
 | Legacy browser Send/claim and results | `chat_bridge/worker_conversation_fabric.js`, `worker_spawn*.js`, `spawn_result_content.js` |
 | Inactive browser GitHub intake | `chat_bridge/worker_github_fabric_intake.js`, `github_fabric_private_transport.js` |
 | Target product rules | `TARGET_PRODUCT_ARCHITECTURE.md`; repository-wide invariants `AGENTS.md` |
-| Existing DOM behavior | `CURRENT_PLAN.md`; separate live restart test `NEXT_CHAT_PROMPT.md`; correct uncertain-feedback operator status in #223 and retention under review #225 |
+| Existing DOM behavior | `CURRENT_PLAN.md`; separate live restart test `NEXT_CHAT_PROMPT.md`; `assumed` feedback operator status (#223) and durable no-prune retention (#225), both merged |
 | Manual new-window continuation | `GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md`; **not** automatic Superchat succession |
 
 ## 6. Safe next work, in order
@@ -201,11 +201,10 @@ have been authorized in this private repository.
    successfully (`local-agent-m8-main-private-three-surface-read-20261009-v1`)
    on its pinned earlier main SHA; do not mislabel it as evidence for later
    commits. No production Send/ACK or private parent write was attempted.
-6. Integrate the independent legacy DOM receipt-retention PR #225 only
-   after exact-head Mac and six CI gates. Its predecessor #224 was closed
-   without merge due a genuine conflict with #223. Never prune an unconfirmed
-   terminal notification as though its delivery were proved; keep no-replay
-   semantics, and fail closed on history capacity saturation.
+6. PR #225 is merged after exact-head Mac and six CI gates. Its predecessor
+   #224 was closed without merge after a conflict with #223. Never prune an
+   unconfirmed terminal notification as though its delivery were proved;
+   preserve no-replay semantics, and fail closed on history capacity saturation.
 7. Implement real evidence-bearing ACK/results, retirement and cross-device
    recovery in bounded gated PRs. Leave all new production flags disabled
    until real acceptance, not merely fixture CI.
