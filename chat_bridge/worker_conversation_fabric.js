@@ -929,7 +929,13 @@ async function delegateConversationFabric(authority) {
   const history = campaigns.filter((value) =>
     !["spawning", "running"].includes(value.state) &&
     value.feedback_delivered &&
-    !value.cleanup_pending
+    !value.cleanup_pending &&
+    // feedback_delivered is also a no-replay compatibility marker for a
+    // lost terminal ACK. Keep such unresolved receipts inspectable rather
+    // than silently pruning them as confirmed history.
+    value.feedback_delivery_assumed !== true &&
+    !(value.feedback_delivery_claim?.id &&
+      value.feedback_delivery_claim.state !== "confirmed")
   ).sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)));
   for (const old of history.slice(CONVERSATION_FABRIC_HISTORY_LIMIT - 1)) {
     // Upgrade-safe migration: never prune a legacy campaign result until its
