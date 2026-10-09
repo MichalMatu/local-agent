@@ -1,5 +1,12 @@
 # Current handoff — Tool Runtime Phase C and Bridge 0.8.13 checkpoint
 
+> **Track routing (2026-10-09):** This document remains the Local Agent
+> **Milestone 7 Tool Runtime / existing DOM Bridge** handoff. For the active
+> **GitHub-first Conversation Fabric Milestone 8** private transport and
+> cross-device project state, read
+> [its canonical current handoff](conversation_fabric/GITHUB_FIRST_CURRENT_HANDOFF.md).
+> Do not restart old synthetic-publication planning from this file.
+
 Updated: **2026-10-08**. Source baseline at start of this documentation handoff: `main@a7731b059fdab9b17ac8aa51df370814c101c257`; **always read fresh main before editing**.
 
 ## Current status, by independent track
