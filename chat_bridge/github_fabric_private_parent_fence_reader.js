@@ -103,51 +103,59 @@
 
   async function getJson(fetchImpl, token, path, limit) {
     const url = API + path; // Fixed host/repository; paths only from trusted templates.
-    let response;
+    const abort = new AbortController();
+    // Timer stays active while streaming the body, not merely until headers.
+    const timeout = setTimeout(() => abort.abort(), 5000);
     try {
-      response = await fetchImpl(url, {
-        method: "GET", redirect: "error", credentials: "omit", cache: "no-store",
-        headers: {
-          Authorization: "Bearer " + token,
-          Accept: "application/vnd.github+json",
-          "X-GitHub-Api-Version": "2022-11-28"
-        }
-      });
-    } catch (_error) {
-      throw new Error("Parent fence private GitHub network read failed");
-    }
-    if (response?.status !== 200 || response.redirected ||
-        (response.url && response.url !== url) ||
-        !response.body || typeof response.body.getReader !== "function") {
-      throw new Error("Parent fence private GitHub source response rejected");
-    }
-    const reader = response.body.getReader();
-    const chunks = [];
-    let size = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!(value instanceof Uint8Array)) throw new Error("Parent fence response bytes invalid");
-        size += value.byteLength;
-        if (size > limit) throw new Error("Parent fence response exceeds bound");
-        chunks.push(value);
+      let response;
+      try {
+        response = await fetchImpl(url, {
+          method: "GET", redirect: "error", credentials: "omit", cache: "no-store",
+          signal: abort.signal,
+          headers: {
+            Authorization: "Bearer " + token,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28"
+          }
+        });
+      } catch (_error) {
+        throw new Error("Parent fence private GitHub network read failed");
       }
-    } catch (_error) {
-      await reader.cancel().catch(() => undefined);
-      throw new Error("Parent fence response incomplete or exceeds bound");
+      if (response?.status !== 200 || response.redirected ||
+          (response.url && response.url !== url) ||
+          !response.body || typeof response.body.getReader !== "function") {
+        throw new Error("Parent fence private GitHub source response rejected");
+      }
+      const reader = response.body.getReader();
+      const chunks = [];
+      let size = 0;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (!(value instanceof Uint8Array)) throw new Error("Parent fence response bytes invalid");
+          size += value.byteLength;
+          if (size > limit) throw new Error("Parent fence response exceeds bound");
+          chunks.push(value);
+        }
+      } catch (_error) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("Parent fence response incomplete or exceeds bound");
+      } finally {
+        try { reader.releaseLock(); } catch (_error) {}
+      }
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+      try {
+        const data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+        if (!data || typeof data !== "object" || Array.isArray(data)) throw Error();
+        return data;
+      } catch (_error) {
+        throw new Error("Parent fence source JSON invalid");
+      }
     } finally {
-      try { reader.releaseLock(); } catch (_error) {}
-    }
-    const bytes = new Uint8Array(size);
-    let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-    try {
-      const data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-      if (!data || typeof data !== "object" || Array.isArray(data)) throw Error();
-      return data;
-    } catch (_error) {
-      throw new Error("Parent fence source JSON invalid");
+      clearTimeout(timeout);
     }
   }
 

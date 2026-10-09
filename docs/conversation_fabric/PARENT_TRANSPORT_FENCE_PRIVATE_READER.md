@@ -36,7 +36,10 @@ identifier follows github_fabric_parent_fence_preview.py:
    closed. An empty index or absent namespace returns unregistered.
 4. All responses are byte-bounded; network requests are GET-only to the
    fixed private repository, with redirects forbidden, cookies omitted and
-   credentials never included in a URL or error message.
+   credentials never included in a URL or error message. Every GET has a
+   five-second AbortController deadline that covers response headers **and
+   streaming body**, with cleanup in `finally`; tests simulate both stalled
+   headers and stalled response streams.
 5. Success returns unattested_preview or unregistered with
    browser_effects_permitted=false. **No response can authorize browser
    tab creation, composer population, Send, ACK, child execution or mode
