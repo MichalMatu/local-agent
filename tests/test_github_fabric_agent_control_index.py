@@ -140,6 +140,13 @@ class AgentControlHistoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "association"):
             self.inspect(api)
 
+    def test_wrong_git_commit_identity_blocks_history_before_tree_read(self):
+        api = HistoryAPI()
+        api.bad_commit_sha = True
+        with self.assertRaisesRegex(ValueError, "Git commit identity"):
+            self.inspect(api)
+        self.assertEqual(len(api.operations), 1)
+
     def test_scoped_empty_returns_deny_only_review(self):
         api = HistoryAPI()
         api.include_task = False
