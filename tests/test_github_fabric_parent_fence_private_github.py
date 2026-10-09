@@ -353,6 +353,50 @@ class PrivateParentFenceWriterTests(unittest.TestCase):
                 api.request(method, path)
         self.assertEqual(writer.MAX_ATTEMPTS, 6)
 
+    def test_private_git_tree_restricts_paths_and_atomic_parent_pair(self):
+        api = private.PrivateFabricREST("synthetic-test-token")
+        sha = "a" * 40
+
+        def entry(path):
+            return {"path": path, "mode": "100644", "type": "blob", "sha": sha}
+
+        def payload(*paths):
+            return {"base_tree": sha, "tree": [entry(path) for path in paths]}
+
+        project_paths = (
+            "projects/local-agent/workflows/index.json",
+            "projects/local-agent/workflows/workflow-001/dispatches/index.json",
+            "projects/local-agent/workflows/workflow-001/dispatches/fabric-" +
+            "b" * 32 + ".json",
+        )
+        record = "parents/parent-" + "b" * 32 + ".json"
+        for path in project_paths:
+            with self.subTest(allowed=path):
+                private._validate_private_git_tree(payload(path))
+        private._validate_private_git_tree(payload(record, "parents/index.json"))
+
+        denied = [
+            payload("parents/index.json"),
+            payload(record),
+            payload("projects/index.json"),
+            payload("secret/other.json"),
+            payload("parents/index.json", "secret/other.json"),
+            payload(project_paths[0], project_paths[1]),
+            payload(record, "parents/index.json", "secret/third.json"),
+            payload(record, record),
+            {**payload(project_paths[0]), "unexpected": True},
+            {**payload(project_paths[0]), "base_tree": ["a" * 40]},
+            {**payload(project_paths[0]), "tree": [
+                {**entry(project_paths[0]), "mode": "120000"}]},
+            {**payload(project_paths[0]), "tree": [
+                {**entry(project_paths[0]), "sha": ["a" * 40]}]},
+        ]
+        with mock.patch.object(private, "build_opener") as opener:
+            for item in denied:
+                with self.subTest(tree=item), self.assertRaises(ValueError):
+                    api.request("POST", "/git/trees", item)
+            opener.assert_not_called()
+
     def test_private_rest_accepts_only_exact_noforce_ref_update(self):
         adapter = private.PrivateFabricREST("synthetic-test-token")
         with mock.patch.object(private, "build_opener") as opener:
