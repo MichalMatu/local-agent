@@ -238,12 +238,17 @@
       throw new Error("Parent fence origin tree incomplete");
     }
     const entries = new Map();
+    let rootSeen = false;
     for (const entry of listing.tree) {
       if (!entry || typeof entry.path !== "string") {
         throw new Error("Parent fence origin tree entry invalid");
       }
       if (entry.path === "parents") {
-        if (entry.type !== "tree") throw new Error("Parent fence root invalid");
+        if (rootSeen || entry.type !== "tree" || entry.mode !== "040000" ||
+            typeof entry.sha !== "string" || !SHA_RE.test(entry.sha)) {
+          throw new Error("Parent fence root invalid or duplicated");
+        }
+        rootSeen = true;
         continue;
       }
       if (!entry.path.startsWith("parents/")) continue;
@@ -251,10 +256,13 @@
           (entry.path !== "parents/index.json" &&
            !/^parents\/parent-[0-9a-f]{32}\.json$/.test(entry.path)) ||
           entry.type !== "blob" || entry.mode !== "100644" ||
-          !SHA_RE.test(String(entry.sha || ""))) {
+          typeof entry.sha !== "string" || !SHA_RE.test(entry.sha)) {
         throw new Error("Parent fence unexpected or duplicate tree entry");
       }
       entries.set(entry.path, entry.sha);
+    }
+    if (entries.size && !rootSeen) {
+      throw new Error("Parent fence root missing from tree");
     }
     const indexPath = "parents/index.json";
     if (!entries.has(indexPath)) {
