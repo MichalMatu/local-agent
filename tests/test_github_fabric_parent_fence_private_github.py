@@ -397,6 +397,31 @@ class PrivateParentFenceWriterTests(unittest.TestCase):
                     api.request("POST", "/git/trees", item)
             opener.assert_not_called()
 
+    def test_private_rest_allows_only_mocked_atomic_parent_tree_write(self):
+        api = private.PrivateFabricREST("synthetic-test-token")
+        blob_sha = "a" * 40
+        body = {
+            "base_tree": "b" * 40,
+            "tree": [
+                {"path": "parents/index.json", "mode": "100644",
+                 "type": "blob", "sha": blob_sha},
+                {"path": "parents/parent-" + "c" * 32 + ".json",
+                 "mode": "100644", "type": "blob", "sha": blob_sha},
+            ],
+        }
+        with mock.patch.object(private, "build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value.read.return_value = (
+                b'{"sha":"' + b"d" * 40 + b'"}'
+            )
+            result = api.request("POST", "/git/trees", body)
+            self.assertEqual(result["sha"], "d" * 40)
+            opener.assert_called_once()
+            self.assertIsInstance(opener.call_args.args[0], private._NoRedirect)
+            req = opener.return_value.open.call_args.args[0]
+            self.assertEqual(req.get_method(), "POST")
+            self.assertEqual(req.full_url, private.API_ROOT + "/git/trees")
+            self.assertEqual(json.loads(req.data), body)
+
     def test_private_rest_accepts_only_exact_noforce_ref_update(self):
         adapter = private.PrivateFabricREST("synthetic-test-token")
         with mock.patch.object(private, "build_opener") as opener:
