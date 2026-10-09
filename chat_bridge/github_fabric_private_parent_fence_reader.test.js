@@ -70,8 +70,10 @@ async function fixture() {
     }
   };
   const resign = () => {
-    state.tree.tree[1].sha = gitBlobSha(state.index);
-    state.tree.tree[2].sha = gitBlobSha(state.record);
+    const indexEntry = state.tree.tree.find(entry => entry.path === "parents/index.json");
+    const recordEntry = state.tree.tree.find(entry => entry.path === path);
+    if (indexEntry) indexEntry.sha = gitBlobSha(state.index);
+    if (recordEntry) recordEntry.sha = gitBlobSha(state.record);
   };
   const calls = [];
   const fetchImpl = async (url, init) => {
