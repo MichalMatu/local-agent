@@ -75,7 +75,7 @@ async function run() {
       ["await chrome.tabs.remove(tab.id);", 1]
     ]],
     ["worker_spawn_route_transition.js", [
-      ["await chrome.scripting.executeScript({", 1],
+      ["await chrome.scripting.executeScript({", 2],
       ["const results = await chrome.scripting.executeScript({", 1]
     ]],
     ["worker_delivery.js", [
