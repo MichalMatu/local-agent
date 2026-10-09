@@ -134,6 +134,50 @@ class PrivateParentFenceWriterTests(unittest.TestCase):
             self.publish(mode="legacy_dom")
         self.assertEqual(len(self.api.commits), before)
 
+    def test_racing_opposite_transport_acquisition_fails_closed(self):
+        legacy = preview.build_preview(
+            self.operator, self.children, transport_mode="legacy_dom"
+        )
+        parent_path = self.path
+
+        class CompetingModeAPI(ParentFenceAPI):
+            competing = True
+
+            def request(self, method, path, body=None):
+                if method == "PATCH" and self.competing:
+                    self.competing = False
+                    # Another writer wins the exact same parent with the
+                    # opposite transport before this writer updates the ref.
+                    tree_sha = self.new_sha()
+                    tree = copy.deepcopy(self.trees[self.commit_trees[self.head]])
+                    tree[parent_path] = json.dumps(legacy)
+                    tree[preview.INDEX_PATH] = json.dumps({
+                        "schema_version": 1, "parent_ids": [legacy["id"]],
+                    })
+                    self.trees[tree_sha] = tree
+                    competing_head = self.new_sha()
+                    self.commit_trees[competing_head] = tree_sha
+                    self.snapshots[competing_head] = copy.deepcopy(tree)
+                    self.head = competing_head
+                return super().request(method, path, body)
+
+        self.api = CompetingModeAPI()
+        with self.assertRaisesRegex(ValueError, "already occupied"):
+            self.publish()
+        self.assertEqual(self.api.ref_successes, 0)
+        self.assertEqual(
+            json.loads(self.api.snapshots[self.api.head][self.path]), legacy
+        )
+        self.assertEqual(
+            json.loads(self.api.snapshots[self.api.head][preview.INDEX_PATH])[
+                "parent_ids"
+            ], [legacy["id"]]
+        )
+        self.assertEqual(self.api.commits[next(iter(self.api.commits))]["parents"], [
+            "a" * 40
+        ])
+        self.assertEqual(self.publish(mode="legacy_dom").status, "replay")
+
     def test_orphan_and_unapproved_extra_path_fail_before_blob_write(self):
         self.api.trees["b" * 40]["parents/parent-" + "f" * 32 + ".json"] = "{}"
         self.api.snapshots[self.api.head] = copy.deepcopy(self.api.trees["b" * 40])
