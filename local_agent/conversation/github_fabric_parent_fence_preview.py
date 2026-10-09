@@ -19,7 +19,7 @@ from local_agent.conversation import github_fabric_dispatch
 from local_agent.conversation import github_fabric_publication as synthetic
 
 SCHEMA_VERSION = 1
-ROOT = "projects/local-agent/parents/"
+ROOT = "parents/"
 INDEX_PATH = ROOT + "index.json"
 MAX_PARENTS = 16
 MAX_INDEX_BYTES = 4096
@@ -55,7 +55,7 @@ def parent_id(parent_conversation_url: str) -> str:
     canonical = contract.canonical_conversation_url(parent_conversation_url)
     if canonical != parent_conversation_url:
         raise ValueError("Parent transport URL must be canonical")
-    identity = _encoded(["fabric-parent-mode-v1", _PROJECT, canonical])
+    identity = _encoded(["fabric-global-parent-mode-v1", canonical])
     return "parent-" + hashlib.sha256(identity).hexdigest()[:32]
 
 
@@ -90,6 +90,7 @@ def validate_record(value: Any) -> dict[str, Any]:
             or value["kind"] != KIND
             or value["id"] != identity
             or value["project_id"] != _PROJECT
+            or not isinstance(value["transport_mode"], str)
             or value["transport_mode"] not in MODES
             or type(value["fence_epoch"]) is not int or value["fence_epoch"] != 1
             or value["phase"] != PHASE
