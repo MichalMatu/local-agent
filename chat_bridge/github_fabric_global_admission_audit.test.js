@@ -136,8 +136,8 @@ function run() {
   const worker = fs.readFileSync(path.join(__dirname, "service_worker.js"), "utf8");
   const manifest = fs.readFileSync(path.join(__dirname, "manifest.json"), "utf8");
   assert.doesNotMatch(worker + manifest, /github_fabric_global_admission_audit/);
-  assert.doesNotMatch(source, /chrome\\.tabs|chrome\\.scripting|fetch\\(|sendMessage\\(|Authorization|readToken/);
-  assert.doesNotMatch(source, /browser_effects_permitted:\\s*true|automatic_retry_permitted:\\s*true/);
+  assert.doesNotMatch(source, /chrome\.tabs|chrome\.scripting|fetch\(|sendMessage\(|Authorization|readToken/);
+  assert.doesNotMatch(source, /browser_effects_permitted:\s*true|automatic_retry_permitted:\s*true/);
   console.log("Global transport cutover source-only deny audit: PASS");
 }
 
