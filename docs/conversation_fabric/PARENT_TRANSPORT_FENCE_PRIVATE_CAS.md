@@ -7,8 +7,10 @@ This stacked change depends on parent preview PR #209.
 It adds github_fabric_parent_fence_private_github.py and expands the trusted
 private GitHub REST adapter only for commit-pinned GETs of parents/ records
 and bounded recursive Git tree inspection. The REST adapter now enforces
-method-specific allowlists: GET for pinned reads, POST only for immutable Git
+method-specific allowlists: GET only for fixed, commit-pinned synthetic
+project/parent paths and exact Git commit/tree SHAs, POST only for immutable Git
 object creation and PATCH only for the fixed non-force branch ref update.
+Arbitrary project contents and non-SHA refs are rejected before network access.
 No Chrome content script receives
 a token; there is no production flag, UI Send hook, daemon task, or real ACK.
 
