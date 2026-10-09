@@ -6,8 +6,8 @@ GitHub mutation, publish a Local Agent task, claim a child, or retire old DOM
 workers. It is deliberately independent of the unmerged #209/#214/#239/#241
 branches and changes no running service.
 
-The Python function \`github_fabric_manual_new_parent.preview_manual_new_parent()\`
-accepts only redacted dictionaries from \`dataclasses.asdict()\` of the existing
+The Python function `github_fabric_manual_new_parent.preview_manual_new_parent()`
+accepts only redacted dictionaries from `dataclasses.asdict()` of the existing
 **public or private synthetic cold-recovery DTOs**. The operator must first
 perform the existing independently verified, commit-pinned GitHub recovery
 read and supply that SHA separately. The function checks strict
@@ -27,10 +27,10 @@ Send/effect/ACK state must never be copied forward as authorization or
 silently retried.
 
 Returned fields always include:
-- \`decision="manual_read_only_review"\`
-- \`browser_effects_permitted=False\`
-- \`automatic_retry_permitted=False\`
-- \`legacy_worker_retirement_proven=False\`
+- `decision="manual_read_only_review"`
+- `browser_effects_permitted=False`
+- `automatic_retry_permitted=False`
+- `legacy_worker_retirement_proven=False`
 
 This is **not** live arbitrary/private conversation migration. No migration
 switch, browser Send, cross-device effect fence, live rebind, or private
