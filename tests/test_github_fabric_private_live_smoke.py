@@ -78,7 +78,7 @@ class GithubCliPrivateSmokeTests(unittest.TestCase):
             ("POST", "/git/blobs", {}),
             ("PATCH", "/git/refs/heads/fabric-data", {"force": True}),
             ("GET", "/git/commits/" + "a" * 40 + "?test=1", None),
-            ("GET", "/contents/projects/growclip/workflows/index.json?ref=" + "a" * 40, None),
+            ("GET", "/contents/projects/growclip/workflows/../../index.json?ref=" + "a" * 40, None),
             ("GET", "/contents/../private?ref=" + "a" * 40, None),
             ("GET", "/git/ref/heads/main", None),
             ("GET", "/contents/projects/index.json?ref=../main", None),
@@ -149,6 +149,68 @@ class GithubCliPrivateSmokeTests(unittest.TestCase):
         self.assertEqual(data["child_count"], 2)
         self.assertNotIn("bootstrap_text", data)
         self.assertNotIn("token", data)
+
+
+def populate_fake_project_catalog(fake):
+    for project in ("growclip", "shelly-link"):
+        key = f"projects/{project}/workflows/index.json"
+        fake.git.snapshots[fake.git.head][key] = json.dumps({
+            "schema_version": 1, "workflow_ids": [],
+        })
+
+
+class GithubCliPrivateCatalogTests(unittest.TestCase):
+    def test_disabled_before_authenticated_cli_get(self):
+        fake = AuthenticatedFakeCli()
+        fake.calls.clear()
+        with self.assertRaises(PermissionError):
+            smoke.verify_private_project_catalog_live_read(
+                api=smoke.GithubCliReadOnlyAdapter(run=fake),
+            )
+        self.assertEqual(fake.calls, [])
+
+    def test_all_indexed_projects_recovered_twice_using_only_get(self):
+        fake = AuthenticatedFakeCli()
+        populate_fake_project_catalog(fake)
+        fake.calls.clear()
+        reader = smoke.GithubCliReadOnlyAdapter(run=fake)
+        catalog = smoke.verify_private_project_catalog_live_read(
+            enabled=True, api=reader,
+        )
+        self.assertEqual(catalog.source_head_sha, fake.git.head)
+        self.assertEqual(
+            {p.project_id: list(p.workflow_ids) for p in catalog.projects},
+            {"growclip": [], "local-agent": ["workflow-001"], "shelly-link": []},
+        )
+        self.assertEqual(len(fake.calls), 10)
+        self.assertTrue(all(argv[2:4] == ("--method", "GET") for argv, _ in fake.calls))
+        self.assertTrue(all("token" not in str(argv).lower() for argv, _ in fake.calls))
+        self.assertNotIn("bootstrap_text", str(catalog))
+
+    def test_cli_prints_only_project_and_workflow_identifiers(self):
+        fake = AuthenticatedFakeCli()
+        populate_fake_project_catalog(fake)
+        observed = smoke.verify_private_project_catalog_live_read(
+            enabled=True, api=smoke.GithubCliReadOnlyAdapter(run=fake),
+        )
+        with mock.patch.object(
+            smoke, "verify_private_project_catalog_live_read",
+            return_value=observed,
+        ) as verified:
+            from contextlib import redirect_stdout
+            from io import StringIO
+            output = StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(smoke.main(["--verify-private-catalog-read"]), 0)
+        verified.assert_called_once_with(enabled=True)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result["reads"], 2)
+        self.assertEqual(result["source_kind"], "private_project_catalog_observation_only")
+        self.assertEqual(result["projects"]["local-agent"], ["workflow-001"])
+        self.assertNotIn("bootstrap_text", result)
+        self.assertNotIn("token", result)
+        with self.assertRaises(SystemExit):
+            smoke.main(["--verify-private-synthetic-read", "--verify-private-catalog-read"])
 
 
 if __name__ == "__main__":
