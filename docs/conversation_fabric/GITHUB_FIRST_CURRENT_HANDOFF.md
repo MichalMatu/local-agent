@@ -34,6 +34,7 @@ Do not use legacy LAB add/rebind/schedule markers for ordinary Superchat flow.
 | Canonical executable catalog entry | `local-agent` / `MichalMatu/local-agent`, execution enabled, binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; **re-check, do not hard-code** |
 | GitHub-first production flag | `github_fabric_read_only_intake_enabled` absent from remote runtime; treated as disabled |
 | PR #209 | **OPEN / DRAFT**, head `bf867e5d433cfdb0ebefccd0ec3ba8bf9c6e1e20`; 6/6 checks green on exact head, not yet merged |
+| PR #195 | **OPEN** older independent Superchat-to-Superchat roadmap documentation; head `9d88b5554527687439e23b6703307e262b0362f7`, base differs from current `main`; inspect before any merge, do not treat as delivered cross-chat continuity |
 | PR #210 | **MERGED**, authenticated GET-only private synthetic recovery smoke |
 | PR #211 | **MERGED**, pinned index-only private multi-project catalog reader |
 | PR #212 | **MERGED**, authenticated GET-only private project catalog CLI smoke; latest `main` above |
