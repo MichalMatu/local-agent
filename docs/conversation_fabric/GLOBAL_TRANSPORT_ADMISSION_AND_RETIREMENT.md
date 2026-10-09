@@ -79,6 +79,39 @@ suspension seam checks a subset of these in cooperating drivers only; it
 must not be promoted to global fencing. Parent feedback and cleanup remain
 separate audit sites.
 
+## Legacy browser effect-site inventory (2026-10-09 source review)
+
+`chat_bridge/github_fabric_legacy_effect_inventory.test.js` is an
+offline **review sentinel**, not runtime protection. It freezes a count
+of 14 direct Chrome tabs/script API sites across six source modules, plus
+legacy parent/child composer clicks and form submission. The inventory
+includes:
+
+| Source | Relevant effect boundaries |
+| --- | --- |
+| `worker_spawn.js` | two tab creates, one navigation, three tab messages (including readiness probe), one content-script injection |
+| `worker_spawn_result.js` | result-observation tab message, fallback script injection, owned-tab removal |
+| `worker_spawn_route_transition.js` | two direct script injections and one non-Send DOM expander click |
+| `worker_delivery.js` | parent-feedback message and in-tab DOM observation script |
+| `spawn_content.js` | two bootstrap Send button clicks (legacy and V2) |
+| `content.js` | parent composer Send button click and `requestSubmit` fallback |
+
+The terminal-feedback claim wrapper lives in
+`worker_conversation_fabric_delivery_guard.js`, while child effect lifecycle
+state is coordinated in `worker_conversation_fabric.js`. A changed source
+site count is a review failure, not automatic permission; moving an effect
+without changing counts can evade this sentinel, and old/offline extension
+copies are wholly outside it. Future global arbitration has to cover every
+effect above, including the **actual page-side submit** and parent terminal
+feedback, before new-mode admission is even considered.
+
+Source-only snapshot continuity now flags missing previously declared
+workers, lost effect records, effect identity rewrites, changes to terminal
+receipts, unknown outcomes relabeled as success, in-flight effects reset to
+prepared, and unverifiable retirement receipts. These diagnostics are
+conservative and always return `blocked`, even if evidence is complete.
+They do not attest actual browser side effects or revoke old sessions.
+
 ## Required proof before private GitHub-first live execution
 
 1. Independently audit #209's identity/epoch preview and #214's authenticated
