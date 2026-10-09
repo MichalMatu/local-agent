@@ -122,7 +122,7 @@ class GithubCliPrivateSmokeTests(unittest.TestCase):
         file = ("projects/local-agent/workflows/workflow-001/dispatches/"
                 + index["dispatch_ids"][0] + ".json")
         fake.git.snapshots[fake.git.head].pop(file)
-        with self.assertRaises(RuntimeError):
+        with self.assertRaisesRegex(ValueError, "indexed dispatch record missing"):
             smoke.verify_private_synthetic_live_read(
                 enabled=True, api=smoke.GithubCliReadOnlyAdapter(run=fake)
             )
