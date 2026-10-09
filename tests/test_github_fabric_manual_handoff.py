@@ -194,9 +194,9 @@ class PortableHandoffTests(unittest.TestCase):
 
     def test_nonmatching_source_even_with_matching_pin_is_rejected(self):
         operator, children, api, manifest = self._published(True)
-        # Same GitHub origin but caller has changed expected source identity.
+        # Known-public fixture preflight itself denies a modified source.
         operator["parent_conversation_url"] = "https://chatgpt.com/c/unrelated-parent"
-        with self.assertRaises(ValueError):
+        with self.assertRaises(PermissionError):
             handoff.verify_manual_handoff_against_github(
                 manifest, operator, children,
                 independently_pinned_source_sha=api.head,
