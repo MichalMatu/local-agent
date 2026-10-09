@@ -36,7 +36,8 @@ class AgentControlReadOnlyObservation:
     reported_status: str
     reported_outcome: str
     command_count: int
-    read_only_task: bool = True
+    write_disabled_in_task_record: bool = True
+    command_effects_independently_verified: bool = False
     output_disclosed: bool = False
     effect_authorized: bool = False
     automatic_retry_permitted: bool = False
@@ -113,7 +114,7 @@ def _validate_scoped_task(
     binding: str,
     work_branch: str,
 ) -> list[str]:
-    """Require an exact-head guarded, read-only, single-command task."""
+    """Require a guarded task that *declares* no writes, not a shell sandbox."""
     commands = task.get("commands")
     guard = (
         'set -euo pipefail\n'
@@ -150,8 +151,8 @@ def recover_agent_control_result(
     """Reconcile one task/result from one explicitly pinned agent-control commit.
 
     Every identifier is operator-pinned, not learned from browser metadata.
-    Only exact read-only test tasks with a source-HEAD and clean-worktree guard
-    are eligible for this narrow review projection.
+    Only a task that *declares* allow_write=false and carries an exact-head
+    checkout guard is eligible. The command string is not sandboxed here.
     """
     if enabled is not True:
         raise PermissionError("Agent-control recovery is default-disabled")
