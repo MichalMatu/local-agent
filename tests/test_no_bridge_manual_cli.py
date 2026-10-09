@@ -13,6 +13,7 @@ from unittest import mock
 
 from local_agent.conversation import github_fabric_manual_handoff as handoff
 from local_agent.conversation import github_fabric_agent_control_index as history
+from local_agent.conversation import github_fabric_agent_control_public_rest as public_rest
 from local_agent.conversation import github_fabric_github as git
 from local_agent.conversation import github_fabric_manual_new_parent as previewer
 from scripts import no_bridge_manual as cli
@@ -209,6 +210,75 @@ class NoBridgeOperatorCLITests(unittest.TestCase):
             finder.assert_called_once()
             self.assertEqual(finder.call_args.kwargs["token"], "CONFIDENTIAL_TOKEN")
             self.assertTrue(finder.call_args.kwargs["enabled"])
+
+    def test_anonymous_public_status_requires_two_explicit_permissions(self):
+        args = [
+            "status-github", "--task-id-prefix", "local-agent-m8-pr253",
+            "--pinned-control-sha", "b" * 40,
+            "--pinned-source-sha", HEAD,
+            "--agent-binding", BINDING, "--work-branch", BRANCH,
+        ]
+        for variant in (args, [*args, "--anonymous-public-read"]):
+            with self.subTest(variant=variant):
+                code, output, error = invoke(variant)
+                self.assertEqual(code, 2)
+                self.assertEqual(output, "")
+                self.assertIn("refused", error)
+        view = history.AgentControlReadOnlyHistory(
+            control_commit_sha="b" * 40,
+            source_commit_sha=HEAD,
+            expected_work_branch=BRANCH,
+            selected_task_prefix="local-agent-m8-pr253",
+            result_observations=(),
+            unconfirmed_task_ids=("local-agent-m8-pr253-pending",),
+        )
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            public_rest, "PublicAgentControlReadOnlyREST", autospec=True,
+        ) as client, mock.patch.object(
+            history, "discover_agent_control_results", return_value=view,
+        ) as reader:
+            code, output, error = invoke([
+                *args, "--anonymous-public-read", "--allow-readonly-network",
+            ])
+            self.assertEqual(code, 0)
+            self.assertEqual(error, "")
+            self.assertFalse(json.loads(output)["can_retry"])
+            self.assertEqual(json.loads(output)["decision"], "operator_review_only")
+            client.assert_called_once_with()
+            kwargs = reader.call_args.kwargs
+            self.assertIs(kwargs["api"], client.return_value)
+            self.assertIsNone(kwargs["token"])
+            self.assertTrue(kwargs["enabled"])
+
+    def test_explicit_anonymous_public_mode_ignores_present_bearer_token(self):
+        args = [
+            "status-github", "--task-id-prefix", "local-agent-m8-pr253",
+            "--pinned-control-sha", "b" * 40,
+            "--pinned-source-sha", HEAD,
+            "--agent-binding", BINDING, "--work-branch", BRANCH,
+            "--anonymous-public-read", "--allow-readonly-network",
+        ]
+        view = history.AgentControlReadOnlyHistory(
+            control_commit_sha="b" * 40,
+            source_commit_sha=HEAD,
+            expected_work_branch=BRANCH,
+            selected_task_prefix="local-agent-m8-pr253",
+            result_observations=(),
+            unconfirmed_task_ids=(),
+        )
+        with mock.patch.dict(os.environ, {
+            "LOCAL_AGENT_FABRIC_GITHUB_TOKEN": "NEVER_USE_THIS_SECRET"
+        }), mock.patch.object(
+            public_rest, "PublicAgentControlReadOnlyREST", autospec=True,
+        ) as client, mock.patch.object(
+            history, "discover_agent_control_results", return_value=view,
+        ) as reader:
+            code, output, error = invoke(args)
+            self.assertEqual(code, 0)
+            self.assertEqual(error, "")
+            self.assertNotIn("NEVER_USE_THIS_SECRET", output)
+            self.assertIs(reader.call_args.kwargs["api"], client.return_value)
+            self.assertIsNone(reader.call_args.kwargs["token"])
 
     def test_status_github_missing_token_is_denied(self):
         args = [
