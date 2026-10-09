@@ -84,6 +84,8 @@ async function fixture() {
     assert.equal(init.cache, "no-store");
     assert.equal(init.credentials, "omit");
     assert.equal(init.headers.Authorization, "Bearer " + token);
+    assert.ok(init.signal instanceof AbortSignal,
+      "private reader must attach an abortable deadline to every GET");
     if (url === API + "/git/ref/heads/fabric-data") return response(state.ref);
     if (url === API + "/git/commits/" + head) return response(state.commit);
     if (url === API + "/git/trees/" + treeSha + "?recursive=1") return response(state.tree);
@@ -246,6 +248,37 @@ async function run() {
     body: response({}).body
   });
   await assert.rejects(read(redirected), /source response rejected/);
+  // Deliberately replace the timer only inside these deterministic fake
+  // transport tests; neither request may hang or disclose the secret.
+  const nativeSetTimeout = globalThis.setTimeout;
+  try {
+    globalThis.setTimeout = (callback, _delay) => nativeSetTimeout(callback, 0);
+    const stuckHeaders = await fixture();
+    stuckHeaders.fetchImpl = async (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => {
+        reject(new Error("secret " + token));
+      }, { once: true });
+    });
+    await assert.rejects(read(stuckHeaders), error =>
+      !String(error).includes(token) && /network read failed/.test(String(error)));
+
+    const stuckBody = await fixture();
+    stuckBody.fetchImpl = async (_url, init) => ({
+      status: 200, redirected: false, url: "",
+      body: new ReadableStream({
+        start(controller) {
+          init.signal.addEventListener("abort", () => {
+            controller.error(new Error("secret " + token));
+          }, { once: true });
+        }
+      })
+    });
+    await assert.rejects(read(stuckBody), error =>
+      !String(error).includes(token) && /response incomplete/.test(String(error)));
+  } finally {
+    globalThis.setTimeout = nativeSetTimeout;
+  }
+
   const oversized = await fixture();
   oversized.fetchImpl = async () => ({
     status: 200, redirected: false, url: "",
