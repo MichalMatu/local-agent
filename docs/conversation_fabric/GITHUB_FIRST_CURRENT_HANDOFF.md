@@ -15,9 +15,15 @@
 > `2026-10-09T08:16:14Z` (snapshot only). The first audit head
 > `f5c72ce0` passed exact-head Mac task
 > `local-agent-m8-global-admission-audit-mac-20261009-v2` (Bridge Node
-> suite, Node 26.3.0, Python 3.13.9, exit 0). A prior test syntax error
-> in v1 was corrected. The *later* evidence-continuity and browser-effect
-> inventory changes require their **own exact-head** verification.
+> suite, Node 26.3.0, Python 3.13.9, exit 0). Its prior v1 syntax
+> failure was fixed. The later continuity and 14-site effect inventory
+> at `6a29d8e8` passed exact-head Mac task
+> `local-agent-m8-global-admission-continuity-mac-20261009-v2`:
+> focused Node, entire Bridge Node, Python compile and Ruff (exit 0).
+> Earlier continuity task v1 failed on a test fixture and was corrected.
+> One further test-only improvement distinguishes fully consistent local
+> inventory from actual global retirement proof: it still **always blocks**
+> admission. Its new exact head must be verified independently.
 > Independent reviews, cross-device tests and global legacy exclusion remain
 > unverified. Do not activate GitHub-first Send/ACK, modify global Bridge
 > Master, merge these PRs or restart the daemon based on this document.
