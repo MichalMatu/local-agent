@@ -1,5 +1,16 @@
 # GitHub-first Conversation Fabric — current Milestone 8 handoff
 
+> **Continuation (2026-10-09, effect journal draft).** PR #241 now also
+> includes `github_fabric_effect_journal_audit.js` and its Node regressions:
+> a source-only, hash-chained, count/head-pinned, parent/epoch/actor-bound
+> audit of prepared, started, observed ACK and unknown browser effects.
+> No journal content is published or consumed by the live Chrome Bridge.
+> A hash chain is not trusted session retirement proof, and even an apparent
+> ACK remains review-only: all effects and retries stay unauthorized.
+> The new head requires exact-head local verification; previously passing
+> PR #241 tests do not automatically cover it. PRs #209/#214/#239/#240
+> remain drafts, with private Send/ACK off and legacy DOM unchanged.
+>
 > **M8 global admission follow-up (2026-10-09; separate draft branch).**
 > The follow-up source-only audit is on
 > `work/m8-global-admission-audit-20261009`; its design and explicit
