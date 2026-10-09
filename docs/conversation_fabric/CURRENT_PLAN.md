@@ -67,6 +67,7 @@ LOCAL_AGENT_CF>>>
 - Never resend an ambiguously submitted child bootstrap or auto-create substitute tabs. If a child tab has been manually closed, record a bounded failure instead of guessing.
 - After worker restart, adopt only an exact transaction/request/bootstrap/current-child-URL claim; tab ID alone is insufficient.
 - Terminal feedback uses durable at-most-once delivery. An ambiguous send is not replayed automatically, and a newer campaign must not inherit the previous one's results/receipt.
+- A previously claimed but unconfirmed terminal feedback send remains **ambiguous**, even when the internal compatibility marker `feedback_delivered=true` suppresses replay. Operator/popup status must show `feedbackState=assumed`; scoped `inspect` must report `feedback_state=assumed` and a manual-reconciliation warning. Do not interpret the no-replay marker as proof that the parent received the message.
 - Diagnostic `control_rejected`, `control_worker_rejected`, `control_accepted` and `control_transport_failed` events are **observability**, not delegation/result proof. See [diagnostics](DELEGATION_DIAGNOSTICS.md).
 
 ## Remaining live acceptance
