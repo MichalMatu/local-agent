@@ -86,10 +86,14 @@
         typeof value.parent_conversation_url !== "string" ||
         value.id !== await parentId(value.parent_conversation_url) ||
         value.project_id !== "local-agent" ||
-        !REQUEST_RE.test(String(value.workflow_id || "")) ||
-        !REQUEST_RE.test(String(value.operator_request_id || "")) ||
-        !DIGEST_RE.test(String(value.operator_request_digest || "")) ||
-        !DISPATCH_RE.test(String(value.dispatch_id || "")) ||
+        typeof value.workflow_id !== "string" ||
+        !REQUEST_RE.test(value.workflow_id) ||
+        typeof value.operator_request_id !== "string" ||
+        !REQUEST_RE.test(value.operator_request_id) ||
+        typeof value.operator_request_digest !== "string" ||
+        !DIGEST_RE.test(value.operator_request_digest) ||
+        typeof value.dispatch_id !== "string" ||
+        !DISPATCH_RE.test(value.dispatch_id) ||
         !["github_first", "legacy_dom"].includes(value.transport_mode) ||
         value.fence_epoch !== 1 ||
         value.phase !== "unattested_no_browser_authority" ||
