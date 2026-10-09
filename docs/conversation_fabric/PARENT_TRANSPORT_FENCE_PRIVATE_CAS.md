@@ -11,6 +11,11 @@ method-specific allowlists: GET only for fixed, commit-pinned synthetic
 project/parent paths and exact Git commit/tree SHAs, POST only for immutable Git
 object creation and PATCH only for the fixed non-force branch ref update.
 Arbitrary project contents and non-SHA refs are rejected before network access.
+At the REST boundary, PATCH on the private branch requires exactly a valid
+commit SHA and literal force=false; malformed, forced, or extended bodies
+are denied before network access. GET with a body and Git object POST without
+an object payload are also denied. Unit tests exercise allowed and rejected
+calls without real GitHub network traffic.
 No Chrome content script receives
 a token; there is no production flag, UI Send hook, daemon task, or real ACK.
 
