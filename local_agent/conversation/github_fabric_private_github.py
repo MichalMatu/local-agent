@@ -66,6 +66,15 @@ class PrivateFabricREST(git.GitHubFabricREST):
         }) or (method == "PATCH" and path == REF_UPDATE_PATH)
         if not allowed:
             raise ValueError("Private Fabric GitHub method/path outside allowed namespace")
+        if method == "GET" and body is not None:
+            raise ValueError("Private Fabric GitHub GET must not have a request body")
+        if method == "PATCH":
+            if (not isinstance(body, dict) or set(body) != {"sha", "force"}
+                    or body["force"] is not False):
+                raise ValueError("Private Fabric GitHub ref update must be non-force")
+            git._require_sha(body["sha"], label="private ref update")
+        if method == "POST" and not isinstance(body, dict):
+            raise ValueError("Private Fabric GitHub Git object write requires a body")
         payload = None if body is None else json.dumps(
             body, ensure_ascii=False, sort_keys=True, allow_nan=False
         ).encode("utf-8")
