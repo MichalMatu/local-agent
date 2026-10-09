@@ -4,7 +4,23 @@
 All source SHAs and PR states below are **observations at handoff**, not locks;
 re-read GitHub before code edits, task publication or merge.
 
-## Latest current checkpoint — 2026-10-09
+## Final session handoff — use this first (2026-10-09)
+
+**Fresh source of truth for the new window:**
+[`GITHUB_FIRST_FINAL_SESSION_HANDOFF_20261009.md`](GITHUB_FIRST_FINAL_SESSION_HANDOFF_20261009.md).
+This entry supersedes every commit hash, status and missing-test statement
+in the dated sections below. All three development PRs **#209, #214 and
+#239 are OPEN / DRAFT**, with exact-head Mac terminal evidence and zero
+independent GitHub reviews at handoff. In particular, full Mac tests on
+#214 latest SHA `d834a8473b82054dd84e63b806a2da7ff2b18e86` passed
+991 tests and 83.4% coverage. PR #239's latest Chromium/MV3 and Node
+browser suites passed at `7ffddf1e66d418c8ce8eccaa0ef744a6bad5da16`.
+Mac daemon is idle. This handoff is docs-only and **must not trigger any
+new tasks, workflow runs, Codex work or daemon restarts** in the closing
+conversation. The new chat should explicitly read the docs-only handoff
+branch `work/m8-handoff-final-20261009` before resuming.
+
+## Historical checkpoint before final session handoff — 2026-10-09
 
 This checkpoint supersedes the historical SHA snapshots and old mandatory
 six-job hosted-CI wording below. GitHub Actions are disabled for automatic
