@@ -241,6 +241,7 @@ def recover_agent_control_result(
             and item["stage_index"] == index
             and type(item.get("stage_total")) is int
             and item["stage_total"] == len(commands)
+            and item.get("stage_name") == f"command-{index}"
             for index, item in enumerate(result["stages"], 1)
         )
         and all(
@@ -251,7 +252,13 @@ def recover_agent_control_result(
             and entry.get("idle_timed_out") is False
             and entry.get("memory_limited") is False
             and entry.get("background_process_leak") is False
-            for entry in result["commands"]
+            and entry.get("stage_phase") == "commands"
+            and type(entry.get("stage_index")) is int
+            and entry["stage_index"] == index
+            and type(entry.get("stage_total")) is int
+            and entry["stage_total"] == len(commands)
+            and entry.get("stage_name") == f"command-{index}"
+            for index, entry in enumerate(result["commands"], 1)
         )
     )
     log_complete = all(
