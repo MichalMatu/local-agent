@@ -126,6 +126,25 @@
       throw new Error("Effect journal anchored head digest mismatch");
     }
 
+    // A second effect ID with the same canonical request digest and kind
+    // may be a replay from another device. It is evidence to investigate,
+    // never a basis for inferring the first attempt failed.
+    const logicalRequests = new Map();
+    const conflicts = [];
+    for (const state of states.values()) {
+      const requestKey = state.kind + ":" + state.request_digest;
+      const earlier = logicalRequests.get(requestKey);
+      if (earlier) {
+        conflicts.push(Object.freeze({
+          kind: "duplicate_logical_request_effect",
+          first_effect_id: earlier,
+          second_effect_id: state.effect_id
+        }));
+      } else {
+        logicalRequests.set(requestKey, state.effect_id);
+      }
+    }
+
     const effects = Object.freeze(Array.from(states.values(), state => Object.freeze({
       effect_id: state.effect_id,
       phase: state.phase,
@@ -143,6 +162,7 @@
       decision: "blocked",
       browser_effects_permitted: false,
       automatic_retry_permitted: false,
+      conflicts: Object.freeze(conflicts),
       effects
     });
   }
