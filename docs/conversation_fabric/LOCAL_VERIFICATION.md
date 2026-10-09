@@ -38,7 +38,12 @@ The full profile includes macOS smoke, Host Ops architecture/design,
 Host Ops coverage and core branch coverage. Include the optional
 `--include-browser` or `--include-python314` only when their actual
 runtime prerequisites are available; unexecuted optional stages are
-**unverified**, not PASS. The `--sanitize-test-lease-markers` option
+**unverified**, not PASS. For an isolated temporary Node installation,
+set `LOCAL_AGENT_PLAYWRIGHT_MODULE` to the exact absolute Playwright package
+path (such as `/tmp/test-node/node_modules/playwright`): the preflight and
+browser harness both resolve that same module. The Chromium executable still
+must be available to Playwright; a package import passing is not a browser
+installation test. The `--sanitize-test-lease-markers` option
 exists only for isolated testing of subprocess fixtures under an
 already-authorized worker: it does not modify the daemon environment
 and must not be used to launch production tasks. Test output is captured
