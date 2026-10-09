@@ -19,9 +19,14 @@ Additional fail-closed review checks:
   from the independently pinned commit's tree; relevant Contents blobs
   must also match the corresponding tree entry SHA.
 
+The history reader now also fetches every scoped task without a result at
+the pinned commit and verifies its exact binding, branch, source-head guard
+and read-only scope before listing it as unconfirmed. A missing result from
+an unrelated branch can no longer masquerade as relevant pending work.
+
 Additional negative tests cover unknown/private-looking status text,
-untrusted second commands, failed extra verification data and substituted
-Git tree identities. These checks do not produce a cryptographic
+untrusted second commands, failed extra verification data, substituted
+Git tree identities, and cross-branch or unguarded pending task records. These checks do not produce a cryptographic
 attestation of Mac command execution; source provenance remains an
 operator and GitHub responsibility.
 
