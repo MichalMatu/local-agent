@@ -26,6 +26,19 @@
   function validEpoch(epoch) {
     return Number.isSafeInteger(epoch) && epoch > 0;
   }
+  function validAnchor(anchor) {
+    return exactKeys(anchor, [
+      "schema_version", "parent_id", "fence_epoch",
+      "source_commit_sha", "event_count", "head_digest"
+    ]) && anchor.schema_version === 1 &&
+      typeof anchor.parent_id === "string" && PARENT_RE.test(anchor.parent_id) &&
+      validEpoch(anchor.fence_epoch) &&
+      typeof anchor.source_commit_sha === "string" && /^[0-9a-f]{40}$/.test(anchor.source_commit_sha) &&
+      Number.isSafeInteger(anchor.event_count) &&
+      anchor.event_count >= 0 && anchor.event_count <= MAX_EVENTS &&
+      typeof anchor.head_digest === "string" && SHA256_RE.test(anchor.head_digest);
+  }
+
 
   function validEvent(event) {
     return exactKeys(event, [
@@ -68,7 +81,13 @@
         (phase === "ack_observed" || phase === "effect_unknown"));
   }
 
-  async function inspectEffectJournal(journal) {
+  async function inspectEffectJournal(journal, trustedAnchor) {
+    // The caller MUST obtain this anchor independently at a pinned, trusted
+    // GitHub source commit. We only verify consistency, NOT its provenance.
+    if (!validAnchor(trustedAnchor)) {
+      throw new Error("Effect journal trusted anchor invalid or missing");
+    }
+
     if (!exactKeys(journal, ["schema_version", "parent_id", "fence_epoch", "expected_event_count", "expected_head_digest", "events"]) ||
         journal.schema_version !== 1 || typeof journal.parent_id !== "string" ||
         !PARENT_RE.test(journal.parent_id) || !validEpoch(journal.fence_epoch) ||
@@ -79,6 +98,12 @@
         !Array.isArray(journal.events) ||
         journal.events.length !== journal.expected_event_count) {
       throw new Error("Effect journal envelope invalid");
+    }
+    if (trustedAnchor.parent_id !== journal.parent_id ||
+        trustedAnchor.fence_epoch !== journal.fence_epoch ||
+        trustedAnchor.event_count !== journal.expected_event_count ||
+        trustedAnchor.head_digest !== journal.expected_head_digest) {
+      throw new Error("Effect journal conflicts with separately pinned source anchor");
     }
     const states = new Map();
     let previousDigest = GENESIS;
