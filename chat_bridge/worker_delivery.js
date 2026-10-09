@@ -129,6 +129,7 @@ async function runFeedbackCycle({ conversationId: chatId, manual = false, prompt
 
 async function conversationFabricTerminalFeedbackAlreadySubmitted(tabId, expectedUrl, prompt) {
   try {
+    await requireLegacyConversationSpawnEffectAllowed();
     const executions = await chrome.scripting.executeScript({
       target: { tabId, frameIds: [0] },
       args: [String(expectedUrl || ""), String(prompt || "")],
@@ -326,6 +327,7 @@ async function deliverConversation(chatId, manual, { promptOverride = "" } = {})
   } else {
     activeDeliveries.set(chatId, active);
     try {
+      await requireLegacyConversationSpawnEffectAllowed();
       response = await Promise.race([
         chrome.tabs.sendMessage(tab.id, {
           type: "bridge:feedback",
