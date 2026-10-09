@@ -26,6 +26,9 @@ function example() {
       pinned_head: SHA_B, observed_head: SHA_B,
       workers: [{ id: "mac", state: "retirement_claimed", retirement_receipt: SHA_B }],
       effects: [{
+        id: "send_1", worker_id: "mac", epoch: 1, kind: "prompt_send",
+        state: "confirmed_terminal", terminal_receipt: SHA_A
+      }, {
         id: "feedback_1", worker_id: "mac", epoch: 1, kind: "terminal_feedback",
         state: "confirmed_terminal", terminal_receipt: SHA_B
       }]
