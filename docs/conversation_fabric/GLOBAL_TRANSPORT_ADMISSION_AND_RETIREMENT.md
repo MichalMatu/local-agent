@@ -158,6 +158,52 @@ replay: request digests must actually bind stable logical request identity.
 Both still receive no permission to replay. The reader and tests are not
 imported by production Chrome code.
 
+## Migration decision: in-place takeover vs. isolated new parent
+
+**In-place takeover of the existing parent URL is blocked.** An older
+uncooperative Chrome extension can still drive that DOM, including after
+returning from offline, regardless of a GitHub CAS, local storage marker,
+journal receipt or lease expiry. Merely uninstalling/reloading the extension
+on the Mac does not revoke an unknown other browser. We have no remote
+effect-time enforcement primitive that can authorize same-parent takeover.
+
+A potential **separate-parent manual continuity** workflow is not a takeover:
+
+1. Keep the old parent identity and all uncertain child effects intact.
+   Existing legacy Chrome delegation continues on its existing parent.
+   Never silently mark ambiguous results as successfully delivered.
+2. The operator explicitly creates an unrelated new ChatGPT parent session,
+   with a fresh canonical URL and separate parent identifier. It only
+   **reads** authorized durable workflow data from GitHub and surfaces the
+   last confirmed checkpoint plus unresolved effects. No old campaign
+   mutation, automatic child creation or browser Send is implied.
+3. Before considering any automated effect on that new parent, independently
+   demonstrate that **no legacy worker can target it**, including
+   automatic onboarding, another browser, rejoined offline installations
+   and stale content scripts. If this cannot be proven, the new parent stays
+   read-only/manual. A new URL alone is NOT an exclusion guarantee.
+4. Keep the legacy parent active until deliberate human retirement is
+   operationally safe; retiring the old parent requires explicit operator
+   inventory of affected browsers and a verified, persistent effect-enforcing
+   revocation boundary. Neither an installation list nor browser ACK alone
+   suffices for a same-parent cutover.
+5. Do not auto-migrate, merge, replay or alias historical effect IDs or
+   terminal feedback between parent identities. Rollback is an explicit
+   user choice with separate effect reconciliation, not deleting a local
+   marker or decrementing the epoch.
+
+**Possible future enforcers to evaluate** include an externally enforced
+browser extension disablement policy that remains effective for offline
+and rejoining clients, or a product-controlled effect gateway through
+which all possible browser drivers must pass. Each requires proving that
+old builds cannot bypass enforcement. Standard Chrome DOM actions do not
+pass through the GitHub/local-agent control plane, so neither option is
+implemented today. The default decision is **deny**.
+
+This distinction lets us continue safe GitHub-first *read-only project
+rehydration* and manual handoff without pretending that GitHub-first
+**browser Send/ACK** or cross-device automatic delegation is production ready.
+
 ## Required proof before private GitHub-first live execution
 
 1. Independently audit #209's identity/epoch preview and #214's authenticated
