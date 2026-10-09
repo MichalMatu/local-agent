@@ -96,9 +96,9 @@ class NoBridgeTaskPlannerTests(unittest.TestCase):
 
     def test_no_ambient_authentication_in_plan(self):
         planned = self.plan()
-        assert "https://" not in planned.task_json
-        assert "Authorization" not in planned.task_json
-        assert "token" not in planned.task_json.lower()
+        self.assertNotIn("https://", planned.task_json)
+        self.assertNotIn("Authorization", planned.task_json)
+        self.assertNotIn("token", planned.task_json.lower())
         task = json.loads(planned.task_json)
         self.assertEqual(len(task["commands"]), 1)
         self.assertTrue(task["commands"][0].startswith(
