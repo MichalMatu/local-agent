@@ -7,6 +7,7 @@ implicit token acquisition, or GitHub read/write credential in Chrome.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -38,10 +39,18 @@ class PrivateFabricREST(git.GitHubFabricREST):
         if (method not in {"GET", "POST", "PATCH"} or not path.startswith("/")
                 or ".." in path or "//" in path or "\\" in path):
             raise ValueError("Private Fabric GitHub method/path invalid")
+        parent_read = method == "GET" and re.fullmatch(
+            r"/contents/parents/(?:index|parent-[0-9a-f]{32})\.json\?ref=[0-9a-f]{40}",
+            path,
+        )
+        parent_tree_read = method == "GET" and re.fullmatch(
+            r"/git/trees/[0-9a-f]{40}\?recursive=1", path
+        )
         if not (
             path in {REF_PATH, REF_UPDATE_PATH, "/git/blobs", "/git/trees", "/git/commits"}
             or path.startswith("/git/commits/")
             or path.startswith("/contents/projects/")
+            or parent_read or parent_tree_read
         ):
             raise ValueError("Private Fabric GitHub path outside allowed namespace")
         payload = None if body is None else json.dumps(
