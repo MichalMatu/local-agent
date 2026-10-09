@@ -73,7 +73,7 @@ function run() {
   assert.match(delivery, /delivery_claim_recovered_after_restart/);
   assert.match(delivery, /conversationFabricAssumeClaimDelivered/);
   const spawn = fs.readFileSync(path.join(ROOT, "worker_spawn.js"), "utf8");
-  assert.match(spawn, /spawn_submission_ambiguous/);
+  assert.match(spawn, /async function submitConversationSpawnBootstrap/);
   const worker = fs.readFileSync(path.join(ROOT, "service_worker.js"), "utf8");
   const manifest = fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8");
   assert.doesNotMatch(worker + manifest, /github_fabric_global_admission_audit/);
