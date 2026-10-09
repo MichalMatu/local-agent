@@ -34,6 +34,7 @@ class NoBridgeVerificationTaskPlan:
     browser_effects_permitted: bool = False
     automatic_retry_permitted: bool = False
     binding_recheck_required: bool = True
+    isolated_test_dependencies_planned: bool = False
 
 
 def plan_no_bridge_source_test(
@@ -44,6 +45,7 @@ def plan_no_bridge_source_test(
     independently_verified_agent_binding: str,
     profile: str = "core",
     operator_review_acknowledged: bool = False,
+    isolated_test_dependencies_approved: bool = False,
 ) -> NoBridgeVerificationTaskPlan:
     """Plan one exact-head local-agent Mac verification task with no side effect."""
     if operator_review_acknowledged is not True:
@@ -68,10 +70,13 @@ def plan_no_bridge_source_test(
         raise ValueError("No-Bridge task binding invalid")
     if profile not in ("core", "full"):
         raise ValueError("No-Bridge task verification profile unsupported")
+    if type(isolated_test_dependencies_approved) is not bool:
+        raise ValueError("No-Bridge isolated dependency approval must be a boolean")
 
     material = json.dumps(
         ["no-bridge-local-agent-source-test-v1", task_job_id, work_branch,
-         exact_source_sha, profile, independently_verified_agent_binding],
+         exact_source_sha, profile, independently_verified_agent_binding,
+         isolated_test_dependencies_approved],
         sort_keys=True, separators=(",", ":"),
     ).encode("utf-8")
     suffix = hashlib.sha256(material).hexdigest()[:16]
@@ -80,9 +85,27 @@ def plan_no_bridge_source_test(
         'set -euo pipefail\n'
         f'test "$(git rev-parse HEAD)" = "{exact_source_sha}" || exit 3\n'
         'test -z "$(git status --porcelain)" || exit 4\n'
-        'python3.13 scripts/verify_local.py '
-        f'--expected-sha "{exact_source_sha}" --profile {profile}\n'
     )
+    if isolated_test_dependencies_approved:
+        command += (
+            'tmp="$(mktemp -d "${TMPDIR:-/tmp}/m8-no-bridge-verify.XXXXXXXX")"\n'
+            'trap \'rm -rf -- "$tmp"\' EXIT\n'
+            'python3.13 -m venv "$tmp/venv"\n'
+            '"$tmp/venv/bin/python" -m pip install --disable-pip-version-check '
+            '--no-input --retries 1 --timeout 20 '
+            "'mcp==2.2.0' 'ruff==0.12.11' 'pytest==9.1.1' "
+            "'hypothesis==6.168.3' 'pytest-cov==7.1.0' "
+            "'coverage==7.16.0'\n"
+            'export PATH="$tmp/venv/bin:$PATH" COVERAGE_FILE="$tmp/.coverage"\n'
+            'python scripts/verify_local.py '
+            f'--expected-sha "{exact_source_sha}" --profile {profile} '
+            '--sanitize-test-lease-markers\n'
+        )
+    else:
+        command += (
+            'python3.13 scripts/verify_local.py '
+            f'--expected-sha "{exact_source_sha}" --profile {profile}\n'
+        )
     task = {
         "id": task_id,
         "dedupe_key": f"local-agent/m8/nobridge-source-test/{suffix}",
@@ -107,4 +130,5 @@ def plan_no_bridge_source_test(
         profile=profile,
         task_json=json.dumps(task, sort_keys=True, ensure_ascii=False, indent=2) + "\n",
         task_digest=task_digest,
+        isolated_test_dependencies_planned=isolated_test_dependencies_approved,
     )
