@@ -4,6 +4,55 @@
 All source SHAs and PR states below are **observations at handoff**, not locks;
 re-read GitHub before code edits, task publication or merge.
 
+## Integrated Milestone 8 parent-fence checkpoint — 2026-10-09 (post-#230)
+
+This is an **in-progress source checkpoint**, not a production activation
+authorization. Before any merge, re-read GitHub refs and the exact-head jobs.
+
+- **Main**: docs handoff PR #229 was merged as `ad46dae584c5d15d1871ae4d415156af5452f3c6`.
+  Browser-smoke diagnostic PR #230 was subsequently merged as
+  `673da0b2064f19357038cff598bcae5a8d513d19`, after six exact-head green CI jobs and read-only Mac
+  syntax/lint. PR #230 touches only the isolated Chromium read-only smoke
+  test: bounded browser operations, a stage-specific timeout diagnostic
+  and a 180-second last-resort watchdog. No production Bridge change.
+- **Draft #209**, `85c68b0ca62a5bc8acef6b84a66f4d3c2eb0e552`:
+  rebased semantically onto this current main via an exact-head,
+  non-force two-parent Git merge. PR diff remains exactly the parent-preview
+  module, tests and its documentation (three files).
+  Since the original head, malformed/unhashable transport types now fail
+  deterministically, synthetic child input iteration is bounded to the
+  two-child fixture, and extra validation tests cover parent-index capacity.
+- **Stacked draft #214**, `dbb0887c04b4c175e0618cd508e594eabd0c2304`:
+  likewise updated by non-force, expected-head merge on top of #209.
+  PR diff remains five private-CAS source/test/doc files. Pinned parent
+  origin reads now verify tree blob SHA, decoded Git blob SHA-1, exact
+  Contents metadata path, missing advertised blob, and method-specific
+  private REST endpoint allowlists. Negative tests cover these boundaries.
+- Parent-fence source remains **fixed-public-synthetic only**, disabled
+  by default, unattested and **without browser Send/ACK authority**.
+  No real private `parents/` write, private credential delegation,
+  Chrome Send, Bridge Master change or daemon restart was authorized.
+- **Evidence boundary**: the immediately preceding #209/#214 heads had
+  passed all six CI jobs and focused Mac suites. The latest post-main
+  restack exact heads above require **fresh six-job CI completion**.
+  A read-only integrated Mac Python/JS test task
+  `local-agent-m8-parent-fence-integrated-main-20261009-v1` was queued
+  on the canonical `local-agent` binding, with no terminal result yet
+  at this checkpoint. Never promote the older results to the newer SHAs.
+- **No independent security or integration review submission** is
+  available on #209/#214; no delegated feedback may be invented. Both
+  PRs remain draft and unmerged until that independent gate and exact
+  current-head checks are satisfied. The legacy DOM worker and future
+  GitHub-first browser path still lack one enforced parent-mode/epoch
+  admission protocol. CI cannot substitute for live old/offline worker
+  quiescence, real ACK, durable terminal evidence or fenced retirement.
+- **Next sequence:** verify the exact latest heads and all Mac/CI
+  results; obtain the absent independent reviews without blind duplicate
+  delegation; only then consider merging source-only drafts in order.
+  A separately reviewed, default-disabled shared-admission seam is the
+  subsequent stage. Keep the frozen donor `host-ops` out of execution,
+  despite the previously observed stale Bridge runtime catalog entry.
+
 ## Latest continuation recheck — 2026-10-09, after PR #226
 
 This section records a **read-only audit**, not live browser/Mac acceptance and
