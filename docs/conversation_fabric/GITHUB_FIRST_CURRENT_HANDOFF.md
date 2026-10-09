@@ -7,9 +7,14 @@
 > No journal content is published or consumed by the live Chrome Bridge.
 > A hash chain is not trusted session retirement proof, and even an apparent
 > ACK remains review-only: all effects and retries stay unauthorized.
-> The new head requires exact-head local verification; previously passing
-> PR #241 tests do not automatically cover it. PRs #209/#214/#239/#240
-> remain drafts, with private Send/ACK off and legacy DOM unchanged.
+> Initial journal head `50b8b96750d1a5fff06ef77a81be5f55e4f21809`
+> passed canonical Mac task `local-agent-m8-effect-journal-audit-mac-20261009-v1`:
+> complete Bridge Node, focused journal/deny/inventory tests, Python compile,
+> Ruff, exit 0 (Node 26.3.0, Python 3.13.9). A subsequent tiny change flags
+> duplicate logical request effects from two drivers for operator review;
+> the resulting new exact head needs its own verification. Prior PASS is not
+> transferable to that head. PRs #209/#214/#239/#240 remain drafts,
+> with private Send/ACK off and legacy DOM unchanged.
 >
 > **M8 global admission follow-up (2026-10-09; separate draft branch).**
 > The follow-up source-only audit is on
