@@ -369,6 +369,7 @@ async function createConversationSpawnTab(intent) {
   const recovered = await recoverConversationSpawnTab(intent);
   if (recovered) return recovered;
 
+  await requireLegacyConversationSpawnEffectAllowed();
   const tab = await chrome.tabs.create({
     url: conversationSpawnMarkerUrl(intent.transaction_id),
     active: false
@@ -397,6 +398,7 @@ async function reattachConversationSpawnTab(intent) {
   const recovered = await recoverConversationSpawnTab(intent);
   if (recovered) return recovered;
 
+  await requireLegacyConversationSpawnEffectAllowed();
   const tab = await chrome.tabs.create({
     url: conversationSpawnMarkerUrl(intent.transaction_id),
     active: false
@@ -421,9 +423,13 @@ async function sendConversationSpawnContentMessage(intent, type) {
 
   const route = await validateConversationSpawnTabRoute(intent, tab);
   if (!route.ok) return route;
+  // Content readiness can inject code into a tab; gate it before probing.
+  await requireLegacyConversationSpawnEffectAllowed();
   const ready = await ensureConversationSpawnContent(tab.id);
   if (!ready?.ok) return ready;
   try {
+    // Recheck the local suspension latch immediately before the tab message.
+    await requireLegacyConversationSpawnEffectAllowed();
     const response = await chrome.tabs.sendMessage(tab.id, {
       type,
       protocolVersion: CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION,
@@ -461,9 +467,13 @@ async function inspectConversationSpawnContentState(intent) {
   if (!await conversationSpawnTabClaimMatches(intent.transaction_id, tab.id)) {
     return { ok: false, reason: "spawn_tab_claim_mismatch" };
   }
+  // Content readiness can inject code into a tab; gate it before probing.
+  await requireLegacyConversationSpawnEffectAllowed();
   const ready = await ensureConversationSpawnContent(tab.id);
   if (!ready?.ok) return ready;
   try {
+    // Recheck the local suspension latch immediately before the tab message.
+    await requireLegacyConversationSpawnEffectAllowed();
     const response = await chrome.tabs.sendMessage(tab.id, {
       type: "bridge:spawn-diagnostic",
       protocolVersion: CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION,
