@@ -15,6 +15,9 @@ from local_agent.conversation import contract
 _SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 _ID_RE = re.compile(r"[A-Za-z0-9._-]{1,200}\Z")
 _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_SPAWN_RE = re.compile(r"spawn-[0-9a-f]{64}\Z")
+_CLAIM_RE = re.compile(r"claim-[0-9a-f]{32}\Z")
+_DISPATCH_RE = re.compile(r"fabric-[0-9a-f]{32}\Z")
 _PRIVATE = "private_synthetic_dispatch_unattested"
 _PUBLIC = "public_synthetic_observation_only"
 _BASE = frozenset({
@@ -100,7 +103,12 @@ def preview_manual_new_parent(
     destination = _canonical_url(destination_parent_conversation_url)
     if source == destination:
         raise ValueError("Manual rehydration must use a different parent conversation")
-    if not _id(observation["workflow_id"]) or not _id(observation["operator_request_id"]) or not _id(observation["dispatch_id"]):
+    if (
+        not _id(observation["workflow_id"])
+        or not _id(observation["operator_request_id"])
+        or not isinstance(observation["dispatch_id"], str)
+        or _DISPATCH_RE.fullmatch(observation["dispatch_id"]) is None
+    ):
         raise ValueError("Manual new-parent workflow identities invalid")
 
     children = observation["children"]
@@ -108,6 +116,9 @@ def preview_manual_new_parent(
     if not isinstance(children, (list, tuple)) or len(children) != 2:
         raise ValueError("Manual new-parent synthetic child count invalid")
     ids: list[str] = []
+    transaction_ids: set[str] = set()
+    claim_ids: set[str] = set()
+    node_ids: set[str] = set()
     for child in children:
         if not isinstance(child, dict) or set(child) != child_fields:
             raise ValueError("Manual new-parent child identity shape invalid")
@@ -117,6 +128,20 @@ def preview_manual_new_parent(
             state_field, "child_request_digest", "bootstrap_digest"
         }):
             raise ValueError("Manual new-parent child identifiers invalid")
+        transaction = child["spawn_transaction_id"]
+        if not isinstance(transaction, str) or _SPAWN_RE.fullmatch(transaction) is None:
+            raise ValueError("Manual new-parent spawn transaction identity invalid")
+        if transaction in transaction_ids:
+            raise ValueError("Manual new-parent duplicate spawn transaction")
+        transaction_ids.add(transaction)
+        if kind == _PUBLIC:
+            claim = child["claim_id"]
+            if not isinstance(claim, str) or _CLAIM_RE.fullmatch(claim) is None:
+                raise ValueError("Manual new-parent semantic claim identity invalid")
+            if claim in claim_ids or child["workflow_node_id"] in node_ids:
+                raise ValueError("Manual new-parent duplicate semantic claim or node identity")
+            claim_ids.add(claim)
+            node_ids.add(child["workflow_node_id"])
         if kind == _PRIVATE and any(
             not isinstance(child[field], str) or _DIGEST_RE.fullmatch(child[field]) is None
             for field in ("child_request_digest", "bootstrap_digest")
