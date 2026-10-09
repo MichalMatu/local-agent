@@ -27,6 +27,7 @@ class ParentFenceAPI(PrivateGitDataAPI):
         self.bad_tree = False
         self.bad_tree_blob_sha = False
         self.alter_contents_bytes = False
+        self.bad_contents_path = False
 
     def request(self, method, path, body=None):
         if method == "GET" and path.startswith("/git/trees/"):
@@ -50,6 +51,10 @@ class ParentFenceAPI(PrivateGitDataAPI):
             response = super().request(method, path, body)
             raw = base64.b64decode(response["content"], validate=True)
             response["sha"] = _blob_sha(raw)
+            response["path"] = (
+                "parents/other.json" if self.bad_contents_path else
+                path[len("/contents/"):].partition("?ref=")[0]
+            )
             if self.alter_contents_bytes:
                 changed = raw + b" "
                 response["content"] = base64.b64encode(changed).decode("ascii")
@@ -237,6 +242,25 @@ class PrivateParentFenceWriterTests(unittest.TestCase):
         before = len(self.api.commits)
         self.api.bad_tree_blob_sha = True
         with self.assertRaisesRegex(ValueError, "pinned blob metadata SHA mismatch"):
+            self.publish()
+        self.assertEqual(len(self.api.commits), before)
+        self.assertEqual(self.api.ref_successes, 1)
+
+    def test_contents_path_mismatch_fails_before_any_write(self):
+        self.publish()
+        before = len(self.api.commits)
+        self.api.bad_contents_path = True
+        with self.assertRaisesRegex(ValueError, "pinned Contents path mismatch"):
+            self.publish()
+        self.assertEqual(len(self.api.commits), before)
+        self.assertEqual(self.api.ref_successes, 1)
+
+    def test_tree_advertised_blob_missing_from_contents_fails_closed(self):
+        self.publish()
+        before = len(self.api.commits)
+        # The pinned tree still advertises the record; Contents now responds 404.
+        self.api.snapshots[self.api.head].pop(self.path)
+        with self.assertRaisesRegex(ValueError, "pinned blob is missing"):
             self.publish()
         self.assertEqual(len(self.api.commits), before)
         self.assertEqual(self.api.ref_successes, 1)
