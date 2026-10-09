@@ -75,8 +75,23 @@ class PublicAgentControlReadOnlyREST:
             ) from None
         if len(raw) > _MAX_RESPONSE_BYTES:
             raise ValueError("Public GitHub evidence response is oversized")
+        def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            value: dict[str, Any] = {}
+            for key, item in pairs:
+                if key in value:
+                    raise ValueError("Public GitHub evidence contains duplicate JSON keys")
+                value[key] = item
+            return value
+
+        def _reject_constant(_constant: str) -> Any:
+            raise ValueError("Public GitHub evidence contains non-finite JSON")
+
         try:
-            decoded = json.loads(raw.decode("utf-8"))
+            decoded = json.loads(
+                raw.decode("utf-8"),
+                object_pairs_hook=_unique_keys,
+                parse_constant=_reject_constant,
+            )
         except (UnicodeDecodeError, json.JSONDecodeError):
             raise ValueError("Public GitHub evidence JSON malformed") from None
         if type(decoded) is not dict:
