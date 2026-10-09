@@ -1,13 +1,10 @@
 name: local-agent CI
 
+# GitHub Actions minutes are exhausted. Keep this recipe for an explicit
+# operator-initiated future run only; push and PRs never trigger it.
+# Current source acceptance happens via exact-head Mac / sandbox verification.
 on:
-  push:
-    branches:
-      - main
-      - 'develop/conversation-fabric'
-      - 'v*-staging'
-      - 'work/**'
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
