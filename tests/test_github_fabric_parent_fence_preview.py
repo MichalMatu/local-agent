@@ -64,6 +64,25 @@ class ParentTransportFencePreviewTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "record invalid"):
             preview.validate_record(record)
 
+    def test_malformed_transport_input_denied_before_building_dispatch(self):
+        # An unhashable caller value must be a deterministic validation error,
+        # never an uncaught container TypeError at the trusted writer boundary.
+        for invalid in (None, 0, ["github_first"], {"mode": "legacy_dom"}):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(
+                ValueError, "Parent transport mode invalid"
+            ):
+                preview.build_preview(self.operator, self.children, transport_mode=invalid)
+
+    def test_parent_index_capacity_is_a_hard_bound(self):
+        identifiers = [f"parent-{i:032x}" for i in range(preview.MAX_PARENTS)]
+        valid = {"schema_version": 1, "parent_ids": identifiers}
+        self.assertEqual(preview.validate_index(valid), valid)
+        with self.assertRaisesRegex(ValueError, "index invalid"):
+            preview.validate_index({
+                "schema_version": 1,
+                "parent_ids": [*identifiers, f"parent-{preview.MAX_PARENTS:032x}"],
+            })
+
     def test_opt_in_required_and_trusted_exact_fixture_only(self):
         with self.assertRaises(PermissionError):
             self.plan(enabled=False)
