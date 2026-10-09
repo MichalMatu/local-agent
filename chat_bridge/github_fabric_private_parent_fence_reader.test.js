@@ -194,6 +194,12 @@ async function run() {
   const parentRootWrongType = await fixture();
   parentRootWrongType.state.tree.tree[0].type = "blob";
   await assert.rejects(read(parentRootWrongType), /root invalid or duplicated/);
+  const arrayRootSha = await fixture();
+  arrayRootSha.state.tree.tree[0].sha = ["f".repeat(40)];
+  await assert.rejects(read(arrayRootSha), /root invalid or duplicated/);
+  const arrayRecordSha = await fixture();
+  arrayRecordSha.state.tree.tree[2].sha = [arrayRecordSha.state.tree.tree[2].sha];
+  await assert.rejects(read(arrayRecordSha), /unexpected or duplicate/);
   const truncated = await fixture();
   truncated.state.tree.truncated = true;
   await assert.rejects(read(truncated), /origin tree incomplete/);
