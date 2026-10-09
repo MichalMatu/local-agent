@@ -76,8 +76,23 @@ def _blob_json(api: _GetOnly, path: str, head: str, max_bytes: int) -> dict[str,
     ).hexdigest()
     if expected_blob_sha != response["sha"]:
         raise ValueError("Agent-control Git blob identity mismatch")
+    def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("Agent-control JSON contains duplicate fields")
+            value[key] = item
+        return value
+
+    def _reject_constant(_constant: str) -> Any:
+        raise ValueError("Agent-control JSON contains a non-finite number")
+
     try:
-        payload = json.loads(raw.decode("utf-8"))
+        payload = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+            parse_constant=_reject_constant,
+        )
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("Agent-control JSON invalid") from exc
     if type(payload) is not dict:
@@ -190,18 +205,27 @@ def recover_agent_control_result(
         and result.get("edits") == {}
         and all(
             isinstance(result.get(field), dict)
-            and result[field].get("exit_code") == 0
+            and type(result[field].get("exit_code")) is int
+            and result[field]["exit_code"] == 0
             and result[field].get("output") == ""
             for field in ("git_status", "git_diff")
         )
         and type(result.get("stages")) is list
         and len(result["stages"]) == len(commands)
         and all(
-            isinstance(item, dict) and item.get("outcome") == "passed"
-            for item in result["stages"]
+            isinstance(item, dict)
+            and item.get("outcome") == "passed"
+            and item.get("stage_phase") == "commands"
+            and type(item.get("stage_index")) is int
+            and item["stage_index"] == index
+            and type(item.get("stage_total")) is int
+            and item["stage_total"] == len(commands)
+            for index, item in enumerate(result["stages"], 1)
         )
         and all(
-            entry.get("exit_code") == 0
+            type(entry) is dict
+            and type(entry.get("exit_code")) is int
+            and entry["exit_code"] == 0
             and entry.get("timed_out") is False
             and entry.get("idle_timed_out") is False
             and entry.get("memory_limited") is False
