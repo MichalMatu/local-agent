@@ -12,6 +12,7 @@ import hmac
 import json
 import re
 from dataclasses import dataclass
+from itertools import islice
 from typing import Any, Iterable, Mapping
 
 from local_agent.conversation import contract
@@ -22,6 +23,8 @@ SCHEMA_VERSION = 1
 ROOT = "parents/"
 INDEX_PATH = ROOT + "index.json"
 MAX_PARENTS = 16
+# Exact public synthetic fixture contains two admitted child requests.
+MAX_SYNTHETIC_CHILD_REQUESTS = 2
 MAX_INDEX_BYTES = 4096
 MAX_RECORD_BYTES = 4096
 KIND = "synthetic_parent_transport_arbitration_preview"
@@ -112,7 +115,12 @@ def build_preview(operator_request: dict[str, Any],
                   *, transport_mode: str) -> dict[str, Any]:
     if not isinstance(transport_mode, str) or transport_mode not in MODES:
         raise ValueError("Parent transport mode invalid")
-    requests = list(child_requests)
+    try:
+        requests = list(islice(child_requests, MAX_SYNTHETIC_CHILD_REQUESTS + 1))
+    except TypeError as exc:
+        raise ValueError("Parent transport requests must be iterable") from exc
+    if len(requests) != MAX_SYNTHETIC_CHILD_REQUESTS:
+        raise ValueError("Parent transport synthetic request count exceeds exact bound")
     # Fixed SHA-256 of the *entire* known-public fixture; a caller-provided
     # project/fixture marker cannot declassify user content.
     synthetic.preflight_synthetic_publication(
