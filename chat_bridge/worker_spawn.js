@@ -252,6 +252,7 @@ async function validateConversationSpawnTabRoute(intent, tab) {
 
 async function probeConversationSpawnContent(tabId) {
   try {
+    await requireLegacyConversationSpawnEffectAllowed();
     const response = await chrome.tabs.sendMessage(tabId, {
       type: "bridge:spawn-capabilities",
       protocolVersion: CONVERSATION_SPAWN_CONTENT_PROTOCOL_VERSION
@@ -278,6 +279,7 @@ async function ensureConversationSpawnContent(tabId) {
   if (stagingMarker) {
     await rememberConversationSpawnTab(stagingMarker, tabId);
     try {
+      await requireLegacyConversationSpawnEffectAllowed();
       await chrome.tabs.update(tabId, { url: "https://chatgpt.com/" });
     } catch (error) {
       return { ok: false, reason: "spawn_content_unavailable", error: String(error) };
@@ -310,6 +312,7 @@ async function ensureConversationSpawnContent(tabId) {
     return probe;
   }
   try {
+    await requireLegacyConversationSpawnEffectAllowed();
     await chrome.scripting.executeScript({
       target: { tabId, frameIds: [0] },
       files: ["control_protocol.js", "spawn_content.js"]
