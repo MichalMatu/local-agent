@@ -42,6 +42,7 @@ def _result(task):
         "status": "done",
         "task_digest": reader._task_digest(task),
         "edits": {},
+        "verification": [],
         "git_status": {"exit_code": 0, "output": ""},
         "git_diff": {"exit_code": 0, "output": ""},
         "stages": [{"outcome": "passed", "stage_phase": "commands", "stage_index": 1, "stage_total": 1}],
@@ -123,6 +124,7 @@ class AgentControlRecoveryTests(unittest.TestCase):
             {"stages": [{"outcome": "passed", "stage_phase": "commands", "stage_index": 2, "stage_total": 1}]},
             {"commands": [{"exit_code": False}]},
             {"git_status": {"exit_code": False, "output": ""}},
+            {"verification": [{"exit_code": 1}]},
         ):
             with self.subTest(mutation=mutation):
                 api = MemoryControlAPI()
@@ -152,6 +154,7 @@ class AgentControlRecoveryTests(unittest.TestCase):
             ("work_branch", "main"),
             ("commands", ["echo skip the exact HEAD guard"]),
             ("verify_commands", ["echo unreviewed"]),
+            ("commands", [_task()["commands"][0], "echo bypass unguarded"]),
             ("patch", "private diff"),
         ):
             api = MemoryControlAPI()
@@ -239,6 +242,10 @@ class AgentControlRecoveryTests(unittest.TestCase):
             self.inspect(api)
         api = MemoryControlAPI()
         api.result["status"] = "x" * 100
+        with self.assertRaisesRegex(ValueError, "reported status"):
+            self.inspect(api)
+        api = MemoryControlAPI()
+        api.result["status"] = "PRIVATE_SECRET"
         with self.assertRaisesRegex(ValueError, "reported status"):
             self.inspect(api)
 
