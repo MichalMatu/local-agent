@@ -47,7 +47,10 @@ async function sendConversationSpawnResultMessage(intent) {
     bootstrapDigest: intent.bootstrap_digest,
     completionMarker
   };
-  const deliver = async () => chrome.tabs.sendMessage(tab.id, message, { frameId: 0 });
+  const deliver = async () => {
+    await requireLegacyConversationSpawnEffectAllowed();
+    return chrome.tabs.sendMessage(tab.id, message, { frameId: 0 });
+  };
 
   let response;
   try {
@@ -55,6 +58,7 @@ async function sendConversationSpawnResultMessage(intent) {
   } catch (_error) { response = null; }
   if (response?.protocolVersion !== CONVERSATION_SPAWN_RESULT_PROTOCOL_VERSION) {
     try {
+      await requireLegacyConversationSpawnEffectAllowed();
       await chrome.scripting.executeScript({
         target: { tabId: tab.id, frameIds: [0] },
         files: ["control_protocol.js", "spawn_result_content.js"]
@@ -105,6 +109,7 @@ async function closeConversationSpawnTab(intent) {
       if (!owned?.ok) return { ok: false, reason: "spawn_tab_claim_mismatch" };
     }
     try {
+      await requireLegacyConversationSpawnEffectAllowed();
       await chrome.tabs.remove(tab.id);
     } catch (error) {
       return { ok: false, reason: "spawn_tab_close_failed", error: String(error) };
