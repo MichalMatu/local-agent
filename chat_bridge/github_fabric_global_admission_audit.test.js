@@ -101,6 +101,14 @@ function run() {
   rewrittenWorker.proposed.workers[0].retirement_receipt = SHA_B;
   checkBlocked(rewrittenWorker, "legacy_retirement_receipt_changed");
 
+  // Previously observed retirement evidence must not silently disappear,
+  // even if a later snapshot calls the worker active rather than retired.
+  const droppedRetirementReceipt = example();
+  droppedRetirementReceipt.previous.workers[0].state = "active";
+  droppedRetirementReceipt.proposed.workers[0].state = "active";
+  droppedRetirementReceipt.proposed.workers[0].retirement_receipt = null;
+  checkBlocked(droppedRetirementReceipt, "legacy_retirement_receipt_changed");
+
   const changedTerminalReceipt = example();
   changedTerminalReceipt.proposed.effects[0].terminal_receipt = SHA_B;
   checkBlocked(changedTerminalReceipt, "terminal_effect_evidence_mutated");
