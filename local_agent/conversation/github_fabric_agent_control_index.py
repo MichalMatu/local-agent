@@ -87,7 +87,7 @@ def discover_agent_control_results(
         raise ValueError("Agent-control history Git tree incomplete or too large")
 
     scoped: dict[str, set[str]] = {"task": set(), "result": set()}
-    scoped_paths: set[str] = set()
+    scoped_paths: dict[str, str] = {}
     for entry in snapshot["tree"]:
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
             raise ValueError("Agent-control history has malformed Git tree entry")
@@ -115,13 +115,30 @@ def discover_agent_control_results(
             or path in scoped_paths
         ):
             raise ValueError("Agent-control history scoped Git entry invalid")
-        scoped_paths.add(path)
+        scoped_paths[path] = entry["sha"]
         scoped[role].add(task_id)
 
     if len(scoped["task"] | scoped["result"]) > MAX_SCOPED_TASKS:
         raise ValueError("Agent-control history task scope exceeds bound")
     if not scoped["result"].issubset(scoped["task"]):
         raise ValueError("Agent-control history has orphan result without task")
+    class _TreePinnedAPI:
+        def request(self, method: str, path: str, body: Any = None) -> dict[str, Any]:
+            if method != "GET" or body is not None:
+                raise PermissionError("Agent-control tree-pinned recovery forbids mutation")
+            response = remote.request("GET", path)
+            if path.startswith("/contents/"):
+                relative, sep, ref = path[len("/contents/"):].partition("?ref=")
+                if (
+                    not sep or ref != independently_pinned_control_sha
+                    or relative not in scoped_paths
+                    or not isinstance(response, dict)
+                    or response.get("sha") != scoped_paths[relative]
+                ):
+                    raise ValueError("Agent-control Contents blob differs from pinned Git tree")
+            return response
+
+    tree_api = _TreePinnedAPI()
     found = tuple(
         receipt.recover_agent_control_result(
             task_id,
@@ -130,7 +147,7 @@ def discover_agent_control_results(
             expected_agent_binding=expected_agent_binding,
             expected_work_branch=expected_work_branch,
             enabled=True,
-            api=remote,
+            api=tree_api,
         )
         for task_id in sorted(scoped["result"])
     )
