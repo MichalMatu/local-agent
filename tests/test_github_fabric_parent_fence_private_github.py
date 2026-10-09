@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import copy
+import hashlib
 import json
 import unittest
 
@@ -14,11 +16,17 @@ from tests.test_github_fabric_dispatch import admitted_children, operator_reques
 from tests.test_github_fabric_private_github import PrivateGitDataAPI
 
 
+def _blob_sha(raw: bytes) -> str:
+    return hashlib.sha1(b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw).hexdigest()
+
+
 class ParentFenceAPI(PrivateGitDataAPI):
     def __init__(self) -> None:
         super().__init__()
         self.truncated = False
         self.bad_tree = False
+        self.bad_tree_blob_sha = False
+        self.alter_contents_bytes = False
 
     def request(self, method, path, body=None):
         if method == "GET" and path.startswith("/git/trees/"):
@@ -30,10 +38,23 @@ class ParentFenceAPI(PrivateGitDataAPI):
                 "sha": ("0" * 40) if self.bad_tree else sha,
                 "truncated": self.truncated,
                 "tree": [
-                    {"path": name, "mode": "100644", "type": "blob"}
+                    {
+                        "path": name, "mode": "100644", "type": "blob",
+                        "sha": ("0" * 40 if self.bad_tree_blob_sha and name == preview.INDEX_PATH
+                                else _blob_sha(self.trees[sha][name].encode("utf-8"))),
+                    }
                     for name in sorted(self.trees[sha])
                 ],
             }
+        if method == "GET" and path.startswith("/contents/parents/"):
+            response = super().request(method, path, body)
+            raw = base64.b64decode(response["content"], validate=True)
+            response["sha"] = _blob_sha(raw)
+            if self.alter_contents_bytes:
+                changed = raw + b" "
+                response["content"] = base64.b64encode(changed).decode("ascii")
+                response["size"] = len(changed)
+            return response
         if method == "POST" and path == "/git/trees" and len(body["tree"]) == 2:
             self.operations.append((method, path, copy.deepcopy(body)))
             sha = self.new_sha()
@@ -210,6 +231,34 @@ class PrivateParentFenceWriterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "record invalid"):
             self.publish()
         self.assertEqual(len(self.api.commits), 1)
+
+    def test_tree_and_contents_blob_metadata_mismatch_fails_closed(self):
+        self.publish()
+        before = len(self.api.commits)
+        self.api.bad_tree_blob_sha = True
+        with self.assertRaisesRegex(ValueError, "pinned blob metadata SHA mismatch"):
+            self.publish()
+        self.assertEqual(len(self.api.commits), before)
+        self.assertEqual(self.api.ref_successes, 1)
+
+    def test_forged_contents_bytes_with_matching_metadata_fail_closed(self):
+        self.publish()
+        before = len(self.api.commits)
+        self.api.alter_contents_bytes = True
+        with self.assertRaisesRegex(ValueError, "pinned blob content SHA mismatch"):
+            self.publish()
+        self.assertEqual(len(self.api.commits), before)
+        self.assertEqual(self.api.ref_successes, 1)
+
+    def test_stale_tree_vs_semantically_valid_contents_fails_closed(self):
+        self.publish()
+        before = len(self.api.commits)
+        # JSON whitespace is valid but the stored tree blob must still match.
+        self.api.snapshots[self.api.head][self.path] += " "
+        with self.assertRaisesRegex(ValueError, "pinned blob metadata SHA mismatch"):
+            self.publish()
+        self.assertEqual(len(self.api.commits), before)
+        self.assertEqual(self.api.ref_successes, 1)
 
     def test_truncated_or_invalid_tree_and_403_abort(self):
         self.api.truncated = True
