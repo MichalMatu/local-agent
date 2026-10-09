@@ -29,13 +29,15 @@ observations, not permissions.
   truncated log as `reported_incomplete_evidence_for_review`. No raw log,
   command payload, Send/ACK or retry was exposed/authorized.
 - #255 adds Git Commit API top-level SHA equality and rejects duplicate/
-  non-finite public JSON. As of this checkpoint, its exact-head focused,
-  full and real-read Mac verification tasks are **queued/not yet terminal**.
-  Do not claim PASS from queue status or from older ancestor tests.
+  non-finite public JSON. Its actual anonymous pinned GitHub GET of the
+  previously recorded PR253 Mac result **passed** without a token, with
+  redacted no-retry review outcome. Exact-head focused and full Mac suites
+  remain pending until terminal receipts are verified.
 - Verified ancestor: #253 exact-head Mac full profile **1023 Python tests
   PASS**, core branch coverage **83.7%**, compile/Ruff PASS, and focused
-  **83/83 PASS**. #254 focused **77/77 PASS** plus its real anonymous
-  GET-only smoke; full #254 Mac verification is pending terminal receipt.
+  **83/83 PASS**. #254 focused **77/77 PASS**, real anonymous GET-only
+  smoke **PASS**, and full exact-head Mac suite **1034/1034 PASS** with
+  **83.7%** core branch coverage.
 
 The canonical Mac execution binding is
 `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`. Check it against the
@@ -54,9 +56,9 @@ external effect-time exclusion and independent security/integration reviews
 are still required. Never substitute `operator_review_only`, a caller pin
 or a synthetic fixture for those proofs.
 
-Next source-only step: inspect exact-head Mac terminal receipts for #254/#255,
-fix regressions on **new drafts** without invalidating running tasks, and
-validate a bounded public read on #255. Keep the current chain draft until
+Next source-only step: inspect exact-head focused/full Mac terminal receipts
+for #255 and document any failures before acceptance; the #255 real bounded
+public read is verified. Preserve all drafts and do not enable live effects. Keep the current chain draft until
 independent review and explicitly authorized production acceptance.
 
 ---
