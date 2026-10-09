@@ -85,11 +85,11 @@ further code changes.
   delegated **independent** security/integration review responses were not
   evidenced in PR reviews/threads. Do not invent them, re-delegate blindly,
   or merge either draft based on CI alone.
-- **#214 review gap:** the trusted Python CAS origin reader checks
+- **Historical #214 review gap, fixed in later drafts:** the earlier Python CAS origin reader checked
   parent-tree paths but does not verify Contents decoded blob bytes against
   the tree entry SHA. The separate JS private parent reader performs that
-  check. Add negative tree/Contents mismatch tests and source digest parity
-  before promoting this source snapshot to security-sensitive authority.
+  check. Later draft #214 source and negative tests now verify exact path,
+  metadata and decoded Git blob SHA-1; live mode admission is still absent.
   Recorded in [#214 review comment](https://github.com/MichalMatu/local-agent/pull/214#issuecomment-6073474628).
   The current old DOM path is not globally fenced by this synthetic preview.
 - #195 remains a deferred successor roadmap PR, and #227 is a separate
@@ -274,14 +274,14 @@ have been authorized in this private repository.
    Re-review **latest** PR #209 source, tests, global parent ID, conflicts
    and the distinction between simulated fencing and live enforcement.
 2. If reviews warrant it, make the smallest PR #209 corrections, run exact
-   head focused tests via canonical Local Agent and all six CI jobs; merge
+   head focused tests via canonical Local Agent and applicable exact-head Mac/sandbox gates; merge
    only after passing review and GitHub mergeability. Otherwise leave draft
    and explain blocker.
 3. Review the separate PR #214 implementation for synthetic-only private CAS.
    It has atomic parent record+index commits, pinned complete-tree reads,
    race tests and strict zero-write replay. **Do not merge the stacked draft**
    before PR #209's outstanding review gate is resolved, then revalidate
-   its base and six CI checks. No real private parent publication occurred.
+   its base and exact-head local Mac/sandbox gates. No real private parent publication occurred.
 4. The browser reader is already merged in PR #216, but it is unimported
    and always denies side-effect authority. Next design/implement **both**
    transport consumers agreeing
