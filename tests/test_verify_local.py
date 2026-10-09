@@ -52,6 +52,25 @@ class VerifyLocalGateTests(unittest.TestCase):
             self.assertTrue(all(k not in hermetic for k in gate._LEASE_MARKERS))
             self.assertEqual(os.environ["LOCAL_AGENT_LEASE_FDS"], "3")
 
+    def test_isolated_browser_module_preflight_uses_exact_requested_module(self) -> None:
+        isolated = "/tmp/verified-test-node_modules/playwright"
+        resolved = subprocess.CompletedProcess([], 0, "", "")
+        with mock.patch.dict(os.environ, {"LOCAL_AGENT_PLAYWRIGHT_MODULE": isolated}), \
+             mock.patch.object(gate.shutil, "which", return_value="/usr/bin/node"), \
+             mock.patch.object(gate.importlib.util, "find_spec", return_value=object()), \
+             mock.patch.object(gate.subprocess, "run", return_value=resolved) as spawn:
+            self.assertEqual(gate.missing_dependencies("core", include_browser=True), [])
+        self.assertEqual(spawn.call_args.args[0][-1], isolated)
+
+    def test_unresolved_isolated_browser_module_blocks_browser_gate(self) -> None:
+        with mock.patch.dict(os.environ, {"LOCAL_AGENT_PLAYWRIGHT_MODULE": "/missing/playwright"}), \
+             mock.patch.object(gate.shutil, "which", return_value="/usr/bin/node"), \
+             mock.patch.object(gate.importlib.util, "find_spec", return_value=object()), \
+             mock.patch.object(gate.subprocess, "run",
+                               side_effect=subprocess.CalledProcessError(1, ["node"])):
+            self.assertIn("Node playwright module",
+                          gate.missing_dependencies("core", include_browser=True))
+
     def test_missing_dependencies_stops_before_running_any_test(self) -> None:
         with mock.patch.object(gate, "exact_head", return_value=HEAD), \
              mock.patch.object(gate, "missing_dependencies", return_value=["httpx2"]), \
