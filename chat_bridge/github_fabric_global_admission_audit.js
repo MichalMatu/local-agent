@@ -96,6 +96,50 @@
     });
   }
 
+  function checkInventoryContinuity(previous, proposed, blockers) {
+    const currentWorkers = new Map(proposed.workers.map(worker => [worker.id, worker]));
+    const currentEffects = new Map(proposed.effects.map(effect => [effect.id, effect]));
+
+    for (const worker of previous.workers) {
+      const next = currentWorkers.get(worker.id);
+      if (!next) {
+        blockers.push("legacy_worker_inventory_regression");
+      } else if (worker.retirement_receipt &&
+          next.retirement_receipt && worker.retirement_receipt !== next.retirement_receipt) {
+        blockers.push("legacy_retirement_receipt_changed");
+      }
+    }
+
+    for (const effect of previous.effects) {
+      const next = currentEffects.get(effect.id);
+      if (!next) {
+        blockers.push("effect_history_discarded");
+        continue;
+      }
+      if (next.worker_id !== effect.worker_id ||
+          next.epoch !== effect.epoch || next.kind !== effect.kind) {
+        blockers.push("effect_identity_rewritten");
+      }
+      if (effect.state === "confirmed_terminal" &&
+          (next.state !== "confirmed_terminal" ||
+            next.terminal_receipt !== effect.terminal_receipt)) {
+        blockers.push("terminal_effect_evidence_mutated");
+      }
+      if (effect.state === "unknown" && next.state !== "unknown") {
+        // A claimed terminal receipt is not trusted reconciliation proof.
+        blockers.push("unknown_effect_reclassified_without_proof");
+      }
+      if (effect.state === "in_flight" && next.state === "prepared") {
+        blockers.push("in_flight_effect_reset");
+      }
+    }
+
+    if ([...previous.workers, ...proposed.workers].some(worker =>
+      worker.state === "retirement_claimed" && !worker.retirement_receipt)) {
+      blockers.push("retirement_claim_without_receipt");
+    }
+  }
+
   function inspectGlobalTransportAdmission(input) {
     if (!exactKeys(input, ["previous", "proposed", "operator_retirement_attestation"])) {
       throw new Error("Global transport admission input invalid");
@@ -131,6 +175,8 @@
       blockers.push("operator_retirement_attestation_missing");
     }
 
+    checkInventoryContinuity(previous, proposed, blockers);
+
     // Even a complete declared inventory, terminal receipts and a human
     // attestation cannot prove that every older/offline extension is unable
     // to resume or race between a local read and an actual Chrome effect.
@@ -148,7 +194,7 @@
       decision: "blocked",
       browser_effects_permitted: false,
       automatic_retry_permitted: false,
-      blockers: Object.freeze(blockers)
+      blockers: Object.freeze([...new Set(blockers)])
     });
   }
 
