@@ -65,3 +65,33 @@ public, synthetic-only read-only path and DOM production delegation.
 
 Tests use only synthetic text and mocked GitHub responses. They do **not**
 prove real private repository permissions or credential handling.
+
+## Read-only private project catalog
+
+`local_agent/conversation/github_fabric_private_catalog.py` adds a
+**default-disabled** source-pinned index-only project observation. Once
+explicitly enabled by a trusted Local Agent caller, it reads the fixed private
+`fabric-data` ref once, then `projects/index.json` and each indexed
+`projects/<project-id>/workflows/index.json` at the **same immutable
+commit SHA**. Both index formats are strictly validated, sorted, unique and
+size-bounded. Missing, corrupt, partial or inaccessible indexes fail closed.
+
+The returned immutable view contains only `project_id`, `workflow_ids`,
+`source_head_sha`, and
+`source_kind=private_project_catalog_observation_only`. It cannot read
+individual dispatches, bootstrap text, ACKs, results, machine tasks or tokens.
+An empty workflow array means **no indexed workflows**; it is not a claim
+about any unseen prompts, running browsers or completed work.
+
+The initial private repository contains three indexed project folders:
+`growclip`, `local-agent`, and `shelly-link`, with a single explicitly
+approved synthetic workflow indexed under `local-agent`. A project directory
+separates history and discovery; **it is not an access-control boundary**.
+A private repository read credential can read all indexed projects unless
+GitHub access is split across distinct repositories or identities.
+
+This is not a production project resurrection UI. Authorized ChatGPT sessions
+must resolve their project identity and role before requesting any private
+content; the browser must not receive repo-wide credentials through a content
+script or ChatGPT page. The read-only project listing grants no child Send
+or work execution permission.
