@@ -12,6 +12,12 @@ on:
 permissions:
   contents: read
 
+# PR and branch-push runs are separate gates. Cancel only an older run of
+# the same event/ref, never a different PR, branch, or current main run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   absorbed-host-ops:
     runs-on: ubuntu-latest
