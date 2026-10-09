@@ -1,5 +1,11 @@
 # Next live acceptance — controlled restart of an active Fabric campaign
 
+**This is a specific operator-guided legacy DOM/Chrome acceptance test, not
+the current GitHub-first Milestone 8 new-chat handoff.** For the latter, use
+[GITHUB_FIRST_CURRENT_HANDOFF.md](GITHUB_FIRST_CURRENT_HANDOFF.md).
+Do not run the active-campaign Chrome reload procedure just because a new
+engineering chat has been opened.
+
 Current as of 2026-10-08. This is an **operator-guided test plan**, not permission to launch tasks, change global Master state or automatically replay existing children.
 
 ## Prerequisites
