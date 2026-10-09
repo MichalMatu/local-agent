@@ -28,6 +28,10 @@ class ParentFenceAPI(PrivateGitDataAPI):
         self.bad_tree_blob_sha = False
         self.alter_contents_bytes = False
         self.bad_contents_path = False
+        self.root_mode = "040000"
+        self.root_present = True
+        self.root_duplicated = False
+        self.root_sha = "f" * 40
 
     def request(self, method, path, body=None):
         if method == "GET" and path.startswith("/git/trees/"):
@@ -38,7 +42,16 @@ class ParentFenceAPI(PrivateGitDataAPI):
             return {
                 "sha": ("0" * 40) if self.bad_tree else sha,
                 "truncated": self.truncated,
-                "tree": [
+                "tree": ([
+                    {
+                        "path": "parents", "mode": self.root_mode,
+                        "type": "tree", "sha": self.root_sha,
+                    }
+                ] * (1 + int(self.root_duplicated)) if (
+                    self.root_present and any(
+                        name.startswith("parents/") for name in self.trees[sha]
+                    )
+                ) else []) + [
                     {
                         "path": name, "mode": "100644", "type": "blob",
                         "sha": ("0" * 40 if self.bad_tree_blob_sha and name == preview.INDEX_PATH
@@ -236,6 +249,23 @@ class PrivateParentFenceWriterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "record invalid"):
             self.publish()
         self.assertEqual(len(self.api.commits), 1)
+
+    def test_parent_directory_missing_duplicated_or_unsafe_refused(self):
+        for field, mutation, expected in (
+            ("root_present", False, "root missing"),
+            ("root_duplicated", True, "root invalid or duplicated"),
+            ("root_mode", "120000", "root invalid or duplicated"),
+            ("root_sha", "not-a-sha", "root tree SHA is invalid"),
+        ):
+            with self.subTest(field=field):
+                self.api = ParentFenceAPI()
+                self.publish()
+                before = len(self.api.commits)
+                setattr(self.api, field, mutation)
+                with self.assertRaisesRegex(ValueError, expected):
+                    self.publish()
+                self.assertEqual(len(self.api.commits), before)
+                self.assertEqual(self.api.ref_successes, 1)
 
     def test_tree_and_contents_blob_metadata_mismatch_fails_closed(self):
         self.publish()
