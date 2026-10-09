@@ -200,6 +200,19 @@ async function run() {
     }
   }
 
+  // A one-element array stringifies to the valid digest/dispatch label in
+  // JavaScript, but the trusted Python schema requires literal JSON strings.
+  for (const field of ["operator_request_digest", "dispatch_id"]) {
+    const reference = (await fixture()).state.record[field];
+    for (const invalid of [[reference], { value: reference }, null, true]) {
+      const malformed = await fixture();
+      malformed.state.record[field] = invalid;
+      malformed.resign();
+      await assert.rejects(read(malformed), /preview record invalid/,
+        field + " must never be accepted via JS String coercion");
+    }
+  }
+
   const forged = await fixture();
   forged.state.record.browser_send_authorized = true;
   forged.resign();
