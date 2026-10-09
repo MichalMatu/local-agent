@@ -19,6 +19,28 @@ public semantic claim/node IDs, and IDs outside the existing synthetic
 transaction/claim/dispatch formats. It returns just non-secret identifiers
 and a frozen, **read-only review** result.
 
+## Optional GET-only GitHub composition
+
+`preview_manual_new_parent_from_github()` explicitly opts in through
+`enabled=True`, then calls the **existing**, fixture-restricted public or
+private synthetic recovery reader and passes its dataclass observation to the
+manual review validator. An injected API is wrapped in a GET-only adapter:
+POST, PATCH, DELETE, and GET-with-body are rejected even if a later reader
+accidentally attempts a mutation. Without an injected API, only the existing
+scoped GitHub REST adapters are used.
+
+It validates the destination, distinct source-parent identity and SHA format
+**before** remote I/O. The recovered head is compared to the separately
+pinned SHA after reading, and a mismatch raises without yielding a preview.
+No code signs in to ChatGPT, creates a conversation, publishes a dispatch or
+modifies legacy worker state.
+
+Integration regression fixtures reuse the existing in-memory GitHub writers to
+seed synthetic data before measuring the **read-only** recovery operation.
+They cover both public/private readers, GET-only operation traces, disabled
+entry, bad inputs, incomplete source, changed pin and unapproved private data.
+They are not an authenticated live GitHub or cross-device acceptance test.
+
 The SHA comparison is only consistency validation: this function does
 **not** authenticate GitHub provenance or know whether the supplied DTO is
 genuine. A new parent URL does **not** imply that an old or offline legacy
