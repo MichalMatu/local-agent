@@ -75,6 +75,7 @@ async function run() {
   append(acknowledged, { phase: "effect_started" });
   append(acknowledged, { phase: "ack_observed" });
   await blocked(acknowledged, ["ack_claim_for_review"]);
+  assert.deepEqual((await inspectEffectJournal(acknowledged)).conflicts, []);
 
   const twoDevices = blank();
   append(twoDevices);
@@ -87,6 +88,12 @@ async function run() {
   await blocked(twoDevices, [
     "suspended_requires_reconciliation", "suspended_requires_reconciliation"
   ]);
+  const competingClaims = await inspectEffectJournal(twoDevices);
+  assert.deepEqual([...competingClaims.conflicts], [{
+    kind: "duplicate_logical_request_effect",
+    first_effect_id: "send_1",
+    second_effect_id: "send_2"
+  }], "two devices must not silently treat identical logical work as independent");
 
   const poisoned = structuredClone(acknowledged);
   poisoned.events[1].phase = "effect_unknown";
