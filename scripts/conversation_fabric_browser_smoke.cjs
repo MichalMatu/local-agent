@@ -777,6 +777,31 @@ async function campaignSnapshot(worker, campaignId) {
       "terminal cleanup must not leave the exactly-owned failed tab orphaned"
     );
 
+    // This new seam has no production writer. Set a synthetic suspension
+    // only inside the disposable extension profile and prove tab creation
+    // is stopped before Chrome effects, even after prior campaigns ran.
+    const beforeSuspension = context.pages().length;
+    const freshIntent = {
+      ...negativeFailed.children[0].intent,
+      transaction_id: "spawn-" + "e".repeat(64),
+      tab_id: null
+    };
+    const denied = await worker.evaluate(async intent => {
+      await chrome.storage.local.set({
+        conversationFabricLegacyDomEffectSuspension: { reason: "synthetic-test-only" }
+      });
+      try {
+        await createConversationSpawnTab(intent);
+        return "UNEXPECTED_TAB_CREATED";
+      } catch (error) {
+        return String(error?.message || error);
+      }
+    }, freshIntent);
+    assert.match(denied, /browser effects suspended/,
+      "synthetic local suspension must deny the next legacy child creation");
+    assert.equal(context.pages().length, beforeSuspension,
+      "suspended legacy DOM cannot open another child tab");
+
     console.log(
       "PASS: real Bridge delegates four children, keeps three successful-but-ambiguous " +
       "post-submit routes recoverable, durably captures the fast sibling, rebuilds exact " +
