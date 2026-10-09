@@ -30,7 +30,7 @@ Do not use legacy LAB add/rebind/schedule markers for ordinary Superchat flow.
 
 | Surface | Handoff observation |
 | --- | --- |
-| Public code repo | `MichalMatu/local-agent`, `main@11c3fa49c86ae2849f0ceaa68aa968f8a5cdb3ef` |
+| Public code repo | `MichalMatu/local-agent`, `main@a5d92bdb3ffa0367c5d3cea125f61c0ccc594d46` |
 | Private data repo | `MichalMatu/local-agent-fabric-private`, `fabric-data@b834209d99f088e093d503632717ae0aaeafbf7f` |
 | Local Agent | `agent-control` daemon `idle` at recheck; observed self revision `a1ba2be840098a727e9de06323ae8625955a6e1e` (may lag latest `main`; re-check) |
 | Canonical executable catalog entry | `local-agent` / `MichalMatu/local-agent`, execution enabled, binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; **re-check, do not hard-code** |
@@ -44,6 +44,11 @@ Do not use legacy LAB add/rebind/schedule markers for ordinary Superchat flow.
 | PR #215 | **MERGED**, predecessor-chat-independent handoff control rule (squash `a1ba2be840098a727e9de06323ae8625955a6e1e`) |
 | PR #214 | **OPEN / DRAFT**, stacked on PR #209; synthetic-only trusted private global parent CAS, head `9e64517bdb4f5f1ddce20ef0e1758a9f3dd5af22`; six exact-head CI checks and Mac focused tests passed; not merged |
 | PR #216 | **MERGED**, default-disabled unimported source-pinned private global parent reader, squash `11c3fa49c86ae2849f0ceaa68aa968f8a5cdb3ef`; exact-head six CI checks and Mac Bridge suite passed |
+| PR #217 | **MERGED**, previous handoff reconciliation, squash `98486c7e339dc39c503802182a097c93857992fc` |
+| PR #218 | **MERGED**, verify private parent record/index decoded bytes against pinned Git blob SHA, squash `845d25888820e7f585c5e3fa2e31de382d6d01c2` |
+| PR #219 | **MERGED**, authenticated Mac GET-only twice-read private parent namespace absence smoke, squash `3004a75b38b4621b5417cf26c04c539ef421c842` |
+| PR #220 | **MERGED**, production Bridge private-import and GitHub-first no-Send regression test; Mac and exact-head six CI checks passed; squash `2654e9a04e4bec7eadc36c5d99c5a82e04239d67` |
+| PR #221 | **MERGED**, private parent reader five-second headers/body abort deadline; exact-head Mac Bridge suite and all six CI checks passed; squash `a5d92bdb3ffa0367c5d3cea125f61c0ccc594d46` |
 
 Two reasoning-only child reviews were delegated in an earlier Chat Bridge
 parent conversation: `m8-parent-fence-verification` (security/correctness)
@@ -83,8 +88,19 @@ inspect its latest diff, and verify mergeability against current `main`.
   reader of an immutable private parent index and all records; fake network
   tests, exact-head Mac Bridge suite and six GitHub CI checks passed. The
   reader always returns `browser_effects_permitted=false`.
-- The last read-only private `fabric-data` check still found **zero**
-  `parents/` paths; no real parent record has been published.
+- A real authenticated GET-only Local Agent smoke in PR #219 read the private
+  `fabric-data` branch **twice** at exact SHA
+  `b834209d99f088e093d503632717ae0aaeafbf7f` and reported
+  `no_parent_records_observed`, `ack_state=not_attested`,
+  `browser_effects_permitted=false`. The separate production-unimported
+  private parent reader in PR #218 now verifies decoded JSON bytes against
+  their commit-pinned Git blob SHA, not only API metadata.
+- A further exact-main Local Agent GET-only regression at
+  `main@2654e9a04e4bec7eadc36c5d99c5a82e04239d67` performed
+  3 successful private reconstructions (each twice): two synthetic children
+  remain `published_execution_unconfirmed`, the `growclip`, `local-agent`
+  and `shelly-link` catalog remains indexed as expected, and the global
+  `parents/` namespace remains absent. No browser ACK or Send happened.
 - Existing DOM-based child delegation in normal Chrome has separate
   previously accepted 1/1 and 3/3 campaign evidence in
   `CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md`.
@@ -137,7 +153,10 @@ have been authorized in this private repository.
 | Project/workflow index-only discovery | `github_fabric_private_catalog.py`, `PRIVATE_GITHUB_READ_TRANSPORT.md` |
 | Parent exclusion *preview* | PR #209 `github_fabric_parent_fence_preview.py`, `PARENT_TRANSPORT_FENCE_PREVIEW.md` |
 | Parent synthetic private CAS | PR #214 `github_fabric_parent_fence_private_github.py`, `PARENT_TRANSPORT_FENCE_PRIVATE_CAS.md` (**draft**, not merged) |
-| Unimported private parent reader | `chat_bridge/github_fabric_private_parent_fence_reader.js`, `PARENT_TRANSPORT_FENCE_PRIVATE_READER.md` (**merged**, always no Send authority) |
+| Unimported private parent reader | `chat_bridge/github_fabric_private_parent_fence_reader.js`, `PARENT_TRANSPORT_FENCE_PRIVATE_READER.md` (**merged**, always no Send authority; Git blob digest verified since #218) |
+| Private parent namespace absence CLI | `github_fabric_private_live_smoke.py --verify-private-parent-namespace-empty`, `PRIVATE_PARENT_NAMESPACE_LIVE_SMOKE.md` (real Mac GET-only smoke, #219) |
+| Production activation regression | `chat_bridge/github_fabric_private_activation_guard.test.js` (**merged** in PR #220; detects accidental private imports or Send from public intake) |
+| Private reader request deadline | `chat_bridge/github_fabric_private_parent_fence_reader.js` (**merged** PR #221; aborted GET including streaming body) |
 | Legacy browser Send/claim and results | `chat_bridge/worker_conversation_fabric.js`, `worker_spawn*.js`, `spawn_result_content.js` |
 | Inactive browser GitHub intake | `chat_bridge/worker_github_fabric_intake.js`, `github_fabric_private_transport.js` |
 | Target product rules | `TARGET_PRODUCT_ARCHITECTURE.md`; repository-wide invariants `AGENTS.md` |
@@ -164,7 +183,12 @@ have been authorized in this private repository.
    on one authoritative mode/epoch before any side effect. An old/offline
    Chrome version that does not honor fencing is a migration blocker; a
    timeout or missing ACK never grants a takeover.
-5. Implement real evidence-bearing ACK/results, retirement and cross-device
+5. PRs #220 and #221 are merged after exact-head Mac and six required CI
+   checks. The additional authenticated three-surface private read completed
+   successfully (`local-agent-m8-main-private-three-surface-read-20261009-v1`)
+   on its pinned earlier main SHA; do not mislabel it as evidence for later
+   commits. No production Send/ACK or private parent write was attempted.
+6. Implement real evidence-bearing ACK/results, retirement and cross-device
    recovery in bounded gated PRs. Leave all new production flags disabled
    until real acceptance, not merely fixture CI.
 
