@@ -24,7 +24,7 @@ function example() {
     proposed: {
       schema_version: 1, parent_id: PARENT_A, mode: "github_first", epoch: 2,
       pinned_head: SHA_B, observed_head: SHA_B,
-      workers: [{ id: "mac", state: "retirement_claimed", retirement_receipt: SHA_B }],
+      workers: [{ id: "mac", state: "retirement_claimed", retirement_receipt: SHA_A }],
       effects: [{
         id: "send_1", worker_id: "mac", epoch: 1, kind: "prompt_send",
         state: "confirmed_terminal", terminal_receipt: SHA_A
@@ -51,6 +51,14 @@ function checkBlocked(input, blocker) {
 }
 
 function run() {
+  const validContinuity = audit.inspectGlobalTransportAdmission(example());
+  assert.deepEqual([...validContinuity.blockers], [
+    "unbounded_legacy_worker_population",
+    "missing_atomic_cross_device_effect_exclusion",
+    "trusted_external_retirement_proof_unavailable",
+    "independent_security_and_live_acceptance_pending"
+  ], "consistent claims alone must still block, without inventing history corruption");
+
   // Even a unanimous claimed retirement and terminal receipts are not a
   // verified exclusion mechanism: old/offline versions can still act.
   checkBlocked(example());
