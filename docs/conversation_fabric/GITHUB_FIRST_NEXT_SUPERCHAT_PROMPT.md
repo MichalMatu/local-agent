@@ -43,19 +43,21 @@ Before continuing code work, also inspect any newer PRs that repair legacy
 Conversation Fabric terminal delivery uncertainty. They must preserve
 at-most-once no-replay behavior: a lost feedback ACK is **unconfirmed**, not
 proof of successful delivery, and uncertain receipts must remain inspectable
-during campaign-history cleanup. Resolve conflicts safely on the latest
-`main`, run focused canonical Mac tests and the six exact-head CI checks:
-`test`, `coverage`, `python-314`, `absorbed-host-ops`,
-`bridge-browser`, `macos-smoke`.
+during campaign-history cleanup. Resolve conflicts safely on the latest `main`. **The operator has disabled
+GitHub Actions automatic execution due to exhausted credits:** do not wait
+for hosted six-check CI or manually dispatch a workflow. Instead run the
+exact-head Mac/sandbox checks in `LOCAL_VERIFICATION.md` and retain durable
+command/exit-code evidence, marking unsupported gates unverified. Independent
+security/integration review requirements remain in force.
 
 For each executable Local Agent task, resolve the actual target repository
 from `chat_bridge/runtime.json` on `chat-bridge-state`; verify
 `execution_enabled`, exact `agent_binding`, matching
 `.agent/binding.json` and live daemon record on `agent-control`, and the
 exact work-branch source SHA. Do not direct tasks to disabled repositories.
-Prefer GitHub PR changes when their exact diffs and CI can verify them; use
-the canonical bound Local Agent for Mac commands and authorized browser or
-device testing.
+Prefer GitHub PR changes when exact diffs and local test evidence can verify
+them; use the canonical bound Local Agent for Mac commands and authorized
+browser or device testing. Do not reactivate GitHub Actions.
 
 Production limits remain strict:
 

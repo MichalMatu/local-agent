@@ -1,6 +1,5 @@
 # Local Agent
 
-[![CI](https://github.com/MichalMatu/local-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/MichalMatu/local-agent/actions/workflows/ci.yml)
 
 **Deterministic, bounded local execution for AI-assisted software development.**
 
@@ -165,7 +164,7 @@ Each project repository keeps its own `agent-control` branch and repository-scop
 
 ## Development verification
 
-Repository verification has one executable entrypoint so CI, local development and documentation do not maintain divergent file lists:
+Repository verification has one executable entrypoint so Mac/sandbox testing and documentation do not maintain divergent file lists:
 
 ```bash
 python scripts/verify.py
@@ -186,7 +185,7 @@ Run the focused macOS-compatible supervisor smoke profile with:
 python scripts/verify.py --profile macos-smoke
 ```
 
-CI additionally measures branch-aware Python coverage, runs the full test suite on Python 3.14 and runs the focused smoke suite on macOS/Python 3.13. Coverage is used to locate risk gaps; releases do not chase an arbitrary percentage at the expense of meaningful scheduler/process tests.
+**Current operator policy (2026-10-09):** hosted GitHub Actions runs are disabled for `push` and pull requests to avoid exhausted runner credits. The existing workflow is manual-only and must not be dispatched without explicit approval. Validate **the exact candidate SHA** through the bound Local Agent on Mac or an isolated sandbox, including full compile/Ruff/Python/Node tests, relevant macOS/Chromium smoke, Host Ops quality and branch-aware coverage when supported. Python 3.14 compatibility requires an available local Python 3.14 interpreter; record a skipped capability instead of claiming it passed. See [local verification matrix](docs/conversation_fabric/LOCAL_VERIFICATION.md).
 
 Parallel releases require real two-repository overlap, machine-exclusion, inherited-resource-lock and macOS smoke evidence on the exact candidate SHA.
 
