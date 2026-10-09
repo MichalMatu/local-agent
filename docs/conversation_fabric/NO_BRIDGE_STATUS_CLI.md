@@ -21,6 +21,11 @@ The reader only performs GET requests against a pinned Git commit/tree and
 bounded .agent/tasks + .agent/results records. Matching result artifacts are
 reconciled to task IDs and SHA-256 task digests. Missing results are shown as
 unconfirmed, not as failed/succeeded commands or permission to retry.
+If a completed test reports zero exit and passing stages but the Local Agent
+truncated its output under the result size policy, the projection is
+reported_incomplete_evidence_for_review, separate from a failed test or a
+fully retained reported_pass_for_review. The user may inspect the separately
+retained durable result to establish the precise limitation.
 
 The JSON response contains only selected task IDs, commit/work-branch
 identities, reported review outcomes and deny-only booleans. Raw command
