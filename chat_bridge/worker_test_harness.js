@@ -41,7 +41,9 @@ const chrome = {
     local: {
       async get(key) {
         if (key === null) return clone(storage);
-        if (typeof key === "string") return { [key]: clone(storage[key]) };
+        if (typeof key === "string") {
+          return Object.hasOwn(storage, key) ? { [key]: clone(storage[key]) } : {};
+        }
         throw new Error("unsupported storage.get shape in test");
       },
       async set(patch) {
