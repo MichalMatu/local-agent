@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from local_agent.conversation import github_fabric_publication as preflight
 
@@ -44,6 +44,13 @@ class GithubFabricHTTPError(RuntimeError):
 
 class GithubFabricTransportError(RuntimeError):
     pass
+
+
+class _NoRedirect(HTTPRedirectHandler):
+    """Never forward a Bearer token to a redirected URL."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 class GitHubFabricREST:
@@ -83,7 +90,7 @@ class GitHubFabricREST:
             },
         )
         try:
-            with urlopen(request, timeout=15) as response:
+            with build_opener(_NoRedirect()).open(request, timeout=15) as response:
                 data_bytes = response.read(MAX_API_RESPONSE_BYTES + 1)
         except HTTPError as exc:
             raise GithubFabricHTTPError(exc.code) from None
