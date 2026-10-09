@@ -872,6 +872,68 @@ function createHarness({
     );
   }
 
+  {
+    // Delivery claimed before a crash can be uncertain even though the
+    // at-most-once compatibility marker says feedback_delivered=true.
+    const confirmedId = "cf-1111111111111111";
+    const uncertainId = "cf-2222222222222222";
+    const stored = {
+      ["conversation-fabric-campaign:" + confirmedId]: {
+        schema_version: 1, id: confirmedId, state: "completed",
+        parent_conversation_url: parentUrl,
+        created_at: "2026-10-09T03:20:00.000Z",
+        children: [], results: [], failed_children: [],
+        feedback_delivered: true
+      },
+      ["conversation-fabric-campaign:" + uncertainId]: {
+        schema_version: 1, id: uncertainId, state: "completed",
+        parent_conversation_url: parentUrl,
+        created_at: "2026-10-09T03:10:00.000Z",
+        children: [], results: [], failed_children: [],
+        feedback_delivered: true,
+        feedback_delivery_assumed: true,
+        feedback_delivery_claim: {
+          id: "claim-before-restart",
+          state: "assumed_delivered",
+          reason: "delivery_claim_recovered_after_restart"
+        }
+      }
+    };
+    const h = createHarness({ storage: stored });
+    const confirmed = h.context.conversationFabricOperatorCampaignSummary(
+      stored["conversation-fabric-campaign:" + confirmedId]
+    );
+    const uncertain = h.context.conversationFabricOperatorCampaignSummary(
+      stored["conversation-fabric-campaign:" + uncertainId]
+    );
+    assert.equal(confirmed.feedbackState, "delivered");
+    assert.equal(uncertain.feedbackState, "assumed",
+      "ambiguous send must not show as confirmed delivered");
+    const snapshot = await h.context.conversationFabricOperatorSnapshot();
+    const parentId = h.context.conversationId(parentUrl);
+    assert.equal(snapshot[parentId].currentCampaign.campaignId, uncertainId,
+      "unconfirmed terminal delivery must be prioritized over later confirmed history");
+    assert.equal(snapshot[parentId].currentCampaign.feedbackState, "assumed");
+
+    const recent = await h.context.inspectConversationFabric({
+      conversationUrl: parentUrl, control: { action: "inspect" }
+    });
+    assert.equal(recent.ok, true);
+    assert.match(recent.feedbackPrompt, /cf-2222222222222222 .*feedback=assumed/);
+    assert.match(recent.feedbackPrompt, /cf-1111111111111111 .*feedback=delivered/);
+
+    const inspection = await h.context.inspectConversationFabric({
+      conversationUrl: parentUrl,
+      control: { action: "inspect", campaign_id: uncertainId }
+    });
+    assert.equal(inspection.ok, true);
+    assert.match(inspection.feedbackPrompt, /feedback_state=assumed/);
+    assert.match(inspection.feedbackPrompt, /Feedback delivery is UNCONFIRMED/);
+    assert.match(inspection.feedbackPrompt, /do not automatically resend/);
+    assert.equal(h.created.length, 0);
+    assert.equal(h.submitted.length, 0);
+  }
+
   console.log("Conversation Fabric worker tests passed.");
 })().catch((error) => {
   console.error(error?.stack || error);
