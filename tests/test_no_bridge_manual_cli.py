@@ -13,6 +13,7 @@ from unittest import mock
 
 from local_agent.conversation import github_fabric_manual_handoff as handoff
 from local_agent.conversation import github_fabric_agent_control_index as history
+from local_agent.conversation import github_fabric_github as git
 from local_agent.conversation import github_fabric_manual_new_parent as previewer
 from scripts import no_bridge_manual as cli
 from tests.test_github_fabric_manual_new_parent import DEST, private_observation
@@ -222,6 +223,34 @@ class NoBridgeOperatorCLITests(unittest.TestCase):
         self.assertEqual(code, 2)
         self.assertEqual(output, "")
         self.assertNotIn("token", error.lower())
+
+    def test_github_http_and_network_errors_are_redacted_and_bounded(self):
+        args = [
+            "status-github", "--task-id-prefix", "local-agent-m8-pr250",
+            "--pinned-control-sha", "b" * 40,
+            "--pinned-source-sha", HEAD,
+            "--agent-binding", BINDING, "--work-branch", BRANCH,
+            "--allow-readonly-network",
+        ]
+        exceptions = [
+            git.GithubFabricHTTPError(403),
+            git.GithubFabricTransportError("PRIVATE_ORIGIN_URL SECRET_TOKEN"),
+        ]
+        for exception in exceptions:
+            with self.subTest(error=type(exception).__name__):
+                with mock.patch.dict(os.environ, {
+                    "LOCAL_AGENT_FABRIC_GITHUB_TOKEN": "PRIVATE_AUTH"
+                }), mock.patch.object(
+                    history, "discover_agent_control_results",
+                    side_effect=exception,
+                ):
+                    code, output, error = invoke(args)
+                self.assertEqual(code, 2)
+                self.assertEqual(output, "")
+                self.assertIn("refused", error)
+                self.assertNotIn("PRIVATE_ORIGIN_URL", error)
+                self.assertNotIn("SECRET_TOKEN", error)
+                self.assertNotIn("PRIVATE_AUTH", error)
 
     def test_separate_isolated_setup_requires_an_explicit_flag(self):
         args = [
