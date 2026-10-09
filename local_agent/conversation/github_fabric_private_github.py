@@ -32,6 +32,41 @@ class _NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def _validate_private_git_tree(body: Any) -> None:
+    """Only the fixed synthetic project path or atomic parent record/index pair."""
+    if not isinstance(body, dict) or set(body) != {"base_tree", "tree"}:
+        raise ValueError("Private Fabric Git tree payload invalid")
+    git._require_sha(body["base_tree"], label="private base tree")
+    entries = body["tree"]
+    if not isinstance(entries, list) or len(entries) not in {1, 2}:
+        raise ValueError("Private Fabric Git tree entries invalid")
+    paths: set[str] = set()
+    for entry in entries:
+        if (not isinstance(entry, dict)
+                or set(entry) != {"path", "mode", "type", "sha"}
+                or entry["mode"] != "100644" or entry["type"] != "blob"):
+            raise ValueError("Private Fabric Git tree entry invalid")
+        path = entry["path"]
+        if not isinstance(path, str) or path in paths:
+            raise ValueError("Private Fabric Git tree path invalid or duplicate")
+        git._require_sha(entry["sha"], label="private tree entry")
+        paths.add(path)
+    if len(entries) == 1:
+        path = next(iter(paths))
+        if not re.fullmatch(
+            r"projects/local-agent/workflows/(?:index\.json|"
+            r"workflow-001/dispatches/(?:index|fabric-[0-9a-f]{32})\.json)",
+            path,
+        ):
+            raise ValueError("Private Fabric Git project tree path invalid")
+    elif (
+        "parents/index.json" not in paths
+        or not any(re.fullmatch(r"parents/parent-[0-9a-f]{32}\.json", p)
+                   for p in paths)
+    ):
+        raise ValueError("Private Fabric parent record/index must be atomic")
+
+
 class PrivateFabricREST(git.GitHubFabricREST):
     """A non-redirecting token holder bound only to the private data repo."""
 
@@ -75,6 +110,8 @@ class PrivateFabricREST(git.GitHubFabricREST):
             git._require_sha(body["sha"], label="private ref update")
         if method == "POST" and not isinstance(body, dict):
             raise ValueError("Private Fabric GitHub Git object write requires a body")
+        if method == "POST" and path == "/git/trees":
+            _validate_private_git_tree(body)
         payload = None if body is None else json.dumps(
             body, ensure_ascii=False, sort_keys=True, allow_nan=False
         ).encode("utf-8")
