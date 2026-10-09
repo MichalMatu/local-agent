@@ -21,12 +21,12 @@ def private_observation():
         "dispatch_id": "fabric-" + "b" * 32,
         "parent_conversation_url": SOURCE,
         "children": [{
-            "request_id": "child-1", "spawn_transaction_id": "spawn-1",
+            "request_id": "child-1", "spawn_transaction_id": "spawn-" + "1" * 64,
             "child_request_digest": "sha256:" + "1" * 64,
             "bootstrap_digest": "sha256:" + "2" * 64,
             "execution_state": "published_execution_unconfirmed",
         }, {
-            "request_id": "child-2", "spawn_transaction_id": "spawn-2",
+            "request_id": "child-2", "spawn_transaction_id": "spawn-" + "2" * 64,
             "child_request_digest": "sha256:" + "3" * 64,
             "bootstrap_digest": "sha256:" + "4" * 64,
             "execution_state": "published_execution_unconfirmed",
@@ -44,12 +44,12 @@ def public_observation():
         "dispatch_id": "fabric-" + "b" * 32,
         "parent_conversation_url": SOURCE,
         "children": [{
-            "claim_id": "claim-1", "workflow_node_id": "node-1",
-            "child_request_id": "child-1", "spawn_transaction_id": "spawn-1",
+            "claim_id": "claim-" + "1" * 32, "workflow_node_id": "node-1",
+            "child_request_id": "child-1", "spawn_transaction_id": "spawn-" + "1" * 64,
             "lifecycle": "published_execution_unconfirmed",
         }, {
-            "claim_id": "claim-2", "workflow_node_id": "node-2",
-            "child_request_id": "child-2", "spawn_transaction_id": "spawn-2",
+            "claim_id": "claim-" + "2" * 32, "workflow_node_id": "node-2",
+            "child_request_id": "child-2", "spawn_transaction_id": "spawn-" + "2" * 64,
             "lifecycle": "published_execution_unconfirmed",
         }],
     }
@@ -147,6 +147,39 @@ class ManualNewParentPreviewTests(unittest.TestCase):
         o["schema_version"] = True
         with self.assertRaisesRegex(ValueError, "envelope"):
             self.inspect(o)
+
+    def test_reject_ambiguous_spawn_identity_across_children(self):
+        for fixture in (private_observation, public_observation):
+            observation = fixture()
+            observation["children"][1]["spawn_transaction_id"] = (
+                observation["children"][0]["spawn_transaction_id"]
+            )
+            with self.subTest(kind=observation["source_kind"]), self.assertRaisesRegex(
+                ValueError, "duplicate spawn transaction"
+            ):
+                self.inspect(observation)
+
+    def test_reject_duplicate_public_claim_and_workflow_node(self):
+        for field in ("claim_id", "workflow_node_id"):
+            observation = public_observation()
+            observation["children"][1][field] = observation["children"][0][field]
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "duplicate semantic"):
+                self.inspect(observation)
+
+    def test_reject_malformed_semantic_ids(self):
+        for fixture, field, value, expected in (
+            (private_observation, "spawn_transaction_id", "spawn-1", "spawn transaction"),
+            (public_observation, "claim_id", "claim-1", "semantic claim"),
+            (public_observation, "spawn_transaction_id", "spawn-1", "spawn transaction"),
+        ):
+            observation = fixture()
+            observation["children"][0][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, expected):
+                self.inspect(observation)
+        observation = private_observation()
+        observation["dispatch_id"] = "fabric-1"
+        with self.assertRaisesRegex(ValueError, "workflow identities"):
+            self.inspect(observation)
 
     def test_reject_bad_workflow_identity(self):
         o = private_observation()
