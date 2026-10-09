@@ -24,6 +24,7 @@ class HistoryAPI(MemoryControlAPI):
     def __init__(self):
         super().__init__()
         self.truncated = False
+        self.wrong_tree_identity = False
         self.include_task = True
         self.include_result = True
         self.include_pending = False
@@ -58,7 +59,8 @@ class HistoryAPI(MemoryControlAPI):
                     "path": f".agent/tasks/{PREFIX}hidden.payload/private.txt",
                     "sha": "f" * 40, "type": "blob", "mode": "100644",
                 })
-            return {"truncated": self.truncated, "tree": items}
+            return {"sha": "c" * 40 if self.wrong_tree_identity else "b" * 40,
+                    "truncated": self.truncated, "tree": items}
         return super().request(method, path, body)
 
 
@@ -104,6 +106,7 @@ class AgentControlHistoryTests(unittest.TestCase):
             ({"unexpected_path": True}, "unexpected scoped path"),
             ({"wrong_tree_blob": True}, "pinned Git tree"),
             ({"truncated": True}, "incomplete"),
+            ({"wrong_tree_identity": True}, "incomplete"),
         ):
             api = HistoryAPI()
             for key, value in mutation.items():
