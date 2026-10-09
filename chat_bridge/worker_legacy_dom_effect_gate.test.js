@@ -61,6 +61,42 @@ async function run() {
         "spawn effect has no immediate guard: " + effect);
     }
   }
+  // This is only a cooperating-extension local latch inventory; a source
+  // assertion is not atomic browser-effect exclusion or old-worker proof.
+  const guards = [
+    ["worker_spawn.js", [
+      ["const response = await chrome.tabs.sendMessage(tabId, {", 1],
+      ["await chrome.tabs.update(tabId, {", 1],
+      ["await chrome.scripting.executeScript({", 1]
+    ]],
+    ["worker_spawn_result.js", [
+      ["return chrome.tabs.sendMessage(tab.id, message", 1],
+      ["await chrome.scripting.executeScript({", 1],
+      ["await chrome.tabs.remove(tab.id);", 1]
+    ]],
+    ["worker_spawn_route_transition.js", [
+      ["await chrome.scripting.executeScript({", 1],
+      ["const results = await chrome.scripting.executeScript({", 1]
+    ]],
+    ["worker_delivery.js", [
+      ["const executions = await chrome.scripting.executeScript({", 1],
+      ["chrome.tabs.sendMessage(tab.id, {", 1]
+    ]]
+  ];
+  for (const [file, sites] of guards) {
+    const source = fs.readFileSync(path.join(folder, file), "utf8");
+    for (const [effect, count] of sites) {
+      const segments = source.split(effect);
+      assert.equal(segments.length - 1, count,
+        file + ": unreviewed effect site count for " + effect);
+      for (const prefix of segments.slice(0, -1)) {
+        assert.ok(
+          prefix.slice(-450).includes("await requireLegacyConversationSpawnEffectAllowed();"),
+          file + ": missing nearby local deny read for " + effect
+        );
+      }
+    }
+  }
   assert.doesNotMatch(workerGate, /chrome\.tabs\.|chrome\.scripting\./);
   assert.doesNotMatch(workerGate, /fetch\s*\(|readToken|Authorization|github_first_send/i);
   console.log("Default-absent legacy DOM suspension seam: bounded deny tests PASS.");
