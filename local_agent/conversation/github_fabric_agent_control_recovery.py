@@ -106,6 +106,37 @@ def _task_digest(task: dict[str, Any]) -> str:
     ).encode("utf-8")).hexdigest()
 
 
+def _validate_scoped_task(
+    task: dict[str, Any], *,
+    task_id: str,
+    source_sha: str,
+    binding: str,
+    work_branch: str,
+) -> list[str]:
+    """Require an exact-head guarded, read-only, single-command task."""
+    commands = task.get("commands")
+    guard = (
+        'set -euo pipefail\n'
+        f'test "$(git rev-parse HEAD)" = "{source_sha}" || exit 3\n'
+        'test -z "$(git status --porcelain)" || exit 4\n'
+    )
+    if (
+        task.get("id") != task_id or task.get("agent_binding") != binding
+        or task.get("work_branch") != work_branch
+        or task.get("allow_write") is not False
+        or task.get("resources") != []
+        or task.get("mode") != "commands"
+        or type(commands) is not list or len(commands) != 1
+        or any(not isinstance(command, str) for command in commands)
+        or not commands[0].startswith(guard)
+        or any(field in task for field in (
+            "steps", "verify_steps", "patch", "writes", "deletes", "verify_commands",
+        ))
+    ):
+        raise ValueError("Agent-control task is outside read-only exact-head scope")
+    return commands
+
+
 def recover_agent_control_result(
     task_id: str, *,
     independently_pinned_control_sha: str,
@@ -163,26 +194,12 @@ def recover_agent_control_result(
         remote, f".agent/results/{task_id}.json",
         independently_pinned_control_sha, _RESULT_LIMIT,
     )
-    commands = task.get("commands")
-    guard = (
-        'set -euo pipefail\n'
-        f'test "$(git rev-parse HEAD)" = "{independently_pinned_source_sha}" || exit 3\n'
-        'test -z "$(git status --porcelain)" || exit 4\n'
+    commands = _validate_scoped_task(
+        task, task_id=task_id,
+        source_sha=independently_pinned_source_sha,
+        binding=expected_agent_binding,
+        work_branch=expected_work_branch,
     )
-    if (
-        task.get("id") != task_id or task.get("agent_binding") != expected_agent_binding
-        or task.get("work_branch") != expected_work_branch
-        or task.get("allow_write") is not False
-        or task.get("resources") != []
-        or task.get("mode") != "commands"
-        or type(commands) is not list or len(commands) != 1
-        or any(not isinstance(command, str) for command in commands)
-        or not commands[0].startswith(guard)
-        or any(field in task for field in (
-            "steps", "verify_steps", "patch", "writes", "deletes", "verify_commands",
-        ))
-    ):
-        raise ValueError("Agent-control task is outside read-only exact-head scope")
     digest = _task_digest(task)
     if (
         not isinstance(result.get("task_digest"), str)
