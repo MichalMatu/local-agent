@@ -24,6 +24,17 @@ The generated task is intentionally limited to:
 - Bounded timeout/memory policy and a single command compatible with the
   no-Bridge agent-control result recovery gate.
 
+For Mac hosts without test dependencies, a **separately acknowledged**
+isolated_test_dependencies_approved=True option plans a temporary Python
+3.13 virtual environment under the OS temporary directory. It uses exact
+pinned packages (MCP 2.2.0, Ruff 0.12.11, pytest 9.1.1, Hypothesis 6.168.3,
+pytest-cov 7.1.0 and Coverage 7.16.0), a cleanup trap and the isolated test
+lease-marker sanitizer. This option changes the stable task/dedupe identity
+and **may download packages when the operator later executes the plan**;
+the planner itself does not download or install anything. The active daemon's
+Python installation and global configuration are never changed by the plan.
+A missing package or blocked download is a failed/unverified test, not PASS.
+
 Any publication is a **separate authorized operator action** and must use
 the current canonical agent-control binding, current daemon state, valid
 task schema, and the same exact source SHA. A caller may not infer task
