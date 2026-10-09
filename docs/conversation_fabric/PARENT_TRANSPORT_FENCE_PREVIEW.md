@@ -10,8 +10,16 @@ driver from attempting the same semantic work.
 `github_fabric_parent_fence_preview.py` introduces a strictly bounded
 **planning** contract for the future common parent ownership seam. It
 projects the exact approved public synthetic operator/child fixture into a
-fixed `projects/local-agent/parents/<parent-id>.json` identity derived from
-the canonical ChatGPT parent URL and project ID.
+global `parents/<parent-id>.json` identity derived from
+only the canonical ChatGPT parent URL. The preview record still carries the
+fixed `project_id=local-agent` fixture provenance, but **project folders may
+not partition parent-mode exclusion**: one Superchat can supervise multiple
+projects and repositories.
+
+The parent-ID domain is shared across projects and is intentionally not
+scoped to any `project_id` or executable repository binding. This avoids
+issuing independent conflicting mode IDs to the same parent merely because
+its work spans Growclip, Shelly or Local Agent.
 
 Only two transport labels exist: `legacy_dom` and `github_first`.
 A parent may have at most one immutable preview record. A byte-identical
