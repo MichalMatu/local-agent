@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import unittest
+from unittest import mock
 
 from local_agent.conversation import github_fabric_github as git
 from local_agent.conversation import github_fabric_parent_fence_preview as preview
@@ -351,6 +352,27 @@ class PrivateParentFenceWriterTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 api.request(method, path)
         self.assertEqual(writer.MAX_ATTEMPTS, 6)
+
+    def test_private_rest_accepts_only_exact_noforce_ref_update(self):
+        adapter = private.PrivateFabricREST("synthetic-test-token")
+        with mock.patch.object(private, "build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value.read.return_value = (
+                b'{"ref":"refs/heads/fabric-data"}'
+            )
+            response = adapter.request(
+                "PATCH", private.REF_UPDATE_PATH,
+                {"sha": "a" * 40, "force": False},
+            )
+            self.assertEqual(response["ref"], "refs/heads/fabric-data")
+            opener.assert_called_once()
+            self.assertIsInstance(opener.call_args.args[0], private._NoRedirect)
+            request = opener.return_value.open.call_args.args[0]
+            self.assertEqual(request.get_method(), "PATCH")
+            self.assertEqual(request.full_url, private.API_ROOT + private.REF_UPDATE_PATH)
+            self.assertEqual(
+                json.loads(request.data),
+                {"sha": "a" * 40, "force": False},
+            )
 
     def test_private_rest_rejects_unsafe_ref_updates_before_network(self):
         api = private.PrivateFabricREST("synthetic-test-token")
