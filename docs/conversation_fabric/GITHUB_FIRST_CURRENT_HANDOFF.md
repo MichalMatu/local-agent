@@ -4,7 +4,64 @@
 All source SHAs and PR states below are **observations at handoff**, not locks;
 re-read GitHub before code edits, task publication or merge.
 
-## Latest current checkpoint — 2026-10-09
+## Current no-Bridge Milestone 8 continuation — 2026-10-09
+
+This section **supersedes the historical current checkpoint below**. Re-read
+GitHub immediately before edits, tests or any proposed merge; SHA values are
+observations, not permissions.
+
+- Repository `main` at this review: `76865cbc7d92861998e8e33a96193d95c120fe02`, unchanged by this
+  no-Bridge source track. All no-Bridge work is draft, stacked and unmerged.
+- Draft chain: **#243 -> #244 -> #245 -> #246 -> #247 -> #248 -> #249
+  -> #250 -> #251 -> #252 -> #253 -> #254 -> #255**. Latest reviewed
+  candidate is #255 head `ed2d656d373c7e223cc45038d3324f48e8be2763`,
+  stacked on #254 head `94f9b8cf07289fba46234c178ae64aa615aafe52`.
+  Do not merge a child before its exact parent lineage is checked.
+- These PRs add **manual, synthetic-only** separate-parent handoff,
+  bounded canonical manifests, GET-only public/private fixture recovery,
+  redacted GitHub `agent-control` task/result reconciliation and history,
+  deterministic **non-published** Local Agent test-task plans, and the
+  opt-in `python -m scripts.no_bridge_manual` operator CLI.
+- #254 adds an independently opted-in **anonymous public** pinned GitHub
+  task/status reader with no bearer token, a strict GET path allowlist and
+  bounded HTTP response. A real anonymous pinned read of one existing
+  PR253 Mac result succeeded; it conservatively marked a successful
+  truncated log as `reported_incomplete_evidence_for_review`. No raw log,
+  command payload, Send/ACK or retry was exposed/authorized.
+- #255 adds Git Commit API top-level SHA equality and rejects duplicate/
+  non-finite public JSON. As of this checkpoint, its exact-head focused,
+  full and real-read Mac verification tasks are **queued/not yet terminal**.
+  Do not claim PASS from queue status or from older ancestor tests.
+- Verified ancestor: #253 exact-head Mac full profile **1023 Python tests
+  PASS**, core branch coverage **83.7%**, compile/Ruff PASS, and focused
+  **83/83 PASS**. #254 focused **77/77 PASS** plus its real anonymous
+  GET-only smoke; full #254 Mac verification is pending terminal receipt.
+
+The canonical Mac execution binding is
+`2180d453-1357-4fbc-be1a-e1e5b8fbb10a`. Check it against the
+fresh repository catalog, `agent-control/.agent/binding.json`, and daemon
+status before any future **separately authorized** test publication. Verify
+tasks by exact head and a clean checkout. No task should touch the installed
+daemon or modify `main`.
+
+**Active safety gates:** Chat Bridge is unreliable and is not used for
+this work; do not delegate subchats or spend Codex/hosted Actions credits.
+Browser Send/ACK, automatic task replay, live private migration and same-parent
+transport takeover remain **disabled**. PR #209/#214/#239 and related
+legacy/global transport audits are unmerged. No GitHub CAS or JavaScript
+receipt can globally revoke an old/offline uncooperative Chrome extension;
+external effect-time exclusion and independent security/integration reviews
+are still required. Never substitute `operator_review_only`, a caller pin
+or a synthetic fixture for those proofs.
+
+Next source-only step: inspect exact-head Mac terminal receipts for #254/#255,
+fix regressions on **new drafts** without invalidating running tasks, and
+validate a bounded public read on #255. Keep the current chain draft until
+independent review and explicitly authorized production acceptance.
+
+---
+
+## Historical checkpoint — 2026-10-09 (superseded by current continuation above)
 
 This checkpoint supersedes the historical SHA snapshots and old mandatory
 six-job hosted-CI wording below. GitHub Actions are disabled for automatic
