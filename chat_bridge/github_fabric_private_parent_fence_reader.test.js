@@ -177,6 +177,23 @@ async function run() {
   const symlink = await fixture();
   symlink.state.tree.tree[2].mode = "120000";
   await assert.rejects(read(symlink), /unexpected or duplicate/);
+  const missingParentRoot = await fixture();
+  missingParentRoot.state.tree.tree.shift();
+  await assert.rejects(read(missingParentRoot), /root missing from tree/);
+  const duplicateParentRoot = await fixture();
+  duplicateParentRoot.state.tree.tree.unshift({
+    ...duplicateParentRoot.state.tree.tree[0]
+  });
+  await assert.rejects(read(duplicateParentRoot), /root invalid or duplicated/);
+  const parentRootSymlink = await fixture();
+  parentRootSymlink.state.tree.tree[0].mode = "120000";
+  await assert.rejects(read(parentRootSymlink), /root invalid or duplicated/);
+  const parentRootInvalidSha = await fixture();
+  parentRootInvalidSha.state.tree.tree[0].sha = "malformed";
+  await assert.rejects(read(parentRootInvalidSha), /root invalid or duplicated/);
+  const parentRootWrongType = await fixture();
+  parentRootWrongType.state.tree.tree[0].type = "blob";
+  await assert.rejects(read(parentRootWrongType), /root invalid or duplicated/);
   const truncated = await fixture();
   truncated.state.tree.truncated = true;
   await assert.rejects(read(truncated), /origin tree incomplete/);
