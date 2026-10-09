@@ -62,7 +62,7 @@ class GithubCliReadOnlyAdapter:
             completed = self._run(
                 argv, capture_output=True, timeout=25, check=False,
             )
-        except (subprocess.TimeoutExpired, OSError) as exc:
+        except (subprocess.TimeoutExpired, OSError):
             raise RuntimeError("Private synthetic read transport unavailable") from None
         # Deliberately discard stderr: error messages from a local CLI are not
         # trusted to be safe for logs and can contain credential-bearing URLs.
@@ -73,7 +73,7 @@ class GithubCliReadOnlyAdapter:
             raise ValueError("Private synthetic GitHub response violates byte bound")
         try:
             result = json.loads(stdout.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except (UnicodeDecodeError, json.JSONDecodeError):
             raise ValueError("Private synthetic GitHub read returned malformed JSON") from None
         if not isinstance(result, dict):
             raise ValueError("Private synthetic GitHub response must be an object")
