@@ -20,6 +20,35 @@ For each result, retain task ID, branch, source SHA, command, exit status,
 bounded output and runtime/tool versions under the repository's durable
 `.agent/results/` contract. An absent/timeout/unconfirmed result is not PASS.
 
+## Single-command local verification gate
+
+`scripts/verify_local.py` is a **source-only local test launcher**. It
+requires an exact lowercase `--expected-sha`, rejects dirty/mismatched
+checkouts, checks local dependencies *before* starting a full suite,
+reports actual per-stage exit codes and stops at the first failure. It
+does not install packages, download browsers, change runtime settings or
+contact GitHub Actions.
+
+```bash
+python scripts/verify_local.py --expected-sha "$(git rev-parse HEAD)" --profile core
+python scripts/verify_local.py --expected-sha "$(git rev-parse HEAD)" --profile full
+```
+
+The full profile includes macOS smoke, Host Ops architecture/design,
+Host Ops coverage and core branch coverage. Include the optional
+`--include-browser` or `--include-python314` only when their actual
+runtime prerequisites are available; unexecuted optional stages are
+**unverified**, not PASS. For an isolated temporary Node installation,
+set `LOCAL_AGENT_PLAYWRIGHT_MODULE` to the exact absolute Playwright package
+path (such as `/tmp/test-node/node_modules/playwright`): the preflight and
+browser harness both resolve that same module. The Chromium executable still
+must be available to Playwright; a package import passing is not a browser
+installation test. The `--sanitize-test-lease-markers` option
+exists only for isolated testing of subprocess fixtures under an
+already-authorized worker: it does not modify the daemon environment
+and must not be used to launch production tasks. Test output is captured
+in the Local Agent task result or normal shell transcript.
+
 ## Local acceptance matrix
 
 Run each relevant group on the *same exact candidate head*, using
@@ -39,6 +68,39 @@ An unavailable interpreter, Playwright, or host permission is recorded as
 | Python 3.14 compatibility | Run `python3.14 scripts/verify.py --only tests` **only if installed** and dependencies available; otherwise mark unverified |
 | Changed feature regression | Exact negative/restart/race tests affected by the diff (e.g. parent-fence Python and private reader JS) |
 | Operator/browser acceptance | Real authenticated extension tests only with explicit operator authority, separate from isolated fixture test PASS |
+
+### Mac Python test interpreter and inherited-leases diagnostic
+
+A Mac Local Agent may execute commands using its preexisting PlatformIO Python
+environment, which need not have the project's optional test dependencies.
+On the observed 2026-10-09 Mac, the selected
+`~/.platformio/penv/bin/python` (Python 3.13) had Ruff but **not** the
+required MCP 2.2 SDK, `httpx2`, pytest, or coverage. A broad unittest run
+in that environment produced misleading secondary import failures; the
+source itself did not justify replacing MCP 2's `httpx2` with `httpx`.
+
+Before a full test run, inspect the **selected interpreter** with
+`python -m pip show mcp httpx2 pytest pytest-cov coverage ruff` (or
+`importlib.metadata`). Prefer a short-lived, private temporary venv outside
+the installed daemon checkout, using the repository-pinned
+`requirements-runtime.txt` plus explicit test pins. Do not install into,
+replace, update, stop, or restart the active daemon's Python environment.
+If local packages cannot be installed, mark the affected suites unverified.
+
+A normal Local Agent command runs with live inherited execution/resource
+lease environment markers. Do not clear or override those markers for
+**production commands**: they preserve the no-overlap execution contract.
+Python unit tests spawn *their own* subprocesses with descriptor-closing
+defaults, so inheriting stale `LOCAL_AGENT_LEASE_FDS` text can fail unrelated
+temporary supervisor fixtures with `closed execution lease descriptor`.
+Run full subprocess-based tests from an ordinary isolated Mac shell without
+inherited daemon lease markers where possible. If using a bounded Local Agent
+test task, isolate only the hermetic test subprocess environment while keeping
+the worker's actual OS leases active; never allow the workaround to become
+production command-launch policy. An unknown or still-running older holder of
+a `machine` resource is a **wait**, not a stale lock to force-release.
+Pure source verification normally declares `resources: []`; reserve
+`machine` for tasks that actually require whole-machine exclusivity.
 
 Python `pytest`, `pytest-cov`, `coverage`, `ruff` and Playwright must already be
 locally available or installed by an explicitly authorized, bounded setup.
