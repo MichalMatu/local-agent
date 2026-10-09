@@ -4,6 +4,51 @@
 All source SHAs and PR states below are **observations at handoff**, not locks;
 re-read GitHub before code edits, task publication or merge.
 
+## Latest continuation recheck — 2026-10-09, after PR #226
+
+This section records a **read-only audit**, not live browser/Mac acceptance and
+not permission to publish an executable task. All refs must be re-read before
+further code changes.
+
+- **PR #226 merged**, squash `b67ad098edb0a7a1acd2d3fed32a77480c99ddd0`, after the exact-head
+  `377f7ce89ed1623759e0cb9aa69081ffd8f72f41` workflow completed
+  all six required CI jobs successfully. It preserves the current ordinary
+  Superchat/legacy DOM flow and adds a manual-only next-window prompt.
+- Private `fabric-data` remained at
+  `b834209d99f088e093d503632717ae0aaeafbf7f` with no `parents/`
+  tree entries on the inspected snapshot. No new private synthetic parent
+  record, real Send, ACK, or result was published by this review.
+- The observed `agent-control` status at branch
+  `c5c4f9603a87064c26cfb41d66dabf31dee4f575` was `idle`,
+  self-revision `186ad66480d884670e7043edd7fca340dca2eb9f`,
+  binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; that was an
+  observation **before** the #226 merge and is not proof of current Mac health.
+  The corresponding `.agent/binding.json` and the `local-agent` entry of
+  `chat_bridge/runtime.json` matched this binding at inspection.
+- **Catalog inconsistency for separate investigation:** the current
+  `chat-bridge-state` runtime catalog still lists the frozen donor
+  `MichalMatu/host-ops` with `execution_enabled=true`, contrary to the
+  canonical execution boundary in `AGENTS.md`. Do not execute or route
+  tasks there. Resolve the actual authoritative runtime registry and
+  migration status before touching catalog flags or changing bindings.
+- Draft #209 remained source-only and fixture-limited on head
+  `bf867e5d433cfdb0ebefccd0ec3ba8bf9c6e1e20`; stacked draft #214
+  remained at `9e64517bdb4f5f1ddce20ef0e1758a9f3dd5af22`.
+  Both exact-head workflow runs completed successfully, but the two earlier
+  delegated **independent** security/integration review responses were not
+  evidenced in PR reviews/threads. Do not invent them, re-delegate blindly,
+  or merge either draft based on CI alone.
+- **#214 review gap:** the trusted Python CAS origin reader checks
+  parent-tree paths but does not verify Contents decoded blob bytes against
+  the tree entry SHA. The separate JS private parent reader performs that
+  check. Add negative tree/Contents mismatch tests and source digest parity
+  before promoting this source snapshot to security-sensitive authority.
+  Recorded in [#214 review comment](https://github.com/MichalMatu/local-agent/pull/214#issuecomment-6073474628).
+  The current old DOM path is not globally fenced by this synthetic preview.
+- #195 remains a deferred successor roadmap PR, and #227 is a separate
+  open draft concerning operator launch recovery. Do not conflate their
+  readiness with Milestone 8 GitHub-first production acceptance.
+
 ## 1. Goal and authority
 
 Product target: a Superchat on desktop/phone can explicitly rehydrate an
@@ -38,7 +83,7 @@ children that gain independent authority.
 
 | Surface | Handoff observation |
 | --- | --- |
-| Public code repo | `MichalMatu/local-agent`, `main@186ad66480d884670e7043edd7fca340dca2eb9f` |
+| Public code repo | `MichalMatu/local-agent`, `main@b67ad098edb0a7a1acd2d3fed32a77480c99ddd0` |
 | Private data repo | `MichalMatu/local-agent-fabric-private`, `fabric-data@b834209d99f088e093d503632717ae0aaeafbf7f` |
 | Local Agent | `agent-control` daemon `idle` at recheck; observed self revision `a1ba2be840098a727e9de06323ae8625955a6e1e` (may lag latest `main`; re-check) |
 | Canonical executable catalog entry | `local-agent` / `MichalMatu/local-agent`, execution enabled, binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; **re-check, do not hard-code** |
