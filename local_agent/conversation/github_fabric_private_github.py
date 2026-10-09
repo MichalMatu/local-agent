@@ -46,13 +46,18 @@ class PrivateFabricREST(git.GitHubFabricREST):
         parent_tree_read = method == "GET" and re.fullmatch(
             r"/git/trees/[0-9a-f]{40}\?recursive=1", path
         )
-        if not (
-            path in {REF_PATH, REF_UPDATE_PATH, "/git/blobs", "/git/trees", "/git/commits"}
-            or path.startswith("/git/commits/")
-            or path.startswith("/contents/projects/")
-            or parent_read or parent_tree_read
-        ):
-            raise ValueError("Private Fabric GitHub path outside allowed namespace")
+        allowed = (
+            method == "GET" and (
+                path == REF_PATH
+                or path.startswith("/git/commits/")
+                or path.startswith("/contents/projects/")
+                or parent_read or parent_tree_read
+            )
+        ) or (method == "POST" and path in {
+            "/git/blobs", "/git/trees", "/git/commits",
+        }) or (method == "PATCH" and path == REF_UPDATE_PATH)
+        if not allowed:
+            raise ValueError("Private Fabric GitHub method/path outside allowed namespace")
         payload = None if body is None else json.dumps(
             body, ensure_ascii=False, sort_keys=True, allow_nan=False
         ).encode("utf-8")
