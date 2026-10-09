@@ -15,8 +15,8 @@ Chat Bridge is a browser effects/observation driver. Child chats reason only.
 A Chat Bridge `[LA_CHAT=...]` label is **transport/scheduling only**, not a
 repository execution binding. Resolve the **current** conversation's own
 `conversation_controls` record; never reuse a predecessor chat ID or its
-scheduling generation as authority in a resumed or cross-device session. Executable Local Agent tasks MUST be published
-only to the canonical target repository with the exact
+scheduling generation as authority in a resumed or cross-device session.
+Executable Local Agent tasks MUST be published only to the canonical target repository with the exact
 `chat_bridge/runtime.json` catalog `agent_binding` after checking
 `execution_enabled`, the `agent-control` daemon record, and an exact source
 head. Never issue tasks for an execution-disabled repository.
@@ -30,18 +30,22 @@ Do not use legacy LAB add/rebind/schedule markers for ordinary Superchat flow.
 
 | Surface | Handoff observation |
 | --- | --- |
-| Public code repo | `MichalMatu/local-agent`, `main@26469ee634da02941f8fd10225e5c719013ee32c` |
+| Public code repo | `MichalMatu/local-agent`, `main@11c3fa49c86ae2849f0ceaa68aa968f8a5cdb3ef` |
 | Private data repo | `MichalMatu/local-agent-fabric-private`, `fabric-data@b834209d99f088e093d503632717ae0aaeafbf7f` |
-| Local Agent | `agent-control` daemon `idle`; self revision matches the above `main`; last heartbeat `2026-10-09T00:33:40.248800+00:00` |
+| Local Agent | `agent-control` daemon `idle` at recheck; observed self revision `a1ba2be840098a727e9de06323ae8625955a6e1e` (may lag latest `main`; re-check) |
 | Canonical executable catalog entry | `local-agent` / `MichalMatu/local-agent`, execution enabled, binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; **re-check, do not hard-code** |
 | GitHub-first production flag | `github_fabric_read_only_intake_enabled` absent from remote runtime; treated as disabled |
 | PR #209 | **OPEN / DRAFT**, head `bf867e5d433cfdb0ebefccd0ec3ba8bf9c6e1e20`; 6/6 checks green on exact head, not yet merged |
 | PR #195 | **OPEN** older independent Superchat-to-Superchat roadmap documentation; head `9d88b5554527687439e23b6703307e262b0362f7`, base differs from current `main`; inspect before any merge, do not treat as delivered cross-chat continuity |
 | PR #210 | **MERGED**, authenticated GET-only private synthetic recovery smoke |
 | PR #211 | **MERGED**, pinned index-only private multi-project catalog reader |
-| PR #212 | **MERGED**, authenticated GET-only private project catalog CLI smoke; latest `main` above |
+| PR #212 | **MERGED**, authenticated GET-only private project catalog CLI smoke |
+| PR #213 | **MERGED**, canonical GitHub-first handoff (squash `8aacbac7673206c98ad866f1425e03f5796b932c`) |
+| PR #215 | **MERGED**, predecessor-chat-independent handoff control rule (squash `a1ba2be840098a727e9de06323ae8625955a6e1e`) |
+| PR #214 | **OPEN / DRAFT**, stacked on PR #209; synthetic-only trusted private global parent CAS, head `9e64517bdb4f5f1ddce20ef0e1758a9f3dd5af22`; six exact-head CI checks and Mac focused tests passed; not merged |
+| PR #216 | **MERGED**, default-disabled unimported source-pinned private global parent reader, squash `11c3fa49c86ae2849f0ceaa68aa968f8a5cdb3ef`; exact-head six CI checks and Mac Bridge suite passed |
 
-Two reasoning-only child reviews were delegated in the preceding Chat Bridge
+Two reasoning-only child reviews were delegated in an earlier Chat Bridge
 parent conversation: `m8-parent-fence-verification` (security/correctness)
 and `m8-parent-fence-integration` (DOM/GitHub integration seams). Their
 actual final responses were **not present in this handoff context**.
@@ -54,7 +58,7 @@ inspect its latest diff, and verify mergeability against current `main`.
 
 ## 3. What is proved versus what is not
 
-**Proved with real GitHub/Local Agent evidence:**
+**Proved with real GitHub/Local Agent evidence (synthetic only):**
 
 - A fixed, known-public *synthetic* dispatch was published to the private
   `fabric-data` branch, record first, dispatch index second, workflow index
@@ -71,6 +75,16 @@ inspect its latest diff, and verify mergeability against current `main`.
   `python -m local_agent.conversation.github_fabric_private_live_smoke
   --verify-private-synthetic-read` command; #212 adds the project catalog
   live read smoke. They do **not** grant browser Send rights.
+- PR #214 has an unmerged atomic parent record+index CAS implementation on a
+  stacked draft branch; deterministic fake GitHub race/replay/corruption
+  tests and exact-head Mac checks passed. This is *not* real private fence
+  publication or production exclusion.
+- PR #216 added a production-unimported, default-disabled authenticated
+  reader of an immutable private parent index and all records; fake network
+  tests, exact-head Mac Bridge suite and six GitHub CI checks passed. The
+  reader always returns `browser_effects_permitted=false`.
+- The last read-only private `fabric-data` check still found **zero**
+  `parents/` paths; no real parent record has been published.
 - Existing DOM-based child delegation in normal Chrome has separate
   previously accepted 1/1 and 3/3 campaign evidence in
   `CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md`.
@@ -122,6 +136,8 @@ have been authorized in this private repository.
 | Private dispatch cold recovery | `github_fabric_private_recovery.py`, `github_fabric_private_live_smoke.py`, `PRIVATE_SYNTHETIC_RECOVERY.md` |
 | Project/workflow index-only discovery | `github_fabric_private_catalog.py`, `PRIVATE_GITHUB_READ_TRANSPORT.md` |
 | Parent exclusion *preview* | PR #209 `github_fabric_parent_fence_preview.py`, `PARENT_TRANSPORT_FENCE_PREVIEW.md` |
+| Parent synthetic private CAS | PR #214 `github_fabric_parent_fence_private_github.py`, `PARENT_TRANSPORT_FENCE_PRIVATE_CAS.md` (**draft**, not merged) |
+| Unimported private parent reader | `chat_bridge/github_fabric_private_parent_fence_reader.js`, `PARENT_TRANSPORT_FENCE_PRIVATE_READER.md` (**merged**, always no Send authority) |
 | Legacy browser Send/claim and results | `chat_bridge/worker_conversation_fabric.js`, `worker_spawn*.js`, `spawn_result_content.js` |
 | Inactive browser GitHub intake | `chat_bridge/worker_github_fabric_intake.js`, `github_fabric_private_transport.js` |
 | Target product rules | `TARGET_PRODUCT_ARCHITECTURE.md`; repository-wide invariants `AGENTS.md` |
@@ -137,12 +153,14 @@ have been authorized in this private repository.
    head focused tests via canonical Local Agent and all six CI jobs; merge
    only after passing review and GitHub mergeability. Otherwise leave draft
    and explain blocker.
-3. Next independent slice: default-disabled **trusted private CAS writer**
-   for synthetic-only global parent preview record plus bounded index,
-   atomic in one Git commit. Same source/ID replay must write zero commits.
-   Reject stale refs, dangling/orphan records, mode conflicts, forged
-   Send/ACK, unknown/private user content and ambiguous write outcomes.
-4. Only subsequently design/implement both transport consumers agreeing
+3. Review the separate PR #214 implementation for synthetic-only private CAS.
+   It has atomic parent record+index commits, pinned complete-tree reads,
+   race tests and strict zero-write replay. **Do not merge the stacked draft**
+   before PR #209's outstanding review gate is resolved, then revalidate
+   its base and six CI checks. No real private parent publication occurred.
+4. The browser reader is already merged in PR #216, but it is unimported
+   and always denies side-effect authority. Next design/implement **both**
+   transport consumers agreeing
    on one authoritative mode/epoch before any side effect. An old/offline
    Chrome version that does not honor fencing is a migration blocker; a
    timeout or missing ACK never grants a takeover.
@@ -161,7 +179,7 @@ merge. Do not change Bridge Master or any production GitHub-first setting.
 ## 7. One clear document entrypoint
 
 Read `AGENTS.md`, this file, `TARGET_PRODUCT_ARCHITECTURE.md`,
-`CURRENT_PLAN.md`, then inspect fresh GitHub refs/PR #209 and the concrete
+`CURRENT_PLAN.md`, then inspect fresh GitHub refs/PRs #209 and #214 and the concrete
 source files for the next task. The earlier
 `GITHUB_FIRST_IMPLEMENTATION_HANDOFF.md` describes the *pre-publisher*
 2026-10-08 snapshot and is historical, not current instructions. The older
