@@ -12,10 +12,15 @@
 > Independent PR reviews for #209/#214/#239 were empty. Local Agent
 > `agent-control/.agent/status/daemon.json` reported idle, binding
 > `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`, at
-> `2026-10-09T08:16:14Z` (snapshot only). Exact-head new audit tests must
-> be recorded separately before this candidate can be considered verified.
-> Do not activate GitHub-first Send/ACK, modify global Bridge Master,
-> merge these PRs or restart the daemon based on this document.
+> `2026-10-09T08:16:14Z` (snapshot only). The first audit head
+> `f5c72ce0` passed exact-head Mac task
+> `local-agent-m8-global-admission-audit-mac-20261009-v2` (Bridge Node
+> suite, Node 26.3.0, Python 3.13.9, exit 0). A prior test syntax error
+> in v1 was corrected. The *later* evidence-continuity and browser-effect
+> inventory changes require their **own exact-head** verification.
+> Independent reviews, cross-device tests and global legacy exclusion remain
+> unverified. Do not activate GitHub-first Send/ACK, modify global Bridge
+> Master, merge these PRs or restart the daemon based on this document.
 
 
 **Updated: 2026-10-09. Canonical continuation entrypoint for this track.**
