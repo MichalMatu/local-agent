@@ -106,8 +106,9 @@ effect above, including the **actual page-side submit** and parent terminal
 feedback, before new-mode admission is even considered.
 
 Source-only snapshot continuity now flags missing previously declared
-workers, lost effect records, effect identity rewrites, changes to terminal
-receipts, unknown outcomes relabeled as success, in-flight effects reset to
+workers, lost effect records, effect identity rewrites, previously observed
+retirement receipts erased or changed, changes to terminal receipts, unknown
+outcomes relabeled as success, in-flight effects reset to
 prepared, and unverifiable retirement receipts. These diagnostics are
 conservative and always return `blocked`, even if evidence is complete.
 They do not attest actual browser side effects or revoke old sessions.
