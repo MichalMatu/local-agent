@@ -101,7 +101,7 @@ class NoBridgeOperatorCLITests(unittest.TestCase):
         self.assertFalse(payload["task"]["allow_write"])
         self.assertIn(HEAD, payload["task"]["commands"][0])
         self.assertNotIn("pip install", payload["task"]["commands"][0])
-        self.assertIn("sha", payload["task_digest"][:0] + "sha")
+        self.assertEqual(len(payload["task_digest"]), 64)
 
     def test_separate_isolated_setup_requires_an_explicit_flag(self):
         args = [
