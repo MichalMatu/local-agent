@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import unittest
 
 from local_agent.conversation import github_fabric_agent_control_index as index
 from tests.test_github_fabric_agent_control_recovery import (
-    BINDING, BRANCH, CONTROL_SHA, SOURCE_SHA, TASK_ID, MemoryControlAPI,
+    BINDING, BRANCH, CONTROL_SHA, SOURCE_SHA, TASK_ID, MemoryControlAPI, _task,
 )
 
 PREFIX = "local-agent-m8-"
@@ -31,6 +32,8 @@ class HistoryAPI(MemoryControlAPI):
         self.duplicate_task = False
         self.wrong_tree_blob = False
         self.unexpected_path = False
+        self.pending_task = _task()
+        self.pending_task["id"] = PENDING
 
     def request(self, method, path, body=None):
         if path == f"/git/trees/{'b' * 40}?recursive=1":
@@ -50,7 +53,7 @@ class HistoryAPI(MemoryControlAPI):
             if self.include_pending:
                 items.append({
                     "path": f".agent/tasks/{PENDING}.json",
-                    "sha": "c" * 40, "type": "blob", "mode": "100644",
+                    "sha": _sha(self.pending_task), "type": "blob", "mode": "100644",
                 })
             if self.duplicate_task:
                 items.append(dict(items[0]))
@@ -61,6 +64,13 @@ class HistoryAPI(MemoryControlAPI):
                 })
             return {"sha": "c" * 40 if self.wrong_tree_identity else "b" * 40,
                     "truncated": self.truncated, "tree": items}
+        if path == f"/contents/.agent/tasks/{PENDING}.json?ref={CONTROL_SHA}":
+            self.operations.append((method, path, body))
+            raw = json.dumps(self.pending_task, sort_keys=True, separators=(",", ":")).encode()
+            return {
+                "type": "file", "encoding": "base64", "size": len(raw),
+                "content": base64.b64encode(raw).decode(), "sha": _sha(self.pending_task),
+            }
         return super().request(method, path, body)
 
 
@@ -98,6 +108,16 @@ class AgentControlHistoryTests(unittest.TestCase):
         self.assertEqual(report.unconfirmed_task_ids, (PENDING,))
         self.assertEqual(len(report.result_observations), 1)
         self.assertFalse(report.can_retry)
+
+    def test_unconfirmed_task_with_wrong_work_branch_or_binding_is_not_accepted(self):
+        for key, value in (("work_branch", "work/other-repository"),
+                           ("agent_binding", "00000000-0000-4000-8000-000000000000"),
+                           ("commands", ["echo no source guard"])):
+            api = HistoryAPI()
+            api.include_pending = True
+            api.pending_task[key] = value
+            with self.subTest(field=key), self.assertRaisesRegex(ValueError, "outside read-only"):
+                self.inspect(api)
 
     def test_orphan_result_and_conflicting_paths_are_rejected(self):
         for mutation, expected in (
