@@ -28,7 +28,10 @@ fully retained reported_pass_for_review. The user may inspect the separately
 retained durable result to establish the precise limitation.
 
 The JSON response contains only selected task IDs, commit/work-branch
-identities, reported review outcomes and deny-only booleans. Raw command
+identities, reported review outcomes and deny-only booleans. The field
+write_disabled_in_task_record means exactly that the recorded task declared
+allow_write=false; command_effects_independently_verified is permanently
+false. A shell command's actual effects cannot be inferred from a task flag. Raw command
 output, task command bodies, environment values and GitHub tokens are never
 returned. A task result remains a *reported repository artifact*, not a
 cryptographic attestation of actual Mac execution.
