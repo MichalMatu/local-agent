@@ -311,6 +311,12 @@ class PrivateParentFenceWriterTests(unittest.TestCase):
             ("POST", "/git/trees/" + "a" * 40 + "?recursive=1"),
             ("POST", "/contents/projects/local-agent/index.json?ref=" + "a" * 40),
             ("GET", "/git/refs/heads/fabric-data"),
+            ("GET", "/git/commits/not-a-sha"),
+            ("GET", "/git/commits/" + "a" * 40 + "?ref=main"),
+            ("GET", "/contents/projects/secret.json?ref=" + "a" * 40),
+            ("GET", "/contents/projects/index.json?ref=main"),
+            ("GET", "/contents/projects/local-agent/workflows/workflow-001/"
+                "dispatches/fabric-" + "a" * 32 + ".json?ref=main"),
         ):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 api.request(method, path)
