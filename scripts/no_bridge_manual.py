@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from local_agent.conversation import github_fabric_manual_handoff as handoff
+from local_agent.conversation import github_fabric_agent_control_index as history
 from local_agent.conversation import github_fabric_manual_new_parent as manual
 from local_agent.conversation import github_fabric_no_bridge_task_plan as planner
 
@@ -83,6 +84,14 @@ def _parser() -> argparse.ArgumentParser:
     verified.add_argument("--destination-parent-url", required=True)
     verified.add_argument("--allow-readonly-network", action="store_true")
 
+    status = commands.add_parser("status-github")
+    status.add_argument("--task-id-prefix", required=True)
+    status.add_argument("--pinned-control-sha", required=True)
+    status.add_argument("--pinned-source-sha", required=True)
+    status.add_argument("--agent-binding", required=True)
+    status.add_argument("--work-branch", required=True)
+    status.add_argument("--allow-readonly-network", action="store_true")
+
     planned = commands.add_parser("plan-test")
     planned.add_argument("--job-id", required=True)
     planned.add_argument("--source-sha", required=True)
@@ -131,6 +140,21 @@ def _execute(args: argparse.Namespace) -> str:
             enabled=True, token=token,
         )
         return json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))
+    if args.action == "status-github":
+        if args.allow_readonly_network is not True:
+            raise PermissionError("GitHub task history lookup requires explicit opt-in")
+        token = os.environ.get("LOCAL_AGENT_FABRIC_GITHUB_TOKEN")
+        if not token:
+            raise PermissionError("GitHub task history token unavailable")
+        found = history.discover_agent_control_results(
+            task_id_prefix=args.task_id_prefix,
+            independently_pinned_control_sha=args.pinned_control_sha,
+            independently_pinned_source_sha=args.pinned_source_sha,
+            expected_agent_binding=args.agent_binding,
+            expected_work_branch=args.work_branch,
+            enabled=True, token=token,
+        )
+        return json.dumps(asdict(found), sort_keys=True, separators=(",", ":"))
     if args.action == "plan-test":
         candidate = planner.plan_no_bridge_source_test(
             task_job_id=args.job_id,
