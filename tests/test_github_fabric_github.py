@@ -253,6 +253,20 @@ class GithubFabricTrustedWriterTests(unittest.TestCase):
             self.assertEqual(sent.get_header("Authorization"),
                              "Bearer synthetic-secret-token")
 
+    def test_public_rest_rejects_unsafe_ref_payloads(self):
+        api = publisher.GitHubFabricREST("synthetic-test-token")
+        with mock.patch.object(publisher, "build_opener") as opener:
+            for payload in (
+                None, {}, {"sha": "a" * 40, "force": True},
+                {"sha": "a" * 40, "force": 0},
+                {"sha": "bad", "force": False},
+                {"sha": ["a" * 40], "force": False},
+                {"sha": "a" * 40, "force": False, "extra": True},
+            ):
+                with self.subTest(payload=payload), self.assertRaises(ValueError):
+                    api.request("PATCH", publisher.GITHUB_REF_UPDATE_PATH, payload)
+            opener.assert_not_called()
+
     def test_publisher_rejects_invalid_header_token(self):
         for token in ("", "token\r\nBearer evil", " token", "token ", "tok\nen"):
             with self.subTest(token=token), self.assertRaises(PermissionError):

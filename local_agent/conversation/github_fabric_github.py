@@ -72,6 +72,15 @@ class GitHubFabricREST:
             raise ValueError("GitHub Fabric API request is invalid")
         if "//" in path or ".." in path:
             raise ValueError("GitHub Fabric API path is invalid")
+        if method == "GET" and body is not None:
+            raise ValueError("GitHub Fabric GET cannot carry a body")
+        if method == "PATCH":
+            if (path != GITHUB_REF_UPDATE_PATH or not isinstance(body, dict)
+                    or set(body) != {"sha", "force"} or body["force"] is not False):
+                raise ValueError("GitHub Fabric ref update requires force=false")
+            _require_sha(body["sha"], label="ref update")
+        if method == "POST" and not isinstance(body, dict):
+            raise ValueError("GitHub Fabric POST requires an object body")
         data = None if body is None else json.dumps(
             body, ensure_ascii=False, sort_keys=True, allow_nan=False
         ).encode("utf-8")
