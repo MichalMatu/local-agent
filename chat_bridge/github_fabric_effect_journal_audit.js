@@ -33,12 +33,16 @@
       "worker_id", "transport", "epoch", "kind", "request_digest", "phase"
     ]) &&
       Number.isSafeInteger(event.sequence) && event.sequence >= 1 &&
-      SHA256_RE.test(event.previous_digest) && SHA256_RE.test(event.digest) &&
-      PARENT_RE.test(event.parent_id) &&
-      ID_RE.test(event.effect_id) && ID_RE.test(event.worker_id) &&
+      typeof event.previous_digest === "string" && SHA256_RE.test(event.previous_digest) &&
+      typeof event.digest === "string" && SHA256_RE.test(event.digest) &&
+      typeof event.parent_id === "string" && PARENT_RE.test(event.parent_id) &&
+      typeof event.effect_id === "string" && ID_RE.test(event.effect_id) &&
+      typeof event.worker_id === "string" && ID_RE.test(event.worker_id) &&
+      typeof event.transport === "string" &&
       ["legacy_dom", "github_first"].includes(event.transport) &&
-      validEpoch(event.epoch) && KINDS.has(event.kind) &&
-      SHA256_RE.test(event.request_digest) && PHASES.has(event.phase);
+      validEpoch(event.epoch) && typeof event.kind === "string" && KINDS.has(event.kind) &&
+      typeof event.request_digest === "string" && SHA256_RE.test(event.request_digest) &&
+      typeof event.phase === "string" && PHASES.has(event.phase);
   }
 
   function canonicalEvent(event) {
@@ -65,10 +69,15 @@
   }
 
   async function inspectEffectJournal(journal) {
-    if (!exactKeys(journal, ["schema_version", "parent_id", "fence_epoch", "events"]) ||
-        journal.schema_version !== 1 || !PARENT_RE.test(journal.parent_id) ||
-        !validEpoch(journal.fence_epoch) || !Array.isArray(journal.events) ||
-        journal.events.length > MAX_EVENTS) {
+    if (!exactKeys(journal, ["schema_version", "parent_id", "fence_epoch", "expected_event_count", "expected_head_digest", "events"]) ||
+        journal.schema_version !== 1 || typeof journal.parent_id !== "string" ||
+        !PARENT_RE.test(journal.parent_id) || !validEpoch(journal.fence_epoch) ||
+        !Number.isSafeInteger(journal.expected_event_count) ||
+        journal.expected_event_count < 0 || journal.expected_event_count > MAX_EVENTS ||
+        typeof journal.expected_head_digest !== "string" ||
+        !SHA256_RE.test(journal.expected_head_digest) ||
+        !Array.isArray(journal.events) ||
+        journal.events.length !== journal.expected_event_count) {
       throw new Error("Effect journal envelope invalid");
     }
     const states = new Map();
@@ -111,6 +120,10 @@
         existing.phase = event.phase;
       }
       previousDigest = event.digest;
+    }
+
+    if (previousDigest !== journal.expected_head_digest) {
+      throw new Error("Effect journal anchored head digest mismatch");
     }
 
     const effects = Object.freeze(Array.from(states.values(), state => Object.freeze({
