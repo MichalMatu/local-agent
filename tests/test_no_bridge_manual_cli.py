@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from local_agent.conversation import github_fabric_manual_handoff as handoff
+from local_agent.conversation import github_fabric_agent_control_index as history
 from local_agent.conversation import github_fabric_manual_new_parent as previewer
 from scripts import no_bridge_manual as cli
 from tests.test_github_fabric_manual_new_parent import DEST, private_observation
@@ -167,6 +168,60 @@ class NoBridgeOperatorCLITests(unittest.TestCase):
                 kwargs = verifier.call_args.kwargs
                 self.assertTrue(kwargs["enabled"])
                 self.assertEqual(kwargs["token"], "PRIVATE_TEST_TOKEN")
+
+    def test_status_github_opt_in_returns_only_redacted_review(self):
+        args = [
+            "status-github",
+            "--task-id-prefix", "local-agent-m8-pr248",
+            "--pinned-control-sha", "b" * 40,
+            "--pinned-source-sha", HEAD,
+            "--agent-binding", BINDING,
+            "--work-branch", BRANCH,
+        ]
+        view = history.AgentControlReadOnlyHistory(
+            control_commit_sha="b" * 40,
+            source_commit_sha=HEAD,
+            expected_work_branch=BRANCH,
+            selected_task_prefix="local-agent-m8-pr248",
+            result_observations=(),
+            unconfirmed_task_ids=("local-agent-m8-pr248-test",),
+        )
+        code, output, error = invoke(args)
+        self.assertEqual(code, 2)
+        self.assertEqual(output, "")
+        self.assertIn("refused", error)
+        with mock.patch.dict(os.environ, {
+            "LOCAL_AGENT_FABRIC_GITHUB_TOKEN": "CONFIDENTIAL_TOKEN"
+        }), mock.patch.object(
+            history, "discover_agent_control_results", return_value=view
+        ) as finder:
+            code, output, error = invoke([*args, "--allow-readonly-network"])
+            self.assertEqual(code, 0)
+            self.assertEqual(error, "")
+            self.assertNotIn("CONFIDENTIAL_TOKEN", output)
+            data = json.loads(output)
+            self.assertEqual(data["decision"], "operator_review_only")
+            self.assertFalse(data["can_dispatch"])
+            self.assertFalse(data["can_retry"])
+            self.assertFalse(data["can_authorize_browser_effect"])
+            self.assertEqual(data["unconfirmed_task_ids"], ["local-agent-m8-pr248-test"])
+            finder.assert_called_once()
+            self.assertEqual(finder.call_args.kwargs["token"], "CONFIDENTIAL_TOKEN")
+            self.assertTrue(finder.call_args.kwargs["enabled"])
+
+    def test_status_github_missing_token_is_denied(self):
+        args = [
+            "status-github", "--task-id-prefix", "local-agent-m8-pr248",
+            "--pinned-control-sha", "b" * 40,
+            "--pinned-source-sha", HEAD,
+            "--agent-binding", BINDING, "--work-branch", BRANCH,
+            "--allow-readonly-network",
+        ]
+        with mock.patch.dict(os.environ, {}, clear=True):
+            code, output, error = invoke(args)
+        self.assertEqual(code, 2)
+        self.assertEqual(output, "")
+        self.assertNotIn("token", error.lower())
 
     def test_separate_isolated_setup_requires_an_explicit_flag(self):
         args = [
