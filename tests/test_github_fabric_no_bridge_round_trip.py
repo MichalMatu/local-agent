@@ -120,6 +120,20 @@ class NoBridgePlanToHistoryTests(unittest.TestCase):
         self.assertFalse(found.can_retry)
         self.assertTrue(all(method == "GET" for method, *_ in self.api.operations))
 
+    def test_truncated_but_successful_report_is_incomplete_not_failed(self):
+        self.api.result["commands"][0]["output_truncated"] = True
+        result = self.discover()
+        self.assertEqual(len(result.result_observations), 1)
+        observation = result.result_observations[0]
+        self.assertEqual(
+            observation.reported_outcome, "reported_incomplete_evidence_for_review"
+        )
+        self.assertEqual(observation.reported_status, "done")
+        self.assertFalse(observation.automatic_retry_permitted)
+        self.assertFalse(observation.effect_authorized)
+        self.assertFalse(result.can_dispatch)
+        self.assertFalse(result.can_retry)
+
     def test_missing_result_is_review_only_not_retry_authority(self):
         self.api.include_result = False
         found = self.discover()
