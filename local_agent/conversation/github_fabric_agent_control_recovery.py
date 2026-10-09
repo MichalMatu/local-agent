@@ -175,7 +175,7 @@ def recover_agent_control_result(
         or task.get("allow_write") is not False
         or task.get("resources") != []
         or task.get("mode") != "commands"
-        or type(commands) is not list or not 1 <= len(commands) <= 8
+        or type(commands) is not list or len(commands) != 1
         or any(not isinstance(command, str) for command in commands)
         or not commands[0].startswith(guard)
         or any(field in task for field in (
@@ -203,6 +203,7 @@ def recover_agent_control_result(
     reported_success = (
         result.get("status") == "done"
         and result.get("edits") == {}
+        and result.get("verification") == []
         and all(
             isinstance(result.get(field), dict)
             and type(result[field].get("exit_code")) is int
@@ -234,7 +235,9 @@ def recover_agent_control_result(
             for entry in result["commands"]
         )
     )
-    if not isinstance(result.get("status"), str) or len(result["status"]) > 40:
+    if result.get("status") not in (
+        "done", "failed", "error", "cancelled", "canceled", "timed_out", "aborted", "running", "pending"
+    ):
         raise ValueError("Agent-control reported status invalid")
     return AgentControlReadOnlyObservation(
         task_id=task_id,
