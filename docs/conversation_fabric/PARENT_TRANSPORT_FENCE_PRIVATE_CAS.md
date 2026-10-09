@@ -28,7 +28,9 @@ At one immutable Git commit SHA the reader validates:
 - each present parent index/record Contents response is bound to its exact
   recursive-tree Git blob SHA; both the Contents metadata SHA and Git SHA-1
   calculated over the decoded `blob <length>\\0<bytes>` payload must match.
-  Missing tree entries or mismatched bytes fail closed before any write.
+  The Contents metadata path must also be the exact expected index/record path.
+  Missing tree entries, Contents 404 for an advertised blob, wrong paths or
+  mismatched bytes fail closed before any write.
 
 The writer creates exactly two Git blobs and one tree with the parent
 record and bounded global parents/index.json; one commit with pinned parent
@@ -46,7 +48,7 @@ become head; reread the resulting head before reporting convergence.
 Deterministic tests cover atomic two-path write, replay, ref conflicts, lost
 acknowledgment, orphan/dangling index, malformed tree, mismatched blob metadata,
 semantically valid but stale Contents bytes, altered decoded bytes with forged
-metadata and forged Send/ACK.
+metadata, wrong Contents paths, missing advertised blobs and forged Send/ACK.
 CI tests and local fakes are not a real private GitHub write, browser ACK,
 old DOM driver quiescence or cross-device execution evidence.
 
