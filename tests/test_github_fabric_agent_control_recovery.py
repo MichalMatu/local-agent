@@ -45,7 +45,7 @@ def _result(task):
         "edits": {},
         "git_status": {"exit_code": 0, "output": ""},
         "git_diff": {"exit_code": 0, "output": ""},
-        "stages": [{"outcome": "passed", "stage_phase": "commands"}],
+        "stages": [{"outcome": "passed", "stage_phase": "commands", "stage_index": 1, "stage_total": 1}],
         "commands": [{
             "command": task["commands"][0],
             "exit_code": 0,
@@ -121,6 +121,9 @@ class AgentControlRecoveryTests(unittest.TestCase):
             {"commands": [{"timed_out": True}]},
             {"git_diff": {"exit_code": 1, "output": "changed"}},
             {"stages": [{"outcome": "failed"}]},
+            {"stages": [{"outcome": "passed", "stage_phase": "commands", "stage_index": 2, "stage_total": 1}]},
+            {"commands": [{"exit_code": False}]},
+            {"git_status": {"exit_code": False, "output": ""}},
         ):
             with self.subTest(mutation=mutation):
                 api = MemoryControlAPI()
@@ -157,6 +160,45 @@ class AgentControlRecoveryTests(unittest.TestCase):
             api.result["task_digest"] = reader._task_digest(api.task)
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, "outside read-only"):
                 self.inspect(api)
+
+    def test_duplicate_json_keys_and_nonfinite_values_fail_closed(self):
+        api = MemoryControlAPI()
+        duplicate = '{"id":"first","id":"second"}'
+        raw = duplicate.encode()
+        # Construct a forged but internally SHA-correct GitHub blob.
+        original_request = api.request
+
+        def forged(method, path, body=None):
+            if path == f"/contents/.agent/results/{TASK_ID}.json?ref={CONTROL_SHA}":
+                api.operations.append((method, path, body))
+                return {
+                    "type": "file", "encoding": "base64", "size": len(raw),
+                    "content": base64.b64encode(raw).decode(),
+                    "sha": hashlib.sha1(
+                        f"blob {len(raw)}\0".encode() + raw
+                    ).hexdigest(),
+                }
+            return original_request(method, path, body)
+
+        api.request = forged
+        with self.assertRaisesRegex(ValueError, "duplicate fields"):
+            self.inspect(api)
+
+        invalid = b'{"id":NaN}'
+        def nonfinite(method, path, body=None):
+            if path == f"/contents/.agent/results/{TASK_ID}.json?ref={CONTROL_SHA}":
+                return {
+                    "type": "file", "encoding": "base64", "size": len(invalid),
+                    "content": base64.b64encode(invalid).decode(),
+                    "sha": hashlib.sha1(
+                        f"blob {len(invalid)}\0".encode() + invalid
+                    ).hexdigest(),
+                }
+            return original_request(method, path, body)
+
+        api.request = nonfinite
+        with self.assertRaisesRegex(ValueError, "non-finite"):
+            self.inspect(api)
 
     def test_invalid_git_blob_identity_fail_closed(self):
         api = MemoryControlAPI()
