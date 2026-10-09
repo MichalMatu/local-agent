@@ -327,7 +327,11 @@ async function deliverConversation(chatId, manual, { promptOverride = "" } = {})
   } else {
     activeDeliveries.set(chatId, active);
     try {
-      await requireLegacyConversationSpawnEffectAllowed();
+      // Normal bootstrap/wake is not a Fabric child effect and must preserve
+      // legacy compatibility while the future Fabric mode is being reviewed.
+      if (fabricFeedback || explicitFeedback) {
+        await requireLegacyConversationSpawnEffectAllowed();
+      }
       response = await Promise.race([
         chrome.tabs.sendMessage(tab.id, {
           type: "bridge:feedback",
