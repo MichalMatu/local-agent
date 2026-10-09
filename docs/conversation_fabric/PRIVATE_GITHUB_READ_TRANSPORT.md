@@ -95,3 +95,20 @@ must resolve their project identity and role before requesting any private
 content; the browser must not receive repo-wide credentials through a content
 script or ChatGPT page. The read-only project listing grants no child Send
 or work execution permission.
+
+### Repeatable authenticated CLI catalog smoke
+
+On the trusted Mac with an existing `gh` login:
+
+```sh
+python -m local_agent.conversation.github_fabric_private_live_smoke --verify-private-catalog-read
+```
+
+This option is mutually exclusive with `--verify-private-synthetic-read`.
+It performs **two** read-only, source-pinned reconstructions through
+`gh api --method GET`, and prints only bounded project/workflow IDs,
+source SHA and `source_kind=private_project_catalog_observation_only`.
+The GitHub read credential is never read, embedded in the command line,
+logged or passed to a ChatGPT page. An altered or incomplete origin fails
+closed. The project listing is not an authorization to spawn children or
+execute any project work.
