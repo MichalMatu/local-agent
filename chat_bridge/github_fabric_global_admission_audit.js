@@ -105,7 +105,7 @@
       if (!next) {
         blockers.push("legacy_worker_inventory_regression");
       } else if (worker.retirement_receipt &&
-          next.retirement_receipt && worker.retirement_receipt !== next.retirement_receipt) {
+          worker.retirement_receipt !== next.retirement_receipt) {
         blockers.push("legacy_retirement_receipt_changed");
       }
     }
