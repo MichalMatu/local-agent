@@ -21,9 +21,12 @@
 > `local-agent-m8-global-admission-continuity-mac-20261009-v2`:
 > focused Node, entire Bridge Node, Python compile and Ruff (exit 0).
 > Earlier continuity task v1 failed on a test fixture and was corrected.
-> One further test-only improvement distinguishes fully consistent local
-> inventory from actual global retirement proof: it still **always blocks**
-> admission. Its new exact head must be verified independently.
+> The final source fixture head `8bab8acb338a2d972ef5a85003408485cf52f2ed`
+> passed `local-agent-m8-global-admission-clean-fixture-mac-20261009-v1`:
+> focused Node, entire Bridge Node (exit 0). It distinguishes fully
+> consistent local inventory from external exclusion: cutover still
+> **always blocks**. No hosted CI or Codex was used. Further documentation-only
+> commits are not new browser-effect implementation or runtime acceptance.
 > Independent reviews, cross-device tests and global legacy exclusion remain
 > unverified. Do not activate GitHub-first Send/ACK, modify global Bridge
 > Master, merge these PRs or restart the daemon based on this document.
