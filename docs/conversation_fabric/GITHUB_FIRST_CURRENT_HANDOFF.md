@@ -4,6 +4,33 @@
 All source SHAs and PR states below are **observations at handoff**, not locks;
 re-read GitHub before code edits, task publication or merge.
 
+## Current operator override — 2026-10-09: no GitHub Actions
+
+**Binding development rule:** hosted runner credits are exhausted until the
+operator chooses otherwise. `main@09d646fbd6a701801c6eda56ea148f259d4adaf9`
+changed `.github/workflows/ci.yml` to **manual `workflow_dispatch` only**:
+no `push` or `pull_request` activation. The workflow is retained for possible
+future explicit operator activation, but **do not dispatch it**. Pending
+historical workflow runs and older handoff references to mandatory six-job
+CI are not current acceptance gates and must not be treated as successful.
+
+Use the **exact commit SHA** and the Mac's canonical `local-agent` binding
+(or an isolated local sandbox) for `scripts/verify.py` and relevant Host Ops,
+coverage, macOS/Chromium checks. Persist full command status and bounded
+output on the `agent-control` result. See `LOCAL_VERIFICATION.md` for the
+current gate. Skip only with an explicit unverified marker; never invent a
+successful Mac/browser/Python-3.14 result. Missing independent security and
+integration reviews still block #209 and #214 merges. Live GitHub-first
+private Send/ACK remains disabled and the legacy DOM mode remains active.
+
+Current source observations (re-read before action): draft #209 head
+`85c68b0ca62a5bc8acef6b84a66f4d3c2eb0e552`, stacked draft #214 head
+`f0d2a30236ceb43f88b8a2f6125100ab76a84a33`, documentation #231
+is an older checkpoint subject to reconciliation, and old CI-concurrency
+#232 was **closed unmerged** as obsolete. Do not update PR branches using
+an older copy of the automatic CI workflow; inherit the disabled `main`
+workflow before the next source change.
+
 ## Latest continuation recheck — 2026-10-09, after PR #226
 
 This section records a **read-only audit**, not live browser/Mac acceptance and
