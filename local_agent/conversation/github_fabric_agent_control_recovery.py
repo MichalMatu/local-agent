@@ -186,6 +186,8 @@ def recover_agent_control_result(
     commit = remote.request("GET", f"/git/commits/{independently_pinned_control_sha}")
     if not isinstance(commit, dict) or not isinstance(commit.get("tree"), dict):
         raise ValueError("Agent-control commit metadata invalid")
+    if commit.get("sha") != independently_pinned_control_sha:
+        raise ValueError("Agent-control Git commit identity mismatch")
     git._require_sha(commit["tree"].get("sha"), label="agent-control tree")
     task = _blob_json(
         remote, f".agent/tasks/{task_id}.json",
