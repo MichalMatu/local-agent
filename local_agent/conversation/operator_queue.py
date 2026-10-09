@@ -166,7 +166,7 @@ def reserve_launch_once(state_dir: Path, item: OperatorWorkItem) -> bool:
             "request_digest": item.request_digest,
         },
         sort_keys=True,
-    ).encode("utf-8") + b"\\n"
+    ).encode("utf-8") + b"\n"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     try:
         fd = os.open(path, flags, 0o600)
