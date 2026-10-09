@@ -1,5 +1,23 @@
 # GitHub-first Conversation Fabric — current Milestone 8 handoff
 
+> **M8 global admission follow-up (2026-10-09; separate draft branch).**
+> The follow-up source-only audit is on
+> `work/m8-global-admission-audit-20261009`; its design and explicit
+> external-exclusion blocker are in
+> [GLOBAL_TRANSPORT_ADMISSION_AND_RETIREMENT.md](GLOBAL_TRANSPORT_ADMISSION_AND_RETIREMENT.md).
+> The new audit is **not loaded into the running Bridge**, provides no
+> browser-effect permit, and does not establish old/offline legacy retirement.
+> At recheck, `main=76865cbc7d92861998e8e33a96193d95c120fe02`;
+> #209, #214, #239 and docs-only #240 remain OPEN DRAFT and unmerged.
+> Independent PR reviews for #209/#214/#239 were empty. Local Agent
+> `agent-control/.agent/status/daemon.json` reported idle, binding
+> `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`, at
+> `2026-10-09T08:16:14Z` (snapshot only). Exact-head new audit tests must
+> be recorded separately before this candidate can be considered verified.
+> Do not activate GitHub-first Send/ACK, modify global Bridge Master,
+> merge these PRs or restart the daemon based on this document.
+
+
 **Updated: 2026-10-09. Canonical continuation entrypoint for this track.**
 All source SHAs and PR states below are **observations at handoff**, not locks;
 re-read GitHub before code edits, task publication or merge.
