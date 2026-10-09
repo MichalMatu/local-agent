@@ -40,6 +40,7 @@ function checkBlocked(input, blocker) {
   assert.equal(result.browser_effects_permitted, false);
   assert.equal(result.automatic_retry_permitted, false);
   assert.ok(Object.isFrozen(result) && Object.isFrozen(result.blockers));
+  assert.equal(result.blockers.length, new Set(result.blockers).size);
   assert.ok(result.blockers.includes("unbounded_legacy_worker_population"));
   assert.ok(result.blockers.includes("missing_atomic_cross_device_effect_exclusion"));
   assert.ok(result.blockers.includes("trusted_external_retirement_proof_unavailable"));
@@ -71,6 +72,57 @@ function run() {
   const ambiguousTerminal = example();
   ambiguousTerminal.proposed.effects[0].terminal_receipt = null;
   checkBlocked(ambiguousTerminal, "pending_or_unknown_browser_effect");
+
+  const lostWorker = example();
+  lostWorker.proposed.workers = [];
+  lostWorker.proposed.effects = [];
+  checkBlocked(lostWorker, "legacy_worker_inventory_regression");
+
+  const droppedEffect = example();
+  droppedEffect.proposed.effects = [];
+  checkBlocked(droppedEffect, "effect_history_discarded");
+
+  const rewrittenEffect = example();
+  rewrittenEffect.proposed.effects[0].kind = "terminal_feedback";
+  checkBlocked(rewrittenEffect, "effect_identity_rewritten");
+
+  const rewrittenWorker = example();
+  rewrittenWorker.proposed.workers[0].retirement_receipt = SHA_B;
+  checkBlocked(rewrittenWorker, "legacy_retirement_receipt_changed");
+
+  const changedTerminalReceipt = example();
+  changedTerminalReceipt.proposed.effects[0].terminal_receipt = SHA_B;
+  checkBlocked(changedTerminalReceipt, "terminal_effect_evidence_mutated");
+
+  const changedTerminalState = example();
+  changedTerminalState.proposed.effects[0].state = "unknown";
+  changedTerminalState.proposed.effects[0].terminal_receipt = null;
+  checkBlocked(changedTerminalState, "terminal_effect_evidence_mutated");
+
+  const previouslyUnknown = example();
+  previouslyUnknown.previous.effects[0].state = "unknown";
+  previouslyUnknown.previous.effects[0].terminal_receipt = null;
+  checkBlocked(previouslyUnknown, "unknown_effect_reclassified_without_proof");
+
+  const inFlightReset = example();
+  inFlightReset.previous.effects[0].state = "in_flight";
+  inFlightReset.previous.effects[0].terminal_receipt = null;
+  inFlightReset.proposed.effects[0].state = "prepared";
+  inFlightReset.proposed.effects[0].terminal_receipt = null;
+  checkBlocked(inFlightReset, "in_flight_effect_reset");
+
+  const claimWithoutReceipt = example();
+  claimWithoutReceipt.proposed.workers[0].retirement_receipt = null;
+  checkBlocked(claimWithoutReceipt, "retirement_claim_without_receipt");
+
+  const twoDevices = example();
+  twoDevices.previous.workers.push({
+    id: "phone_offline", state: "offline", retirement_receipt: null
+  });
+  twoDevices.proposed.workers.push({
+    id: "phone_offline", state: "offline", retirement_receipt: null
+  });
+  checkBlocked(twoDevices, "active_offline_or_unknown_legacy_worker");
 
   const mismatchedParent = example();
   mismatchedParent.proposed.parent_id = PARENT_B;
