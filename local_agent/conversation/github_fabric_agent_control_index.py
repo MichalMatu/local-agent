@@ -140,6 +140,18 @@ def discover_agent_control_results(
             return response
 
     tree_api = _TreePinnedAPI()
+    pending_ids = tuple(sorted(scoped["task"] - scoped["result"]))
+    for task_id in pending_ids:
+        pending_task = receipt._blob_json(
+            tree_api, f".agent/tasks/{task_id}.json",
+            independently_pinned_control_sha, receipt._TASK_LIMIT,
+        )
+        receipt._validate_scoped_task(
+            pending_task, task_id=task_id,
+            source_sha=independently_pinned_source_sha,
+            binding=expected_agent_binding,
+            work_branch=expected_work_branch,
+        )
     found = tuple(
         receipt.recover_agent_control_result(
             task_id,
@@ -158,5 +170,5 @@ def discover_agent_control_results(
         expected_work_branch=expected_work_branch,
         selected_task_prefix=task_id_prefix,
         result_observations=found,
-        unconfirmed_task_ids=tuple(sorted(scoped["task"] - scoped["result"])),
+        unconfirmed_task_ids=pending_ids,
     )
