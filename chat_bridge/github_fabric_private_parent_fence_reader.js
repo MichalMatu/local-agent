@@ -151,7 +151,7 @@
     }
   }
 
-  function decodeContents(metadata, path, limit, blobSha) {
+  async function decodeContents(metadata, path, limit, blobSha) {
     if (!metadata || metadata.type !== "file" || metadata.path !== path ||
         metadata.encoding !== "base64" || metadata.sha !== blobSha ||
         !Number.isSafeInteger(metadata.size) || metadata.size < 0 ||
@@ -168,6 +168,19 @@
     try { bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0)); }
     catch (_error) { throw new Error("Parent fence Contents base64 invalid"); }
     if (bytes.length !== metadata.size) throw new Error("Parent fence Contents size mismatch");
+    // A matching API metadata SHA is only a claim. Verify the actual Git
+    // blob SHA-1 over the exact decoded bytes before parsing JSON.
+    if (!globalThis.crypto?.subtle) throw new Error("Parent fence blob digest unavailable");
+    const header = new TextEncoder().encode("blob " + bytes.length + "\0");
+    const preimage = new Uint8Array(header.length + bytes.length);
+    preimage.set(header);
+    preimage.set(bytes, header.length);
+    const digest = await globalThis.crypto.subtle.digest("SHA-1", preimage);
+    const observedSha = Array.from(new Uint8Array(digest), byte =>
+      byte.toString(16).padStart(2, "0")).join("");
+    if (observedSha !== blobSha) {
+      throw new Error("Parent fence Contents blob digest mismatch");
+    }
     try {
       const data = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
       if (!data || typeof data !== "object" || Array.isArray(data)) throw Error();
@@ -242,7 +255,7 @@
     }
     const indexMetadata = await getJson(fetchImpl, readToken,
       "/contents/" + indexPath + "?ref=" + head, MAX_CONTENTS_RESPONSE);
-    const index = validateIndex(decodeContents(
+    const index = validateIndex(await decodeContents(
       indexMetadata, indexPath, MAX_INDEX_BYTES, entries.get(indexPath)
     ));
     const indexedPaths = new Set(index.parent_ids.map(pid => "parents/" + pid + ".json"));
@@ -256,7 +269,7 @@
       if (!entries.has(recordPath)) throw new Error("Parent fence dangling record");
       const metadata = await getJson(fetchImpl, readToken,
         "/contents/" + recordPath + "?ref=" + head, MAX_CONTENTS_RESPONSE);
-      const record = await validateRecord(decodeContents(
+      const record = await validateRecord(await decodeContents(
         metadata, recordPath, MAX_RECORD_BYTES, entries.get(recordPath)
       ));
       if (record.id !== pid) throw new Error("Parent fence record/path identity conflict");

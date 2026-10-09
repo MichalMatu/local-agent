@@ -10,12 +10,17 @@ const otherUrl = "https://chatgpt.com/c/another-parent";
 const token = "github_pat_synthetic_readonly_only_123456";
 const head = "a".repeat(40);
 const treeSha = "b".repeat(40);
-const indexSha = "c".repeat(40);
-const recordSha = "d".repeat(40);
 const API = "https://api.github.com/repos/MichalMatu/local-agent-fabric-private";
 
 function sha(value) {
   return nodeCrypto.createHash("sha256").update(value).digest("hex");
+}
+
+function gitBlobSha(value) {
+  const bytes = Buffer.from(JSON.stringify(value), "utf8");
+  return nodeCrypto.createHash("sha1")
+    .update(Buffer.from("blob " + bytes.length + "\0"))
+    .update(bytes).digest("hex");
 }
 
 function response(data, status = 200) {
@@ -59,10 +64,16 @@ async function fixture() {
     tree: {
       sha: treeSha, truncated: false, tree: [
         { path: "parents", type: "tree", mode: "040000", sha: "f".repeat(40) },
-        { path: "parents/index.json", type: "blob", mode: "100644", sha: indexSha },
-        { path, type: "blob", mode: "100644", sha: recordSha }
+        { path: "parents/index.json", type: "blob", mode: "100644", sha: gitBlobSha({ schema_version: 1, parent_ids: [id] }) },
+        { path, type: "blob", mode: "100644", sha: gitBlobSha(record) }
       ]
     }
+  };
+  const resign = () => {
+    const indexEntry = state.tree.tree.find(entry => entry.path === "parents/index.json");
+    const recordEntry = state.tree.tree.find(entry => entry.path === path);
+    if (indexEntry) indexEntry.sha = gitBlobSha(state.index);
+    if (recordEntry) recordEntry.sha = gitBlobSha(state.record);
   };
   const calls = [];
   const fetchImpl = async (url, init) => {
@@ -77,14 +88,14 @@ async function fixture() {
     if (url === API + "/git/commits/" + head) return response(state.commit);
     if (url === API + "/git/trees/" + treeSha + "?recursive=1") return response(state.tree);
     if (url === API + "/contents/parents/index.json?ref=" + head) {
-      return response(metadata("parents/index.json", state.index, indexSha));
+      return response(metadata("parents/index.json", state.index, state.tree.tree[1].sha));
     }
     if (url === API + "/contents/" + path + "?ref=" + head) {
-      return response(metadata(path, state.record, recordSha));
+      return response(metadata(path, state.record, state.tree.tree[2].sha));
     }
     throw new Error("unexpected test URL");
   };
-  return { id, path, state, calls, fetchImpl };
+  return { id, path, state, calls, fetchImpl, resign };
 }
 
 async function read(f, options = {}) {
@@ -130,6 +141,7 @@ async function run() {
 
   const competing = await fixture();
   competing.state.record.transport_mode = "legacy_dom";
+  competing.resign();
   await assert.rejects(read(competing), /competing transport mode/);
   assert.equal((await read(competing, { expectedTransportMode: "legacy_dom" }))
     .browser_effects_permitted, false);
@@ -141,6 +153,7 @@ async function run() {
   const notIndexed = await fixture();
   notIndexed.state.tree.tree = notIndexed.state.tree.tree.slice(0, 2);
   notIndexed.state.index.parent_ids = [];
+  notIndexed.resign();
   assert.equal((await read(notIndexed)).status, "unregistered");
 
   const dangling = await fixture();
@@ -148,6 +161,7 @@ async function run() {
   await assert.rejects(read(dangling), /dangling record/);
   const orphan = await fixture();
   orphan.state.index.parent_ids = [];
+  orphan.resign();
   await assert.rejects(read(orphan), /orphan or dangling/);
   const badPath = await fixture();
   badPath.state.tree.tree.push({
@@ -173,22 +187,40 @@ async function run() {
 
   const forged = await fixture();
   forged.state.record.browser_send_authorized = true;
+  forged.resign();
   await assert.rejects(read(forged), /preview record invalid/);
   const forgedAck = await fixture();
   forgedAck.state.record.ack_state = "received";
+  forgedAck.resign();
   await assert.rejects(read(forgedAck), /preview record invalid/);
   const epoch = await fixture();
   epoch.state.record.fence_epoch = 2;
+  epoch.resign();
   await assert.rejects(read(epoch), /preview record invalid/);
   const identity = await fixture();
   identity.state.record.id = "parent-" + "0".repeat(32);
+  identity.resign();
   await assert.rejects(read(identity), /preview record invalid/);
   const additionalField = await fixture();
   additionalField.state.record.token = "never-accept";
+  additionalField.resign();
   await assert.rejects(read(additionalField), /preview record invalid/);
   const wrongIndex = await fixture();
   wrongIndex.state.index.parent_ids = [f.id, f.id];
+  wrongIndex.resign();
   await assert.rejects(read(wrongIndex), /index invalid/);
+  // A changed JSON body is not trusted merely because the Contents SHA
+  // metadata still matches the Git tree entry.
+  const silentlyChangedRecord = await fixture();
+  silentlyChangedRecord.state.record.operator_request_id = "tampered-request";
+  await assert.rejects(read(silentlyChangedRecord), /blob digest mismatch/);
+  const silentlyChangedIndex = await fixture();
+  silentlyChangedIndex.state.index.parent_ids = [];
+  await assert.rejects(read(silentlyChangedIndex), /blob digest mismatch/);
+  const forgedTreeClaim = await fixture();
+  forgedTreeClaim.state.tree.tree[2].sha = "0".repeat(40);
+  await assert.rejects(read(forgedTreeClaim), /blob digest mismatch/);
+
   const metadataConflict = await fixture();
   metadataConflict.fetchImpl = async (url, init) => {
     const responseValue = await f.fetchImpl(url, init);

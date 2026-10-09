@@ -26,7 +26,10 @@ identifier follows github_fabric_parent_fence_preview.py:
    integration is supplied.
 2. The reader resolves the fixed branch once. It then reads the Git commit,
    recursive tree, global index and every indexed record at the **same
-   immutable head SHA**. Contents blob SHA must match the tree entry.
+   immutable head SHA**. Contents blob SHA must match the tree entry,
+   and the actual decoded bytes must independently hash to that Git blob SHA-1
+   (`blob <byte-length>\\0` prefix). A forged Contents metadata SHA alone
+   does not authenticate altered record bytes.
 3. The tree cannot be truncated. Only recognized parents/index.json and
    parents/parent-*.json files are accepted, with 100644 blob modes.
    Missing indexes, orphan paths, dangling paths and mismatched records fail
