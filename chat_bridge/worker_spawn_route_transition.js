@@ -51,6 +51,7 @@
 
   async function installConversationSpawnDomContract(tabId) {
     try {
+      await requireLegacyConversationSpawnEffectAllowed();
       await chrome.scripting.executeScript({
         target: { tabId, frameIds: [0] },
         files: ["dom_contract.js"]
@@ -63,6 +64,7 @@
 
   async function probeConversationSpawnUserIdentity(tabId, expectedText, expectedDigest) {
     try {
+      await requireLegacyConversationSpawnEffectAllowed();
       const results = await chrome.scripting.executeScript({
         target: { tabId, frameIds: [0] },
         func: (expected, digest) => {
