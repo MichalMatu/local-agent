@@ -12,8 +12,10 @@ GitHub-backed records are authoritative coordination/evidence; ChatGPT is
 the reasoning/UI layer; Local Agent is the only deterministic machine executor;
 Chat Bridge is a browser effects/observation driver. Child chats reason only.
 
-This chat's `[LA_CHAT=chat-caf8e37e]` is **transport/scheduling only**, not a
-repository execution binding. Executable Local Agent tasks MUST be published
+A Chat Bridge `[LA_CHAT=...]` label is **transport/scheduling only**, not a
+repository execution binding. Resolve the **current** conversation's own
+`conversation_controls` record; never reuse a predecessor chat ID or its
+scheduling generation as authority in a resumed or cross-device session. Executable Local Agent tasks MUST be published
 only to the canonical target repository with the exact
 `chat_bridge/runtime.json` catalog `agent_binding` after checking
 `execution_enabled`, the `agent-control` daemon record, and an exact source
