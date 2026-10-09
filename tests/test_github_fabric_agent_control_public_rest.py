@@ -142,6 +142,18 @@ class PublicAgentControlRESTTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.invoke()
 
+    def test_duplicate_keys_and_nonfinite_constants_refuse_github_json(self):
+        for payload, expected in (
+            (b'{"sha":"trusted","sha":"different"}', "duplicate JSON keys"),
+            (b'{"tree":{"sha":"one","sha":"two"}}', "duplicate JSON keys"),
+            (b'{"sha":NaN}', "non-finite JSON"),
+            (b'{"count":Infinity}', "non-finite JSON"),
+        ):
+            with self.subTest(payload=payload):
+                self.opener.response = FakeResponse(payload)
+                with self.assertRaisesRegex(ValueError, expected):
+                    self.invoke()
+
     def test_non_200_status_is_refused(self):
         self.opener.response = FakeResponse(status=404)
         with self.assertRaises(git.GithubFabricHTTPError) as caught:
