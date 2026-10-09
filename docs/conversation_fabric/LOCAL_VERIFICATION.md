@@ -40,6 +40,39 @@ An unavailable interpreter, Playwright, or host permission is recorded as
 | Changed feature regression | Exact negative/restart/race tests affected by the diff (e.g. parent-fence Python and private reader JS) |
 | Operator/browser acceptance | Real authenticated extension tests only with explicit operator authority, separate from isolated fixture test PASS |
 
+### Mac Python test interpreter and inherited-leases diagnostic
+
+A Mac Local Agent may execute commands using its preexisting PlatformIO Python
+environment, which need not have the project's optional test dependencies.
+On the observed 2026-10-09 Mac, the selected
+`~/.platformio/penv/bin/python` (Python 3.13) had Ruff but **not** the
+required MCP 2.2 SDK, `httpx2`, pytest, or coverage. A broad unittest run
+in that environment produced misleading secondary import failures; the
+source itself did not justify replacing MCP 2's `httpx2` with `httpx`.
+
+Before a full test run, inspect the **selected interpreter** with
+`python -m pip show mcp httpx2 pytest pytest-cov coverage ruff` (or
+`importlib.metadata`). Prefer a short-lived, private temporary venv outside
+the installed daemon checkout, using the repository-pinned
+`requirements-runtime.txt` plus explicit test pins. Do not install into,
+replace, update, stop, or restart the active daemon's Python environment.
+If local packages cannot be installed, mark the affected suites unverified.
+
+A normal Local Agent command runs with live inherited execution/resource
+lease environment markers. Do not clear or override those markers for
+**production commands**: they preserve the no-overlap execution contract.
+Python unit tests spawn *their own* subprocesses with descriptor-closing
+defaults, so inheriting stale `LOCAL_AGENT_LEASE_FDS` text can fail unrelated
+temporary supervisor fixtures with `closed execution lease descriptor`.
+Run full subprocess-based tests from an ordinary isolated Mac shell without
+inherited daemon lease markers where possible. If using a bounded Local Agent
+test task, isolate only the hermetic test subprocess environment while keeping
+the worker's actual OS leases active; never allow the workaround to become
+production command-launch policy. An unknown or still-running older holder of
+a `machine` resource is a **wait**, not a stale lock to force-release.
+Pure source verification normally declares `resources: []`; reserve
+`machine` for tasks that actually require whole-machine exclusivity.
+
 Python `pytest`, `pytest-cov`, `coverage`, `ruff` and Playwright must already be
 locally available or installed by an explicitly authorized, bounded setup.
 Never silently fetch an unpinned dependency or write browser credentials.
