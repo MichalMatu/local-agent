@@ -65,13 +65,15 @@ class MemoryControlAPI:
         self.result = result if result is not None else _result(self.task)
         self.operations = []
         self.bad_blob_path = None
+        self.bad_commit_sha = False
 
     def request(self, method, path, body=None):
         self.operations.append((method, path, body))
         if method != "GET" or body is not None:
             raise AssertionError("GET-only reader violated")
         if path == f"/git/commits/{CONTROL_SHA}":
-            return {"tree": {"sha": "b" * 40}}
+            return {"sha": "d" * 40 if self.bad_commit_sha else CONTROL_SHA,
+                    "tree": {"sha": "b" * 40}}
         path_task = f"/contents/.agent/tasks/{TASK_ID}.json?ref={CONTROL_SHA}"
         path_result = f"/contents/.agent/results/{TASK_ID}.json?ref={CONTROL_SHA}"
         if path not in (path_task, path_result):
@@ -220,6 +222,13 @@ class AgentControlRecoveryTests(unittest.TestCase):
         api.request = nonfinite
         with self.assertRaisesRegex(ValueError, "non-finite"):
             self.inspect(api)
+
+    def test_wrong_git_commit_identity_fail_closed(self):
+        api = MemoryControlAPI()
+        api.bad_commit_sha = True
+        with self.assertRaisesRegex(ValueError, "Git commit identity"):
+            self.inspect(api)
+        self.assertEqual(len(api.operations), 1)
 
     def test_invalid_git_blob_identity_fail_closed(self):
         api = MemoryControlAPI()
