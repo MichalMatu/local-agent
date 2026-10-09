@@ -30,7 +30,7 @@ Do not use legacy LAB add/rebind/schedule markers for ordinary Superchat flow.
 
 | Surface | Handoff observation |
 | --- | --- |
-| Public code repo | `MichalMatu/local-agent`, `main@3004a75b38b4621b5417cf26c04c539ef421c842` |
+| Public code repo | `MichalMatu/local-agent`, `main@2654e9a04e4bec7eadc36c5d99c5a82e04239d67` |
 | Private data repo | `MichalMatu/local-agent-fabric-private`, `fabric-data@b834209d99f088e093d503632717ae0aaeafbf7f` |
 | Local Agent | `agent-control` daemon `idle` at recheck; observed self revision `a1ba2be840098a727e9de06323ae8625955a6e1e` (may lag latest `main`; re-check) |
 | Canonical executable catalog entry | `local-agent` / `MichalMatu/local-agent`, execution enabled, binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; **re-check, do not hard-code** |
@@ -47,8 +47,8 @@ Do not use legacy LAB add/rebind/schedule markers for ordinary Superchat flow.
 | PR #217 | **MERGED**, previous handoff reconciliation, squash `98486c7e339dc39c503802182a097c93857992fc` |
 | PR #218 | **MERGED**, verify private parent record/index decoded bytes against pinned Git blob SHA, squash `845d25888820e7f585c5e3fa2e31de382d6d01c2` |
 | PR #219 | **MERGED**, authenticated Mac GET-only twice-read private parent namespace absence smoke, squash `3004a75b38b4621b5417cf26c04c539ef421c842` |
-| PR #220 | **OPEN / DRAFT**, production Bridge import/effect regression gate, head `5006d09b8d98a48772ba398942b1a688a897c724`; CI and Mac verification were pending at this handoff check |
-| PR #221 | **OPEN / DRAFT**, private parent reader network/body abort deadline, head `f8be80a738d33a04f7ffecbe9c54ae968ee8d82a`; CI and Mac verification were pending at this handoff check |
+| PR #220 | **MERGED**, production Bridge private-import and GitHub-first no-Send regression test; Mac and exact-head six CI checks passed; squash `2654e9a04e4bec7eadc36c5d99c5a82e04239d67` |
+| PR #221 | **OPEN / DRAFT**, private parent reader five-second network/body abort deadline, head `f8be80a738d33a04f7ffecbe9c54ae968ee8d82a`; exact-head Mac Bridge suite passed, six GitHub CI checks still pending at handoff check |
 
 Two reasoning-only child reviews were delegated in an earlier Chat Bridge
 parent conversation: `m8-parent-fence-verification` (security/correctness)
@@ -95,6 +95,12 @@ inspect its latest diff, and verify mergeability against current `main`.
   `browser_effects_permitted=false`. The separate production-unimported
   private parent reader in PR #218 now verifies decoded JSON bytes against
   their commit-pinned Git blob SHA, not only API metadata.
+- A further exact-main Local Agent GET-only regression at
+  `main@2654e9a04e4bec7eadc36c5d99c5a82e04239d67` performed
+  3 successful private reconstructions (each twice): two synthetic children
+  remain `published_execution_unconfirmed`, the `growclip`, `local-agent`
+  and `shelly-link` catalog remains indexed as expected, and the global
+  `parents/` namespace remains absent. No browser ACK or Send happened.
 - Existing DOM-based child delegation in normal Chrome has separate
   previously accepted 1/1 and 3/3 campaign evidence in
   `CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md`.
@@ -149,7 +155,7 @@ have been authorized in this private repository.
 | Parent synthetic private CAS | PR #214 `github_fabric_parent_fence_private_github.py`, `PARENT_TRANSPORT_FENCE_PRIVATE_CAS.md` (**draft**, not merged) |
 | Unimported private parent reader | `chat_bridge/github_fabric_private_parent_fence_reader.js`, `PARENT_TRANSPORT_FENCE_PRIVATE_READER.md` (**merged**, always no Send authority; Git blob digest verified since #218) |
 | Private parent namespace absence CLI | `github_fabric_private_live_smoke.py --verify-private-parent-namespace-empty`, `PRIVATE_PARENT_NAMESPACE_LIVE_SMOKE.md` (real Mac GET-only smoke, #219) |
-| Production activation regression | PR #220 `chat_bridge/github_fabric_private_activation_guard.test.js` (**draft**; denies accidental private imports or Send from public intake) |
+| Production activation regression | `chat_bridge/github_fabric_private_activation_guard.test.js` (**merged** in PR #220; detects accidental private imports or Send from public intake) |
 | Private reader request deadline | PR #221 `chat_bridge/github_fabric_private_parent_fence_reader.js` (**draft**; aborted GET including streaming body) |
 | Legacy browser Send/claim and results | `chat_bridge/worker_conversation_fabric.js`, `worker_spawn*.js`, `spawn_result_content.js` |
 | Inactive browser GitHub intake | `chat_bridge/worker_github_fabric_intake.js`, `github_fabric_private_transport.js` |
@@ -177,10 +183,12 @@ have been authorized in this private repository.
    on one authoritative mode/epoch before any side effect. An old/offline
    Chrome version that does not honor fencing is a migration blocker; a
    timeout or missing ACK never grants a takeover.
-5. Validate and merge PRs #220 and #221 only after six exact-head GitHub CI
-   checks. Mac-focused tests were queued on `agent-control` for both; at this
-   handoff their terminal results were unconfirmed. Do not invent success or
-   republish duplicate tasks; first inspect the existing task/result IDs.
+5. PR #220 is merged. PR #221 Mac test has a verified passed terminal
+   result (`local-agent-m8-pr221-private-reader-timeout-20261009-v1`).
+   Merge PR #221 only when all six GitHub checks on its exact head are green;
+   do not mistake a still-running check for success. The additional
+   exact-main private three-surface read task also completed successfully
+   (`local-agent-m8-main-private-three-surface-read-20261009-v1`).
 6. Implement real evidence-bearing ACK/results, retirement and cross-device
    recovery in bounded gated PRs. Leave all new production flags disabled
    until real acceptance, not merely fixture CI.
