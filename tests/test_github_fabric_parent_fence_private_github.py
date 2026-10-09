@@ -352,6 +352,24 @@ class PrivateParentFenceWriterTests(unittest.TestCase):
                 api.request(method, path)
         self.assertEqual(writer.MAX_ATTEMPTS, 6)
 
+    def test_private_rest_rejects_unsafe_ref_updates_before_network(self):
+        api = private.PrivateFabricREST("synthetic-test-token")
+        for payload in (
+            None, {}, {"sha": "a" * 40, "force": True},
+            {"sha": "a" * 40, "force": 0},
+            {"sha": "a" * 40, "force": None},
+            {"sha": "bad", "force": False},
+            {"sha": ["a" * 40], "force": False},
+            {"sha": "a" * 40, "force": False, "extra": 1},
+        ):
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                api.request("PATCH", private.REF_UPDATE_PATH, payload)
+        with self.assertRaisesRegex(ValueError, "GET must not"):
+            api.request("GET", private.REF_PATH, {"unexpected": True})
+        for route in ("/git/blobs", "/git/trees", "/git/commits"):
+            with self.subTest(route=route), self.assertRaises(ValueError):
+                api.request("POST", route)
+
 
 if __name__ == "__main__":
     unittest.main()
