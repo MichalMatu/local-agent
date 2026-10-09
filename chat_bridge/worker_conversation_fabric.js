@@ -162,10 +162,13 @@ function conversationFabricOperatorCampaignSummary(campaign, vaultResults = []) 
 
   let feedbackState = "not_terminal";
   if (["completed", "failed"].includes(String(campaign?.state || ""))) {
-    feedbackState = campaign?.feedback_delivered
-      ? "delivered"
-      : campaign?.feedback_delivery_assumed
-        ? "assumed"
+    // At-most-once delivery consumes an ambiguous send, but it does not
+    // prove that the parent received the feedback. Show that uncertainty
+    // before the compatibility feedback_delivered marker.
+    feedbackState = campaign?.feedback_delivery_assumed === true
+      ? "assumed"
+      : campaign?.feedback_delivered === true
+        ? "delivered"
         : campaign?.feedback_delivery_claim?.id
           ? "claimed"
           : "pending";
@@ -229,7 +232,9 @@ async function conversationFabricOperatorSnapshot() {
     );
     const terminalAttention = parentCampaigns.filter((campaign) =>
       ["completed", "failed"].includes(String(campaign?.state || "")) &&
-      (campaign?.cleanup_pending === true || campaign?.feedback_delivered !== true)
+      (campaign?.cleanup_pending === true ||
+       campaign?.feedback_delivered !== true ||
+       campaign?.feedback_delivery_assumed === true)
     );
     const current = active[0] || terminalAttention[0] || parentCampaigns[0] || null;
     const vaultCampaignIds = new Set(parentVault.map((result) => String(result?.campaign_id || "")).filter(Boolean));
@@ -509,7 +514,7 @@ async function inspectConversationFabric(authority) {
       if (recent.length + vaultOnly.length >= CONVERSATION_FABRIC_INSPECT_RECENT_LIMIT) break;
     }
     const lines = recent.map((campaign) =>
-      `${campaign.id} state=${campaign.state} created=${campaign.created_at} results=${(campaign.results || []).length}/${(campaign.children || []).length} failures=${conversationFabricFailedChildren(campaign).length}`
+      `${campaign.id} state=${campaign.state} created=${campaign.created_at} results=${(campaign.results || []).length}/${(campaign.children || []).length} failures=${conversationFabricFailedChildren(campaign).length} feedback=${conversationFabricOperatorCampaignSummary(campaign).feedbackState}`
     );
     lines.push(...vaultOnly.map((result) =>
       `${result.campaign_id} state=vault-only captured=${result.captured_at} latest_child=${result.child_id}`
@@ -571,7 +576,10 @@ async function inspectConversationFabric(authority) {
     campaignId,
     feedbackPrompt: boundedConversationFabricInspectPrompt([
       `Conversation Fabric campaign inspection: ${campaignId}`,
-      campaign ? `state=${campaign.state} created=${campaign.created_at} completed=${campaign.completed_at || ""} feedback_delivered=${campaign.feedback_delivered === true} cleanup_pending=${campaign.cleanup_pending === true}` : "campaign record pruned; Result Vault remains",
+      campaign ? `state=${campaign.state} created=${campaign.created_at} completed=${campaign.completed_at || ""} feedback_delivered=${campaign.feedback_delivered === true} feedback_state=${conversationFabricOperatorCampaignSummary(campaign).feedbackState} cleanup_pending=${campaign.cleanup_pending === true}` : "campaign record pruned; Result Vault remains",
+      campaign?.feedback_delivery_assumed === true
+        ? "Feedback delivery is UNCONFIRMED: a prior send may have succeeded before its acknowledgment was lost. Inspect stored results; do not automatically resend this terminal feedback."
+        : "",
       childLines.length ? childLines.join("\n") : "No live campaign child records remain.",
       vaultLines.length ? `Vault records:\n${vaultLines.join("\n")}` : "No vaulted child results are available.",
       ...excerpts
@@ -929,7 +937,13 @@ async function delegateConversationFabric(authority) {
   const history = campaigns.filter((value) =>
     !["spawning", "running"].includes(value.state) &&
     value.feedback_delivered &&
-    !value.cleanup_pending
+    !value.cleanup_pending &&
+    // feedback_delivered is also a no-replay compatibility marker for a
+    // lost terminal ACK. Keep such unresolved receipts inspectable rather
+    // than silently pruning them as confirmed history.
+    value.feedback_delivery_assumed !== true &&
+    !(value.feedback_delivery_claim?.id &&
+      value.feedback_delivery_claim.state !== "confirmed")
   ).sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)));
   for (const old of history.slice(CONVERSATION_FABRIC_HISTORY_LIMIT - 1)) {
     // Upgrade-safe migration: never prune a legacy campaign result until its

@@ -1,6 +1,14 @@
-# Conversation Fabric — current contract and remaining acceptance
+# Conversation Fabric — active legacy DOM/Chrome contract and acceptance
 
-Updated: 2026-10-08. Current source: **Chat Bridge 0.8.13 / content protocol v26**.
+
+**Scope:** This is the existing browser/DOM `LOCAL_AGENT_CF` production
+delegation path, not the future private GitHub-first child-execution path.
+For Milestone 8 private project continuity, the active continuation document is
+[GitHub-first current handoff](GITHUB_FIRST_CURRENT_HANDOFF.md).
+GitHub-first remains default-disabled. The old live Chrome reload experiment
+described below is independent of the GitHub-first source-pinned recovery proof.
+
+Legacy DOM source observation: 2026-10-08. Current source: **Chat Bridge 0.8.13 / content protocol v26**.
 Live proof and exact source baseline: [2026-10-08 checkpoint](CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md).
 
 ## Accepted: single and parallel delegation in normal Chrome
@@ -59,6 +67,8 @@ LOCAL_AGENT_CF>>>
 - Never resend an ambiguously submitted child bootstrap or auto-create substitute tabs. If a child tab has been manually closed, record a bounded failure instead of guessing.
 - After worker restart, adopt only an exact transaction/request/bootstrap/current-child-URL claim; tab ID alone is insufficient.
 - Terminal feedback uses durable at-most-once delivery. An ambiguous send is not replayed automatically, and a newer campaign must not inherit the previous one's results/receipt.
+- A previously claimed but unconfirmed terminal feedback send remains **ambiguous**, even when the internal compatibility marker `feedback_delivered=true` suppresses replay. Operator/popup status must show `feedbackState=assumed`; scoped `inspect` must report `feedback_state=assumed` and a manual-reconciliation warning. Do not interpret the no-replay marker as proof that the parent received the message.
+- Historical pruning may discard only terminal campaigns whose feedback delivery was confirmed. An assumed/unconfirmed delivery claim is retained even if the compatibility `feedback_delivered` marker is set; if too many unresolved campaigns exhaust storage, reject new delegation with `conversation_fabric_history_full` rather than erase uncertain receipt evidence.
 - Diagnostic `control_rejected`, `control_worker_rejected`, `control_accepted` and `control_transport_failed` events are **observability**, not delegation/result proof. See [diagnostics](DELEGATION_DIAGNOSTICS.md).
 
 ## Remaining live acceptance
