@@ -1,5 +1,23 @@
 # GitHub-first Conversation Fabric — current Milestone 8 handoff
 
+> **Exact-head acceptance checkpoint (2026-10-09).** The external
+> journal anchor code at `306bca269ceaed0f217a0318a1c455f3d5b253b3`
+> passed canonical Mac task
+> `local-agent-m8-journal-external-anchor-full-20261009-v1`:
+> focused journal/deny/inventory tests, full Bridge Node, Python compile,
+> Ruff, command exit 0. The anchor still requires trusted independent
+> source provenance; it does not revoke an old worker.
+> The upgraded local legacy seam #239 at
+> `77527e3d260fba7455e2d1aaa20af8e06706fb63` passed exact-head
+> Mac Node/Ruff and isolated Chromium 1228/Playwright 1.61.1
+> (`local-agent-m8-pr239-extended-latch-node-20261009-v5` and
+> `local-agent-m8-pr239-extended-latch-browser-20261009-v1`).
+> No production Chrome deployment or true two-device exclusion occurred.
+> This documentation-only checkpoint adds a split migration decision:
+> same-parent takeover remains blocked, while an independent new parent
+> may perform manual/read-only GitHub rehydration without browser effects.
+> New PR #241 doc heads are not automatically covered by prior source PASS.
+>
 > **Follow-up: external effect-journal anchor.** The forensic reader now
 > requires a separate strict anchor (parent, epoch, source commit SHA,
 > event count, head digest). Caller-provided fields remain untrusted until
