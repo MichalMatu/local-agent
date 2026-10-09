@@ -46,11 +46,19 @@ class PrivateFabricREST(git.GitHubFabricREST):
         parent_tree_read = method == "GET" and re.fullmatch(
             r"/git/trees/[0-9a-f]{40}\?recursive=1", path
         )
+        commit_read = method == "GET" and re.fullmatch(
+            r"/git/commits/[0-9a-f]{40}", path
+        )
+        project_read = method == "GET" and re.fullmatch(
+            r"/contents/projects/(?:index\.json|local-agent/workflows/index\.json|"
+            r"local-agent/workflows/workflow-001/dispatches/"
+            r"(?:index|fabric-[0-9a-f]{32})\.json)\?ref=[0-9a-f]{40}", path
+        )
         allowed = (
             method == "GET" and (
                 path == REF_PATH
-                or path.startswith("/git/commits/")
-                or path.startswith("/contents/projects/")
+                or commit_read
+                or project_read
                 or parent_read or parent_tree_read
             )
         ) or (method == "POST" and path in {
