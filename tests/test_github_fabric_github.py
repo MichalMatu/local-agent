@@ -12,6 +12,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib.error import HTTPError
 
 from local_agent.conversation import github_fabric_github as publisher
 from tests.test_github_fabric_dispatch import admitted_children, operator_request
@@ -228,6 +229,29 @@ class GithubFabricTrustedWriterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "branch head SHA"):
             self.publish(api=InvalidRef())
         self.assertEqual(len(self.api.commits), 0)
+
+    def test_trusted_rest_denies_redirect_before_reusing_bearer_token(self):
+        adapter = publisher.GitHubFabricREST("synthetic-secret-token")
+        with mock.patch.object(publisher, "build_opener") as build:
+            build.return_value.open.side_effect = HTTPError(
+                "https://api.github.com/", 302, "Moved",
+                {"Location": "https://external.invalid/token"}, None,
+            )
+            with self.assertRaises(publisher.GithubFabricHTTPError) as raised:
+                adapter.request("GET", publisher.GITHUB_REF_PATH)
+            self.assertEqual(raised.exception.status, 302)
+            self.assertEqual(build.call_count, 1)
+            handler = build.call_args.args[0]
+            self.assertIsInstance(handler, publisher._NoRedirect)
+            self.assertIsNone(handler.redirect_request(
+                None, None, 302, "Moved", {},
+                "https://external.invalid/token",
+            ))
+            sent = build.return_value.open.call_args.args[0]
+            self.assertEqual(sent.full_url,
+                             publisher.GITHUB_API_ROOT + publisher.GITHUB_REF_PATH)
+            self.assertEqual(sent.get_header("Authorization"),
+                             "Bearer synthetic-secret-token")
 
     def test_publisher_rejects_invalid_header_token(self):
         for token in ("", "token\r\nBearer evil", " token", "token ", "tok\nen"):
