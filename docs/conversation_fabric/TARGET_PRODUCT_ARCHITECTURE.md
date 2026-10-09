@@ -157,11 +157,14 @@ must not receive confidential prompts or raw child transcripts.
 **GitHub Actions is not the workflow engine.** GitHub repositories and authenticated
 Git-backed records provide coordination/evidence; Local Agent owns long-running
 execution, scheduling and recovery, while Chat Bridge performs browser effects.
-GitHub Actions may test proposed source changes, but an exhausted Actions quota,
-queued CI job or disabled runner must not prevent the installed system from
-reading existing workflow state, preserving verified events or presenting a
-pending decision. Actions unavailability also does not excuse bypassing
-the required CI gate for merging new code.
+GitHub Actions is **manual-only by operator decision from 2026-10-09**
+because hosted runner credits are exhausted. Do not dispatch it or restore
+automatic push/PR triggers without explicit operator approval. An exhausted
+Actions quota cannot stop the installed Local Agent from preserving evidence.
+It also cannot justify merging untested code: source acceptance instead
+requires exact-candidate-head local Mac/sandbox tests, retained command/exit
+evidence, applicable OS/Chromium regression and independent reviews as
+specified by `docs/conversation_fabric/LOCAL_VERIFICATION.md`.
 
 **Responsiveness target:** retain a safe minute-scale GitHub poll initially for
 durable multi-minute work, and surface freshness/last-sync status. Lower-latency

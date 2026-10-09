@@ -4,6 +4,30 @@
 All source SHAs and PR states below are **observations at handoff**, not locks;
 re-read GitHub before code edits, task publication or merge.
 
+## Latest current checkpoint — 2026-10-09
+
+This checkpoint supersedes the historical SHA snapshots and old mandatory
+six-job hosted-CI wording below. GitHub Actions are disabled for automatic
+runs and must not be dispatched. Validate candidate heads via canonical Mac
+Local Agent or an isolated sandbox under `LOCAL_VERIFICATION.md`.
+
+At this snapshot, `main` is `f84129a37c102310d74d7176f9156f90b603c39d`
+(merged #233 local test gate, #234 strict JSON type parity, #235 strict parent
+tree root reader, #236 HTTP no-redirect for token-bearing public GitHub REST).
+Draft #209 is `cc7fcd80e111b54dc2574c92ba07d3b4dacb0d43`, and stacked
+draft #214 is `9d1d2d3adb8d8a145d870260297966911d3324f7`.
+Every SHA is only a recorded observation: recheck GitHub live heads.
+
+The latest #214 exact-head focused Mac task
+`local-agent-m8-private-tree-atomic-proof-20261009-v1` passed 57/57 Python
+tests, reader/no-Send guard JS, compile and Ruff. Full Mac coverage/native
+and exact-head Chromium tasks were separately queued; do not count them as
+PASS unless their terminal result can be inspected. #209/#214 still lack
+independent security/integration approval and real shared browser-side
+parent admission, including legacy/offline worker exclusion. Both remain
+**draft and unmerged**. No private `parents/` record, actual GitHub-first
+Send, ACK or result was published. Current production remains legacy DOM.
+
 ## Current operator override — 2026-10-09: no GitHub Actions
 
 **Binding development rule:** hosted runner credits are exhausted until the
@@ -23,15 +47,11 @@ successful Mac/browser/Python-3.14 result. Missing independent security and
 integration reviews still block #209 and #214 merges. Live GitHub-first
 private Send/ACK remains disabled and the legacy DOM mode remains active.
 
-Current source observations (re-read before action): draft #209 head
-`85c68b0ca62a5bc8acef6b84a66f4d3c2eb0e552`, stacked draft #214 head
-`f0d2a30236ceb43f88b8a2f6125100ab76a84a33`, documentation #231
-is an older checkpoint subject to reconciliation, and old CI-concurrency
-#232 was **closed unmerged** as obsolete. Do not update PR branches using
-an older copy of the automatic CI workflow; inherit the disabled `main`
-workflow before the next source change.
+The sections below retain historical source observations for audit only.
+Superseded handoff PR #231 and CI-concurrency PR #232 were closed unmerged.
+Always re-read the current heads and preserve the manual-only workflow.
 
-## Latest continuation recheck — 2026-10-09, after PR #226
+## Historical audit snapshot — after PR #226 (superseded)
 
 This section records a **read-only audit**, not live browser/Mac acceptance and
 not permission to publish an executable task. All refs must be re-read before
@@ -65,11 +85,11 @@ further code changes.
   delegated **independent** security/integration review responses were not
   evidenced in PR reviews/threads. Do not invent them, re-delegate blindly,
   or merge either draft based on CI alone.
-- **#214 review gap:** the trusted Python CAS origin reader checks
+- **Historical #214 review gap, fixed in later drafts:** the earlier Python CAS origin reader checked
   parent-tree paths but does not verify Contents decoded blob bytes against
   the tree entry SHA. The separate JS private parent reader performs that
-  check. Add negative tree/Contents mismatch tests and source digest parity
-  before promoting this source snapshot to security-sensitive authority.
+  check. Later draft #214 source and negative tests now verify exact path,
+  metadata and decoded Git blob SHA-1; live mode admission is still absent.
   Recorded in [#214 review comment](https://github.com/MichalMatu/local-agent/pull/214#issuecomment-6073474628).
   The current old DOM path is not globally fenced by this synthetic preview.
 - #195 remains a deferred successor roadmap PR, and #227 is a separate
@@ -254,14 +274,14 @@ have been authorized in this private repository.
    Re-review **latest** PR #209 source, tests, global parent ID, conflicts
    and the distinction between simulated fencing and live enforcement.
 2. If reviews warrant it, make the smallest PR #209 corrections, run exact
-   head focused tests via canonical Local Agent and all six CI jobs; merge
+   head focused tests via canonical Local Agent and applicable exact-head Mac/sandbox gates; merge
    only after passing review and GitHub mergeability. Otherwise leave draft
    and explain blocker.
 3. Review the separate PR #214 implementation for synthetic-only private CAS.
    It has atomic parent record+index commits, pinned complete-tree reads,
    race tests and strict zero-write replay. **Do not merge the stacked draft**
    before PR #209's outstanding review gate is resolved, then revalidate
-   its base and six CI checks. No real private parent publication occurred.
+   its base and exact-head local Mac/sandbox gates. No real private parent publication occurred.
 4. The browser reader is already merged in PR #216, but it is unimported
    and always denies side-effect authority. Next design/implement **both**
    transport consumers agreeing
