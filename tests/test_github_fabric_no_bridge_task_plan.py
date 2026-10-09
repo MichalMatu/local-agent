@@ -52,6 +52,7 @@ class NoBridgeTaskPlannerTests(unittest.TestCase):
                 self.assertFalse(planned.automatic_retry_permitted)
                 self.assertFalse(planned.browser_effects_permitted)
                 self.assertTrue(planned.binding_recheck_required)
+                self.assertFalse(planned.isolated_test_dependencies_planned)
                 self.assertEqual(planned.task_digest, task_contract.task_digest(task))
                 task_contract.validate_task(task, require_agent_binding=True)
                 self.assertNotIn("codex", task["commands"][0].lower())
@@ -67,10 +68,12 @@ class NoBridgeTaskPlannerTests(unittest.TestCase):
         different_sha = self.plan(exact_source_sha="b" * 40)
         different_branch = self.plan(work_branch="work/independent")
         different_job = self.plan(task_job_id="other-job")
+        different_setup = self.plan(isolated_test_dependencies_approved=True)
         different_binding = self.plan(
             independently_verified_agent_binding="aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
         )
-        for other in (different_sha, different_branch, different_job, different_binding):
+        for other in (different_sha, different_branch, different_job,
+                      different_binding, different_setup):
             self.assertNotEqual(same.task_id, other.task_id)
             self.assertNotEqual(same.task_digest, other.task_digest)
 
@@ -90,9 +93,34 @@ class NoBridgeTaskPlannerTests(unittest.TestCase):
             {"profile": "browser"},
             {"profile": "codex"},
             {"profile": True},
+            {"isolated_test_dependencies_approved": "not-a-boolean"},
         ):
             with self.subTest(updates=updates), self.assertRaises(ValueError):
                 self.plan(**updates)
+
+    def test_opted_in_temporary_dependency_environment_is_bounded(self):
+        for profile in ("core", "full"):
+            with self.subTest(profile=profile):
+                plan = self.plan(
+                    profile=profile, isolated_test_dependencies_approved=True
+                )
+                task = json.loads(plan.task_json)
+                command = task["commands"][0]
+                self.assertTrue(plan.isolated_test_dependencies_planned)
+                self.assertIn('mktemp -d', command)
+                self.assertIn("trap 'rm -rf --", command)
+                self.assertIn("python3.13 -m venv", command)
+                self.assertIn("'mcp==2.2.0'", command)
+                self.assertIn("'ruff==0.12.11'", command)
+                self.assertIn("'pytest==9.1.1'", command)
+                self.assertIn("--sanitize-test-lease-markers", command)
+                self.assertIn("--expected-sha", command)
+                self.assertNotIn("pip install --upgrade", command)
+                self.assertNotIn("codex", command.lower())
+                recovery._validate_scoped_task(
+                    task, task_id=plan.task_id, source_sha=SHA,
+                    binding=BINDING, work_branch=BRANCH,
+                )
 
     def test_no_ambient_authentication_in_plan(self):
         planned = self.plan()
