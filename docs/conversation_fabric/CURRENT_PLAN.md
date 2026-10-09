@@ -73,13 +73,13 @@ LOCAL_AGENT_CF>>>
 
 ## Remaining live acceptance
 
-**Not yet demonstrated in the operator's real Chrome:** controlled extension/MV3 worker reload **during an active campaign** and verified exact-claim recovery, no child-bootstrap replay, full capture, tab cleanup and no terminal-feedback duplication. Recovery behavior is covered by CI's Chromium harness, but the live interruption test is a separate gate. Optional remote Operator telemetry activation is also unverified.
+**Not yet demonstrated in the operator's real Chrome:** controlled extension/MV3 worker reload **during an active campaign** and verified exact-claim recovery, no child-bootstrap replay, full capture, tab cleanup and no terminal-feedback duplication. Recovery behavior is covered by the isolated Chromium harness when run locally, but the live interruption test is a separate gate. Optional remote Operator telemetry activation is also unverified.
 
 Recommended next test: one fresh, explicit bounded campaign with two reasoning children; keep child tabs open; trigger one controlled reload while they run; verify ownership, exact one-time bootstrap and completion, and inspect the resulting campaign and popup status. Do not replay the closed old failure.
 
 ## Verification and next work
 
-- Source gates: `bridge-browser`, `test`, `coverage`, `python-314`, `macos-smoke`, `absorbed-host-ops` on the **exact PR head**.
+- **Current source gate (operator override, 2026-10-09):** GitHub Actions automatic CI is disabled. Use exact-head Mac/sandbox verification for compile, Ruff, bridge Node tests, Python unit/integration, Host Ops, coverage and relevant native macOS/isolated Chromium smoke. See `LOCAL_VERIFICATION.md`; record unsupported checks as unverified, not passing. Historical hosted check names are no longer required for ongoing development. Independent safety/integration review and live browser acceptance gates are unchanged.
 - Existing harness: `scripts/conversation_fabric_dom_smoke.cjs` and `scripts/conversation_fabric_browser_smoke.cjs`. No second production browser controller.
 - Main development continues in **Milestone 7 Tool Runtime Phase C**, independently of Fabric live acceptance. See [current handoff](../CURRENT_HANDOFF.md).
 - Historical Stage 8 isolated-profile / older 0.8.x instructions remain historical evidence, not active operation.
