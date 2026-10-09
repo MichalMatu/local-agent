@@ -68,6 +68,7 @@ LOCAL_AGENT_CF>>>
 - After worker restart, adopt only an exact transaction/request/bootstrap/current-child-URL claim; tab ID alone is insufficient.
 - Terminal feedback uses durable at-most-once delivery. An ambiguous send is not replayed automatically, and a newer campaign must not inherit the previous one's results/receipt.
 - A previously claimed but unconfirmed terminal feedback send remains **ambiguous**, even when the internal compatibility marker `feedback_delivered=true` suppresses replay. Operator/popup status must show `feedbackState=assumed`; scoped `inspect` must report `feedback_state=assumed` and a manual-reconciliation warning. Do not interpret the no-replay marker as proof that the parent received the message.
+- Historical pruning may discard only terminal campaigns whose feedback delivery was confirmed. An assumed/unconfirmed delivery claim is retained even if the compatibility `feedback_delivered` marker is set; if too many unresolved campaigns exhaust storage, reject new delegation with `conversation_fabric_history_full` rather than erase uncertain receipt evidence.
 - Diagnostic `control_rejected`, `control_worker_rejected`, `control_accepted` and `control_transport_failed` events are **observability**, not delegation/result proof. See [diagnostics](DELEGATION_DIAGNOSTICS.md).
 
 ## Remaining live acceptance
