@@ -13,6 +13,7 @@ importScripts(
   "worker_delivery.js",
   "worker_assistant_errors.js",
   "worker_conversations.js",
+  "worker_legacy_dom_effect_gate.js",
   "worker_spawn.js",
   "worker_spawn_route_transition.js",
   "worker_spawn_result.js",
