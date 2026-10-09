@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import re
@@ -106,15 +107,22 @@ def _require_sha(value: Any, *, label: str) -> str:
 
 
 def _read_json_at_commit(
-    api: Any, path: str, head_sha: str, *, max_bytes: int
+    api: Any, path: str, head_sha: str, *, max_bytes: int,
+    expected_blob_sha: str | None = None,
 ) -> dict[str, Any] | None:
+    if expected_blob_sha is not None:
+        _require_sha(expected_blob_sha, label="pinned blob")
     relative = quote(path, safe="/")
     try:
         response = api.request("GET", f"/contents/{relative}?ref={head_sha}")
     except GithubFabricHTTPError as exc:
-        if exc.status == 404:
+        if exc.status == 404 and expected_blob_sha is None:
             return None
+        if exc.status == 404:
+            raise ValueError("GitHub Fabric pinned blob is missing") from exc
         raise
+    if (expected_blob_sha is not None and response.get("sha") != expected_blob_sha):
+        raise ValueError("GitHub Fabric pinned blob metadata SHA mismatch")
     if (
         response.get("type") != "file"
         or response.get("encoding") != "base64"
@@ -129,6 +137,10 @@ def _read_json_at_commit(
         raise ValueError("GitHub Fabric remote file has invalid base64") from exc
     if len(raw) != response["size"] or len(raw) > max_bytes:
         raise ValueError("GitHub Fabric remote file violates size bound")
+    if expected_blob_sha is not None:
+        preimage = b"blob " + str(len(raw)).encode("ascii") + b"\0" + raw
+        if hashlib.sha1(preimage).hexdigest() != expected_blob_sha:
+            raise ValueError("GitHub Fabric pinned blob content SHA mismatch")
     try:
         value = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
