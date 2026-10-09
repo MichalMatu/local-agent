@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 from local_agent.conversation import github_fabric_manual_handoff as handoff
+from local_agent.conversation import github_fabric_manual_new_parent as previewer
 from scripts import no_bridge_manual as cli
 from tests.test_github_fabric_manual_new_parent import DEST, private_observation
+from tests.test_github_fabric_dispatch import admitted_children, operator_request
 
 HEAD = "a" * 40
 BINDING = "2180d453-1357-4fbc-be1a-e1e5b8fbb10a"
@@ -102,6 +106,67 @@ class NoBridgeOperatorCLITests(unittest.TestCase):
         self.assertIn(HEAD, payload["task"]["commands"][0])
         self.assertNotIn("pip install", payload["task"]["commands"][0])
         self.assertEqual(len(payload["task_digest"]), 64)
+
+    def test_remote_verification_default_disabled_and_no_token_leak(self):
+        params = [
+            "verify-github",
+            "--manifest", "missing-manifest.json",
+            "--operator-request", "missing-source.json",
+            "--child-requests", "missing-children.json",
+            "--pinned-source-sha", HEAD,
+            "--destination-parent-url", DEST,
+        ]
+        code, output, error = invoke(params)
+        self.assertEqual(code, 2)
+        self.assertEqual(output, "")
+        self.assertIn("refused", error)
+        with mock.patch.dict(os.environ, {}, clear=True):
+            code, output, error = invoke([*params, "--allow-readonly-network"])
+        self.assertEqual(code, 2)
+        self.assertEqual(output, "")
+        self.assertNotIn("missing-manifest.json", error)
+
+    def test_explicit_github_verify_uses_env_token_and_redacted_view(self):
+        observed = private_observation()
+        preview = previewer.preview_manual_new_parent(
+            observed, independently_pinned_source_sha=HEAD,
+            destination_parent_conversation_url=DEST,
+        )
+        exported = handoff.export_manual_handoff(preview)
+        with tempfile.TemporaryDirectory() as root:
+            files = {}
+            for name, value in (
+                ("manifest", exported),
+                ("operator", json.dumps(operator_request())),
+                ("children", json.dumps(admitted_children())),
+            ):
+                path = Path(root) / (name + ".json")
+                path.write_text(value, encoding="utf-8")
+                files[name] = str(path)
+            args = [
+                "verify-github", "--manifest", files["manifest"],
+                "--operator-request", files["operator"],
+                "--child-requests", files["children"],
+                "--pinned-source-sha", HEAD,
+                "--destination-parent-url", DEST,
+                "--allow-readonly-network",
+            ]
+            with mock.patch.dict(
+                os.environ, {"LOCAL_AGENT_FABRIC_GITHUB_TOKEN": "PRIVATE_TEST_TOKEN"}
+            ), mock.patch.object(
+                handoff, "verify_manual_handoff_against_github",
+                return_value=preview,
+            ) as verifier:
+                code, output, error = invoke(args)
+                self.assertEqual(code, 0)
+                self.assertEqual(error, "")
+                self.assertNotIn("PRIVATE_TEST_TOKEN", output)
+                self.assertEqual(json.loads(output)["decision"], "manual_read_only_review")
+                self.assertFalse(json.loads(output)["browser_effects_permitted"])
+                verifier.assert_called_once()
+                kwargs = verifier.call_args.kwargs
+                self.assertTrue(kwargs["enabled"])
+                self.assertEqual(kwargs["token"], "PRIVATE_TEST_TOKEN")
 
     def test_separate_isolated_setup_requires_an_explicit_flag(self):
         args = [
