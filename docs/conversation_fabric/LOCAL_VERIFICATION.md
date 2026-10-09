@@ -20,6 +20,35 @@ For each result, retain task ID, branch, source SHA, command, exit status,
 bounded output and runtime/tool versions under the repository's durable
 `.agent/results/` contract. An absent/timeout/unconfirmed result is not PASS.
 
+## Single-command local verification gate
+
+`scripts/verify_local.py` is a **source-only local test launcher**. It
+requires an exact lowercase `--expected-sha`, rejects dirty/mismatched
+checkouts, checks local dependencies *before* starting a full suite,
+reports actual per-stage exit codes and stops at the first failure. It
+does not install packages, download browsers, change runtime settings or
+contact GitHub Actions.
+
+```bash
+python scripts/verify_local.py --expected-sha "$(git rev-parse HEAD)" --profile core
+python scripts/verify_local.py --expected-sha "$(git rev-parse HEAD)" --profile full
+```
+
+The full profile includes macOS smoke, Host Ops architecture/design,
+Host Ops coverage and core branch coverage. Include the optional
+`--include-browser` or `--include-python314` only when their actual
+runtime prerequisites are available; unexecuted optional stages are
+**unverified**, not PASS. For an isolated temporary Node installation,
+set `LOCAL_AGENT_PLAYWRIGHT_MODULE` to the exact absolute Playwright package
+path (such as `/tmp/test-node/node_modules/playwright`): the preflight and
+browser harness both resolve that same module. The Chromium executable still
+must be available to Playwright; a package import passing is not a browser
+installation test. The `--sanitize-test-lease-markers` option
+exists only for isolated testing of subprocess fixtures under an
+already-authorized worker: it does not modify the daemon environment
+and must not be used to launch production tasks. Test output is captured
+in the Local Agent task result or normal shell transcript.
+
 ## Local acceptance matrix
 
 Run each relevant group on the *same exact candidate head*, using

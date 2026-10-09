@@ -170,6 +170,22 @@ Repository verification has one executable entrypoint so Mac/sandbox testing and
 python scripts/verify.py
 ```
 
+Use the no-Actions, exact-commit local gate for repeatable checks. It
+fails before expensive tests when the candidate worktree is dirty, the
+source SHA differs, or the local Python/Node prerequisites are missing:
+
+```bash
+python scripts/verify_local.py --expected-sha "$(git rev-parse HEAD)" --profile core
+python scripts/verify_local.py --expected-sha "$(git rev-parse HEAD)" --profile full
+```
+
+Run the full profile on macOS with the pinned runtime and local test
+dependencies already installed in an isolated interpreter; add
+`--include-browser` and/or `--include-python314` only when those
+environments are present. `--sanitize-test-lease-markers` is an explicit
+hermetic-test-only option for nested subprocess fixtures; never apply it
+to machine execution. See the local verification guide.
+
 Run one stage when iterating:
 
 ```bash
