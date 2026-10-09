@@ -285,7 +285,10 @@ def control_result_matches(
 
 def discard_spool(item: OperatorWorkItem) -> None:
     parents: set[Path] = set()
-    for path in (item.result_path, item.request_path):
+    launch_path = (
+        item.request_path.parent.parent / "launches" / f"{item.request_id}.json"
+    )
+    for path in (item.result_path, item.request_path, launch_path):
         try:
             path.unlink()
             parents.add(path.parent)
