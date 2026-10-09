@@ -117,7 +117,6 @@ class AgentControlRecoveryTests(unittest.TestCase):
         for mutation in (
             {"status": "failed"},
             {"commands": [{"exit_code": 1}]},
-            {"commands": [{"output_truncated": True}]},
             {"commands": [{"timed_out": True}]},
             {"git_diff": {"exit_code": 1, "output": "changed"}},
             {"stages": [{"outcome": "failed"}]},
@@ -136,6 +135,23 @@ class AgentControlRecoveryTests(unittest.TestCase):
                 summary = self.inspect(api)
                 self.assertEqual(summary.reported_outcome, "reported_nonpass_for_review")
                 self.assertFalse(summary.automatic_retry_permitted)
+
+    def test_truncated_success_is_incomplete_not_failure_or_retry_permission(self):
+        api = MemoryControlAPI()
+        api.result["commands"][0]["output_truncated"] = True
+        summary = self.inspect(api)
+        self.assertEqual(
+            summary.reported_outcome, "reported_incomplete_evidence_for_review"
+        )
+        self.assertEqual(summary.reported_status, "done")
+        self.assertFalse(summary.result_execution_attested)
+        self.assertFalse(summary.automatic_retry_permitted)
+        self.assertFalse(summary.effect_authorized)
+        self.assertFalse(summary.output_disclosed)
+        self.assertNotIn("PRIVATE TEST OUTPUT", repr(summary))
+        api.result["commands"][0]["exit_code"] = 1
+        failed = self.inspect(api)
+        self.assertEqual(failed.reported_outcome, "reported_nonpass_for_review")
 
     def test_invalid_task_digest_and_rewritten_command_fail_closed(self):
         api = MemoryControlAPI()
