@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import local_agent.daemon.service as agentd
-from local_agent.conversation import operator_contract
+from local_agent.conversation import operator_contract, operator_queue
 from local_agent.repository.context import RepositoryContext
 from local_agent.supervisor import conversation as conversation_supervisor
 
@@ -180,10 +180,23 @@ def operator_observability(
         result_publish_pending = False
         if configuration_error is None:
             configuration_error = "operator_result_state_unavailable"
+    reconciliation_required = False
+    if enabled and configured and not running:
+        try:
+            staged = operator_queue.next_staged_request(agentd.STATE_DIR)
+            reconciliation_required = (
+                staged is not None
+                and operator_queue.launch_reconciliation_required(agentd.STATE_DIR, staged)
+            )
+        except (OSError, ValueError, RuntimeError):
+            reconciliation_required = True
+            if configuration_error is None:
+                configuration_error = "operator_launch_state_unavailable"
     return {
         "enabled": enabled,
         "configured": configured,
         "running": running,
+        "launch_reconciliation_required": reconciliation_required,
         "configuration_error": configuration_error,
         "active_request": request,
         "active_request_error": request_error,
