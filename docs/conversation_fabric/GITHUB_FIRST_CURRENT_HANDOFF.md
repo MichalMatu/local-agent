@@ -1,5 +1,13 @@
 # GitHub-first Conversation Fabric — current Milestone 8 handoff
 
+> **Follow-up: external effect-journal anchor.** The forensic reader now
+> requires a separate strict anchor (parent, epoch, source commit SHA,
+> event count, head digest). Caller-provided fields remain untrusted until
+> externally authenticated/pinned; this is not a global effect fence.
+> New branch commits require exact-head verification. Also note the
+> independent draft #239 legacy worker-side effect inventory expansion is
+> under local regression review and remains unmerged/unactivated.
+>
 > **Continuation (2026-10-09, effect journal draft).** PR #241 now also
 > includes `github_fabric_effect_journal_audit.js` and its Node regressions:
 > a source-only, hash-chained, count/head-pinned, parent/epoch/actor-bound
