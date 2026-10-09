@@ -58,8 +58,11 @@ def missing_dependencies(profile: str, *, include_browser: bool = False,
         # Node has its own package resolution; preflight before Chromium launch.
         if shutil.which("node") is not None:
             try:
+                # Browser smokes already accept an isolated absolute module
+                # path. Preflight must resolve the very same module.
+                module = os.environ.get("LOCAL_AGENT_PLAYWRIGHT_MODULE") or "playwright"
                 subprocess.run(
-                    ["node", "-e", 'require.resolve("playwright")'],
+                    ["node", "-e", "require.resolve(process.argv[1])", module],
                     cwd=ROOT, check=True, capture_output=True, timeout=10,
                 )
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
