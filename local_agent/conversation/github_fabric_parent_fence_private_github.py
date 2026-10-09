@@ -45,6 +45,7 @@ def _snapshot(api: Any, candidate_id: str) -> tuple[
             or not isinstance(entries, list) or len(entries) > MAX_TREE_ITEMS):
         raise ValueError("Parent fence origin tree incomplete")
     record_paths: set[str] = set()
+    parent_blob_shas: dict[str, str] = {}
     index_present = False
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
@@ -58,6 +59,10 @@ def _snapshot(api: Any, candidate_id: str) -> tuple[
             continue
         if entry.get("type") != "blob" or entry.get("mode") != "100644":
             raise ValueError("Parent fence unexpected tree entry")
+        blob_sha = git._require_sha(entry.get("sha"), label="parent fence tree blob")
+        if path in parent_blob_shas:
+            raise ValueError("Parent fence duplicate tree entry")
+        parent_blob_shas[path] = blob_sha
         if path == preview.INDEX_PATH:
             if index_present:
                 raise ValueError("Parent fence duplicate index")
@@ -70,7 +75,8 @@ def _snapshot(api: Any, candidate_id: str) -> tuple[
             raise ValueError("Parent fence unexpected path")
 
     index = git._read_json_at_commit(
-        api, preview.INDEX_PATH, head, max_bytes=preview.MAX_INDEX_BYTES
+        api, preview.INDEX_PATH, head, max_bytes=preview.MAX_INDEX_BYTES,
+        expected_blob_sha=parent_blob_shas.get(preview.INDEX_PATH),
     )
     if index_present != (index is not None):
         raise ValueError("Parent fence index/tree mismatch")
@@ -84,6 +90,7 @@ def _snapshot(api: Any, candidate_id: str) -> tuple[
         records[identifier] = git._read_json_at_commit(
             api, preview.parent_path(identifier), head,
             max_bytes=preview.MAX_RECORD_BYTES,
+            expected_blob_sha=parent_blob_shas.get(preview.parent_path(identifier)),
         )
     return head, tree_sha, index, records
 
