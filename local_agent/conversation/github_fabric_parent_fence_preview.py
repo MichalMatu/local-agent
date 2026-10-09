@@ -110,7 +110,7 @@ def validate_record(value: Any) -> dict[str, Any]:
 def build_preview(operator_request: dict[str, Any],
                   child_requests: Iterable[dict[str, Any]],
                   *, transport_mode: str) -> dict[str, Any]:
-    if transport_mode not in MODES:
+    if not isinstance(transport_mode, str) or transport_mode not in MODES:
         raise ValueError("Parent transport mode invalid")
     requests = list(child_requests)
     # Fixed SHA-256 of the *entire* known-public fixture; a caller-provided
