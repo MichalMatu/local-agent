@@ -103,10 +103,10 @@ class LaunchFenceTests(unittest.TestCase):
 
     def test_spawn_restart_and_interruption_do_not_relaunch(self) -> None:
         proc = SimpleNamespace(pid=1234, poll=lambda: 143)
-        with mock.patch.dict(conversation.os.environ, environment(self.root), clear=True), \\
-             mock.patch.object(agentd, "STATE_DIR", self.state), \\
-             mock.patch.object(conversation, "repository_root", return_value=self.root), \\
-             mock.patch.object(conversation, "popen_registered", return_value=proc) as spawn, \\
+        with mock.patch.dict(conversation.os.environ, environment(self.root), clear=True), \
+             mock.patch.object(agentd, "STATE_DIR", self.state), \
+             mock.patch.object(conversation, "repository_root", return_value=self.root), \
+             mock.patch.object(conversation, "popen_registered", return_value=proc) as spawn, \
              mock.patch.object(conversation, "unregister_process"):
             slot = conversation.start_if_pending()
             self.assertIsNotNone(slot)
@@ -120,9 +120,9 @@ class LaunchFenceTests(unittest.TestCase):
         self.assertFalse(self.item.result_path.exists())
 
     def test_spawn_exception_is_ambiguous_and_cannot_replay(self) -> None:
-        with mock.patch.dict(conversation.os.environ, environment(self.root), clear=True), \\
-             mock.patch.object(agentd, "STATE_DIR", self.state), \\
-             mock.patch.object(conversation, "repository_root", return_value=self.root), \\
+        with mock.patch.dict(conversation.os.environ, environment(self.root), clear=True), \
+             mock.patch.object(agentd, "STATE_DIR", self.state), \
+             mock.patch.object(conversation, "repository_root", return_value=self.root), \
              mock.patch.object(conversation, "popen_registered", side_effect=OSError("spawn")) as spawn:
             with self.assertRaisesRegex(OSError, "spawn"):
                 conversation.start_if_pending()
