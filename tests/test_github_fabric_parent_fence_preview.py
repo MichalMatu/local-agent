@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import unittest
+from unittest import mock
 
 from local_agent.conversation import github_fabric_parent_fence_preview as preview
 from tests.test_github_fabric_dispatch import admitted_children, operator_request
@@ -44,8 +45,24 @@ class ParentTransportFencePreviewTests(unittest.TestCase):
         self.assertNotIn("child_conversation_url", repr(record))
         self.assertNotIn("read_token", repr(record))
         self.assertEqual(preview.parent_path(record["id"]), (
-            "projects/local-agent/parents/" + record["id"] + ".json"
+            "parents/" + record["id"] + ".json"
         ))
+
+
+    def test_parent_identity_is_global_across_projects(self):
+        parent = self.operator["parent_conversation_url"]
+        original_id = preview.parent_id(parent)
+        with mock.patch.object(preview, "_PROJECT", "growclip"):
+            self.assertEqual(preview.parent_id(parent), original_id)
+        with mock.patch.object(preview, "_PROJECT", "shelly-link"):
+            self.assertEqual(preview.parent_id(parent), original_id)
+        self.assertEqual(preview.parent_path(original_id), "parents/" + original_id + ".json")
+
+    def test_invalid_unhashable_transport_label_fails_as_validation_error(self):
+        record = copy.deepcopy(self.candidate)
+        record["transport_mode"] = ["legacy_dom"]
+        with self.assertRaisesRegex(ValueError, "record invalid"):
+            preview.validate_record(record)
 
     def test_opt_in_required_and_trusted_exact_fixture_only(self):
         with self.assertRaises(PermissionError):
