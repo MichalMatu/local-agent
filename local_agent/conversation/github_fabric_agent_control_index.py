@@ -76,6 +76,8 @@ def discover_agent_control_results(
     commit = remote.request("GET", f"/git/commits/{independently_pinned_control_sha}")
     if not isinstance(commit, dict) or not isinstance(commit.get("tree"), dict):
         raise ValueError("Agent-control history commit metadata invalid")
+    if commit.get("sha") != independently_pinned_control_sha:
+        raise ValueError("Agent-control history Git commit identity mismatch")
     tree_sha = git._require_sha(commit["tree"].get("sha"), label="history tree")
     snapshot = remote.request("GET", f"/git/trees/{tree_sha}?recursive=1")
     if (
