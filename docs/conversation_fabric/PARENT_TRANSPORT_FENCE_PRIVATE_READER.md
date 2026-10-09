@@ -58,3 +58,5 @@ are insufficient: that cross-driver admission design, genuine browser ACK,
 fenced retirement and stopped/offline old-extension migration gates remain
 required. Do not enable real GitHub-first private child dispatch from this
 module.
+
+An additional CI admission regression, `chat_bridge/github_fabric_private_activation_guard.test.js`, fails if the private reader is accidentally imported into production service worker or ChatGPT content scripts, or if the public GitHub-first intake begins creating tabs or submitting prompts. Deliberate future production migration must update this contract only with an independently reviewed browser authority design and acceptance evidence.
