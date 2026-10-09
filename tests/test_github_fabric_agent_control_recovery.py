@@ -45,9 +45,11 @@ def _result(task):
         "verification": [],
         "git_status": {"exit_code": 0, "output": ""},
         "git_diff": {"exit_code": 0, "output": ""},
-        "stages": [{"outcome": "passed", "stage_phase": "commands", "stage_index": 1, "stage_total": 1}],
+        "stages": [{"outcome": "passed", "stage_phase": "commands", "stage_index": 1, "stage_total": 1, "stage_name": "command-1"}],
         "commands": [{
             "command": task["commands"][0],
+            "stage_phase": "commands", "stage_index": 1,
+            "stage_total": 1, "stage_name": "command-1",
             "exit_code": 0,
             "timed_out": False,
             "idle_timed_out": False,
@@ -140,6 +142,28 @@ class AgentControlRecoveryTests(unittest.TestCase):
                 summary = self.inspect(api)
                 self.assertEqual(summary.reported_outcome, "reported_nonpass_for_review")
                 self.assertFalse(summary.automatic_retry_permitted)
+
+    def test_cross_stage_identity_mismatches_never_report_pass(self):
+        for target, key, value in (
+            ("stages", "stage_name", "command-2"),
+            ("stages", "stage_name", None),
+            ("commands", "stage_name", "command-2"),
+            ("commands", "stage_index", 2),
+            ("commands", "stage_index", True),
+            ("commands", "stage_total", False),
+            ("commands", "stage_total", 2),
+            ("commands", "stage_phase", "verification"),
+        ):
+            with self.subTest(target=target, key=key, value=value):
+                api = MemoryControlAPI()
+                api.result[target][0][key] = value
+                observed = self.inspect(api)
+                self.assertEqual(
+                    observed.reported_outcome, "reported_nonpass_for_review"
+                )
+                self.assertFalse(observed.automatic_retry_permitted)
+                self.assertFalse(observed.effect_authorized)
+                self.assertFalse(observed.result_execution_attested)
 
     def test_truncated_success_is_incomplete_not_failure_or_retry_permission(self):
         api = MemoryControlAPI()
