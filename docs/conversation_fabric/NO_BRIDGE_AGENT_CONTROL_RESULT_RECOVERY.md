@@ -26,8 +26,11 @@ source-head shell guard can yield a review summary. The reader requires the
 work branch, binding, command texts and task result digest to agree. It
 projects reported success only for a done task, all reported zero exit
 codes, passed stages, and no timeout, leak, truncation, write or dirty checkout.
-Any other coherent report is labeled reported_nonpass_for_review, never
-automatically retried. Malformed, missing, altered or oversized data fails
+A terminal report with all required success indicators but a truncated
+command output is classified as reported_incomplete_evidence_for_review,
+not reported_nonpass_for_review and not an authenticated PASS. A real
+failed/inconsistent/uncertain run remains reported_nonpass_for_review. All
+outcomes are review-only and never automatically retried. Malformed, missing, altered or oversized data fails
 closed.
 
 ## Authority and privacy boundaries
