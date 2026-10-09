@@ -217,7 +217,7 @@ def recover_agent_control_result(
         if type(observation) is not dict or observation.get("command") != command:
             raise ValueError("Agent-control reported command identity mismatch")
 
-    reported_success = (
+    reported_core_pass = (
         result.get("status") == "done"
         and result.get("edits") == {}
         and result.get("verification") == []
@@ -248,14 +248,25 @@ def recover_agent_control_result(
             and entry.get("idle_timed_out") is False
             and entry.get("memory_limited") is False
             and entry.get("background_process_leak") is False
-            and entry.get("output_truncated") is False
             for entry in result["commands"]
         )
+    )
+    log_complete = all(
+        type(entry) is dict and entry.get("output_truncated") is False
+        for entry in result["commands"]
     )
     if result.get("status") not in (
         "done", "failed", "error", "cancelled", "canceled", "timed_out", "aborted", "running", "pending"
     ):
         raise ValueError("Agent-control reported status invalid")
+    # A successfully completed test with truncated logs is neither an
+    # authenticated full PASS nor evidence of a failed command. Keep that
+    # distinction explicit and deny any execution/retry authority in all cases.
+    outcome = (
+        "reported_pass_for_review" if reported_core_pass and log_complete
+        else "reported_incomplete_evidence_for_review" if reported_core_pass
+        else "reported_nonpass_for_review"
+    )
     return AgentControlReadOnlyObservation(
         task_id=task_id,
         control_commit_sha=independently_pinned_control_sha,
@@ -263,6 +274,6 @@ def recover_agent_control_result(
         work_branch=expected_work_branch,
         task_digest=digest,
         reported_status=result["status"],
-        reported_outcome="reported_pass_for_review" if reported_success else "reported_nonpass_for_review",
+        reported_outcome=outcome,
         command_count=len(commands),
     )
