@@ -4,8 +4,10 @@ The script scripts/no_bridge_manual.py implements a simple Python-only
 offline interface for exchanging the redacted synthetic new-parent handoff
 and producing a **non-published** local-agent Mac test task plan.
 
-There is **no Chat Bridge**, browser session, GitHub network request,
-automatic child creation, terminal ACK, GitHub mutation or daemon restart.
+There is **no Chat Bridge**, browser session, automatic child creation,
+terminal ACK, GitHub mutation or daemon restart. The export, inspect and
+plan-test commands are entirely offline. A fourth operation requires an
+explicit opt-in for GET-only GitHub source verification.
 Output is canonical UTF-8 JSON without an extra trailing newline.
 
 ## Manual commands
@@ -47,6 +49,34 @@ append --approve-isolated-dependencies to request a temporary, pinned,
 self-cleaning Python test venv in the candidate plan. This flag merely
 **plans** setup: it does not install packages.
 
+## Optional authenticated GET-only source recheck
+
+For a **known-public synthetic** source only, the operator may independently
+configure LOCAL_AGENT_FABRIC_GITHUB_TOKEN in the process environment via a
+trusted credential source. Never provide a token as a command-line argument,
+in a task manifest, in chat, or in a tracked file.
+
+```sh
+python -m scripts.no_bridge_manual verify-github \
+  --manifest portable-manifest.json \
+  --operator-request operator-synthetic.json \
+  --child-requests children-synthetic.json \
+  --pinned-source-sha "<INDEPENDENT_SOURCE_SHA>" \
+  --destination-parent-url "https://chatgpt.com/c/<NEW_PARENT_ID>" \
+  --allow-readonly-network
+```
+
+This operation delegates to the existing **default-denied** source recheck,
+uses the appropriate scoped public/private GitHub API and wraps it in a
+GET-only adapter. It emits only a redacted, immutable manual review DTO.
+The original source recovery function restricts all inputs to its exact
+approved public fixture even on the private-data GitHub repository.
+It does not support arbitrary real/private prompts.
+
+A successful source SHA comparison is not independent proof of the GitHub
+host or source provenance. Operator-supplied pins and credentials must
+originate from a trusted channel, and old browser transports remain unfenced.
+
 ## Critical authority restrictions
 
 - Export and inspect check **structure and a caller-supplied pin**, not
@@ -66,6 +96,7 @@ self-cleaning Python test venv in the candidate plan. This flag merely
   plugin or untrusted file name.
 
 Tests exercise CLI export/inspect round-trip, exact output bytes, denied
-private/oversize input, explicit task planning opt-in and the separate
-temporary dependency approval. Canonical Mac validation and independent
+private/oversize input, explicit task planning opt-in, separate temporary
+dependency approval, default-disabled GitHub verification and redaction of
+an explicitly supplied test environment token. Canonical Mac validation and independent
 security/integration review remain required. Keep this stacked PR draft.
