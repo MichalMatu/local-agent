@@ -245,7 +245,7 @@
       }
       if (entry.path === "parents") {
         if (rootSeen || entry.type !== "tree" || entry.mode !== "040000" ||
-            !SHA_RE.test(String(entry.sha || ""))) {
+            typeof entry.sha !== "string" || !SHA_RE.test(entry.sha)) {
           throw new Error("Parent fence root invalid or duplicated");
         }
         rootSeen = true;
@@ -256,7 +256,7 @@
           (entry.path !== "parents/index.json" &&
            !/^parents\/parent-[0-9a-f]{32}\.json$/.test(entry.path)) ||
           entry.type !== "blob" || entry.mode !== "100644" ||
-          !SHA_RE.test(String(entry.sha || ""))) {
+          typeof entry.sha !== "string" || !SHA_RE.test(entry.sha)) {
         throw new Error("Parent fence unexpected or duplicate tree entry");
       }
       entries.set(entry.path, entry.sha);
