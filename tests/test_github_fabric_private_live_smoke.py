@@ -98,16 +98,18 @@ class GithubCliPrivateSmokeTests(unittest.TestCase):
             api.request("GET", private_api.REF_PATH)
         self.assertNotIn("SECRET-DO-NOT-LOG", str(error.exception))
         self.assertEqual(fake.calls[0][0][:4], ("gh", "api", "--method", "GET"))
-        oversized = lambda argv, **kwargs: subprocess.CompletedProcess(
-            argv, 0, b" " * (smoke.MAX_GH_RESPONSE_BYTES + 1), b"secret"
-        )
+        def oversized(argv, **kwargs):
+            return subprocess.CompletedProcess(
+                argv, 0, b" " * (smoke.MAX_GH_RESPONSE_BYTES + 1), b"secret"
+            )
         with self.assertRaisesRegex(ValueError, "byte bound"):
             smoke.GithubCliReadOnlyAdapter(run=oversized).request(
                 "GET", private_api.REF_PATH
             )
-        malformed = lambda argv, **kwargs: subprocess.CompletedProcess(
-            argv, 0, b"{malformed}", b"secret"
-        )
+        def malformed(argv, **kwargs):
+            return subprocess.CompletedProcess(
+                argv, 0, b"{malformed}", b"secret"
+            )
         with self.assertRaisesRegex(ValueError, "malformed JSON"):
             smoke.GithubCliReadOnlyAdapter(run=malformed).request(
                 "GET", private_api.REF_PATH
