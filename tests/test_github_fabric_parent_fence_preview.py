@@ -73,6 +73,22 @@ class ParentTransportFencePreviewTests(unittest.TestCase):
             ):
                 preview.build_preview(self.operator, self.children, transport_mode=invalid)
 
+    def test_child_iterator_consumption_is_bounded_to_fixed_fixture(self):
+        def too_many():
+            yield from self.children
+            yield self.children[0]
+            raise AssertionError("unbounded source iteration")
+
+        with self.assertRaisesRegex(ValueError, "request count exceeds exact bound"):
+            preview.build_preview(self.operator, too_many(), transport_mode="github_first")
+        with self.assertRaisesRegex(ValueError, "requests must be iterable"):
+            preview.build_preview(self.operator, None, transport_mode="github_first")
+        def exactly_two():
+            yield from self.children
+        self.assertEqual(preview.build_preview(
+            self.operator, exactly_two(), transport_mode="github_first"
+        ), self.candidate)
+
     def test_parent_index_capacity_is_a_hard_bound(self):
         identifiers = [f"parent-{i:032x}" for i in range(preview.MAX_PARENTS)]
         valid = {"schema_version": 1, "parent_ids": identifiers}
