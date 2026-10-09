@@ -508,6 +508,73 @@ function createHarness({
   }
 
   {
+    const storage = {};
+    for (let index = 0; index < 36; index += 1) {
+      const id = "cf-" + index.toString(16).padStart(16, "0");
+      storage["conversation-fabric-campaign:" + id] = {
+        schema_version: 1, id, state: "completed",
+        parent_conversation_url: parentUrl,
+        created_at: new Date(Date.UTC(2026, 0, index + 1)).toISOString(),
+        children: [], results: [], failed_children: [],
+        feedback_delivered: true, cleanup_pending: false,
+        ...(index === 0 ? {
+          feedback_delivery_assumed: true,
+          feedback_delivery_claim: {
+            id: "claim-ambiguous-oldest",
+            state: "assumed_delivered",
+            reason: "delivery_claim_recovered_after_restart"
+          }
+        } : {})
+      };
+    }
+    const h = createHarness({ storage });
+    const accepted = await h.context.applyConversationFabricControl(
+      h.delegateMessage, h.sender
+    );
+    assert.equal(accepted.ok, true, JSON.stringify(accepted));
+    assert.ok(storage["conversation-fabric-campaign:cf-0000000000000000"],
+      "an ambiguous terminal feedback receipt must survive history pruning");
+    assert.equal(
+      storage["conversation-fabric-campaign:cf-0000000000000001"],
+      undefined,
+      "older confirmed terminal history may be pruned instead"
+    );
+    assert.equal(h.created.length, 2,
+      "uncertain prior receipt does not suppress unrelated new work");
+  }
+
+  {
+    const storage = {};
+    for (let index = 0; index < 36; index += 1) {
+      const id = "cf-" + index.toString(16).padStart(16, "0");
+      storage["conversation-fabric-campaign:" + id] = {
+        schema_version: 1, id, state: "completed",
+        parent_conversation_url: parentUrl,
+        created_at: new Date(Date.UTC(2026, 1, index + 1)).toISOString(),
+        children: [], results: [], failed_children: [],
+        feedback_delivered: true, cleanup_pending: false,
+        feedback_delivery_assumed: true,
+        feedback_delivery_claim: {
+          id: "claim-ambiguous-" + index,
+          state: "assumed_delivered",
+          reason: "delivery_claim_recovered_after_restart"
+        }
+      };
+    }
+    const h = createHarness({ storage });
+    const refused = await h.context.applyConversationFabricControl(
+      h.delegateMessage, h.sender
+    );
+    assert.equal(refused.ok, false);
+    assert.equal(refused.reason, "conversation_fabric_history_full");
+    assert.equal(h.created.length, 0,
+      "history exhaustion must never discard uncertain receipts or create tabs");
+    assert.equal(Object.keys(storage).filter(key =>
+      key.startsWith("conversation-fabric-campaign:")).length, 36,
+      "all unresolved evidence remains durable after capacity refusal");
+  }
+
+  {
     const h = createHarness();
     const ready = await h.context.conversationFabricDiagnosticContext(
       { conversationUrl: parentUrl, contentProtocolVersion: h.context.CONTENT_PROTOCOL_VERSION },
@@ -870,6 +937,68 @@ function createHarness({
       2,
       "unclosed child tabs must continue to consume the bounded global capacity"
     );
+  }
+
+  {
+    // Delivery claimed before a crash can be uncertain even though the
+    // at-most-once compatibility marker says feedback_delivered=true.
+    const confirmedId = "cf-1111111111111111";
+    const uncertainId = "cf-2222222222222222";
+    const stored = {
+      ["conversation-fabric-campaign:" + confirmedId]: {
+        schema_version: 1, id: confirmedId, state: "completed",
+        parent_conversation_url: parentUrl,
+        created_at: "2026-10-09T03:20:00.000Z",
+        children: [], results: [], failed_children: [],
+        feedback_delivered: true
+      },
+      ["conversation-fabric-campaign:" + uncertainId]: {
+        schema_version: 1, id: uncertainId, state: "completed",
+        parent_conversation_url: parentUrl,
+        created_at: "2026-10-09T03:10:00.000Z",
+        children: [], results: [], failed_children: [],
+        feedback_delivered: true,
+        feedback_delivery_assumed: true,
+        feedback_delivery_claim: {
+          id: "claim-before-restart",
+          state: "assumed_delivered",
+          reason: "delivery_claim_recovered_after_restart"
+        }
+      }
+    };
+    const h = createHarness({ storage: stored });
+    const confirmed = h.context.conversationFabricOperatorCampaignSummary(
+      stored["conversation-fabric-campaign:" + confirmedId]
+    );
+    const uncertain = h.context.conversationFabricOperatorCampaignSummary(
+      stored["conversation-fabric-campaign:" + uncertainId]
+    );
+    assert.equal(confirmed.feedbackState, "delivered");
+    assert.equal(uncertain.feedbackState, "assumed",
+      "ambiguous send must not show as confirmed delivered");
+    const snapshot = await h.context.conversationFabricOperatorSnapshot();
+    const parentId = h.context.conversationId(parentUrl);
+    assert.equal(snapshot[parentId].currentCampaign.campaignId, uncertainId,
+      "unconfirmed terminal delivery must be prioritized over later confirmed history");
+    assert.equal(snapshot[parentId].currentCampaign.feedbackState, "assumed");
+
+    const recent = await h.context.inspectConversationFabric({
+      conversationUrl: parentUrl, control: { action: "inspect" }
+    });
+    assert.equal(recent.ok, true);
+    assert.match(recent.feedbackPrompt, /cf-2222222222222222 .*feedback=assumed/);
+    assert.match(recent.feedbackPrompt, /cf-1111111111111111 .*feedback=delivered/);
+
+    const inspection = await h.context.inspectConversationFabric({
+      conversationUrl: parentUrl,
+      control: { action: "inspect", campaign_id: uncertainId }
+    });
+    assert.equal(inspection.ok, true);
+    assert.match(inspection.feedbackPrompt, /feedback_state=assumed/);
+    assert.match(inspection.feedbackPrompt, /Feedback delivery is UNCONFIRMED/);
+    assert.match(inspection.feedbackPrompt, /do not automatically resend/);
+    assert.equal(h.created.length, 0);
+    assert.equal(h.submitted.length, 0);
   }
 
   console.log("Conversation Fabric worker tests passed.");

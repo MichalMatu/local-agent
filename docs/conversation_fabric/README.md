@@ -2,9 +2,15 @@
 
 Browser-native reasoning-child delegation for one managed ChatGPT parent in the operator's authenticated Chrome profile. **Chat Bridge 0.8.13 / content protocol v26** is the current source contract.
 
-**Start here:** [Current plan and recovery gate](CURRENT_PLAN.md) · [2026-10-08 live checkpoint](CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md) · [Delegation diagnostics](DELEGATION_DIAGNOSTICS.md).
+## Start here — choose one track
 
-## Live status (2026-10-08)
+- **GitHub-first Milestone 8 / private cross-device project continuity:** [**current, source-verified handoff (2026-10-09)**](GITHUB_FIRST_CURRENT_HANDOFF.md). This is the only active Milestone 8 continuation entrypoint. GitHub-first browser execution remains disabled; PR #209 is a synthetic-only parent-mode preview.
+- **Existing production Chrome/DOM child delegation:** [current DOM behavior and restart gate](CURRENT_PLAN.md), [live Chrome acceptance checkpoint](CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md), [diagnostics](DELEGATION_DIAGNOSTICS.md).
+- **Target product ownership:** [GitHub-first target architecture](TARGET_PRODUCT_ARCHITECTURE.md).
+
+Older handoff prompts and pre-publisher plans are historical evidence; follow the current handoff above, not stale SHA references or prior suggested work.
+
+## Legacy DOM live status (2026-10-08)
 
 - **PASS:** one verification child in campaign `cf-a9f08cda8905ab33`.
 - **PASS:** three parallel research/verification/integration children in campaign `cf-df084c77d84a5929`.
@@ -23,7 +29,7 @@ Browser-native reasoning-child delegation for one managed ChatGPT parent in the 
 
 Children are reasoning-only. Do not delegate machine actions or automatically replay child bootstrap prompts. Production uses no secondary Chrome profile, CDP attachment or Native Messaging.
 
-## Implementation map
+## Legacy DOM implementation map
 
 - `chat_bridge/conversation_fabric_protocol.js` — control schema and bounds.
 - `chat_bridge/conversation_fabric_content.js` — read final parent control; append plain ASCII child completion proof.

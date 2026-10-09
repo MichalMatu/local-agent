@@ -27,3 +27,33 @@ The published source remains restricted to the synthetic fixture. Real
 private user text must not be enabled until parent transport fencing,
 restricted browser-reader credential lifecycle, trusted publication and
 ACK/result verification are deployed and independently tested.
+
+## Reproducible authenticated read-only acceptance
+
+On a Mac with an already-authorized GitHub CLI session, run from the
+current, exact Local Agent source checkout:
+
+```sh
+python -m local_agent.conversation.github_fabric_private_live_smoke --verify-private-synthetic-read
+```
+
+This is explicitly opt-in. It uses only `gh api --method GET` against the
+hard-coded private repository `MichalMatu/local-agent-fabric-private` and
+the `fabric-data` branch. The source code derives a strict bounded
+allowlist of GitHub paths; it does not accept a caller-provided URL, workflow,
+project, branch, token or raw bootstrap text. It performs two independently
+pinned reconstructions and requires equality before reporting a compact
+source SHA, dispatch ID, child count and `execution_state=published_execution_unconfirmed`.
+
+The CLI's existing authentication is never copied into environment variables,
+the subprocess command line, logs, runtime JSON or ChatGPT prompts. The
+adapter discards CLI stderr even for failed requests. A denied/missing or
+malformed private GitHub response fails closed.
+
+**Live acceptance evidence, 2026-10-09:** `fabric-data` pinned at
+`b834209d99f088e093d503632717ae0aaeafbf7f` was read twice
+through the authenticated `gh api` GET-only adapter and returned the
+two-child synthetic fixture both times. The Local Agent task
+`local-agent-m8-private-real-cold-recovery-gh-api-20261009-v2` completed
+with exit code 0. This is evidence for the **private read/recovery slice
+only**, not browser restart, child execution, ACK or real user content.
