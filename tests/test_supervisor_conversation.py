@@ -120,6 +120,7 @@ class SupervisorConversationTests(unittest.TestCase):
             request_path.write_text(json.dumps(request), encoding="utf-8")
             item = operator_queue.stage_next_control_request(control, state)
             assert item is not None
+            self.assertTrue(operator_queue.reserve_launch_once(state, item))
             result = completed_result(request)
             operator_queue.persist_spooled_result(item.result_path, request, result)
             env = enabled_env(root)
@@ -149,6 +150,7 @@ class SupervisorConversationTests(unittest.TestCase):
             self.assertTrue(callable(kwargs["post_pull_validate"]))
             self.assertFalse(item.request_path.exists())
             self.assertFalse(item.result_path.exists())
+            self.assertFalse(operator_queue.launch_reconciliation_required(state, item))
 
     def test_service_control_plane_preserves_spool_when_origin_proof_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -163,6 +165,7 @@ class SupervisorConversationTests(unittest.TestCase):
             )
             item = operator_queue.stage_next_control_request(control, state)
             assert item is not None
+            self.assertTrue(operator_queue.reserve_launch_once(state, item))
             result = completed_result(request)
             operator_queue.persist_spooled_result(item.result_path, request, result)
             env = enabled_env(root)
@@ -181,6 +184,7 @@ class SupervisorConversationTests(unittest.TestCase):
                     conversation.service_control_plane()
             self.assertTrue(item.request_path.exists())
             self.assertTrue(item.result_path.exists())
+            self.assertTrue(operator_queue.launch_reconciliation_required(state, item))
 
     def test_service_control_plane_refreshes_even_when_cached_remote_result_matches(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -195,6 +199,7 @@ class SupervisorConversationTests(unittest.TestCase):
             )
             item = operator_queue.stage_next_control_request(control, state)
             assert item is not None
+            self.assertTrue(operator_queue.reserve_launch_once(state, item))
             result = completed_result(request)
             operator_queue.persist_spooled_result(item.result_path, request, result)
             env = enabled_env(root)
@@ -216,6 +221,7 @@ class SupervisorConversationTests(unittest.TestCase):
             self.assertEqual(remote_result.call_count, 2)
             self.assertFalse(item.request_path.exists())
             self.assertFalse(item.result_path.exists())
+            self.assertFalse(operator_queue.launch_reconciliation_required(state, item))
 
     def test_service_control_plane_preserves_cached_match_spool_when_fresh_origin_disagrees(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -230,6 +236,7 @@ class SupervisorConversationTests(unittest.TestCase):
             )
             item = operator_queue.stage_next_control_request(control, state)
             assert item is not None
+            self.assertTrue(operator_queue.reserve_launch_once(state, item))
             result = completed_result(request)
             operator_queue.persist_spooled_result(item.result_path, request, result)
             env = enabled_env(root)
@@ -249,6 +256,7 @@ class SupervisorConversationTests(unittest.TestCase):
             publish.assert_not_called()
             self.assertTrue(item.request_path.exists())
             self.assertTrue(item.result_path.exists())
+            self.assertTrue(operator_queue.launch_reconciliation_required(state, item))
 
     def test_start_if_pending_strips_inherited_execution_leases(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
