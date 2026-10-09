@@ -42,9 +42,12 @@ class PlanEvidenceAPI:
             "stages": [{
                 "outcome": "passed", "stage_phase": "commands",
                 "stage_index": 1, "stage_total": 1,
+                "stage_name": "command-1",
             }],
             "commands": [{
                 "command": self.task["commands"][0],
+                "stage_phase": "commands", "stage_index": 1,
+                "stage_total": 1, "stage_name": "command-1",
                 "exit_code": 0, "timed_out": False, "idle_timed_out": False,
                 "memory_limited": False, "background_process_leak": False,
                 "output_truncated": False,
@@ -119,6 +122,17 @@ class NoBridgePlanToHistoryTests(unittest.TestCase):
         self.assertFalse(found.can_dispatch)
         self.assertFalse(found.can_retry)
         self.assertTrue(all(method == "GET" for method, *_ in self.api.operations))
+
+    def test_cross_stage_name_mismatch_downgrades_completed_history(self):
+        self.api.result["commands"][0]["stage_name"] = "different-stage"
+        found = self.discover()
+        self.assertEqual(len(found.result_observations), 1)
+        self.assertEqual(
+            found.result_observations[0].reported_outcome,
+            "reported_nonpass_for_review",
+        )
+        self.assertFalse(found.can_dispatch)
+        self.assertFalse(found.can_retry)
 
     def test_truncated_but_successful_report_is_incomplete_not_failed(self):
         self.api.result["commands"][0]["output_truncated"] = True
