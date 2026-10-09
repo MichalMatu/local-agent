@@ -120,6 +120,13 @@ For each canonical parent, ordered events reference an exact effect identity,
 request digest, worker, transport, epoch and one of `prepared`,
 `effect_started`, `ack_observed` or `effect_unknown`.
 
+The reader now requires `inspectEffectJournal(journal, trustedAnchor)`.
+The **separately supplied** strict anchor binds the parent, fence epoch,
+Git commit SHA, expected head digest and event count. Missing, malformed,
+stale, forked or conflicting anchors fail closed before journal verification.
+The caller must acquire the anchor from an **authenticated commit-pinned
+GitHub read** independently of the journal; this pure module can only compare
+fields and cannot verify its provenance or the Git commit itself.
 The reader enforces contiguous sequences starting at 1, SHA-256 hashes of
 canonical event tuples, an explicit expected head digest and expected count,
 fixed parent and bounded epoch, immutable per-effect identity, unique
