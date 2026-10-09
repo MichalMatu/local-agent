@@ -121,8 +121,11 @@ def _read_json_at_commit(
         if exc.status == 404:
             raise ValueError("GitHub Fabric pinned blob is missing") from exc
         raise
-    if (expected_blob_sha is not None and response.get("sha") != expected_blob_sha):
-        raise ValueError("GitHub Fabric pinned blob metadata SHA mismatch")
+    if expected_blob_sha is not None:
+        if response.get("path") != path:
+            raise ValueError("GitHub Fabric pinned Contents path mismatch")
+        if response.get("sha") != expected_blob_sha:
+            raise ValueError("GitHub Fabric pinned blob metadata SHA mismatch")
     if (
         response.get("type") != "file"
         or response.get("encoding") != "base64"
