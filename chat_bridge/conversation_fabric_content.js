@@ -84,9 +84,11 @@
     return { ...control, children };
   }
 
-  function cleanTurnText(turn) {
+  function cleanTurnText(turn, assistantMessage = turn) {
     const bodies = turn?.querySelectorAll?.('[data-content-search-unit-key$=":assistant"] [data-chatgpt-selection-message-id], [data-chatgpt-search-unit-key$=":assistant"] [data-chatgpt-selection-message-id]');
-    const body = bodies?.length ? bodies[bodies.length - 1] : turn;
+    // A turn wrapper may include non-assistant UI after the response.
+    // Only its exact assistant message is a safe fallback for terminal controls.
+    const body = bodies?.length ? bodies[bodies.length - 1] : assistantMessage;
     const clone = body?.cloneNode?.(true);
     if (!clone || typeof clone.querySelectorAll !== "function") return "";
     clone.querySelectorAll(
@@ -100,7 +102,7 @@
     if (explicit.length) {
       const message = explicit[explicit.length - 1];
       const turn = message.closest?.('[data-turn-key]') || message;
-      const text = cleanTurnText(turn) || String(message.innerText || message.textContent || "").trim();
+      const text = cleanTurnText(turn, message) || String(message.innerText || message.textContent || "").trim();
       const identity = String(
         turn.getAttribute?.("data-turn-key") ||
         message.getAttribute?.("data-message-id") ||
