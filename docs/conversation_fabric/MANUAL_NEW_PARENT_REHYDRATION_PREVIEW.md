@@ -14,7 +14,9 @@ read and supply that SHA separately. The function checks strict
 identity/shape, exact SHA agreement, both canonical URLs, a **different**
 destination parent, and the two unconfirmed synthetic child identities.
 It rejects new/private prompt fields, forged terminal/ACK status, missing,
-duplicate or malformed children. It returns just non-secret identifiers
+duplicate or malformed children, duplicated spawn transaction IDs, duplicated
+public semantic claim/node IDs, and IDs outside the existing synthetic
+transaction/claim/dispatch formats. It returns just non-secret identifiers
 and a frozen, **read-only review** result.
 
 The SHA comparison is only consistency validation: this function does
@@ -36,3 +38,11 @@ This is **not** live arbitrary/private conversation migration. No migration
 switch, browser Send, cross-device effect fence, live rebind, or private
 execution is enabled. Do not merge without independent review and exact-head
 Mac/local regression evidence. Existing legacy DOM functionality is unchanged.
+
+## Verification scope
+
+The focused offline tests cover public/private observation shapes and negative
+transaction/claim collision cases; an isolated contract stub is **not** the
+repository integration suite. Exact-head canonical Mac verification, full
+package import/testing, trusted source provenance, and independent review remain
+outstanding. No runtime or legacy extension code is modified by this draft.
