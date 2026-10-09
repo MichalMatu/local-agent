@@ -51,3 +51,13 @@ Tests cover deterministic identity, exact task schema/digest compatibility,
 read-only and source-HEAD guard properties, multiple profiles, wrong
 bindings/branches/SHAs, malicious task ID strings and forbidden profiles.
 Maintain draft status until exact-head Mac tests and independent review.
+
+## Offline round-trip regression
+
+The companion test `tests/test_github_fabric_no_bridge_round_trip.py`
+connects a generated plan to a synthetic, SHA-consistent Git task/result
+snapshot and the bounded no-Bridge history reader. It verifies that the
+reported result remains review-only with redacted output, a missing result
+remains unconfirmed without automatic retry, and a corrupted report or
+rewritten command fails the entire scope. This is **not** execution on a Mac,
+not actual GitHub publication and not a proof of an authenticated Send.
