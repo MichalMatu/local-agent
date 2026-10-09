@@ -187,6 +187,19 @@ async function run() {
   refChanged.state.ref.object.sha = "badsha";
   await assert.rejects(read(refChanged), /origin ref invalid/);
 
+  // Python requires literal string IDs. Numeric values must not become
+  // apparently valid IDs through JS String(...) coercion, even with a
+  // perfectly matching, signed private tree/Contents fixture.
+  for (const field of ["workflow_id", "operator_request_id"]) {
+    for (const invalid of [123, true, null, ["workflow-001"], { id: "workflow-001" }]) {
+      const malformed = await fixture();
+      malformed.state.record[field] = invalid;
+      malformed.resign();
+      await assert.rejects(read(malformed), /preview record invalid/,
+        field + " must be a literal string, not " + typeof invalid);
+    }
+  }
+
   const forged = await fixture();
   forged.state.record.browser_send_authorized = true;
   forged.resign();
