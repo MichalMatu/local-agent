@@ -2,9 +2,10 @@
 
 Status: **unmerged, local fail-closed deny latch; NOT global transport admission**.
 
-This change installs a minimal check immediately before existing Chrome child-tab
-creation/reattachment, content-script preparation and spawn bootstrap/inspect
-messages. It does not import the private GitHub parent reader, does not access
+This change installs a minimal check before cooperating-worker Chrome
+child-tab creation/reattachment, content preparation, legacy spawn
+navigation/probing/injection, child result observation, owned-tab cleanup,
+and parent terminal/regular feedback DOM submission. It does not import the private GitHub parent reader, does not access
 credentials, does not create any GitHub-first browser action and does not
 produce or authorize a parent-mode record.
 
@@ -29,8 +30,12 @@ local suspension marker.
   protective. Later stages require trusted epoch-bound reservation and actual
   effect-claim receipt or equivalent browser authority, plus tests for racing
   writers.
-- This revision does not cover every legacy parent-feedback/cleanup path.
-  Those must be separately audited before any live mode migration.
+- This revision now guards known worker-side parent feedback, child result
+  and owned cleanup effect sites when the marker is present. It does **not**
+  fence already queued content-script DOM clicks, scripts already running,
+  direct user interactions, unknown/new browser sites, or old extension
+  builds. Complete content-side and race auditing remains necessary before
+  any live mode migration.
 - The private `parents/` namespace remains absent. GitHub-first Send/ACK
   remains disabled. There is no rollback/retirement authorization in this
   draft, and clearing local storage is **not** a globally valid rollback.
@@ -41,8 +46,11 @@ local suspension marker.
 
 1. The pure Node negative suite checks absent-key legacy compatibility, all
    present-key states, malformed storage and thrown reads.
-2. A static side-effect map asserts that both Chrome child-tab creation sites,
-   both content preparations and both tab message sites re-read the marker.
+2. A static side-effect map asserts the two Chrome child-tab creation sites,
+   existing bootstrap/inspect messages, additional probe/navigation/injection,
+   child result/cleanup, and worker-side parent feedback read the marker.
+   These source counts are not effect-time atomic and cannot prove external
+   exclusion.
 3. Full Bridge Node tests and isolated macOS Chromium/MV3 delegation smoke on
    the same commit prove that a default-absent marker does not break existing
    DOM behavior.
