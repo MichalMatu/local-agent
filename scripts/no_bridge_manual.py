@@ -18,6 +18,7 @@ from typing import Any, Sequence
 
 from local_agent.conversation import github_fabric_manual_handoff as handoff
 from local_agent.conversation import github_fabric_agent_control_index as history
+from local_agent.conversation import github_fabric_github as git
 from local_agent.conversation import github_fabric_manual_new_parent as manual
 from local_agent.conversation import github_fabric_no_bridge_task_plan as planner
 
@@ -181,7 +182,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         rendered = _execute(args)
-    except (OSError, ValueError, PermissionError) as exc:
+    except (
+        OSError, ValueError, PermissionError,
+        git.GithubFabricHTTPError, git.GithubFabricTransportError,
+    ) as exc:
         # Error messages are source-free and never contain input JSON or token text.
         print(f"Manual no-Bridge review refused: {type(exc).__name__}", file=sys.stderr)
         return 2
