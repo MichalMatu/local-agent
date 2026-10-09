@@ -143,8 +143,13 @@ No live journal persistence or private `parents/` write is introduced.
 Unit coverage includes deleted tail/middle events, rewritten messages, bad
 sequence/identity, changed actor/epoch/request, missing pre-Send transition,
 duplicate send phases, lost ACK, two-device overlapping claims, attempted
-unknown-to-ACK upgrade, malformed input and bounded exhaustion. The reader
-and tests are not imported by production Chrome code.
+unknown-to-ACK upgrade, malformed input and bounded exhaustion. When two
+distinct effect IDs claim the same canonical request digest and kind, the
+reader reports `duplicate_logical_request_effect` even across devices and
+modes. This is a review finding, not proof that the second attempt was a
+replay: request digests must actually bind stable logical request identity.
+Both still receive no permission to replay. The reader and tests are not
+imported by production Chrome code.
 
 ## Required proof before private GitHub-first live execution
 
