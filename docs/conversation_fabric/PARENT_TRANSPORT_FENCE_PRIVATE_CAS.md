@@ -24,7 +24,11 @@ At one immutable Git commit SHA the reader validates:
 - complete, non-truncated bounded recursive tree enumeration;
 - every parents/ record path, including orphan detection outside the index;
 - exact index/record correspondence, canonical global parent identities,
-  record integrity and immutable competing transport mode exclusion.
+  record integrity and immutable competing transport mode exclusion;
+- each present parent index/record Contents response is bound to its exact
+  recursive-tree Git blob SHA; both the Contents metadata SHA and Git SHA-1
+  calculated over the decoded `blob <length>\\0<bytes>` payload must match.
+  Missing tree entries or mismatched bytes fail closed before any write.
 
 The writer creates exactly two Git blobs and one tree with the parent
 record and bounded global parents/index.json; one commit with pinned parent
@@ -40,7 +44,9 @@ become head; reread the resulting head before reporting convergence.
 ## Verification limits
 
 Deterministic tests cover atomic two-path write, replay, ref conflicts, lost
-acknowledgment, orphan/dangling index, malformed tree and forged Send/ACK.
+acknowledgment, orphan/dangling index, malformed tree, mismatched blob metadata,
+semantically valid but stale Contents bytes, altered decoded bytes with forged
+metadata and forged Send/ACK.
 CI tests and local fakes are not a real private GitHub write, browser ACK,
 old DOM driver quiescence or cross-device execution evidence.
 
