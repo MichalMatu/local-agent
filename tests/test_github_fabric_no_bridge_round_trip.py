@@ -60,7 +60,7 @@ class PlanEvidenceAPI:
             raise AssertionError("No-Bridge fixture attempted a mutation")
         task_id = self.task["id"]
         if path == f"/git/commits/{CONTROL}":
-            return {"tree": {"sha": TREE}}
+            return {"sha": CONTROL, "tree": {"sha": TREE}}
         if path == f"/git/trees/{TREE}?recursive=1":
             entries = [{
                 "path": f".agent/tasks/{task_id}.json",
