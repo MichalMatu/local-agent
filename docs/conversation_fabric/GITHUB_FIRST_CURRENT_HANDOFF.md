@@ -31,8 +31,9 @@ observations, not permissions.
 - #255 adds Git Commit API top-level SHA equality and rejects duplicate/
   non-finite public JSON. Its actual anonymous pinned GitHub GET of the
   previously recorded PR253 Mac result **passed** without a token, with
-  redacted no-retry review outcome. Exact-head focused and full Mac suites
-  remain pending until terminal receipts are verified.
+  redacted no-retry review outcome. Exact-head focused suite **80/80 PASS**,
+  with compile and Ruff PASS; the full Mac suite remains pending until its
+  terminal receipt is verified.
 - Verified ancestor: #253 exact-head Mac full profile **1023 Python tests
   PASS**, core branch coverage **83.7%**, compile/Ruff PASS, and focused
   **83/83 PASS**. #254 focused **77/77 PASS**, real anonymous GET-only
