@@ -47,13 +47,17 @@ def _snapshot(api: Any, candidate_id: str) -> tuple[
     record_paths: set[str] = set()
     parent_blob_shas: dict[str, str] = {}
     index_present = False
+    root_seen = False
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
             raise ValueError("Parent fence tree entry invalid")
         path = entry["path"]
         if path == "parents":
-            if entry.get("type") != "tree":
-                raise ValueError("Parent fence root is not a directory")
+            if (root_seen or entry.get("type") != "tree"
+                    or entry.get("mode") != "040000"):
+                raise ValueError("Parent fence root invalid or duplicated")
+            git._require_sha(entry.get("sha"), label="parent fence root tree")
+            root_seen = True
             continue
         if not path.startswith("parents/"):
             continue
@@ -73,6 +77,9 @@ def _snapshot(api: Any, candidate_id: str) -> tuple[
             record_paths.add(path)
         else:
             raise ValueError("Parent fence unexpected path")
+
+    if parent_blob_shas and not root_seen:
+        raise ValueError("Parent fence root missing from tree")
 
     index = git._read_json_at_commit(
         api, preview.INDEX_PATH, head, max_bytes=preview.MAX_INDEX_BYTES,
