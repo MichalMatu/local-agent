@@ -112,6 +112,40 @@ prepared, and unverifiable retirement receipts. These diagnostics are
 conservative and always return `blocked`, even if evidence is complete.
 They do not attest actual browser side effects or revoke old sessions.
 
+## Source-only effect journal verifier (new draft follow-up)
+
+`chat_bridge/github_fabric_effect_journal_audit.js` implements a bounded
+hash-chained **forensic reader**, not a publisher or live admission system.
+For each canonical parent, ordered events reference an exact effect identity,
+request digest, worker, transport, epoch and one of `prepared`,
+`effect_started`, `ack_observed` or `effect_unknown`.
+
+The reader enforces contiguous sequences starting at 1, SHA-256 hashes of
+canonical event tuples, an explicit expected head digest and expected count,
+fixed parent and bounded epoch, immutable per-effect identity, unique
+preparation and lifecycle transitions. It refuses missing/rewritten entries,
+truncated pinned history, replacement workers/modes/request digests, ACK
+without an earlier effect-start event, automatic downgrades and any transition
+out of `effect_unknown` or `ack_observed`. The empty journal remains blocked.
+
+An `ack_observed` event is only a **reported observation** and is exposed as
+`ack_claim_for_review`, not a trusted ChatGPT Send acknowledgment.
+`effect_unknown` and incomplete phases remain
+`suspended_requires_reconciliation`. **All results have
+`browser_effects_permitted=false` and `automatic_retry_permitted=false`.**
+Even a fully hashed journal cannot prove that an uninstrumented old extension
+did not act. The hash chain detects corruption relative to an externally
+trusted anchor; it is **not** a signature, source authenticity mechanism,
+complete browser inventory or anti-fork CAS by itself. A caller supplying
+both a journal and an invented anchor can generate a self-consistent fiction.
+No live journal persistence or private `parents/` write is introduced.
+
+Unit coverage includes deleted tail/middle events, rewritten messages, bad
+sequence/identity, changed actor/epoch/request, missing pre-Send transition,
+duplicate send phases, lost ACK, two-device overlapping claims, attempted
+unknown-to-ACK upgrade, malformed input and bounded exhaustion. The reader
+and tests are not imported by production Chrome code.
+
 ## Required proof before private GitHub-first live execution
 
 1. Independently audit #209's identity/epoch preview and #214's authenticated
