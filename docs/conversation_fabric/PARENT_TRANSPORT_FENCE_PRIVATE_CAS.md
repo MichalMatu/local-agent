@@ -27,6 +27,9 @@ At one immutable Git commit SHA the reader validates:
 
 - exact fabric-data ref and commit tree;
 - complete, non-truncated bounded recursive tree enumeration;
+- an exact, non-duplicated `parents` root of Git tree type, mode `040000`,
+  and literal 40-hex SHA whenever child files exist (missing, malformed,
+  symlink-mode or duplicate roots fail closed);
 - every parents/ record path, including orphan detection outside the index;
 - exact index/record correspondence, canonical global parent identities,
   record integrity and immutable competing transport mode exclusion;
@@ -54,7 +57,7 @@ Deterministic tests cover atomic two-path write, replay, ref conflicts, lost
 acknowledgment, orphan/dangling index, malformed tree, mismatched blob metadata,
 semantically valid but stale Contents bytes, altered decoded bytes with forged
 metadata, wrong Contents paths, missing advertised blobs and forged Send/ACK.
-CI tests and local fakes are not a real private GitHub write, browser ACK,
+Mac/sandbox unit tests and local fakes are not a real private GitHub write, browser ACK,
 old DOM driver quiescence or cross-device execution evidence.
 
 Before production activation, both transports and already-open or older
