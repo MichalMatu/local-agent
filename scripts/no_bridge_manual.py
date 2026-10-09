@@ -1,14 +1,16 @@
-"""Offline, no-Bridge operator tools for synthetic handoff and test-task review.
+"""No-Bridge operator tools for synthetic handoff and test-task review.
 
-Run as: python -m scripts.no_bridge_manual {export,inspect,plan-test} ...
-No GitHub/ChatGPT/Local Agent calls or filesystem writes occur here.
-A manifest digest and a user-supplied SHA are not source authentication.
+Run as: python -m scripts.no_bridge_manual ACTION ...
+Export, inspect and plan-test are offline; verify-github is explicit opt-in,
+GET-only and known-public synthetic source-restricted. No file writes, Send,
+Chat Bridge or Local Agent task execution ever occurs here.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -35,7 +37,7 @@ def _load_bounded_text(path: str) -> str:
         raise ValueError("Input is not valid UTF-8") from exc
 
 
-def _strict_observation(text: str) -> dict[str, Any]:
+def _strict_observation(text: str, *, expected_list: bool = False) -> dict[str, Any] | list[Any]:
     def _unique_fields(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
         obj: dict[str, Any] = {}
         for key, value in pairs:
@@ -54,8 +56,8 @@ def _strict_observation(text: str) -> dict[str, Any]:
         )
     except json.JSONDecodeError as exc:
         raise ValueError("Input is not JSON") from exc
-    if type(decoded) is not dict:
-        raise ValueError("Observation must be a JSON object")
+    if type(decoded) is not (list if expected_list else dict):
+        raise ValueError("Observation has an invalid JSON root type")
     return decoded
 
 
@@ -72,6 +74,14 @@ def _parser() -> argparse.ArgumentParser:
         )
         command.add_argument("--pinned-source-sha", required=True)
         command.add_argument("--destination-parent-url", required=True)
+
+    verified = commands.add_parser("verify-github")
+    verified.add_argument("--manifest", required=True)
+    verified.add_argument("--operator-request", required=True)
+    verified.add_argument("--child-requests", required=True)
+    verified.add_argument("--pinned-source-sha", required=True)
+    verified.add_argument("--destination-parent-url", required=True)
+    verified.add_argument("--allow-readonly-network", action="store_true")
 
     planned = commands.add_parser("plan-test")
     planned.add_argument("--job-id", required=True)
@@ -100,6 +110,27 @@ def _execute(args: argparse.Namespace) -> str:
             expected_destination_parent_conversation_url=args.destination_parent_url,
         )
         return json.dumps(asdict(parsed), sort_keys=True, separators=(",", ":"))
+    if args.action == "verify-github":
+        if args.allow_readonly_network is not True:
+            raise PermissionError("Read-only GitHub verification requires opt-in")
+        manifest = _load_bounded_text(args.manifest)
+        operator_request = _strict_observation(
+            _load_bounded_text(args.operator_request)
+        )
+        child_requests = _strict_observation(
+            _load_bounded_text(args.child_requests), expected_list=True
+        )
+        # No token supplied through command-line arguments or source JSON.
+        token = os.environ.get("LOCAL_AGENT_FABRIC_GITHUB_TOKEN")
+        if not token:
+            raise PermissionError("Read-only GitHub token is unavailable")
+        result = handoff.verify_manual_handoff_against_github(
+            manifest, operator_request, child_requests,
+            independently_pinned_source_sha=args.pinned_source_sha,
+            expected_destination_parent_conversation_url=args.destination_parent_url,
+            enabled=True, token=token,
+        )
+        return json.dumps(asdict(result), sort_keys=True, separators=(",", ":"))
     if args.action == "plan-test":
         candidate = planner.plan_no_bridge_source_test(
             task_job_id=args.job_id,
