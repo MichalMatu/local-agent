@@ -32,8 +32,9 @@ observations, not permissions.
   non-finite public JSON. Its actual anonymous pinned GitHub GET of the
   previously recorded PR253 Mac result **passed** without a token, with
   redacted no-retry review outcome. Exact-head focused suite **80/80 PASS**,
-  with compile and Ruff PASS; the full Mac suite remains pending until its
-  terminal receipt is verified.
+  compile and Ruff PASS, and isolated exact-head full Mac profile **1037/1037
+  Python tests PASS** with **83.8%** core branch coverage and exit 0.
+  The agent returned to idle without a restart.
 - Verified ancestor: #253 exact-head Mac full profile **1023 Python tests
   PASS**, core branch coverage **83.7%**, compile/Ruff PASS, and focused
   **83/83 PASS**. #254 focused **77/77 PASS**, real anonymous GET-only
@@ -57,9 +58,11 @@ external effect-time exclusion and independent security/integration reviews
 are still required. Never substitute `operator_review_only`, a caller pin
 or a synthetic fixture for those proofs.
 
-Next source-only step: inspect exact-head focused/full Mac terminal receipts
-for #255 and document any failures before acceptance; the #255 real bounded
-public read is verified. Preserve all drafts and do not enable live effects. Keep the current chain draft until
+Next source-only step: retain terminal exact-head Mac evidence in PR bodies,
+perform independent security/integration review, and resolve the missing
+trusted effect-time exclusion for old/offline Chrome workers *before* any
+private/live Send/ACK consideration. Neither the passed source tests nor
+this handoff authorizes a merge or production transport activation. Keep the current chain draft until
 independent review and explicitly authorized production acceptance.
 
 ---
