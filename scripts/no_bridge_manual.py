@@ -130,7 +130,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Error messages are source-free and never contain input JSON or token text.
         print(f"Manual no-Bridge review refused: {type(exc).__name__}", file=sys.stderr)
         return 2
-    print(rendered)
+    sys.stdout.write(rendered)
     return 0
 
 
