@@ -12,9 +12,14 @@
 > complete Bridge Node, focused journal/deny/inventory tests, Python compile,
 > Ruff, exit 0 (Node 26.3.0, Python 3.13.9). A subsequent tiny change flags
 > duplicate logical request effects from two drivers for operator review;
-> the resulting new exact head needs its own verification. Prior PASS is not
-> transferable to that head. PRs #209/#214/#239/#240 remain drafts,
-> with private Send/ACK off and legacy DOM unchanged.
+> the resulting head `94ba11538eac3d626fa1c1c08c435d64cfb6e3da`
+> passed `local-agent-m8-effect-journal-crossdevice-mac-20261009-v1`
+> (full Bridge Node, focused journal/global deny/inventory Node tests,
+> Python compile and Ruff; exit 0). It still does **not** prove live global
+> effect exclusion. This handoff correction is documentation-only; the latest
+> exact commit should receive a small focused SHA guard before release review.
+> PRs #209/#214/#239/#240 remain drafts, with private Send/ACK off and
+> legacy DOM unchanged.
 >
 > **M8 global admission follow-up (2026-10-09; separate draft branch).**
 > The follow-up source-only audit is on
