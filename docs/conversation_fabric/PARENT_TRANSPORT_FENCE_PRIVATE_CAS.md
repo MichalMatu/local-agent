@@ -16,6 +16,11 @@ commit SHA and literal force=false; malformed, forced, or extended bodies
 are denied before network access. GET with a body and Git object POST without
 an object payload are also denied. Unit tests exercise allowed and rejected
 calls without real GitHub network traffic.
+Tree-object creation is additionally restricted to one known synthetic project
+workflow/dispatch path or to exactly two paths in a single Git tree: one
+parent record and the parent index. Unknown paths, partial parent writes,
+duplicates, symlink modes, invalid SHAs and oversized entry lists fail before
+any HTTP request.
 No Chrome content script receives
 a token; there is no production flag, UI Send hook, daemon task, or real ACK.
 
