@@ -1,6 +1,14 @@
-# Conversation Fabric — current contract and remaining acceptance
+# Conversation Fabric — active legacy DOM/Chrome contract and acceptance
 
-Updated: 2026-10-08. Current source: **Chat Bridge 0.8.13 / content protocol v26**.
+
+**Scope:** This is the existing browser/DOM `LOCAL_AGENT_CF` production
+delegation path, not the future private GitHub-first child-execution path.
+For Milestone 8 private project continuity, the active continuation document is
+[GitHub-first current handoff](GITHUB_FIRST_CURRENT_HANDOFF.md).
+GitHub-first remains default-disabled. The old live Chrome reload experiment
+described below is independent of the GitHub-first source-pinned recovery proof.
+
+Legacy DOM source observation: 2026-10-08. Current source: **Chat Bridge 0.8.13 / content protocol v26**.
 Live proof and exact source baseline: [2026-10-08 checkpoint](CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md).
 
 ## Accepted: single and parallel delegation in normal Chrome
