@@ -80,6 +80,7 @@ def discover_agent_control_results(
     snapshot = remote.request("GET", f"/git/trees/{tree_sha}?recursive=1")
     if (
         not isinstance(snapshot, dict)
+        or snapshot.get("sha") != tree_sha
         or snapshot.get("truncated") is not False
         or not isinstance(snapshot.get("tree"), list)
         or len(snapshot["tree"]) > MAX_GIT_TREE_ENTRIES
