@@ -39,8 +39,18 @@ function append(journal, values = {}) {
   journal.expected_head_digest = event.digest;
   return event;
 }
+function pinnedAnchor(journal) {
+  return {
+    schema_version: 1,
+    parent_id: journal.parent_id,
+    fence_epoch: journal.fence_epoch,
+    source_commit_sha: "c".repeat(40),
+    event_count: journal.expected_event_count,
+    head_digest: journal.expected_head_digest
+  };
+}
 async function blocked(journal, statuses) {
-  const result = await inspectEffectJournal(journal);
+  const result = await inspectEffectJournal(journal, pinnedAnchor(journal));
   assert.equal(result.decision, "blocked");
   assert.equal(result.browser_effects_permitted, false);
   assert.equal(result.automatic_retry_permitted, false);
@@ -56,7 +66,7 @@ async function blocked(journal, statuses) {
   }
 }
 async function rejects(journal, reason) {
-  await assert.rejects(inspectEffectJournal(journal), reason);
+  await assert.rejects(inspectEffectJournal(journal, pinnedAnchor(journal)), reason);
 }
 async function run() {
   await blocked(blank(), []);
@@ -75,7 +85,7 @@ async function run() {
   append(acknowledged, { phase: "effect_started" });
   append(acknowledged, { phase: "ack_observed" });
   await blocked(acknowledged, ["ack_claim_for_review"]);
-  assert.deepEqual((await inspectEffectJournal(acknowledged)).conflicts, []);
+  assert.deepEqual((await inspectEffectJournal(acknowledged, pinnedAnchor(acknowledged))).conflicts, []);
 
   const twoDevices = blank();
   append(twoDevices);
@@ -88,12 +98,42 @@ async function run() {
   await blocked(twoDevices, [
     "suspended_requires_reconciliation", "suspended_requires_reconciliation"
   ]);
-  const competingClaims = await inspectEffectJournal(twoDevices);
+  const competingClaims = await inspectEffectJournal(twoDevices, pinnedAnchor(twoDevices));
   assert.deepEqual([...competingClaims.conflicts], [{
     kind: "duplicate_logical_request_effect",
     first_effect_id: "send_1",
     second_effect_id: "send_2"
   }], "two devices must not silently treat identical logical work as independent");
+
+  // Neither a self-consistent journal nor its mutable in-band head can
+  // replace a separately sourced commit-pinned record reference.
+  await assert.rejects(inspectEffectJournal(acknowledged), /trusted anchor invalid/);
+  await assert.rejects(inspectEffectJournal(acknowledged, {}), /trusted anchor invalid/);
+  const reference = pinnedAnchor(acknowledged);
+  const changedAnchorFields = [
+    a => { a.parent_id = "parent-" + "f".repeat(32); },
+    a => { a.fence_epoch = 1; },
+    a => { a.event_count = 2; },
+    a => { a.head_digest = "f".repeat(64); }
+  ];
+  for (const alter of changedAnchorFields) {
+    const attack = { ...reference };
+    alter(attack);
+    await assert.rejects(inspectEffectJournal(acknowledged, attack),
+      /separately pinned source anchor/);
+  }
+  const malformedAnchor = { ...reference, source_commit_sha: "fake" };
+  await assert.rejects(inspectEffectJournal(acknowledged, malformedAnchor),
+    /trusted anchor invalid/);
+  const inventedAnchor = { ...reference, extra: true };
+  await assert.rejects(inspectEffectJournal(acknowledged, inventedAnchor),
+    /trusted anchor invalid/);
+  const sourceFork = structuredClone(acknowledged);
+  sourceFork.events.pop();
+  sourceFork.expected_event_count -= 1;
+  sourceFork.expected_head_digest = sourceFork.events.at(-1).digest;
+  await assert.rejects(inspectEffectJournal(sourceFork, reference),
+    /separately pinned source anchor/);
 
   const poisoned = structuredClone(acknowledged);
   poisoned.events[1].phase = "effect_unknown";
@@ -177,7 +217,8 @@ async function run() {
   for (let i = 0; i < 257; i += 1) {
     append(tooMany, { effect_id: "effect_" + i });
   }
-  await rejects(tooMany, /envelope invalid/);
+  await assert.rejects(inspectEffectJournal(tooMany, pinnedAnchor(blank())),
+    /envelope invalid/);
 
   const moduleSource = fs.readFileSync(
     path.join(__dirname, "github_fabric_effect_journal_audit.js"), "utf8"
