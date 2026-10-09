@@ -4,6 +4,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const workerSource = fs.readFileSync(path.join(__dirname, "worker_delivery.js"), "utf8");
+const localGateSource = fs.readFileSync(path.join(__dirname, "worker_legacy_dom_effect_gate.js"), "utf8");
 const PROMPT = "Conversation Fabric campaign cf-deadbeef completed.\n\nSynthesize the final parent answer now.";
 const URL = "https://chatgpt.com/c/parent-1";
 
@@ -132,6 +133,7 @@ function makeHarness({
   };
 
   vm.createContext(context);
+  vm.runInContext(localGateSource, context, { filename: "worker_legacy_dom_effect_gate.js" });
   vm.runInContext(workerSource, context, { filename: "worker_delivery.js" });
   return {
     context,
@@ -141,6 +143,16 @@ function makeHarness({
     localStorage,
     counts: () => ({ sendCalls, scriptCalls, saveCalls, scheduleCalls })
   };
+}
+
+async function testLocalSuspensionStopsFabricFeedbackWithoutReplay() {
+  const harness = makeHarness();
+  harness.localStorage.conversationFabricLegacyDomEffectSuspension = { reason: "synthetic-test-only" };
+  const result = await harness.context.deliverConversation("parent", false);
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, "delivery_unconfirmed");
+  assert.equal(harness.counts().sendCalls, 0);
+  assert.equal(harness.counts().scriptCalls, 0);
 }
 
 async function testExactTerminalPromptIsReconciledWithoutReplay() {
@@ -350,6 +362,7 @@ async function testSendButtonRetryWithDifferentUserHistoryFallsBackToNormalDeliv
 }
 
 (async () => {
+  await testLocalSuspensionStopsFabricFeedbackWithoutReplay();
   await testExactTerminalPromptIsReconciledWithoutReplay();
   await testEarlierExactTerminalPromptSurvivesLaterOperatorTurn();
   await testDifferentUserHistoryFallsBackToNormalDelivery();
