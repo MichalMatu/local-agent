@@ -21,8 +21,9 @@ size limits, checked GitHub Contents metadata and recomputed Git blob SHA-1.
 Task/result association is checked by a canonical SHA-256 of the complete
 task JSON, compared to the Local Agent result's task_digest.
 
-Only read-only, clean-worktree-guarded tasks with resources=[] and the
-source-head shell guard can yield a review summary. The reader requires the
+Only tasks **declaring** allow_write=false with resources=[] and the
+source-head shell guard can yield a review summary. This metadata and
+lexical guard do not sandbox a shell or independently verify command effects. The reader requires the
 work branch, binding, command texts and task result digest to agree. It
 projects reported success only for a done task, all reported zero exit
 codes, passed stages, and no timeout, leak, truncation, write or dirty checkout.
