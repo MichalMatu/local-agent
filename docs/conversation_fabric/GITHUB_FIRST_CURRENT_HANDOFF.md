@@ -26,11 +26,19 @@ Conversation-specific scheduling/pacing changes require this chat's exact
 `conversation_controls` record and incremented `control_generation`.
 Do not use legacy LAB add/rebind/schedule markers for ordinary Superchat flow.
 
+**Operator decision (2026-10-09):** Keep using the current ordinary ChatGPT
+Superchat and working legacy DOM delegation for this development session.
+Defer automatic child-to-successor-Superchat promotion until the GitHub-first
+private transport, durable workflow/ACK/results and cross-device admission are
+actually complete. Prepare **manual** new-window handoff only from a stable
+GitHub checkpoint; use GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md, not automatic
+children that gain independent authority.
+
 ## 2. Revalidated source and remote state (2026-10-09)
 
 | Surface | Handoff observation |
 | --- | --- |
-| Public code repo | `MichalMatu/local-agent`, `main@a5d92bdb3ffa0367c5d3cea125f61c0ccc594d46` |
+| Public code repo | `MichalMatu/local-agent`, `main@8bbd46f29ef1aa2a562660c1fd627c98d533df03` |
 | Private data repo | `MichalMatu/local-agent-fabric-private`, `fabric-data@b834209d99f088e093d503632717ae0aaeafbf7f` |
 | Local Agent | `agent-control` daemon `idle` at recheck; observed self revision `a1ba2be840098a727e9de06323ae8625955a6e1e` (may lag latest `main`; re-check) |
 | Canonical executable catalog entry | `local-agent` / `MichalMatu/local-agent`, execution enabled, binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; **re-check, do not hard-code** |
@@ -49,6 +57,10 @@ Do not use legacy LAB add/rebind/schedule markers for ordinary Superchat flow.
 | PR #219 | **MERGED**, authenticated Mac GET-only twice-read private parent namespace absence smoke, squash `3004a75b38b4621b5417cf26c04c539ef421c842` |
 | PR #220 | **MERGED**, production Bridge private-import and GitHub-first no-Send regression test; Mac and exact-head six CI checks passed; squash `2654e9a04e4bec7eadc36c5d99c5a82e04239d67` |
 | PR #221 | **MERGED**, private parent reader five-second headers/body abort deadline; exact-head Mac Bridge suite and all six CI checks passed; squash `a5d92bdb3ffa0367c5d3cea125f61c0ccc594d46` |
+| PR #222 | **MERGED**, latest prior canonical handoff checkpoint; squash `40c854d5112028aecf8dfcfad17b0130e8f005e1` |
+| PR #223 | **MERGED**, unconfirmed legacy DOM terminal feedback now appears as `assumed` in operator snapshot and inspect rather than falsely `delivered`; exact-head Mac + six CI passed; squash `8bbd46f29ef1aa2a562660c1fd627c98d533df03` |
+| PR #224 | **CLOSED / SUPERSEDED** by #225 due conflicts after #223 merged; not merged |
+| PR #225 | **OPEN / DRAFT**, ported uncertain receipt history retention to current `main`, head `fb3058bd2e19119776e1b1ed7bf5195fe787448b`; Mac test passed on exact head; six CI checks were still pending at this observation |
 
 Two reasoning-only child reviews were delegated in an earlier Chat Bridge
 parent conversation: `m8-parent-fence-verification` (security/correctness)
@@ -160,7 +172,8 @@ have been authorized in this private repository.
 | Legacy browser Send/claim and results | `chat_bridge/worker_conversation_fabric.js`, `worker_spawn*.js`, `spawn_result_content.js` |
 | Inactive browser GitHub intake | `chat_bridge/worker_github_fabric_intake.js`, `github_fabric_private_transport.js` |
 | Target product rules | `TARGET_PRODUCT_ARCHITECTURE.md`; repository-wide invariants `AGENTS.md` |
-| Existing DOM behavior | `CURRENT_PLAN.md`; separate live restart test `NEXT_CHAT_PROMPT.md` |
+| Existing DOM behavior | `CURRENT_PLAN.md`; separate live restart test `NEXT_CHAT_PROMPT.md`; correct uncertain-feedback operator status in #223 and retention under review #225 |
+| Manual new-window continuation | `GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md`; **not** automatic Superchat succession |
 
 ## 6. Safe next work, in order
 
@@ -188,9 +201,18 @@ have been authorized in this private repository.
    successfully (`local-agent-m8-main-private-three-surface-read-20261009-v1`)
    on its pinned earlier main SHA; do not mislabel it as evidence for later
    commits. No production Send/ACK or private parent write was attempted.
-6. Implement real evidence-bearing ACK/results, retirement and cross-device
+6. Integrate the independent legacy DOM receipt-retention PR #225 only
+   after exact-head Mac and six CI gates. Its predecessor #224 was closed
+   without merge due a genuine conflict with #223. Never prune an unconfirmed
+   terminal notification as though its delivery were proved; keep no-replay
+   semantics, and fail closed on history capacity saturation.
+7. Implement real evidence-bearing ACK/results, retirement and cross-device
    recovery in bounded gated PRs. Leave all new production flags disabled
    until real acceptance, not merely fixture CI.
+8. Postpone any automatic Superchat successor/promotion feature. The next
+   ChatGPT window is a user-chosen manual handoff from the durable checkpoint,
+   using GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md. A new chat must resolve its
+   own managed conversation controls and canonical repository binding.
 
 Use connected GitHub tooling for exact-source edits and PRs. Use Local Agent
 only for authorized Mac commands, tests, browser/device effects. Confirm
@@ -210,6 +232,9 @@ source files for the next task. The earlier
 Stage 8 `HANDOFF_PROMPT.md` is explicitly archival.
 `NEXT_CHAT_PROMPT.md` addresses a **different** legacy Chrome-reload
 acceptance exercise and should not be used as the GitHub-first kickoff.
+For an operator-approved manual new ChatGPT window, copy the prompt from
+`GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md` after the current development checkpoint
+is stable. It confers no runtime handoff authority.
 
 This handoff is documentation of observed facts, not a standing authorization
 to spawn child chats, publish real prompts or execute machine commands.
