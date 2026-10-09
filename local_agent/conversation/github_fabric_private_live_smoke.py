@@ -14,6 +14,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from local_agent.conversation import github_fabric_private_catalog as project_catalog
 from local_agent.conversation import github_fabric_private_github as private_api
 from local_agent.conversation import github_fabric_private_publication as paths
 from local_agent.conversation import github_fabric_private_recovery as recovery
@@ -21,6 +22,7 @@ from local_agent.conversation import github_fabric_private_recovery as recovery
 MAX_GH_RESPONSE_BYTES = 512 * 1024
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _DISPATCH = re.compile(r"fabric-[0-9a-f]{32}\Z")
+_PROJECT_WORKFLOWS = re.compile(r"projects/[a-z0-9][a-z0-9-]{0,63}/workflows/index\.json\Z")
 _PRIVATE_REPO_API = "repos/" + private_api.PRIVATE_REPOSITORY
 _GIT_REF = private_api.REF_PATH
 _SCOPED_CONTENT = frozenset({
@@ -40,7 +42,7 @@ def _is_permitted_get(path: Any) -> bool:
     name, delimiter, ref = path[len("/contents/"):].partition("?ref=")
     if delimiter != "?ref=" or not _SHA.fullmatch(ref):
         return False
-    if name in _SCOPED_CONTENT:
+    if name in _SCOPED_CONTENT or _PROJECT_WORKFLOWS.fullmatch(name):
         return True
     if not name.startswith(paths.DISPATCH_ROOT) or not name.endswith(".json"):
         return False
@@ -121,21 +123,50 @@ def verify_private_synthetic_live_read(
     )
 
 
+def verify_private_project_catalog_live_read(
+    *, enabled: bool = False, api: Any = None,
+) -> project_catalog.PrivateFabricProjectCatalog:
+    if enabled is not True:
+        raise PermissionError("Private project catalog smoke is disabled")
+    source = api if api is not None else GithubCliReadOnlyAdapter()
+    first = project_catalog.read_private_fabric_project_catalog(
+        enabled=True, api=source,
+    )
+    second = project_catalog.read_private_fabric_project_catalog(
+        enabled=True, api=source,
+    )
+    if first != second:
+        raise ValueError("Private project catalog changed across pinned reads")
+    return first
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--verify-private-synthetic-read", action="store_true")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--verify-private-synthetic-read", action="store_true")
+    mode.add_argument("--verify-private-catalog-read", action="store_true")
     args = parser.parse_args(argv)
-    if not args.verify_private_synthetic_read:
-        parser.error("explicit --verify-private-synthetic-read is required")
-    found = verify_private_synthetic_live_read(enabled=True)
-    print(json.dumps({
-        "source_head_sha": found.source_head_sha,
-        "dispatch_id": found.dispatch_id,
-        "child_count": found.child_count,
-        "reads": found.reads,
-        "execution_state": found.execution_state,
-        "ack_state": "not_attested",
-    }, sort_keys=True))
+    if args.verify_private_catalog_read:
+        observed = verify_private_project_catalog_live_read(enabled=True)
+        print(json.dumps({
+            "source_head_sha": observed.source_head_sha,
+            "source_kind": observed.source_kind,
+            "projects": {
+                project.project_id: list(project.workflow_ids)
+                for project in observed.projects
+            },
+            "reads": 2,
+        }, sort_keys=True))
+    else:
+        found = verify_private_synthetic_live_read(enabled=True)
+        print(json.dumps({
+            "source_head_sha": found.source_head_sha,
+            "dispatch_id": found.dispatch_id,
+            "child_count": found.child_count,
+            "reads": found.reads,
+            "execution_state": found.execution_state,
+            "ack_state": "not_attested",
+        }, sort_keys=True))
     return 0
 
 
