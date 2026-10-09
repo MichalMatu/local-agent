@@ -7,7 +7,7 @@ Agent, or GitHub. In particular it cannot retire an old/offline DOM worker.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
 from local_agent.conversation import contract
@@ -159,4 +159,76 @@ def preview_manual_new_parent(
         workflow_id=observation["workflow_id"],
         dispatch_id=observation["dispatch_id"],
         child_request_ids=tuple(ids),
+    )
+
+
+class _GetOnlyAPI:
+    """Restrict even injected repository adapters to read-only GitHub calls."""
+
+    def __init__(self, api: Any) -> None:
+        self._api = api
+
+    def request(
+        self, method: str, path: str, body: Any | None = None,
+    ) -> dict[str, Any]:
+        if method != "GET" or body is not None:
+            raise PermissionError("Manual new-parent recovery forbids GitHub mutation")
+        return self._api.request("GET", path)
+
+
+def preview_manual_new_parent_from_github(
+    operator_request: dict[str, Any],
+    child_requests: list[dict[str, Any]],
+    *,
+    source_kind: str,
+    independently_pinned_source_sha: str,
+    destination_parent_conversation_url: str,
+    enabled: bool = False,
+    token: str | None = None,
+    api: Any | None = None,
+) -> ManualNewParentPreview:
+    """Perform existing synthetic cold recovery, then deny-only manual review.
+
+    All remote reads remain scoped to the existing verified fixture readers.
+    The pinned SHA must be obtained independently by the operator; equality
+    does not authenticate provenance or retire any existing DOM worker.
+    """
+    if enabled is not True:
+        raise PermissionError("Manual new-parent recovery is default-disabled")
+    if source_kind not in (_PUBLIC, _PRIVATE):
+        raise ValueError("Manual new-parent source kind is unsupported")
+    if (
+        not isinstance(independently_pinned_source_sha, str)
+        or _SHA_RE.fullmatch(independently_pinned_source_sha) is None
+    ):
+        raise ValueError("Manual new-parent source SHA must be a full commit identity")
+    destination = _canonical_url(destination_parent_conversation_url)
+    if not isinstance(operator_request, dict):
+        raise ValueError("Manual new-parent operator request is invalid")
+    source = _canonical_url(operator_request.get("parent_conversation_url"))
+    if source == destination:
+        raise ValueError("Manual rehydration must use a different parent conversation")
+    if api is not None and token is not None:
+        raise ValueError("Manual new-parent recovery accepts either API or token")
+
+    if source_kind == _PRIVATE:
+        from local_agent.conversation import github_fabric_private_github as private_git
+        from local_agent.conversation import github_fabric_private_recovery as reader
+
+        remote = api if api is not None else private_git.PrivateFabricREST(token)
+        observation = reader.recover_private_synthetic_dispatch(
+            operator_request, child_requests, enabled=True, api=_GetOnlyAPI(remote)
+        )
+    else:
+        from local_agent.conversation import github_fabric_github as public_git
+        from local_agent.conversation import github_fabric_recovery as reader
+
+        remote = api if api is not None else public_git.GitHubFabricREST(token)
+        observation = reader.recover_public_synthetic_snapshot(
+            operator_request, child_requests, enabled=True, api=_GetOnlyAPI(remote)
+        )
+    return preview_manual_new_parent(
+        asdict(observation),
+        independently_pinned_source_sha=independently_pinned_source_sha,
+        destination_parent_conversation_url=destination,
     )
