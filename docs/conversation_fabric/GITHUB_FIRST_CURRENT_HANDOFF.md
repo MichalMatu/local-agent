@@ -512,6 +512,73 @@ historic private claim-only dispatch were left untouched.
    operator approval** before installed extension reload or a real browser
    trial.
 
+## Continuation checkpoint — 2026-10-10, pinned private effect-ledger observation
+
+**Candidate-only / read-only:** branch
+`work/fabric-github-first-live-mvp`; no installed MV3 import,
+runtime setting, browser effect or real private-GitHub write.
+
+### PASS
+
+- New `chat_bridge/github_fabric_private_parent_effects.js` validates
+  bounded parent effect ledgers against an explicit ordered list of
+  expected child request IDs and spawn transactions. It re-derives each
+  SHA-256 deterministic effect ID and enforces revision, independent
+  child sequencing, unknown/frozen no-replay and verified-receipt SHA
+  syntax. Its return value always has `browser_effects_permitted: false`.
+- Extended candidate
+  `github_fabric_private_parent_ownership_reader.js` to recognize
+  the `effects/<parent-id>.json` namespace and check it from the same
+  pinned private Git ref/commit/tree as parent ownership, history and
+  immutable witnesses. Fixed-path Contents metadata and decoded Git
+  SHA-1 blob are verified; orphan, duplicate, malformed, stale epoch,
+  altered SHA, missing effects directory, wrong child, bad revision and
+  missing expected child evidence all fail closed.
+- New tests in
+  `chat_bridge/github_fabric_private_parent_ownership_reader.test.js`
+  include two-child sequential effects, matching completed/frozen
+  observations and tampering. The installed `service_worker.js`
+  remains unchanged and does not import this candidate code.
+- Mac exact-source task
+  `local-agent-fabric-pinned-effect-reader-focused-20261010-v1` and
+  complete regression
+  `local-agent-fabric-pinned-effect-reader-full-20261010-v1`
+  at functional SHA `377c905aefd77545be504910d74e609a07b130fe`
+  both **PASS / exit 0**. Full gate included Python compilation,
+  all Fabric Python tests, Ruff, every Bridge Node test and clean
+  checkout. A documentation-only final SHA gate will follow.
+
+### UNVERIFIED / blocked
+
+- **Child provenance is not yet same-commit authenticated by the JS
+  reader:** caller-supplied `expectedChildren` is shape-validated,
+  but still needs to be checked against a pinned private indexed
+  dispatch. Presence of an effect record without children fails closed.
+- **Epoch lifecycle:** a completed previous epoch's effect ledger
+  remains at a per-parent path; a subsequent parent owner/epoch cannot
+  adopt it as current. Preserve immutable history and define
+  canonical epoch-scoped archive/reset before any takeover.
+- Universal legacy/GitHub-first Send admission, one-shot effects,
+  adversarial cross-device races, real private GitHub validation and
+  Chrome/MV3 restart still have no affirmative acceptance.
+  Matching pinned snapshots never confer Send authority.
+- Three delegated **read-only** independent reviews were requested
+  earlier (effect-reader verification, Send-race threat analysis and
+  driver integration). No child results are available in this
+  conversation yet; do not claim their findings, synthesize them
+  prematurely or repeat the delegation.
+- No Chrome, Local Agent or extension restart; no real Send,
+  `main` change, GitHub Actions or private `fabric-data` mutation.
+
+### Next
+
+1. Await and incorporate the three previously delegated read-only reviews
+   without replaying missing child work.
+2. Ground ordered `expectedChildren` against the same pinned private
+   dispatch; validate historic effect ledgers across parent epochs.
+3. Only after the universal legacy/first-party driver fence is proven,
+   consider an explicit, one-shot execution gate behind operator approval.
+
 ## Earlier accepted multi-child scope (still not live authorized)
 
 Build and independently test **multi-child GitHub-first dispatch** in small
