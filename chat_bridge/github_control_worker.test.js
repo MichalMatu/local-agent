@@ -109,7 +109,7 @@ const { createHarness } = require("./worker_test_harness.js");
   ]);
   assert.equal(h.storage.bridgeGithubControlApplied[chatId].controlSignature, pre0814Signature);
   reconcile = await h.evaluate("reconcileGithubConversationControls()");
-  assert.deepEqual(reconcile.conflicts, []);
+  assert.equal(reconcile.conflicts.length, 0);
   assert.equal(reconcile.applied.length, 0);
   assert.equal(h.storage.bridgeState.conversations[chatId].generation, stableGeneration);
 
