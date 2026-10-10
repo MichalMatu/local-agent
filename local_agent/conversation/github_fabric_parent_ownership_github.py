@@ -222,10 +222,10 @@ def _commit(api: Any, snapshot: Snapshot, writes: dict[str, dict[str, Any]]) -> 
     identifier = policy.parent_id(snapshot.dispatch["parent_conversation_url"])
     permitted = {
         INDEX_PATH, policy.path(identifier), history_path(identifier),
-        epoch_path(identifier, (
-            snapshot.parent["fence_epoch"] + 1 if snapshot.parent else 1
-        )),
     }
+    if any(name.startswith(EPOCH_ROOT) for name in writes):
+        next_epoch = snapshot.parent["fence_epoch"] + 1 if snapshot.parent else 1
+        permitted.add(epoch_path(identifier, next_epoch))
     if set(writes) - permitted:
         raise ValueError("Private parent CAS write paths outside namespace")
     entries = []
@@ -337,6 +337,7 @@ def acquire_parent_candidate(
             any(item["dispatch_id"] == dispatch_id or item["owner_id"] == owner_id
                 for item in snapshot.history["entries"])):
         raise PermissionError("Private parent historic dispatch/owner replay denied")
+
     if snapshot.history is not None and len(snapshot.history["entries"]) >= MAX_EPOCHS:
         raise ValueError("Private parent epoch capacity reached; manual review required")
     next_history = {
