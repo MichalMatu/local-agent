@@ -100,15 +100,24 @@ and epoch. It rejects orphan/duplicate/missing-root effect paths, tampered
 records and absent child identity evidence. All projected states explicitly
 have `browser_effects_permitted: false`.
 
-**Still blocked:** the JS reader receives `expectedChildren` as an explicit
-argument; it cannot independently prove that the caller obtained these
-child IDs and spawn transactions from the SAME pinned indexed dispatch.
-The universal driver must authenticate that dispatch at the identical Git
-HEAD, not merge evidence from a moving ref or from browser inputs. A
-completed old-epoch effect ledger remains a mismatch after a subsequent
-parent-epoch takeover; an explicit immutable historical effect-ledger
-lifecycle and migration rule must be reviewed instead of silently
-overwriting the old record. Neither issue is Send-authorized.
+**Same-commit child provenance (candidate implemented, validation pending):**
+`chat_bridge/github_fabric_private_parent_pinned_dispatch.js` now derives
+ordered child IDs and spawn transactions from the fixed project/workflow
+catalogs, dispatch index and dispatch record fetched by the ownership
+reader's **same pinned Git commit/tree**, checking decoded blob SHA-1,
+dispatch/campaign digests, bootstrap digests and transaction digests.
+`expectedChildren` is no longer a caller input. A missing/modified index,
+wrong owner dispatch, changed child or tainted bootstrap rejects the
+effect-ledger observation. This remains an unimported and default-disabled
+read-only candidate; V8 source parsing has passed, but the new Mac Node gate
+has not run because Local Agent task creation was blocked before admission.
+
+**Still blocked:** a completed old-epoch effect ledger remains a mismatch
+after subsequent parent-epoch takeover; an explicit immutable historical
+effect-ledger lifecycle and migration rule must be reviewed rather than
+silently overwrite the old record. The universal legacy and GitHub-first
+driver Send fence is unimplemented. Same-commit authenticity never makes a
+snapshot an action permit.
 
 **Cross-device testing:** require deterministic two-controller ref collision,
 lost acknowledgment both before/after the ref update, stale old epoch,
