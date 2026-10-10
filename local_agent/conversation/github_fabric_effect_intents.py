@@ -80,6 +80,7 @@ def validate_ledger(
         raise ValueError("Private parent effect ledger header invalid")
     all_previous_verified = True
     confirmations = 0
+    freezes = 0
     for index, entry in enumerate(record["effects"]):
         child = dispatch["children"][index]
         if (not isinstance(entry, dict) or set(entry) != _ENTRY_FIELDS
@@ -101,9 +102,10 @@ def validate_ledger(
         if index > 0 and not all_previous_verified:
             raise ValueError("Private parent effect was armed before predecessor completed")
         confirmations += entry["phase"] == "result_verified"
+        freezes += entry["phase"] == "frozen_unknown"
         all_previous_verified = entry["phase"] == "result_verified"
     # Every new effect adds one revision, every verified result adds one.
-    if record["revision"] != len(record["effects"]) + confirmations:
+    if record["revision"] != len(record["effects"]) + confirmations + freezes:
         raise ValueError("Private parent effect ledger revision mismatch")
     return record
 
@@ -199,7 +201,8 @@ def freeze_unknown(
     # A frozen effect is NOT a release. Its intent persists indefinitely and
     # the parent epoch must also be frozen before any takeover protocol.
     result = {
-        **existing, "effects": [*existing["effects"][:-1], {
+        **existing, "revision": existing["revision"] + 1,
+        "effects": [*existing["effects"][:-1], {
             **last, "phase": "frozen_unknown"
         }],
     }
