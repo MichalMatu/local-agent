@@ -11,6 +11,7 @@ import base64
 import binascii
 import hashlib
 import json
+import math
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -88,13 +89,20 @@ def _blob_json(api: _GetOnly, path: str, head: str, max_bytes: int) -> dict[str,
     def _reject_constant(_constant: str) -> Any:
         raise ValueError("Agent-control JSON contains a non-finite number")
 
+    def _finite_float(raw_number: str) -> float:
+        number = float(raw_number)
+        if not math.isfinite(number):
+            raise ValueError("Agent-control JSON contains a non-finite number")
+        return number
+
     try:
         payload = json.loads(
             raw.decode("utf-8"),
             object_pairs_hook=_reject_duplicate_keys,
             parse_constant=_reject_constant,
+            parse_float=_finite_float,
         )
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
         raise ValueError("Agent-control JSON invalid") from exc
     if type(payload) is not dict:
         raise ValueError("Agent-control record must be a JSON object")
