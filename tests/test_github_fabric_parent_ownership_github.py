@@ -153,11 +153,12 @@ class ParentCandidateCASAPITests(unittest.TestCase):
         )
         last = list(self.api.commits.values())[-1]
         self.assertEqual(len(self.api.trees[last["tree"]]), len(self.records()))
+        parent_tree_write = [
+            call for call in self.api.operations
+            if call[0] == "POST" and call[1] == "/git/trees"
+        ][-1]
         self.assertEqual(
-            {item["path"] for item in self.api.operations[-2][2]["tree"]} if
-            self.api.operations[-2][1] == "/git/trees" else
-            {item["path"] for call in self.api.operations
-             if call[1] == "/git/trees" for item in call[2]["tree"]},
+            {item["path"] for item in parent_tree_write[2]["tree"]},
             {writer.INDEX_PATH, policy.path(identifier),
              writer.history_path(identifier), writer.epoch_path(identifier, 1)}
         )
