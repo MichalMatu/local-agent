@@ -126,7 +126,7 @@ function makeHarness(storage = {}) {
   const quick = h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime;
   assert.ok(quick > Date.now() && quick < Date.now() + 5000, "completion advances existing alarm");
   assert.equal(h.sentMessages.length, 0, "watch never directly sends a ChatGPT message");
-  assert.equal(h.storage.bridgeTaskResultWakeReceiptsV1[`${chatId}:1`] > 0, true);
+  assert.equal(h.storage.bridgeTaskResultWakeReceiptsV1[`${chatId}:local-agent:${taskId}`] > 0, true);
 
   const reads = fixture.getResultReads();
   const again = await h.evaluate("pollGithubTaskResultWakes()");
