@@ -47,7 +47,7 @@ assert.ok(privateWorker.includes('record.phase = "submission_unknown"'),
   "unknown Submit must be durably fenced before any UI action");
 assert.ok(privateWorker.includes('reconcileConversationSpawn(record.intent)'),
   "unknown Send recovery must use reconcile, never blind re-send");
-assert.ok(privateWorker.includes('trial.phase !== "retired"'),
+assert.ok(privateWorker.includes('!["retired", "abandoned"].includes(trial.phase)'),
   "old DOM delegate must be fenced for active GitHub-first parent");
 assert.ok(!contentScripts.some(name => name.startsWith("github_fabric_private_")),
   "private tokens must never enter ChatGPT content scripts");
