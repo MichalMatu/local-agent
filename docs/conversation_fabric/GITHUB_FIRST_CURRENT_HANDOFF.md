@@ -1,5 +1,11 @@
 # GitHub-first Conversation Fabric — current Milestone 8 handoff
 
+> **Current continuation (2026-10-10):** see
+> [M8_NO_BRIDGE_WINDOW_HANDOFF_20261010.md](M8_NO_BRIDGE_WINDOW_HANDOFF_20261010.md)
+> for the latest PR #258 test receipts (1046/1046 PASS), active hard safety
+> constraints and new-chat instructions. The older checkpoint below is
+> historical for the no-Bridge source-only workstream; revalidate all refs.
+
 **Updated: 2026-10-09. Canonical continuation entrypoint for this track.**
 All source SHAs and PR states below are **observations at handoff**, not locks;
 re-read GitHub before code edits, task publication or merge.
