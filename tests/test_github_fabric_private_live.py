@@ -14,9 +14,26 @@ from tests.test_github_fabric_dispatch import admitted_children, operator_reques
 from tests.test_github_fabric_private_github import PrivateGitDataAPI
 
 
+class AtomicPrivateGitDataAPI(PrivateGitDataAPI):
+    """The older Git Data fixture only accepted single-path trees."""
+
+    def request(self, method, path, body=None):
+        if method == "POST" and path == "/git/trees" and len(body["tree"]) == 2:
+            self.operations.append((method, path, copy.deepcopy(body)))
+            sha = self.new_sha()
+            contents = copy.deepcopy(self.trees[body["base_tree"]])
+            for entry in body["tree"]:
+                if entry["mode"] != "100644":
+                    raise AssertionError("unsafe Git blob mode")
+                contents[entry["path"]] = self.blobs[entry["sha"]]
+            self.trees[sha] = contents
+            return {"sha": sha}
+        return super().request(method, path, body)
+
+
 class PrivateLivePublisherTests(unittest.TestCase):
     def setUp(self):
-        self.api = PrivateGitDataAPI()
+        self.api = AtomicPrivateGitDataAPI()
         # An operator-controlled workflow catalog already grants discovery,
         # but deliberately grants NO browser Send authority.
         workflows = json.dumps({"schema_version": 1, "workflow_ids": ["workflow-001"]})
@@ -68,7 +85,7 @@ class PrivateLivePublisherTests(unittest.TestCase):
         self.assertEqual(self.publish().status, "converged")
         self.assertEqual(len(self.api.commits), 1)
         self.assertEqual(self.publish().status, "replay")
-        self.api = PrivateGitDataAPI()
+        self.api = AtomicPrivateGitDataAPI()
         workflows = json.dumps({"schema_version": 1, "workflow_ids": ["workflow-001"]})
         self.api.snapshots[self.api.head][catalog.WORKFLOWS_PATH] = workflows
         self.api.trees["b" * 40][catalog.WORKFLOWS_PATH] = workflows
