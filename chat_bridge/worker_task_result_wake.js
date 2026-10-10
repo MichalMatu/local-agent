@@ -72,7 +72,7 @@ async function pollGithubTaskResultWakesOnce() {
         cached?.generation !== control.controlGeneration ||
         cached?.controlSignature !== githubControlSignature(control)) continue;
 
-    const receiptId = `${control.conversationId}:${control.controlGeneration}`;
+    const receiptId = `${control.conversationId}:${control.taskResultWatch.repositoryId}:${control.taskResultWatch.taskId}`;
     const old = (await chrome.storage.local.get(TASK_RESULT_WAKE_RECEIPTS_KEY))[TASK_RESULT_WAKE_RECEIPTS_KEY] || {};
     if (Object.hasOwn(old, receiptId)) continue;
 
