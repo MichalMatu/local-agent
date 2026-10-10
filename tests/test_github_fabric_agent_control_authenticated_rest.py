@@ -59,7 +59,7 @@ class AuthenticatedAgentControlRESTTests(unittest.TestCase):
         self.assertEqual(len(self.opener.calls), count)
 
     def test_bad_token_refused_before_request(self):
-        for bad in (None, "", " ", "test token", "token\\nnewline", "x" * 4097, 123):
+        for bad in (None, "", " ", "test token", "token\nnewline", "x" * 4097, 123):
             with self.subTest(bad=type(bad).__name__):
                 with self.assertRaises(PermissionError):
                     auth_rest.AuthenticatedAgentControlReadOnlyREST(bad)
@@ -99,9 +99,8 @@ class AuthenticatedAgentControlRESTTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exceeds budget"):
             self.request()
         self.opener.response = FakeResponse()
-        with mock.patch.object(public_rest.time, "monotonic", return_value=100.0):
-            with self.assertRaisesRegex(ValueError, "exceeds budget"):
-                self.request()
+        with self.assertRaisesRegex(ValueError, "exceeds budget"):
+            self.request()
         self.assertEqual(self.api._requests, 2)
         # Use an independent session to prove the deadline even with credentials.
         api = auth_rest.AuthenticatedAgentControlReadOnlyREST(TOKEN)
