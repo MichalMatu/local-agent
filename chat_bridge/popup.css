@@ -467,3 +467,7 @@ button:not(:disabled):active { transform: scale(.985); background: var(--control
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+
+.private-draft-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 6px; }
+.private-draft-state { color: var(--muted); font-size: 9px; overflow-wrap: anywhere; }
+.private-draft-explanation { color: var(--subtle); font-size: 9px; line-height: 1.5; }
