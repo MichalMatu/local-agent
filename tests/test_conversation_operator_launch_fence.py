@@ -90,7 +90,11 @@ class LaunchFenceTests(unittest.TestCase):
             self.assertTrue(operator_queue.reserve_launch_once(self.state, self.item))
         self.assertEqual(
             synced.call_args_list,
-            [mock.call(fence.parent.parent), mock.call(fence.parent)],
+            [
+                mock.call(fence.parent.parent.parent),
+                mock.call(fence.parent.parent),
+                mock.call(fence.parent),
+            ],
         )
         self.assertTrue(fence.is_file())
 
