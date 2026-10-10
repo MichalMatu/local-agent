@@ -658,6 +658,21 @@ document.querySelector("#privateFabricStatus").addEventListener("click", async (
   }
 });
 
+document.querySelector("#privateFabricAbandon").addEventListener("click", async () => {
+  const button = document.querySelector("#privateFabricAbandon");
+  button.disabled = true;
+  try {
+    const result = await request({ type: "bridge:private-github-first-abandon" });
+    renderPrivateTrial(result);
+    if (!result?.ok) showMessage("Error: " + (result?.reason || "abandon_failed"));
+    await refreshPrivateDraft();
+  } catch (_error) {
+    renderPrivateTrial({ ok: false, reason: "abandon_unavailable" });
+  } finally {
+    button.disabled = false;
+  }
+});
+
 document.querySelector("#privateFabricRetire").addEventListener("click", async () => {
   try {
     renderPrivateTrial(await request({ type: "bridge:private-github-first-retire" }));
