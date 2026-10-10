@@ -24,6 +24,43 @@ _UNAPPROVED_LOADER = re.compile(
 _REQUIRE = re.compile(r"\brequire\s*\(([^)]*)\)")
 _NODE_COMPAT_REQUIRES = frozenset(("bridge_state.js", "github_control_model.js"))
 
+# Reviewed production worker startup graph. Any new/reordered import is a
+# deliberate release surface change requiring explicit source review.
+_WORKER_BOOTSTRAP = (
+    "conversation_fabric_protocol.js",
+    "github_fabric_dispatch_model.js",
+    "github_fabric_intake_model.js",
+    "worker_base.js",
+    "worker_state.js",
+    "worker_runtime.js",
+    "worker_binding.js",
+    "worker_schedule.js",
+    "worker_github_control.js",
+    "worker_transport.js",
+    "worker_controls.js",
+    "worker_delivery.js",
+    "worker_assistant_errors.js",
+    "worker_conversations.js",
+    "worker_spawn.js",
+    "worker_spawn_route_transition.js",
+    "worker_spawn_result.js",
+    "worker_conversation_fabric.js",
+    "worker_conversation_fabric_recovery.js",
+    "worker_conversation_fabric_delivery_guard.js",
+    "worker_github_fabric_intake.js",
+    "worker_conversation_fabric_diagnostics.js",
+    "worker_lab_commands.js",
+    "worker_github_legacy_gate.js",
+    "worker_events.js",
+)
+_WORKER_NESTED_IMPORTS = {
+    "worker_base.js": (
+        "control_protocol.js",
+        "bridge_state.js",
+        "github_control_model.js",
+    ),
+}
+
 # Preserve the reviewed Chrome injection and capability surface. In particular,
 # expanding host matches or adding externally_connectable must not silently
 # pass just because each referenced source is syntactically inspectable.
@@ -161,6 +198,8 @@ def audit_browser_source_exclusion(repo_root: Path) -> BrowserSourceExclusionAud
         raise ValueError("Browser extension manifest capability surface changed")
     worker = _read_text(root, "service_worker.js")
     worker_names = _worker_imports(worker)
+    if worker_names != _WORKER_BOOTSTRAP:
+        raise ValueError("Browser worker bootstrap import identity changed; renew review")
     content_names: list[str] = []
     for entry in manifest["content_scripts"]:
         if type(entry) is not dict or type(entry.get("js")) is not list:
@@ -177,8 +216,11 @@ def audit_browser_source_exclusion(repo_root: Path) -> BrowserSourceExclusionAud
             raise ValueError("Browser worker import closure exceeds bound")
         source = _read_text(root, name)
         _script_safety(name, source)
+        nested = _nested_worker_imports(source)
+        if nested != _WORKER_NESTED_IMPORTS.get(name, ()):
+            raise ValueError("Browser nested worker import identity changed; renew review")
         worker_sources[name] = source
-        pending.extend(_nested_worker_imports(source))
+        pending.extend(nested)
     names = ("service_worker.js", *worker_sources, *content_names)
     if len(names) > _MAX_SCRIPT_COUNT or any(
         type(name) is not str or _NAME.fullmatch(name) is None for name in names
