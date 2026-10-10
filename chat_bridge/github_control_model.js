@@ -134,7 +134,7 @@
     if (rawControls.length > 128) throw new Error("runtime conversation_controls exceeds 128 entries");
 
     const seen = new Set();
-    return rawControls.map((raw) => {
+    const validated = rawControls.map((raw) => {
       const control = sanitizeConversationControl(raw);
       if (control.taskResultWatch) {
         const agent = (agents || []).find((item) =>
@@ -150,6 +150,10 @@
       seen.add(control.conversationId);
       return control;
     });
+    if (validated.filter((control) => Boolean(control.taskResultWatch)).length > 4) {
+      throw new Error("runtime task_result_watch exceeds four concurrent watches");
+    }
+    return validated;
   }
 
   function findConversationControl(runtime, conversationId) {
