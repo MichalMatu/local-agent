@@ -1,16 +1,17 @@
 # Conversation Fabric
 
-Browser-native reasoning-child delegation for one managed ChatGPT parent in the operator's authenticated Chrome profile. **Chat Bridge 0.8.13 / content protocol v26** is the current source contract.
+Browser-native reasoning-child delegation for one managed ChatGPT parent in the operator's authenticated Chrome profile. **Chat Bridge 0.8.14 (repository source) / content protocol v26** is the current source contract. The installed operator Chrome extension version is not established by the manifest alone.
 
 ## Start here — choose one track
 
-- **GitHub-first Milestone 8 / private cross-device project continuity:** [**current, source-verified handoff (2026-10-09)**](GITHUB_FIRST_CURRENT_HANDOFF.md). This is the only active Milestone 8 continuation entrypoint. GitHub-first browser execution remains disabled; PR #209 is a synthetic-only parent-mode preview.
+- **First E2E gates, offline vs operator Chrome vs private production:** [**2026-10-10 E2E readiness and safety runbook**](E2E_READINESS_2026-10-10.md).
+- **GitHub-first Milestone 8 / private cross-device project continuity:** [current handoff](GITHUB_FIRST_CURRENT_HANDOFF.md). The 2026-10-09 PR #209/#214 parent-fence experiments were archived and closed unmerged; production private browser execution remains disabled.
 - **Existing production Chrome/DOM child delegation:** [current DOM behavior and restart gate](CURRENT_PLAN.md), [live Chrome acceptance checkpoint](CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md), [diagnostics](DELEGATION_DIAGNOSTICS.md).
 - **Target product ownership:** [GitHub-first target architecture](TARGET_PRODUCT_ARCHITECTURE.md).
 
 Older handoff prompts and pre-publisher plans are historical evidence; follow the current handoff above, not stale SHA references or prior suggested work.
 
-## Legacy DOM live status (2026-10-08)
+## Historical legacy DOM live status (2026-10-08, installed 0.8.13)
 
 - **PASS:** one verification child in campaign `cf-a9f08cda8905ab33`.
 - **PASS:** three parallel research/verification/integration children in campaign `cf-df084c77d84a5929`.
