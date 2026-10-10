@@ -9,6 +9,7 @@ const privateFabricReceipts = globalThis.LocalAgentPrivateFabricReceipts;
 const PRIVATE_FABRIC_RECORD_KEY = "privateFabricLiveTrialV1";
 const PRIVATE_FABRIC_TOKEN_KEY = "privateFabricLiveTokenV1";
 const PRIVATE_FABRIC_DRAFT_DISPATCH_KEY = "privateFabricDraftDispatchIdV1";
+const PRIVATE_FABRIC_ABANDONED_KEY = "privateFabricAbandonedDispatchesV1";
 const PRIVATE_FABRIC_DISPATCH_RE = /^fabric-[0-9a-f]{32}$/;
 const PRIVATE_FABRIC_TOKEN_RE = /^[A-Za-z0-9_-]{12,256}$/;
 let privateFabricQueue = Promise.resolve();
@@ -58,7 +59,7 @@ async function operatorSavePrivateFabricDispatch(message) {
   }
   return serializePrivateFabric(async () => {
     const trial = await readPrivateFabricTrial();
-    if (trial && trial.phase !== "retired" && trial.dispatch_id !== dispatchId) {
+    if (trial && !["retired", "abandoned"].includes(trial.phase) && trial.dispatch_id !== dispatchId) {
       return { ok: false, reason: "active_private_trial_dispatch_locked" };
     }
     await chrome.storage.local.set({ [PRIVATE_FABRIC_DRAFT_DISPATCH_KEY]: dispatchId });
@@ -112,7 +113,7 @@ async function privateFabricBlockLegacyDelegate(message) {
   const target = normalizeConversationUrl(String(message?.conversationUrl || ""));
   if (!target) return false;
   const trial = await readPrivateFabricTrial();
-  return trial?.parent_url === target && trial.phase !== "retired";
+  return trial?.parent_url === target && !["retired", "abandoned"].includes(trial.phase);
 }
 
 // This layer is loaded AFTER the legacy controller but BEFORE worker_events.js.
@@ -156,7 +157,7 @@ async function privateFabricRecoverSubmission(record) {
 }
 
 async function privateFabricAdvance(record, token) {
-  if (["completed", "retired", "blocked", "claim_ambiguous"].includes(record.phase)) {
+  if (["completed", "retired", "abandoned", "blocked", "claim_ambiguous"].includes(record.phase)) {
     return record;
   }
   if (!await privateFabricManagedParent(record.parent_url)) {
@@ -297,11 +298,16 @@ async function operatorStartPrivateFabricTrial(message) {
       return { ok: false, reason: "invalid_private_dispatch_launch" };
     }
     const prior = await readPrivateFabricTrial();
-    if (prior && prior.phase !== "retired" && prior.dispatch_id !== dispatchId) {
+    const abandoned = await chrome.storage.local.get(PRIVATE_FABRIC_ABANDONED_KEY);
+    const abandonedIds = abandoned[PRIVATE_FABRIC_ABANDONED_KEY] || [];
+    if (abandonedIds.includes(dispatchId)) {
+      return { ok: false, reason: "private_dispatch_permanently_abandoned" };
+    }
+    if (prior && !["retired", "abandoned"].includes(prior.phase) && prior.dispatch_id !== dispatchId) {
       return { ok: false, reason: "another_private_trial_requires_reconciliation",
         ...privateFabricTrialSummary(prior) };
     }
-    if (prior && prior.phase !== "retired") {
+    if (prior && !["retired", "abandoned"].includes(prior.phase)) {
       await chrome.storage.session.set({ [PRIVATE_FABRIC_TOKEN_KEY]: token });
       await privateFabricAdvance(prior, token);
       return { ok: true, ...privateFabricTrialSummary(await readPrivateFabricTrial()) };
@@ -348,7 +354,7 @@ async function operatorStartPrivateFabricTrial(message) {
 async function pollPrivateFabricTrial() {
   return serializePrivateFabric(async () => {
     const record = await readPrivateFabricTrial();
-    if (!record || ["completed", "retired", "blocked", "claim_ambiguous"].includes(record.phase)) {
+    if (!record || ["completed", "retired", "abandoned", "blocked", "claim_ambiguous"].includes(record.phase)) {
       return privateFabricTrialSummary(record);
     }
     const token = await privateFabricToken();
@@ -359,6 +365,31 @@ async function pollPrivateFabricTrial() {
       return { ...privateFabricTrialSummary(record), reason: "private_transport_needs_reconciliation" };
     }
     return privateFabricTrialSummary(await readPrivateFabricTrial());
+  });
+}
+
+async function operatorAbandonPrivateFabricTrial() {
+  // Explicit operator choice after inspecting an unresolved Send. The old
+  // transaction is permanently fenced: no retry, no GitHub claim deletion,
+  // and no assertion that its browser side effect did or did not occur.
+  return serializePrivateFabric(async () => {
+    const record = await readPrivateFabricTrial();
+    if (!record || record.phase !== "submission_unknown" ||
+        record.child_url || record.result_path) {
+      return { ok: false, reason: "only_unknown_unsent_trial_can_be_abandoned" };
+    }
+    const existing = await chrome.storage.local.get(PRIVATE_FABRIC_ABANDONED_KEY);
+    const ids = existing[PRIVATE_FABRIC_ABANDONED_KEY] || [];
+    if (!Array.isArray(ids) || ids.some(id => !PRIVATE_FABRIC_DISPATCH_RE.test(id)) || ids.length >= 16) {
+      return { ok: false, reason: "abandoned_history_unavailable" };
+    }
+    if (!ids.includes(record.dispatch_id)) ids.push(record.dispatch_id);
+    // Persist exclusion BEFORE lifting the old active-parent fence.
+    await chrome.storage.local.set({ [PRIVATE_FABRIC_ABANDONED_KEY]: ids });
+    record.phase = "abandoned";
+    record.reason = "operator_abandoned_without_send_replay";
+    await savePrivateFabricTrial(record);
+    return { ok: true, ...privateFabricTrialSummary(record) };
   });
 }
 
