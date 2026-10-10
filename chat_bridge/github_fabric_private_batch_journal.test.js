@@ -159,8 +159,8 @@ async function test() {
   const forged = structuredClone(v);
   forged.revision++;
   forged.children[0].child_conversation_url = "https://chatgpt.com/c/forged-same-child";
-  assert.throws(() => journal.validateJournal(forged, data), /./) === undefined &&
-    assert.equal(forged.revision, v.revision + 1);
+  assert.doesNotThrow(() => journal.validateJournal(forged, data));
+  assert.equal(forged.revision, v.revision + 1);
   await assert.rejects(journal.persist(storage, data, forged, v), /no replay/);
   const duplicateOwner = structuredClone(v);
   duplicateOwner.children[1].owner_id = OWNER_A;
