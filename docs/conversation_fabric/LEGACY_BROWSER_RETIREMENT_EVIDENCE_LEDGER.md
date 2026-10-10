@@ -108,6 +108,58 @@ or because the *new* extension honors a fence. A credible assertion requires
 a trusted mechanism that can prevent effects from the *old* code without
 that old code's cooperation, together with tested coverage and provenance.
 
+## Candidate external enforcement paths (not evaluated or enabled)
+
+All candidates below require independent security review and evidence from
+actual Chrome/browser state. These are **hypotheses**, not proofs that the
+legacy extension has already lost Send authority.
+
+1. **Managed Chrome, per-extension removal:** an administrator could use
+   `ExtensionSettings` with the old extension's exact ID and
+   `installation_mode=removed`. The policy must be proven applied on
+   each *in-scope* managed profile, and old content-script-bearing tabs
+   must be closed/reloaded under separate operator approval. The same ID
+   policy cannot identify unknown unpacked-extension IDs, unmanaged profiles,
+   or offline devices not currently governed by that authority. Receipt of
+   a policy by one machine is not fleet-wide proof.
+2. **Managed Chrome, per-extension host blocking:** the documented
+   `runtime_blocked_hosts` policy can restrict extension interaction with
+   selected sites. Assess whether it is actually supported and enforced
+   for the old extension identity, including any already injected JavaScript
+   on loaded/restored tabs. **No such live denial has been demonstrated.**
+   A wildcard/default policy may also block a new legitimate extension;
+   policy scoping and application precedence require review. Chrome policy
+   host patterns are not interchangeable with manifest host patterns:
+   published examples use `https://chatgpt.com`, not
+   `https://chatgpt.com/*` in the policy's host matcher. Never copy an
+   unreviewed pattern into a live browser.
+3. **Credential/tenant isolation:** placing a future experimental parent
+   under a separately provisioned, strictly controlled identity might
+   narrow the set of possible old clients. This only helps if all credentials
+   and sessions for that identity are independently accounted for and no
+   legacy client can access it. A clean Chrome profile by itself does
+   **not** prove that a second/offline profile cannot reach the same
+   ChatGPT account or parent.
+4. **Common trusted effect-time gateway:** the strongest design would
+   reject obsolete clients at a boundary *every* Send operation must cross,
+   including unmodified old DOM code. This repo has no demonstrated control
+   over the ChatGPT server-side Send boundary. A GitHub CAS or newly inserted
+   client-side check is bypassable by old code and is not that gateway.
+
+All approaches must separately address already-loaded page scripts, browser
+session restoration, offline return and unknown endpoints. If an authority
+cannot inventory or exclude the complete target population, record
+`scope_enumeration=unknown` or `partial` and **NO GO**.
+
+Reference boundaries (do not apply these policies as part of this review):
+
+- Chrome Enterprise managed extension settings:
+  https://support.google.com/chrome/a/answer/9867568?hl=en
+- Chrome Enterprise Mac extension host restrictions:
+  https://support.google.com/chrome/a/answer/7517624?hl=en
+- Chromium post-uninstall content script persistence:
+  https://chromium.googlesource.com/chromium/src/+/main/extensions/docs/security_faq.md
+
 ## Required adversarial coverage
 
 | Scenario | Acceptable evidence | Missing evidence means |
