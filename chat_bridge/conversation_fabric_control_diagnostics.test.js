@@ -8,7 +8,7 @@ const vm = require("node:vm");
 const root = __dirname;
 const parentUrl = "https://chatgpt.com/c/control-diagnostics-parent";
 
-function createHarness({ assistantText, workerResponse, managed = true }) {
+function createHarness({ assistantText, workerResponse, managed = true, turnSuffix = "" }) {
   let intervalCallback = null;
   let controlCalls = 0;
   let retryDefers = 0;
@@ -44,11 +44,22 @@ function createHarness({ assistantText, workerResponse, managed = true }) {
   });
   const form = { querySelector: () => sendButton };
 
+  const parentTurn = {
+    getAttribute(name) { return name === "data-turn-key" ? "assistant-turn" : null; },
+    querySelectorAll() { return []; },
+    cloneNode() {
+      return {
+        textContent: assistantText + turnSuffix,
+        querySelectorAll() { return []; }
+      };
+    }
+  };
+
   const assistantMessage = {
     id: "assistant-turn",
     innerText: assistantText,
     textContent: assistantText,
-    closest() { return this; },
+    closest() { return turnSuffix ? parentTurn : this; },
     cloneNode() {
       return {
         textContent: assistantText,
@@ -200,6 +211,25 @@ async function flush() {
     });
     await flush();
     assert.equal(h.controlCalls(), 1, "redundant control_close=true must not block a valid delegation");
+    assert.equal(h.submitted.length, 0);
+  }
+
+  {
+    // Some ChatGPT turn wrappers include UI text after the assistant response.
+    // This must not be mistaken for actual trailing assistant prose.
+    const h = createHarness({
+      assistantText: [
+        "Delegating from a turn with trailing UI.",
+        "<<<LOCAL_AGENT_CF",
+        JSON.stringify(delegate),
+        "LOCAL_AGENT_CF>>>"
+      ].join("\n"),
+      turnSuffix: "\nAssistant turn toolbar text",
+      workerResponse: { ok: true }
+    });
+    await flush();
+    assert.equal(h.controlCalls(), 1,
+      "assistant-only terminal block must survive trailing turn-wrapper UI");
     assert.equal(h.submitted.length, 0);
   }
 
