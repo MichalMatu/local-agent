@@ -28,16 +28,16 @@ Read, in order:
 4. `docs/conversation_fabric/README.md` and `CURRENT_PLAN.md`.
 5. Any exact current PR diff, matching tests and known durable result record.
 
-Resolve `main`, the exact open PR heads, the private `fabric-data` ref and
-the current `agent-control` daemon evidence **afresh**. All old handoff SHA
-values are observations only. Specifically inspect the parent mode/exclusion
-draft PR #209 and stacked synthetic-only private CAS draft PR #214. Existing
-independent reasoning-child reviews
-`m8-parent-fence-verification` and `m8-parent-fence-integration` were
-delegated previously but their complete final replies have not been
-verified in the current GitHub PR review record. **Do not duplicate pending
-delegations, invent their results, or merge the drafts merely because CI is
-green.**
+Resolve `main`, the currently open PR heads (if any), the private
+`fabric-data` ref and the `agent-control` daemon evidence **afresh**.
+At the 2026-10-10 checkpoint, PRs #227/#242 and integration #272 were
+**merged**, while experimental PRs #209/#214 were **closed unmerged and
+archived**. They are not pending draft integration work. Do not resume old
+synthetic parent-fence work without a new independent security design and
+an exact live source audit. Past reasoning-child review replies were not
+independently proven; do not invent reviews or delegate duplicates. Read the
+current [E2E readiness runbook](E2E_READINESS_2026-10-10.md) to distinguish
+offline fixture acceptance from supervised operator Chrome acceptance.
 
 Before continuing code work, also inspect any newer PRs that repair legacy
 Conversation Fabric terminal delivery uncertainty. They must preserve

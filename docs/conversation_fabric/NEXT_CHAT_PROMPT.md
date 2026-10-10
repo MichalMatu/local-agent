@@ -6,14 +6,14 @@ the current GitHub-first Milestone 8 new-chat handoff.** For the latter, use
 Do not run the active-campaign Chrome reload procedure just because a new
 engineering chat has been opened.
 
-Current as of 2026-10-08. This is an **operator-guided test plan**, not permission to launch tasks, change global Master state or automatically replay existing children.
+Original procedure 2026-10-08; read the [2026-10-10 E2E readiness runbook](E2E_READINESS_2026-10-10.md) first. This is an **operator-guided test plan**, not permission to launch tasks, change global Master state or automatically replay existing children.
 
 ## Prerequisites
 
 Read `AGENTS.md`, `docs/conversation_fabric/CURRENT_PLAN.md` and [the verified 0.8.13 checkpoint](CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md). Confirm freshly:
 
 - the parent is the exact managed ChatGPT conversation in the normal authenticated Chrome session;
-- installed Chat Bridge reports **0.8.13 / content v26**, Master and parent enabled;
+- installed Chat Bridge version **matches the chosen source build** (repository manifest 0.8.14 / content v26), Master and parent enabled; the historical 0.8.13 field proof alone is insufficient;
 - the previous `cf-a9f08cda8905ab33` and `cf-df084c77d84a5929` campaigns are terminal;
 - no pending/undelivered terminal feedback or preexisting live campaign would be overwritten;
 - the operator is ready to supervise **one** controlled extension/service-worker restart.
