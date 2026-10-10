@@ -64,6 +64,14 @@
       "interval_minutes": 10,
       "next_wake_at": null,
       "updated_at": "2026-10-07T17:25:00Z"
+    },
+    {
+      "conversation_id": "chat-7d906863",
+      "control_generation": 1,
+      "enabled": true,
+      "interval_minutes": 10,
+      "next_wake_at": null,
+      "updated_at": "2026-10-10T06:27:08.930Z"
     }
   ],
   "agents": [
