@@ -52,6 +52,32 @@ assert.ok(privateWorker.includes('trial.phase !== "retired"'),
 assert.ok(!contentScripts.some(name => name.startsWith("github_fabric_private_")),
   "private tokens must never enter ChatGPT content scripts");
 
+const popupHtml = read("popup.html");
+const popupJs = read("popup.js");
+for (const elementId of [
+  "privateFabricSaveDispatch", "privateFabricSaveToken", "privateFabricForgetToken",
+  "privateFabricDispatchState", "privateFabricTokenState"
+]) {
+  assert.ok(popupHtml.includes('id="' + elementId + '"'),
+    "private trial popup must expose independently saved input: " + elementId);
+  assert.ok(popupJs.includes('querySelector("#' + elementId + '")'),
+    "private trial popup must wire saved input: " + elementId);
+}
+for (const type of [
+  "draft-status", "save-dispatch", "save-token", "forget-token"
+]) {
+  assert.ok(events.includes('"bridge:private-github-first-' + type + '"'),
+    "private saved input operations must use the popup-only worker gate");
+}
+assert.ok(privateWorker.includes("chrome.storage.session.set({ [PRIVATE_FABRIC_TOKEN_KEY]"),
+  "private token must live in Chrome session storage");
+assert.ok(privateWorker.includes("token.slice(-4)"),
+  "operator may see only a bounded trailing credential hint");
+assert.ok(popupJs.includes('savedUi[PRIVATE_POPUP_UI_KEY]?.advancedOpen'),
+  "advanced settings must survive popup closure");
+assert.ok(!popupJs.includes("localStorage.setItem"),
+  "page-side localStorage must never store private credentials");
+
 // The present public index poller may validate & observe, never invoke a
 // browser side effect. New dispatch effects require an explicit migration gate.
 for (const forbidden of [
