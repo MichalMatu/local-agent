@@ -87,10 +87,8 @@ def _fnv1a32_ascii(value: str) -> str:
 def _browser_bootstrap(request: dict[str, Any], child_id: str) -> str:
     """Attach one unambiguous terminal proof, independently of DOM delegation."""
     fingerprint = contract.child_request_digest(request)[7:15]
-    completion = (
-        f"LOCAL_AGENT_CF_CHILD_COMPLETE:{fingerprint}:{child_id}:"
-        f"{_fnv1a32_ascii(f'{fingerprint}\n{child_id}')}"
-    )
+    checksum = _fnv1a32_ascii(fingerprint + "\n" + child_id)
+    completion = f"LOCAL_AGENT_CF_CHILD_COMPLETE:{fingerprint}:{child_id}:{checksum}"
     suffix = (
         "\nWhen your bounded task is fully complete, append the following exact ASCII "
         "completion token as the final non-whitespace line of your answer.\n"
