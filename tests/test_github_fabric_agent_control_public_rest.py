@@ -124,6 +124,64 @@ class PublicAgentControlRESTTests(unittest.TestCase):
             self.invoke()
         self.assertNotIn("PRIVATE_TOKEN", str(caught.exception))
 
+    def test_session_request_count_refuses_before_another_network_get(self):
+        for _ in range(reader._MAX_SESSION_REQUESTS):
+            self.assertEqual(self.invoke(), {"sha": "test"})
+        self.assertEqual(self.api._requests, reader._MAX_SESSION_REQUESTS)
+        observed = len(self.opener.calls)
+        with self.assertRaisesRegex(ValueError, "session budget"):
+            self.invoke()
+        self.assertEqual(len(self.opener.calls), observed)
+
+    def test_elapsed_session_deadline_blocks_before_network_io(self):
+        with mock.patch.object(reader.time, "monotonic", return_value=100.0):
+            self.assertEqual(self.invoke(), {"sha": "test"})
+        before = len(self.opener.calls)
+        with mock.patch.object(reader.time, "monotonic", return_value=221.0):
+            with self.assertRaisesRegex(ValueError, "session budget"):
+                self.invoke()
+        self.assertEqual(len(self.opener.calls), before)
+
+    def test_each_get_timeout_is_bounded_by_remaining_session_time(self):
+        with mock.patch.object(
+            reader.time, "monotonic", side_effect=[100.0, 100.0, 215.0, 215.0],
+        ):
+            self.assertEqual(self.invoke(), {"sha": "test"})
+            self.assertEqual(self.invoke(), {"sha": "test"})
+        self.assertEqual(self.opener.calls[-1][1], 5.0)
+
+    def test_download_finishing_after_deadline_cannot_return_success(self):
+        with mock.patch.object(
+            reader.time, "monotonic", side_effect=[100.0, 221.0],
+        ):
+            with self.assertRaisesRegex(ValueError, "session budget"):
+                self.invoke()
+        self.assertEqual(len(self.opener.calls), 1)
+
+    def test_aggregate_byte_budget_rejects_before_parsing(self):
+        self.api._received_bytes = reader._MAX_SESSION_BYTES - 8
+        self.opener.response = FakeResponse(declared="13")
+        with self.assertRaisesRegex(ValueError, "exceeds budget"):
+            self.invoke()
+        self.opener.response = FakeResponse()
+        with self.assertRaisesRegex(ValueError, "exceeds budget"):
+            self.invoke()
+        self.assertEqual(self.api._received_bytes, reader._MAX_SESSION_BYTES - 8)
+
+    def test_failed_get_attempt_consumes_request_budget_without_secret_echo(self):
+        self.opener.error = URLError("PRIVATE_BEARER")
+        with self.assertRaises(git.GithubFabricTransportError):
+            self.invoke()
+        self.assertEqual(self.api._requests, 1)
+        self.assertEqual(self.api._received_bytes, 0)
+
+    def test_refused_method_cannot_consume_any_session_budget(self):
+        with self.assertRaises(PermissionError):
+            self.invoke("PATCH", GOOD_PATHS[0], {})
+        self.assertIsNone(self.api._started_at)
+        self.assertEqual(self.api._requests, 0)
+        self.assertEqual(len(self.opener.calls), 0)
+
     def test_payload_size_is_hard_capped_before_parsing(self):
         self.opener.response = FakeResponse(declared=str(reader._MAX_RESPONSE_BYTES + 1))
         with self.assertRaisesRegex(ValueError, "oversized"):
