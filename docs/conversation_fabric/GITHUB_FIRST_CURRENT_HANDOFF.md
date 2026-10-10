@@ -1,5 +1,13 @@
 # GitHub-first Conversation Fabric — current Milestone 8 handoff
 
+> **Newest checkpoint (2026-10-10):** Start at
+> [M8_CHAT_HANDOFF_20261010.md](M8_CHAT_HANDOFF_20261010.md), which records
+> tested PR #258 (`d328505d7c055d31e5aa5855bff2b11430fe841b`),
+> 1046/1046 full Mac tests PASS, 83.8% coverage, the real anonymous pinned
+> GitHub GET PASS, and the still-unresolved production Send/ACK safety gates.
+> The older "current" summaries below are retained for historical context.
+
+
 **Updated: 2026-10-09. Canonical continuation entrypoint for this track.**
 All source SHAs and PR states below are **observations at handoff**, not locks;
 re-read GitHub before code edits, task publication or merge.
