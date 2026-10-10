@@ -1,10 +1,12 @@
 (function initPrivateParentOwnershipReader(root, factory) {
   const effects = root.LocalAgentPrivateParentEffects ||
     (typeof require === "function" ? require("./github_fabric_private_parent_effects.js") : null);
-  const api = factory(effects);
+  const pinnedDispatch = root.LocalAgentPrivateParentPinnedDispatch ||
+    (typeof require === "function" ? require("./github_fabric_private_parent_pinned_dispatch.js") : null);
+  const api = factory(effects, pinnedDispatch);
   root.LocalAgentPrivateParentOwnershipReader = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function createPrivateParentOwnershipReader(effectsModel) {
+})(typeof globalThis !== "undefined" ? globalThis : this, function createPrivateParentOwnershipReader(effectsModel, pinnedDispatchModel) {
   "use strict";
 
   // Candidate-only: NOT imported by the installed MV3 worker. This reads
@@ -189,8 +191,9 @@
   }
 
   async function pinnedFile(fetchImpl, token, head, path, blobSha, bound) {
+    const responseBound = Math.max(MAX_JSON_RESPONSE, Math.ceil(bound * 4 / 3) + 8192);
     const metadata = await requestJson(fetchImpl, token,
-      "/contents/" + path + "?ref=" + head, MAX_JSON_RESPONSE);
+      "/contents/" + path + "?ref=" + head, responseBound);
     if (!metadata || metadata.type !== "file" || metadata.path !== path ||
         metadata.sha !== blobSha || metadata.encoding !== "base64" ||
         !Number.isSafeInteger(metadata.size) || metadata.size < 0 ||
@@ -225,7 +228,7 @@
 
   async function readPrivateParentOwnershipSnapshot({
     enabled = false, readToken, parentConversationUrl,
-    expectedOwnerId, expectedDispatchId, expectedEpoch, expectedChildren,
+    expectedOwnerId, expectedDispatchId, expectedEpoch,
     fetchImpl = globalThis.fetch
   } = {}) {
     if (enabled !== true) throw new Error("Private parent candidate reader default-disabled");
@@ -399,8 +402,28 @@
       const ledger = await pinnedFile(
         fetchImpl, readToken, head, path, blobs.get(path), MAX_EFFECT_BYTES
       );
+      if (!pinnedDispatchModel ||
+          typeof pinnedDispatchModel.readPinnedDispatchChildren !== "function") {
+        throw new Error("Private parent candidate pinned dispatch validator unavailable");
+      }
+      const readPinned = async (dispatchPath, bound) => {
+        const blobSha = [...tree.tree].find(entry =>
+          entry.path === dispatchPath && entry.type === "blob" &&
+          entry.mode === "100644" && typeof entry.sha === "string"
+        )?.sha;
+        if (!blobSha || !SHA_RE.test(blobSha) ||
+            tree.tree.filter(entry => entry.path === dispatchPath).length !== 1) {
+          throw new Error("Private parent candidate pinned dispatch tree path invalid");
+        }
+        return pinnedFile(fetchImpl, readToken, head, dispatchPath, blobSha, bound);
+      };
+      const children = await pinnedDispatchModel.readPinnedDispatchChildren({
+        expectedDispatchId: record.dispatch_id,
+        expectedParentUrl: record.parent_conversation_url,
+        readPinned
+      });
       effectObservation = await effectsModel.validateEffectLedger(
-        ledger, record, expectedChildren
+        ledger, record, children
       );
     }
     // Do not use this snapshot as a Send authorization: it may be stale
