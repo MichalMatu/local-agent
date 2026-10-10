@@ -67,15 +67,11 @@
     },
     {
       "conversation_id": "chat-7d906863",
-      "control_generation": 2,
+      "control_generation": 3,
       "enabled": true,
       "interval_minutes": 10,
       "next_wake_at": null,
-      "updated_at": "2026-10-10T07:58:45.476Z",
-      "task_result_watch": {
-        "repository_id": "local-agent",
-        "task_id": "local-agent-mvp-live-bridge-0814-wake-20261010-v1"
-      }
+      "updated_at": "2026-10-10T08:02:38.968Z"
     }
   ],
   "agents": [
