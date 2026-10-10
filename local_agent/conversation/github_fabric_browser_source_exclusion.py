@@ -24,6 +24,27 @@ _UNAPPROVED_LOADER = re.compile(
 _REQUIRE = re.compile(r"\brequire\s*\(([^)]*)\)")
 _NODE_COMPAT_REQUIRES = frozenset(("bridge_state.js", "github_control_model.js"))
 
+# Preserve the reviewed Chrome injection and capability surface. In particular,
+# expanding host matches or adding externally_connectable must not silently
+# pass just because each referenced source is syntactically inspectable.
+_MANIFEST_KEYS = frozenset((
+    "manifest_version", "name", "version", "description", "permissions",
+    "host_permissions", "background", "action", "content_scripts",
+    "minimum_chrome_version",
+))
+_PERMISSIONS = ("alarms", "storage", "tabs", "scripting")
+_HOST_PERMISSIONS = (
+    "https://chatgpt.com/*", "https://chat.openai.com/*",
+    "https://raw.githubusercontent.com/*",
+)
+_CONTENT_MATCHES = ("https://chatgpt.com/*", "https://chat.openai.com/*")
+_CONTENT_SCRIPTS = (
+    "control_protocol.js", "conversation_fabric_protocol.js",
+    "content_retry.js", "spawn_result_content.js",
+    "conversation_fabric_content.js", "content.js",
+    "dom_contract.js", "exhaustion_guard.js",
+)
+
 
 @dataclass(frozen=True, slots=True)
 class BrowserSourceExclusionAudit:
@@ -102,17 +123,42 @@ def audit_browser_source_exclusion(repo_root: Path) -> BrowserSourceExclusionAud
         or manifest_path.stat().st_size > _MAX_FILE_BYTES
     ):
         raise ValueError("Browser extension manifest missing or oversized")
+    def _unique_fields(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        value: dict[str, object] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("Browser extension manifest has duplicate JSON keys")
+            value[key] = item
+        return value
+
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = json.loads(
+            manifest_path.read_text(encoding="utf-8"),
+            object_pairs_hook=_unique_fields,
+        )
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         raise ValueError("Browser extension manifest invalid") from None
     if (
-        type(manifest) is not dict or type(manifest.get("background")) is not dict
-        or manifest["background"].get("service_worker") != "service_worker.js"
+        type(manifest) is not dict
+        or set(manifest) != _MANIFEST_KEYS
+        or type(manifest.get("manifest_version")) is not int
+        or manifest["manifest_version"] != 3
+        or manifest.get("permissions") != list(_PERMISSIONS)
+        or manifest.get("host_permissions") != list(_HOST_PERMISSIONS)
+        or manifest.get("background") != {"service_worker": "service_worker.js"}
+        or manifest.get("action") != {
+            "default_title": "Local Agent Chat Bridge",
+            "default_popup": "popup.html",
+        }
         or type(manifest.get("content_scripts")) is not list
-        or not 1 <= len(manifest["content_scripts"]) <= 8
+        or len(manifest["content_scripts"]) != 1
+        or manifest["content_scripts"][0] != {
+            "matches": list(_CONTENT_MATCHES),
+            "js": list(_CONTENT_SCRIPTS),
+            "run_at": "document_idle",
+        }
     ):
-        raise ValueError("Browser extension startup graph invalid")
+        raise ValueError("Browser extension manifest capability surface changed")
     worker = _read_text(root, "service_worker.js")
     worker_names = _worker_imports(worker)
     content_names: list[str] = []
