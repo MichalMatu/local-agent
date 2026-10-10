@@ -64,6 +64,8 @@ function makeHarness(storage = {}) {
       };
     }
   });
+  h.context.TextDecoder = TextDecoder;
+  h.context.Uint8Array = Uint8Array;
   return {
     h,
     setStatus(value) { resultStatus = value; },
