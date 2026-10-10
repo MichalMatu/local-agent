@@ -63,6 +63,7 @@ def validate(record: Any) -> dict[str, Any]:
             or not _HEX.fullmatch(record["owner_id"])
             or not isinstance(record["dispatch_id"], str)
             or not _DISPATCH.fullmatch(record["dispatch_id"])
+            or not isinstance(record["phase"], str)
             or record["phase"] not in _STATES
             or record["completion"] != {
                 "active": "none",
@@ -102,6 +103,10 @@ def propose_acquisition(
             raise PermissionError("Private Fabric parent already owned")
         if prior["phase"] == "unknown_frozen":
             raise PermissionError("Private Fabric parent outcome requires manual reconciliation")
+        if prior["dispatch_id"] == dispatch["id"]:
+            raise PermissionError("Private Fabric completed dispatch may not be rearmed")
+        if prior["owner_id"] == owner_id:
+            raise PermissionError("Private Fabric new epoch requires a distinct owner identity")
         if prior["fence_epoch"] >= 2**31 - 1:
             raise ValueError("Private Fabric parent fence epoch exhausted")
     epoch = 1 if prior is None else prior["fence_epoch"] + 1
