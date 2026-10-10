@@ -254,6 +254,11 @@ def start_if_pending() -> RunningOperatorCampaign | None:
     item = operator_queue.next_staged_request(agentd.STATE_DIR)
     if item is None:
         return None
+    # The exclusive, fsynced marker is durable before any process can
+    # perform a browser effect. An interrupted attempt requires explicit
+    # reconciliation; it must never be automatically launched again.
+    if not operator_queue.reserve_launch_once(agentd.STATE_DIR, item):
+        return None
     env = os.environ.copy()
     for name in (LEASE_FDS_ENV, LEASE_KEYS_DIGEST_ENV, RESOURCE_LEASE_FDS_ENV):
         env.pop(name, None)

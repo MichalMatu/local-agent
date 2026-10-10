@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -137,6 +138,52 @@ def stage_next_control_request(control_root: Path, state_dir: Path) -> OperatorW
     return None
 
 
+def _launch_fence_path(state_dir: Path, request_id: str) -> Path:
+    return state_dir / LOCAL_SPOOL_DIR / "launches" / f"{request_id}.json"
+
+
+def launch_reconciliation_required(state_dir: Path, item: OperatorWorkItem) -> bool:
+    """A previous launch attempt is ambiguous until its result is durably published."""
+    path = _launch_fence_path(state_dir, item.request_id)
+    return os.path.lexists(path)
+
+
+def reserve_launch_once(state_dir: Path, item: OperatorWorkItem) -> bool:
+    """Persist an exclusive launch fence *before* any browser-capable process spawns.
+
+    A surviving fence means execution may already have happened. Its presence,
+    even if incomplete or corrupt, never permits automatic replay. This fence
+    is not a lock and does not grant execution rights.
+    """
+    path = _launch_fence_path(state_dir, item.request_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.parent.is_symlink():
+        raise RuntimeError("operator launch fence directory is unsafe")
+    # Persist both newly created directory entries before recording a one-shot
+    # launch. The spool root and launches/ may both be new on the first request.
+    fsync_directory(path.parent.parent.parent)
+    fsync_directory(path.parent.parent)
+    encoded = json.dumps(
+        {
+            "schema_version": 1,
+            "request_id": item.request_id,
+            "request_digest": item.request_digest,
+        },
+        sort_keys=True,
+    ).encode("utf-8") + b"\n"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags, 0o600)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "wb") as stream:
+        stream.write(encoded)
+        stream.flush()
+        os.fsync(stream.fileno())
+    fsync_directory(path.parent)
+    return True
+
+
 def next_staged_request(state_dir: Path) -> OperatorWorkItem | None:
     requests_dir, _results_dir = _spool_dirs(state_dir)
     if not requests_dir.exists():
@@ -242,7 +289,10 @@ def control_result_matches(
 
 def discard_spool(item: OperatorWorkItem) -> None:
     parents: set[Path] = set()
-    for path in (item.result_path, item.request_path):
+    launch_path = (
+        item.request_path.parent.parent / "launches" / f"{item.request_id}.json"
+    )
+    for path in (item.result_path, item.request_path, launch_path):
         try:
             path.unlink()
             parents.add(path.parent)
