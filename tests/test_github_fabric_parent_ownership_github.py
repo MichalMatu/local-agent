@@ -174,7 +174,7 @@ class ParentCandidateCASAPITests(unittest.TestCase):
         count = len(self.api.commits)
         with self.assertRaisesRegex(PermissionError, "already owned"):
             self.acquire(competitor, self.other)
-        with self.assertRaisesRegex(PermissionError, "already owned"):
+        with self.assertRaisesRegex(PermissionError, "historic dispatch/owner replay"):
             self.acquire(self.dispatch_id, self.other)
         self.assertEqual(len(self.api.commits), count)
         frozen = self.change("freeze_unknown")
@@ -222,7 +222,7 @@ class ParentCandidateCASAPITests(unittest.TestCase):
         self.assertEqual(len(self.api.commits), self.initial_commits + 1)
         self.assertEqual(self.acquire().status, "replay")
         updates = [item for item in self.api.operations
-                   if item[0] == "PATCH" and item[1] == private_git.REF_UPDATE_PATH]
+                   if item[0] == "PATCH"]
         self.assertEqual(len(updates), 2, "one staging ref and one candidate CAS")
 
     def test_non_fast_forward_conflict_has_no_retry(self):
@@ -230,7 +230,7 @@ class ParentCandidateCASAPITests(unittest.TestCase):
         with self.assertRaises(writer.ParentCandidateConflict):
             self.acquire()
         updates = [item for item in self.api.operations
-                   if item[0] == "PATCH" and item[1] == private_git.REF_UPDATE_PATH]
+                   if item[0] == "PATCH"]
         self.assertEqual(len(updates), 2, "never retry a rejected CAS automatically")
         self.assertEqual(len(self.records().get(writer.INDEX_PATH, "")), 0)
 
