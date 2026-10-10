@@ -72,6 +72,7 @@
     }
     const tabIds = new Set();
     const childUrls = new Set();
+    const ownerIds = new Set();
     let active = 0;
     for (let i = 0; i < dispatch.children.length; i++) {
       const entry = journal.children[i];
@@ -91,8 +92,8 @@
       const hasTab = entry.tab_id !== null;
       const hasUrl = entry.child_conversation_url.length > 0;
       const hasResult = entry.result_path.length > 0;
-      if (hasOwner && !OWNER_RE.test(entry.owner_id)) {
-        throw new Error("Private Fabric batch owner identity invalid");
+      if (hasOwner && (!OWNER_RE.test(entry.owner_id) || ownerIds.has(entry.owner_id))) {
+        throw new Error("Private Fabric batch owner identity invalid or duplicated");
       }
       if (hasTab && (!Number.isSafeInteger(entry.tab_id) || entry.tab_id < 1 ||
           tabIds.has(entry.tab_id))) {
@@ -128,6 +129,7 @@
       if (hasResult !== (entry.phase === "completed")) {
         throw new Error("Private Fabric batch terminal result state inconsistent");
       }
+      if (hasOwner) ownerIds.add(entry.owner_id);
       if (hasTab) tabIds.add(entry.tab_id);
       if (hasUrl) childUrls.add(entry.child_conversation_url);
       if (!["pending", "completed", "blocked", "abandoned", "claim_ambiguous"].includes(entry.phase)) active++;
@@ -227,6 +229,31 @@
     return validateJournal(values[STORAGE_KEY], dispatch);
   }
 
+  function verifySingleTransition(previous, next, dispatch) {
+    const changed = [];
+    for (let i = 0; i < previous.children.length; i++) {
+      if (JSON.stringify(previous.children[i]) !== JSON.stringify(next.children[i])) {
+        changed.push(i);
+      }
+    }
+    if (changed.length !== 1) {
+      throw new Error("Private Fabric batch persistence requires one child transition");
+    }
+    const target = next.children[changed[0]];
+    const evidence = target.phase === "claim_intent"
+      ? { owner_id: target.owner_id }
+      : target.phase === "tab_ready" ? { tab_id: target.tab_id }
+      : target.phase === "ack_pending"
+        ? { child_conversation_url: target.child_conversation_url }
+        : target.phase === "completed" ? { result_path: target.result_path } : {};
+    const derived = transition(
+      previous, dispatch, target.child_request_id, target.phase, evidence
+    );
+    if (JSON.stringify(derived) !== JSON.stringify(next)) {
+      throw new Error("Private Fabric batch persisted state skips an admitted transition");
+    }
+  }
+
   async function persist(storage, dispatch, next, expected = null) {
     validateJournal(next, dispatch);
     const current = await load(storage, dispatch);
@@ -237,6 +264,8 @@
     } else if (!current || JSON.stringify(current) !== JSON.stringify(expected) ||
         next.revision !== current.revision + 1) {
       throw new Error("Private Fabric batch journal changed; fail closed");
+    } else {
+      verifySingleTransition(current, next, dispatch);
     }
     await storage.set({ [STORAGE_KEY]: next });
     const verified = await load(storage, dispatch);
