@@ -59,10 +59,14 @@ commit. It emits only a dispatch ID, status and private GitHub commit SHA.
 
 ## 3. Operator-armed Chat Bridge → browser
 
-After an explicitly approved update to Bridge **0.8.15**, open its popup,
+After an explicitly approved update to Bridge **0.8.16**, open its popup,
 expand Advanced Settings and enter the exact `fabric-...` dispatch ID and
-a scoped private-repository Contents read/write token. Press **Launch one
-child**. Do not paste this token into ChatGPT or GitHub public files.
+a scoped private-repository Contents read/write token. Press **Save dispatch
+ID** and **Save token** independently. The ID persists in extension-local
+storage; the token stays only in Chrome session storage and its last four
+characters confirm that it was saved. Advanced settings reopen in their previous
+expanded/collapsed state. Once both inputs show saved, press **Launch one child**
+exactly once. Do not paste this token into ChatGPT or GitHub public files. A Chrome or extension restart clears the token, so re-enter it after a restart.
 
 Before a browser effect, the worker requires a managed GitHub-backed parent,
 no unresolved legacy parent campaign, an indexed SHA-pinned private dispatch,
