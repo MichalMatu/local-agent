@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -88,6 +90,69 @@ class BrowserSourceExclusionTests(unittest.TestCase):
 
         with mock.patch.object(guard, "_read_text", side_effect=injected):
             with self.assertRaisesRegex(ValueError, "Nested browser import graph"):
+                guard.audit_browser_source_exclusion(REPO_ROOT)
+
+
+    def test_manifest_permission_scope_and_injection_mutations_fail_closed(self):
+        original = json.loads(
+            (REPO_ROOT / "chat_bridge" / "manifest.json").read_text(encoding="utf-8")
+        )
+
+        def add_script(manifest):
+            manifest["content_scripts"][0]["js"].append("unreviewed.js")
+
+        def widen_match(manifest):
+            manifest["content_scripts"][0]["matches"].append("https://example.com/*")
+
+        def change_world(manifest):
+            manifest["content_scripts"][0]["world"] = "MAIN"
+
+        def add_content_entry(manifest):
+            manifest["content_scripts"].append(copy.deepcopy(manifest["content_scripts"][0]))
+
+        changes = (
+            ("debugger_permission", lambda m: m["permissions"].append("debugger")),
+            ("widen_host", lambda m: m["host_permissions"].append("https://*/*")),
+            ("widen_match", widen_match),
+            ("new_script", add_script),
+            ("new_content_entry", add_content_entry),
+            ("main_world_injection", change_world),
+            ("remote_access", lambda m: m.update({
+                "externally_connectable": {"matches": ["https://example.com/*"]}
+            })),
+            ("optional_permissions", lambda m: m.update({
+                "optional_permissions": ["debugger"]
+            })),
+            ("web_accessible_resources", lambda m: m.update({
+                "web_accessible_resources": [{
+                    "resources": ["unreviewed.js"], "matches": ["https://*/*"]
+                }]
+            })),
+            ("background_type", lambda m: m["background"].update({"type": "module"})),
+        )
+        for name, change in changes:
+            altered = copy.deepcopy(original)
+            change(altered)
+            with self.subTest(name=name):
+                with mock.patch.object(guard.json, "loads", return_value=altered):
+                    with self.assertRaisesRegex(ValueError, "manifest capability surface"):
+                        guard.audit_browser_source_exclusion(REPO_ROOT)
+
+    def test_manifest_duplicate_json_keys_are_rejected(self):
+        original_read_text = Path.read_text
+
+        def duplicated(path, *args, **kwargs):
+            source = original_read_text(path, *args, **kwargs)
+            if path.name == "manifest.json":
+                return source.replace(
+                    '"manifest_version": 3,',
+                    '"manifest_version": 3, "manifest_version": 3,',
+                    1,
+                )
+            return source
+
+        with mock.patch.object(Path, "read_text", new=duplicated):
+            with self.assertRaisesRegex(ValueError, "duplicate JSON keys"):
                 guard.audit_browser_source_exclusion(REPO_ROOT)
 
 
