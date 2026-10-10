@@ -166,7 +166,11 @@ class PublicAgentControlRESTTests(unittest.TestCase):
         self.opener.response = FakeResponse()
         with self.assertRaisesRegex(ValueError, "exceeds budget"):
             self.invoke()
-        self.assertEqual(self.api._received_bytes, reader._MAX_SESSION_BYTES - 8)
+        self.assertEqual(self.api._received_bytes, reader._MAX_SESSION_BYTES + 1)
+        requests_before = len(self.opener.calls)
+        with self.assertRaisesRegex(ValueError, "session budget"):
+            self.invoke()
+        self.assertEqual(len(self.opener.calls), requests_before)
 
     def test_failed_get_attempt_consumes_request_budget_without_secret_echo(self):
         self.opener.error = URLError("PRIVATE_BEARER")
@@ -246,13 +250,11 @@ class PublicAgentControlRESTTests(unittest.TestCase):
         # still consume the shared session budget, not just the request limit.
         body = b"x" * (reader._MAX_RESPONSE_BYTES + 1)
         self.opener.response = FakeResponse(body)
-        for _ in range(16):
-            with self.assertRaisesRegex(ValueError, "oversized"):
+        for attempt in range(16):
+            message = "oversized" if attempt < 15 else "exceeds budget"
+            with self.assertRaisesRegex(ValueError, message):
                 self.invoke()
-        self.assertEqual(
-            self.api._received_bytes,
-            16 * (reader._MAX_RESPONSE_BYTES + 1),
-        )
+        self.assertEqual(self.api._received_bytes, reader._MAX_SESSION_BYTES + 1)
         requests_before = len(self.opener.calls)
         with self.assertRaisesRegex(ValueError, "session budget"):
             self.invoke()
