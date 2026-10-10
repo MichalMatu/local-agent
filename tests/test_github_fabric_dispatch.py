@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import re
 import unittest
 
 from local_agent.conversation import contract, github_fabric_dispatch, operator_contract
@@ -122,6 +124,35 @@ class GithubFabricDispatchTests(unittest.TestCase):
                 for child in first["children"]
             )
         )
+
+    def test_private_bootstrap_has_exact_terminal_proof_and_matching_sha256(self) -> None:
+        dispatch = github_fabric_dispatch.build_github_fabric_dispatch(
+            operator_request(), admitted_children()
+        )
+        pattern = re.compile(
+            r"^LOCAL_AGENT_CF_CHILD_COMPLETE:([0-9a-f]{8}):"
+            r"([A-Za-z0-9._-]{1,64}):([0-9a-f]{8})$", re.MULTILINE
+        )
+        for child in dispatch["children"]:
+            message = child["spawn"]["bootstrap_text"]
+            matches = list(pattern.finditer(message))
+            self.assertEqual(len(matches), 1)
+            fingerprint, child_id, checksum = matches[0].groups()
+            self.assertEqual(child_id, child["id"])
+            self.assertEqual(fingerprint, child["spawn"]["child_request_digest"][7:15])
+            self.assertEqual(
+                child["spawn"]["bootstrap_digest"],
+                "sha256:" + hashlib.sha256(message.encode("utf-8")).hexdigest(),
+            )
+            self.assertIn(
+                "final non-whitespace line of your answer", message
+            )
+            expected_checksum = 0x811C9DC5
+            for character in fingerprint + "\n" + child_id:
+                expected_checksum = (
+                    (expected_checksum ^ ord(character)) * 0x01000193
+                ) & 0xFFFFFFFF
+            self.assertEqual(checksum, f"{expected_checksum:08x}")
 
     def test_dispatch_has_no_browser_runtime_identity_or_top_level_execution_authority(self) -> None:
         dispatch = github_fabric_dispatch.build_github_fabric_dispatch(
