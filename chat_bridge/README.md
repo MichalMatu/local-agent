@@ -6,7 +6,7 @@ Chrome Manifest V3 extension for managed ChatGPT conversation transport, GitHub-
 
 ```text
 Local Agent release line: 4.20.6
-Chat Bridge:             0.8.14
+Chat Bridge:             0.8.15
 content protocol:        26
 assistant guard:         8
 runtime schema:          3 + optional conversation_controls / operator_status_url
@@ -24,6 +24,18 @@ Canonical current behavior is defined by source plus:
 - `docs/CHATGPT_DOM_CONTRACT.md`.
 
 Historical handoffs/release notes are evidence only.
+
+## GitHub-first MVP (operator-armed)
+
+Version 0.8.15 adds a one-child, default-disabled private GitHub-first
+workflow, independent of the legacy DOM campaign transport. It stages real
+ChildRequests into a private repository through the trusted Local Agent and
+uses the existing browser driver to perform an explicitly authorized trial.
+The parent reads private ACK/result directly from GitHub, not DOM feedback.
+See [GitHub-first MVP trial](../docs/conversation_fabric/GITHUB_FIRST_MVP_TRIAL.md).
+
+**Not live-accepted yet:** do not treat code/Chromium tests as proof of
+production Chrome E2E. Extension activation/reload requires user approval.
 
 ## Architecture
 
@@ -72,7 +84,10 @@ INTERVAL
 
 Every schedule mutation increments `control_generation`. Status is a read. The global Bridge Master switch is independent local operator state and is never changed by per-conversation desired state.
 
-The extension polls remote state with a dedicated one-minute MV3 alarm. Worker activation ensures that alarm exists, including after extension/service-worker reload. The extension contains no GitHub token and does not write GitHub desired state.
+The extension polls remote state with a dedicated one-minute MV3 alarm. Worker activation ensures that alarm exists, including after extension/service-worker reload. The default scheduler contains no GitHub token and does not write GitHub desired state.
+The separately operator-armed private GitHub-first trial accepts a narrowly scoped
+token in extension-session storage, never in page content or public desired state.
+Its private claim/ACK/result records are not scheduling controls.
 
 See `docs/GITHUB_BRIDGE_CONTROL.md`.
 
