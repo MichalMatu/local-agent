@@ -64,6 +64,14 @@ class PublicAgentControlReadOnlyREST:
         with self._budget_lock:
             return self._bounded_get(path)
 
+    def _request_headers(self) -> dict[str, str]:
+        """Return anonymous headers; authenticated readers override explicitly."""
+        return {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "local-agent-no-bridge-readonly",
+        }
+
     def _bounded_get(self, path: str) -> dict[str, Any]:
         now = time.monotonic()
         if self._started_at is None:
@@ -85,11 +93,7 @@ class PublicAgentControlReadOnlyREST:
         # expose raw responses to a caller-facing CLI; reconcile and redact.
         request = Request(
             _API_ROOT + path,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "local-agent-no-bridge-readonly",
-            },
+            headers=self._request_headers(),
             method="GET",
         )
         opener = build_opener(_NoRedirect())
