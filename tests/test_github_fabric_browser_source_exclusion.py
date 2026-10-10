@@ -83,7 +83,7 @@ class BrowserSourceExclusionTests(unittest.TestCase):
         def injected(directory, name):
             content = original(directory, name)
             if name == "worker_events.js":
-                return content + '\\nimportScripts("unexpected.js");\\n'
+                return content + '\nimportScripts("unexpected.js");\n'
             return content
 
         with mock.patch.object(guard, "_read_text", side_effect=injected):
