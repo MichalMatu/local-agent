@@ -98,8 +98,10 @@ def audit_browser_source_exclusion(repo_root: Path) -> BrowserSourceExclusionAud
         type(name) is not str or _NAME.fullmatch(name) is None for name in names
     ):
         raise ValueError("Browser production script graph exceeds bound")
-    if len(names) != len(set(names)):
-        raise ValueError("Browser production script identity duplicated")
+    # A shared source may legitimately load once in each execution realm.
+    # Duplicate imports *within* one realm remain ambiguous and denied.
+    if len(content_names) != len(set(content_names)):
+        raise ValueError("Browser content script identity duplicated")
     sources = {name: _read_text(root, name) for name in names}
     for name, source in sources.items():
         _script_safety(name, source)
