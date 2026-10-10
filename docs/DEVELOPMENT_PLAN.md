@@ -18,10 +18,10 @@ This roadmap contains only active forward work. Historical rollout detail belong
 - durable campaign/result recovery in `chrome.storage.local`;
 - terminal Conversation Fabric feedback at-most-once across worker restart;
 - stale cross-campaign terminal replay prevention;
-- Chat Bridge 0.8.13 live single-child (1/1) and three-child parallel (3/3) acceptance in the operator's Chrome;
+- Historical Chat Bridge 0.8.13 live single-child (1/1) and three-child parallel (3/3) acceptance in the operator's Chrome; current repository source is 0.8.14 and must be verified against the actual installed extension before new live acceptance;
 - supported `agentd.py` launcher fails closed when the machine repository registry is absent.
 
-The isolated child-browser/profile path is historical test/development tooling only. It is not the production Conversation Fabric architecture. Normal-Chrome **reload during an active campaign** still requires separate operator acceptance; Chromium CI coverage alone is not that live proof. See `docs/conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md`.
+Current first-test gates are in [Conversation Fabric E2E readiness (2026-10-10)](conversation_fabric/E2E_READINESS_2026-10-10.md). The isolated child-browser/profile path is historical test/development tooling only. It is not the production Conversation Fabric architecture. Normal-Chrome **reload during an active campaign** still requires separate operator acceptance; Chromium CI coverage alone is not that live proof. See `docs/conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md`.
 
 ## Milestone 1 — complete restart/reload E2E acceptance
 
