@@ -93,6 +93,21 @@
             <label class="field-label" for="fallbackBootstrapPrompt">One-time bootstrap prompt</label>
             <textarea id="fallbackBootstrapPrompt" rows="5" maxlength="8000"></textarea>
 
+            <div class="private-fabric-trial">
+              <p class="field-label"><strong>Private GitHub-first trial (one child)</strong></p>
+              <label class="field-label" for="privateDispatchId">Private dispatch ID</label>
+              <input id="privateDispatchId" type="text" autocomplete="off" spellcheck="false"
+                placeholder="fabric-…" maxlength="39" />
+              <label class="field-label" for="privateGitHubToken">Scoped private-repository token</label>
+              <input id="privateGitHubToken" type="password" autocomplete="off" spellcheck="false"
+                placeholder="Read/write Contents permission" />
+              <p>Explicit launch only. No token is sent to the ChatGPT page or public GitHub.</p>
+              <button id="privateFabricStart" class="secondary-button" type="button">Launch one child</button>
+              <button id="privateFabricStatus" class="secondary-button" type="button">Check trial</button>
+              <button id="privateFabricRetire" class="secondary-button" type="button">Rollback completed trial</button>
+              <p id="privateFabricState" role="status" aria-live="polite">Not started</p>
+            </div>
+
             <div class="settings-footer">
               <button id="saveGlobal" class="secondary-button" type="button">Save settings</button>
               <div class="runtime-status">
