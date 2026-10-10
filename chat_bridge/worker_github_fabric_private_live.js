@@ -8,6 +8,9 @@ const privateFabricReader = globalThis.LocalAgentPrivateFabricTransport;
 const privateFabricReceipts = globalThis.LocalAgentPrivateFabricReceipts;
 const PRIVATE_FABRIC_RECORD_KEY = "privateFabricLiveTrialV1";
 const PRIVATE_FABRIC_TOKEN_KEY = "privateFabricLiveTokenV1";
+const PRIVATE_FABRIC_DRAFT_DISPATCH_KEY = "privateFabricDraftDispatchIdV1";
+const PRIVATE_FABRIC_DISPATCH_RE = /^fabric-[0-9a-f]{32}$/;
+const PRIVATE_FABRIC_TOKEN_RE = /^[A-Za-z0-9_-]{12,256}$/;
 let privateFabricQueue = Promise.resolve();
 
 function serializePrivateFabric(operation) {
@@ -31,6 +34,56 @@ async function privateFabricToken() {
   const data = await chrome.storage.session.get(PRIVATE_FABRIC_TOKEN_KEY);
   return typeof data[PRIVATE_FABRIC_TOKEN_KEY] === "string"
     ? data[PRIVATE_FABRIC_TOKEN_KEY] : "";
+}
+
+async function privateFabricDraftStatus() {
+  const [draft, token, trial] = await Promise.all([
+    chrome.storage.local.get(PRIVATE_FABRIC_DRAFT_DISPATCH_KEY),
+    privateFabricToken(),
+    readPrivateFabricTrial()
+  ]);
+  return {
+    ok: true,
+    dispatchId: String(draft[PRIVATE_FABRIC_DRAFT_DISPATCH_KEY] || ""),
+    tokenSaved: PRIVATE_FABRIC_TOKEN_RE.test(token),
+    tokenLastFour: PRIVATE_FABRIC_TOKEN_RE.test(token) ? token.slice(-4) : "",
+    trialPhase: trial?.phase || "disabled"
+  };
+}
+
+async function operatorSavePrivateFabricDispatch(message) {
+  const dispatchId = String(message?.dispatchId || "").trim();
+  if (!PRIVATE_FABRIC_DISPATCH_RE.test(dispatchId)) {
+    return { ok: false, reason: "invalid_private_dispatch_id" };
+  }
+  return serializePrivateFabric(async () => {
+    const trial = await readPrivateFabricTrial();
+    if (trial && trial.phase !== "retired" && trial.dispatch_id !== dispatchId) {
+      return { ok: false, reason: "active_private_trial_dispatch_locked" };
+    }
+    await chrome.storage.local.set({ [PRIVATE_FABRIC_DRAFT_DISPATCH_KEY]: dispatchId });
+    return privateFabricDraftStatus();
+  });
+}
+
+async function operatorSavePrivateFabricToken(message) {
+  const token = String(message?.writeToken || "").trim();
+  if (!PRIVATE_FABRIC_TOKEN_RE.test(token)) {
+    return { ok: false, reason: "invalid_private_repository_token" };
+  }
+  // The credential survives popup closure and MV3 worker suspension, not
+  // browser shutdown or extension reload. Never copy it into local storage.
+  await chrome.storage.session.set({ [PRIVATE_FABRIC_TOKEN_KEY]: token });
+  return privateFabricDraftStatus();
+}
+
+async function operatorForgetPrivateFabricToken() {
+  const trial = await readPrivateFabricTrial();
+  if (trial && !["completed", "retired", "blocked", "claim_ambiguous"].includes(trial.phase)) {
+    return { ok: false, reason: "active_private_trial_token_needed" };
+  }
+  await chrome.storage.session.remove(PRIVATE_FABRIC_TOKEN_KEY);
+  return privateFabricDraftStatus();
 }
 
 async function privateFabricManagedParent(parentUrl) {
@@ -200,13 +253,16 @@ async function privateFabricAdvance(record, token) {
 
 async function operatorStartPrivateFabricTrial(message) {
   // Only worker_events.js exposes this method to the verified extension popup.
-  const dispatchId = String(message?.dispatchId || "");
-  const token = String(message?.writeToken || "");
-  if (!/^fabric-[0-9a-f]{32}$/.test(dispatchId) ||
-      !/^[A-Za-z0-9_-]{12,256}$/.test(token)) {
-    return { ok: false, reason: "invalid_private_dispatch_launch" };
-  }
+  const rawId = String(message?.dispatchId || "").trim();
+  const rawToken = String(message?.writeToken || "").trim();
   return serializePrivateFabric(async () => {
+    const stored = await chrome.storage.local.get(PRIVATE_FABRIC_DRAFT_DISPATCH_KEY);
+    const dispatchId = rawId || String(stored[PRIVATE_FABRIC_DRAFT_DISPATCH_KEY] || "");
+    const token = rawToken || await privateFabricToken();
+    if (!PRIVATE_FABRIC_DISPATCH_RE.test(dispatchId) ||
+        !PRIVATE_FABRIC_TOKEN_RE.test(token)) {
+      return { ok: false, reason: "invalid_private_dispatch_launch" };
+    }
     const prior = await readPrivateFabricTrial();
     if (prior && prior.phase !== "retired" && prior.dispatch_id !== dispatchId) {
       return { ok: false, reason: "another_private_trial_requires_reconciliation",
