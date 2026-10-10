@@ -2,7 +2,11 @@
 
 ## Status
 
-This is the canonical scheduling/control contract for Chat Bridge `0.8.14`. GitHub desired state owns managed-chat pacing; Chat Bridge owns browser transport and browser-native Conversation Fabric; repository execution authorization remains exclusively at executable `.agent/tasks` after canonical runtime-catalog admission.
+This is the canonical scheduling/control contract for the Bridge `0.8.14`
+production `main` baseline; the private GitHub-first candidate extends it
+through `0.8.18` on draft PR #274, with one real Chrome child E2E accepted.
+Private child transport/receipts are documented separately in
+[GitHub-first MVP trial](conversation_fabric/GITHUB_FIRST_MVP_TRIAL.md). GitHub desired state owns managed-chat pacing; Chat Bridge owns browser transport and browser-native Conversation Fabric; repository execution authorization remains exclusively at executable `.agent/tasks` after canonical runtime-catalog admission.
 
 Normal `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL` operations for a managed conversation are not transported by assistant scheduling text. GitHub desired state in `chat_bridge/runtime.json` on `chat-bridge-state` is authoritative.
 

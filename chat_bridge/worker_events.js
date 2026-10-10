@@ -35,6 +35,12 @@ async function handleGithubControlAlarm() {
   } catch (error) {
     console.error("GitHub Fabric read-only intake:", error);
   }
+  // A private trial uses the same alarm, never a second scheduler.
+  try {
+    await pollPrivateFabricTrial();
+  } catch (_error) {
+    console.warn("Private Fabric trial requires explicit operator reconciliation");
+  }
   // The existing minute alarm can advance one watched task's ordinary wake.
   // No new Chrome scheduler or direct Send path is introduced.
   try {
@@ -97,6 +103,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender?.id !== chrome.runtime.id || sender?.url !== chrome.runtime.getURL("popup.html")) {
     sendResponse({ ok: false, reason: "operator_ui_required" });
     return false;
+  }
+
+  if (message.type === "bridge:private-github-first-draft-status") {
+    privateFabricDraftStatus().then(sendResponse).catch(() => sendResponse({ ok: false, reason: "private_draft_command_failed" }));
+    return true;
+  }
+  if (message.type === "bridge:private-github-first-save-dispatch") {
+    operatorSavePrivateFabricDispatch(message).then(sendResponse).catch(() => sendResponse({ ok: false, reason: "private_draft_command_failed" }));
+    return true;
+  }
+  if (message.type === "bridge:private-github-first-save-token") {
+    operatorSavePrivateFabricToken(message).then(sendResponse).catch(() => sendResponse({ ok: false, reason: "private_draft_command_failed" }));
+    return true;
+  }
+  if (message.type === "bridge:private-github-first-forget-token") {
+    operatorForgetPrivateFabricToken().then(sendResponse).catch(() => sendResponse({ ok: false, reason: "private_draft_command_failed" }));
+    return true;
+  }
+  if (message.type === "bridge:private-github-first-start") {
+    operatorStartPrivateFabricTrial(message)
+      .then(sendResponse)
+      .catch((_error) => sendResponse({ ok: false, reason: "private_trial_launch_failed" }));
+    return true;
+  }
+  if (message.type === "bridge:private-github-first-status") {
+    statusPrivateFabricTrial().then(sendResponse)
+      .catch((_error) => sendResponse({ ok: false, reason: "private_trial_status_failed" }));
+    return true;
+  }
+  if (message.type === "bridge:private-github-first-abandon") {
+    operatorAbandonPrivateFabricTrial().then(sendResponse)
+      .catch(() => sendResponse({ ok: false, reason: "private_trial_abandon_failed" }));
+    return true;
+  }
+  if (message.type === "bridge:private-github-first-retire") {
+    retirePrivateFabricTrial().then(sendResponse)
+      .catch((_error) => sendResponse({ ok: false, reason: "private_trial_retire_failed" }));
+    return true;
   }
 
   if (message.type === "bridge:get-state") {

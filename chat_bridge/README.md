@@ -6,7 +6,7 @@ Chrome Manifest V3 extension for managed ChatGPT conversation transport, GitHub-
 
 ```text
 Local Agent release line: 4.20.6
-Chat Bridge:             0.8.14
+Chat Bridge:             0.8.18
 content protocol:        26
 assistant guard:         8
 runtime schema:          3 + optional conversation_controls / operator_status_url
@@ -24,6 +24,36 @@ Canonical current behavior is defined by source plus:
 - `docs/CHATGPT_DOM_CONTRACT.md`.
 
 Historical handoffs/release notes are evidence only.
+
+## Private GitHub-first MVP — first real E2E accepted
+
+Bridge 0.8.18 provides an **operator-armed single-child** private
+GitHub-first flow in the authenticated Chrome profile, independent of the
+legacy DOM campaign driver. The trusted Mac Local Agent publishes a pinned
+private dispatch; the extension holds the scoped token in
+`chrome.storage.session`, creates one unique private claim, uses the normal
+Chrome UI Send driver and writes private browser ACK/result records.
+
+The **second** supervised private trial on 2026-10-10 PASSED end to end:
+dispatch `fabric-a8a79801818a745c63c9e3674597522e`, child
+`fabric-live-verify-02`, browser conversation
+`https://chatgpt.com/c/6aca5422-3a90-83ed-b2e1-3baaf114533f`,
+result `FABRIC_PRIVATE_E2E_V2_OK | value=42 | role=verification`.
+Private claim, ACK, result and exact transaction/URL identity were checked
+independently. The first trial remains claim-only/unresolved and may not be
+replayed. See [current handoff](../docs/conversation_fabric/GITHUB_FIRST_CURRENT_HANDOFF.md)
+and [live trial contract](../docs/conversation_fabric/GITHUB_FIRST_MVP_TRIAL.md).
+
+UI evolution: 0.8.16 introduced independently saved dispatch ID/session token,
+masked token suffix and remembered Advanced settings; 0.8.17 introduced
+readiness-only retries before arming unknown Send; 0.8.18 added supervised
+failed-trial abandonment without replay. A later popup source fix disables
+Abandon outside `submission_unknown`; it may require a separate approved
+extension reload to become active in Chrome.
+
+**Not yet accepted:** private multi-child aggregation, real MV3/cold restart
+recovery and global cross-device/legacy-driver parent exclusion. Keep PR #274
+draft; do not infer production-wide rollout from the one-child proof.
 
 ## Architecture
 
@@ -72,7 +102,10 @@ INTERVAL
 
 Every schedule mutation increments `control_generation`. Status is a read. The global Bridge Master switch is independent local operator state and is never changed by per-conversation desired state.
 
-The extension polls remote state with a dedicated one-minute MV3 alarm. Worker activation ensures that alarm exists, including after extension/service-worker reload. The extension contains no GitHub token and does not write GitHub desired state.
+The extension polls remote state with a dedicated one-minute MV3 alarm. Worker activation ensures that alarm exists, including after extension/service-worker reload. The default scheduler contains no GitHub token and does not write GitHub desired state.
+The separately operator-armed private GitHub-first trial accepts a narrowly scoped
+token in extension-session storage, never in page content or public desired state.
+Its private claim/ACK/result records are not scheduling controls.
 
 See `docs/GITHUB_BRIDGE_CONTROL.md`.
 
@@ -224,3 +257,19 @@ node scripts/conversation_fabric_browser_smoke.cjs
 Runtime-changing releases require full exact-head CI, macOS smoke and bounded real-browser/live acceptance for changed lifecycle semantics.
 
 `conversation_live_slice_browser.cjs` and isolated-profile tooling are legacy development/test evidence, not the production Superchat delegation backend.
+
+### GitHub-first fresh-composer preflight (0.8.18)
+
+The worker checks the already-claimed child tab for a ready fresh ChatGPT
+composer before persisting an unknown-Send fence. When loading is incomplete it
+stays in `tab_ready` and retries readiness only, without any Send. Once armed,
+ambiguous Send remains reconciliation-only; no second Send is performed.
+
+### Explicit failed-trial abandonment (0.8.18)
+
+Operator may permanently abandon an unresolved `submission_unknown` trial
+without trying to reconcile or resend it. The old dispatch ID is persisted in
+an exclusion list; its GitHub claim is never deleted or treated as a confirmed
+failure/success. A new admitted private dispatch can then be launched exactly
+once, using the fresh-composer preflight introduced in 0.8.17. This is a
+supervised test escape hatch, not automatic recovery.

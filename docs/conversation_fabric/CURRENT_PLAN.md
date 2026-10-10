@@ -1,5 +1,12 @@
 # Conversation Fabric — active legacy DOM/Chrome contract and acceptance
 
+> **Legacy DOM path only.** The private GitHub-first **single-child** E2E
+> independently passed on 2026-10-10 (Bridge 0.8.18); private multi-child
+> remains pending. For the current private track use
+> [GitHub-first current handoff](GITHUB_FIRST_CURRENT_HANDOFF.md).
+> Versions and private-MVP status elsewhere below are historical to the
+> earlier legacy DOM checkpoint.
+
 
 **Scope:** This is the existing browser/DOM `LOCAL_AGENT_CF` production
 delegation path, not the future private GitHub-first child-execution path.
