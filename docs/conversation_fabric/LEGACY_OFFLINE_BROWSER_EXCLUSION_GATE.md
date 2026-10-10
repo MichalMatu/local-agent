@@ -85,7 +85,12 @@ exclusion.
 
 `local_agent/conversation/github_fabric_browser_source_exclusion.py`
 statically enumerates the checked-in service-worker `importScripts` graph
-and manifest-injected scripts with bounded inputs. It fails if the startup
+and manifest-injected scripts with bounded inputs. It also requires the
+reviewed manifest's exact declared capabilities: permissions, host permissions,
+background worker, injected content-script order/matches/world defaults and
+absence of unreviewed optional permissions, externally connectable endpoints
+or web-accessible resources. Duplicate manifest JSON fields are rejected.
+Intentional manifest changes must receive new source review and tests. It fails if the startup
 graph becomes dynamic, duplicate or unreviewed, or if a loaded script
 references `github_fabric_private_*` or adds another code loader. It checks
 that the currently observed old DOM effects still exist and that public
