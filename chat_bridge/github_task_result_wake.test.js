@@ -82,6 +82,14 @@ function makeHarness(storage = {}) {
   assert.throws(() => model.sanitizeConversationControl({ ...control, task_result_watch: { ...watch, task_id: "../bad" } }), /task_id is invalid/);
   assert.equal(model.sanitizeConversationControl({ ...control, enabled: false, next_wake_at: null }).enabled, false);
   assert.throws(() => model.validateConversationControls([control], []), /enabled configured repository/);
+  assert.throws(() => model.validateConversationControls(
+    Array.from({ length: 5 }, (_, index) => ({
+      ...control,
+      conversation_id: `chat-${String(index + 1).padStart(8, "0")}`
+    })),
+    [{ repositoryId: "local-agent", repository: localAgent.repository, executionEnabled: true }]
+  ), /four concurrent watches/);
+
   assert.throws(() => model.validateConversationControls([control], [{ ...localAgent, repositoryId: "local-agent", executionEnabled: false }]), /enabled configured repository/);
 
   const fixture = makeHarness();
