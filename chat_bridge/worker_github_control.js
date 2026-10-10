@@ -15,6 +15,8 @@ function githubControlSignature(control) {
     control.enabled,
     control.intervalMinutes,
     control.nextWakeAt,
+    control.taskResultWatch?.repositoryId || null,
+    control.taskResultWatch?.taskId || null,
     control.updatedAt
   ]);
 }
