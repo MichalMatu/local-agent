@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-send-effect-final-head-20261010-v1",
+  "task_digest": "eec5ca3ad15f2753dc3b6fc80ca7a6f5af23030e90e3c3b12e82077494941388",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T19:14:42.344022+00:00",
+  "attempt_id": "fd37f55e9cbefd431e562f2c",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 96441,
+  "updated_at": "2026-10-10T19:14:42.557285+00:00",
+  "pid": 96441
+}

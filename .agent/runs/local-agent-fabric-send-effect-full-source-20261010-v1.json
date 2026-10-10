@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-send-effect-full-source-20261010-v1",
+  "task_digest": "9834f885c496c47ff2b241f449c7a9de62e1c0975fa9b8ddd633475f8524dba2",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T19:13:52.153865+00:00",
+  "attempt_id": "397e5578a6e4c399dacab866",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 93285,
+  "updated_at": "2026-10-10T19:13:52.373211+00:00",
+  "pid": 93285
+}

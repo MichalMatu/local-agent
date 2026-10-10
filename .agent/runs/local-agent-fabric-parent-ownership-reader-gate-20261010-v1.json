@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-parent-ownership-reader-gate-20261010-v1",
+  "task_digest": "47d15fea8c352f7441b1108bf8c458367ef96df4bc9fa37ddb738e19364df7e9",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T18:54:05.232620+00:00",
+  "attempt_id": "0184c474ad3e264b455738b2",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 66311,
+  "updated_at": "2026-10-10T18:54:05.448529+00:00",
+  "pid": 66311
+}

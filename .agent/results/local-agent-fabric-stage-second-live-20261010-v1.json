@@ -1,0 +1,60 @@
+{
+  "allow_write": false,
+  "attempt_id": "87d8417470a90c4f933f6ce2",
+  "command_timeout": 450,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 206,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"a625f7db92aba9a83eef9024f2d4dc76c8fe7c20\" || exit 3\nLOCAL_AGENT_GITHUB_FABRIC_WRITE_TOKEN=\"$(gh auth token)\" python3 -m local_agent.conversation.github_fabric_private_live --request-id operator-request-live-fabric-20261010-02 --stage-private\necho PRIVATE_SECOND_DISPATCH_STAGING_DONE",
+      "current_rss_mb": 28.56,
+      "elapsed_seconds": 12.147,
+      "exit_code": 0,
+      "idle_timed_out": false,
+      "memory_limit_mb": 1000,
+      "memory_limited": false,
+      "output": "{\"completed_commits\": 1, \"dispatch_id\": \"fabric-a8a79801818a745c63c9e3674597522e\", \"source_head_sha\": \"da20fd5f2f32d78ac9dfac15bb97f34ef778009a\", \"status\": \"converged\"}\nPRIVATE_SECOND_DISPATCH_STAGING_DONE\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 32.41,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "finished_at": "2026-10-10T15:01:50.622519+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.085,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.108,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-stage-second-live-20261010-v1",
+  "idle_timeout": 170,
+  "memory_limit_mb": 1000,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 12.147,
+      "outcome": "passed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T15:01:36.582488+00:00",
+  "status": "done",
+  "task_digest": "53b5c821c72246d4ab8cc9a94bbfd5f9d424daa775ade737f05125342eaea695",
+  "task_timeout": 650,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

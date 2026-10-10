@@ -1,0 +1,60 @@
+{
+  "allow_write": false,
+  "attempt_id": "0184c474ad3e264b455738b2",
+  "command_timeout": 490,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 325,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"97eac9e2522f1ed58c8a62585d6a5c7cf7f3cd36\" || exit 3\nnode --check chat_bridge/github_fabric_private_parent_ownership_reader.js\nnode --check chat_bridge/github_fabric_private_parent_ownership_reader.test.js\nnode chat_bridge/github_fabric_private_parent_ownership_reader.test.js\nnode chat_bridge/github_fabric_private_parent_fence_reader.test.js\nnode chat_bridge/github_fabric_private_batch_journal.test.js\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_PARENT_OWNERSHIP_READER_PASS",
+      "current_rss_mb": 8.64,
+      "elapsed_seconds": 0.978,
+      "exit_code": 0,
+      "idle_timed_out": false,
+      "memory_limit_mb": 1350,
+      "memory_limited": false,
+      "output": "Private parent ownership pinned read-only candidate tests passed.\nDefault-disabled private parent fence pinned read tests passed.\nPrivate Fabric candidate batch journal v2 crash/restart/no-replay tests passed.\n\n==> Ruff\n$ /Users/michal/.platformio/penv/bin/ruff check .\nAll checks passed!\nFABRIC_PARENT_OWNERSHIP_READER_PASS\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 8.64,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "finished_at": "2026-10-10T18:54:05.232620+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.078,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.083,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-parent-ownership-reader-gate-20261010-v1",
+  "idle_timeout": 170,
+  "memory_limit_mb": 1350,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 0.978,
+      "outcome": "passed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T18:54:02.392439+00:00",
+  "status": "done",
+  "task_digest": "47d15fea8c352f7441b1108bf8c458367ef96df4bc9fa37ddb738e19364df7e9",
+  "task_timeout": 650,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

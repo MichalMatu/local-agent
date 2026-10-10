@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-composer-0817-final-gates-20261010-v1",
+  "task_digest": "31113d30e9c2e0c388b4fdf9c29863377f505ff7d5c1fe151dc2b532dba3be1e",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T14:42:44.399631+00:00",
+  "attempt_id": "43055845b74f620212de5dbb",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 29786,
+  "updated_at": "2026-10-10T14:42:44.764469+00:00",
+  "pid": 29786
+}

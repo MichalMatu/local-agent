@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-parent-ownership-reader-full-20261010-v1",
+  "task_digest": "1d6ed2b8ffcd3f362c09946400cf961cd4c5dfa684b2847957a2ec3c5e4168d0",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T18:55:39.469110+00:00",
+  "attempt_id": "1052fd20ce13affd24204a24",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 67923,
+  "updated_at": "2026-10-10T18:55:39.852701+00:00",
+  "pid": 67923
+}

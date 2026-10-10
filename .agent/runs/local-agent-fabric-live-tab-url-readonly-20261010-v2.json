@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-live-tab-url-readonly-20261010-v2",
+  "task_digest": "8bad92eadbd5de7076e32c534ce2b9ab2a68bb288c66a11473d7ba74105b9b33",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T14:36:01.290313+00:00",
+  "attempt_id": "b6902a42ff15347233a4b380",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 20414,
+  "updated_at": "2026-10-10T14:36:01.569229+00:00",
+  "pid": 20414
+}

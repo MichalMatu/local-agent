@@ -1,0 +1,60 @@
+{
+  "allow_write": false,
+  "attempt_id": "255eeeba3ea7bb164cb72ab1",
+  "command_timeout": 490,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 2369,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"ee9f00b2a5ac56fa1760fee772f836c7db00dd42\" || exit 3\npython3 -m unittest discover -s tests -p 'test_github_fabric_parent_ownership.py' -v\npython3 -m unittest discover -s tests -p 'test_github_fabric_receipt_aggregation.py' -v\nnode chat_bridge/github_fabric_private_batch_journal.test.js\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_PARENT_OWNERSHIP_POLICY_PASS",
+      "current_rss_mb": 19.91,
+      "elapsed_seconds": 10.023,
+      "exit_code": 0,
+      "idle_timed_out": false,
+      "memory_limit_mb": 1400,
+      "memory_limited": false,
+      "output": "test_claim_only_or_partial_never_releases_parent (test_github_fabric_parent_ownership.ParentOwnershipPolicyTests.test_claim_only_or_partial_never_releases_parent) ... ok\ntest_full_private_summary_allows_proposed_epoch_increment_only (test_github_fabric_parent_ownership.ParentOwnershipPolicyTests.test_full_private_summary_allows_proposed_epoch_increment_only) ... ok\ntest_missing_invalid_or_forged_completion_fails_closed (test_github_fabric_parent_ownership.ParentOwnershipPolicyTests.test_missing_invalid_or_forged_completion_fails_closed) ... ok\ntest_one_parent_one_controller_and_no_implicit_takeover (test_github_fabric_parent_ownership.ParentOwnershipPolicyTests.test_one_parent_one_controller_and_no_implicit_takeover) ... ok\n\n----------------------------------------------------------------------\nRan 4 tests in 0.266s\n\nOK\ntest_cross_child_chat_reuse_fails_both (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_cross_child_chat_reuse_fails_both) ... ok\ntest_empty_and_claim_only_are_not_assumed_unsent (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_empty_and_claim_only_are_not_assumed_unsent) ... ok\ntest_independent_out_of_order_child_evidence (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_independent_out_of_order_child_evidence) ... ok\ntest_orphan_ack_and_result_fail_closed (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_orphan_ack_and_result_fail_closed) ... ok\ntest_partial_failure_does_not_invalidate_other_child (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_partial_failure_does_not_invalidate_other_child) ... ok\ntest_unknown_child_and_duplicate_request_identity_rejected (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_unknown_child_and_duplicate_request_identity_rejected) ... ok\ntest_wrong_transaction_digest_owner_and_extra_keys (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_wrong_transaction_digest_owner_and_extra_keys) ... ok\n\n----------------------------------------------------------------------\nRan 7 tests in 0.023s\n\nOK\nPrivate Fabric candidate batch journal v2 crash/restart/no-replay tests passed.\n\n==> Ruff\n$ /Users/michal/.platformio/penv/bin/ruff check .\nAll checks passed!\nFABRIC_PARENT_OWNERSHIP_POLICY_PASS\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 44.52,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "finished_at": "2026-10-10T18:11:42.088533+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.203,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 1.454,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-parent-ownership-policy-gate-20261010-v1",
+  "idle_timeout": 170,
+  "memory_limit_mb": 1400,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 10.023,
+      "outcome": "passed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T18:11:22.028670+00:00",
+  "status": "done",
+  "task_digest": "57deaa9755307c9af7733ed73327a911e4d81d75bb7b283da26cbfed56eb8d3d",
+  "task_timeout": 630,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

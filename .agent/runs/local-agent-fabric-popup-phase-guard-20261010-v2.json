@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-popup-phase-guard-20261010-v2",
+  "task_digest": "08521a6b3a04cbbf1901a1f84efb164a6ec1f264b2301813d2d371a4d5c3fe54",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T15:09:46.933721+00:00",
+  "attempt_id": "2d09100a1dc4e17d0c959696",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 72571,
+  "updated_at": "2026-10-10T15:09:47.761573+00:00",
+  "pid": 72571
+}

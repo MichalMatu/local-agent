@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-preflight-stage-0817-20261010-v1",
+  "task_digest": "f4ec0ef20d2f29563142f025c251f78fac63ab4a582433612547655fd11b8ba7",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T14:43:39.764634+00:00",
+  "attempt_id": "bd3462be60f3b9305ebf582a",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 33029,
+  "updated_at": "2026-10-10T14:43:40.274664+00:00",
+  "pid": 33029
+}

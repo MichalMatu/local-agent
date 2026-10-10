@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-effect-intents-cas-gate-20261010-v1",
+  "task_digest": "640197f44feabcc9cc5c770220b498bd44a0e25294250f172c16966b7706c815",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T19:11:20.370163+00:00",
+  "attempt_id": "46339d070f22d90a90586c9b",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 88211,
+  "updated_at": "2026-10-10T19:11:20.634789+00:00",
+  "pid": 88211
+}

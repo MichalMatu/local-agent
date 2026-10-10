@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-multichild-final-source-gate-20261010-v1",
+  "task_digest": "a3a8ecedca1118d07104f16807b53825309b54f8efc86edbe0c2c32bec562525",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T15:31:54.756954+00:00",
+  "attempt_id": "c289476d53e61997707df49c",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 12031,
+  "updated_at": "2026-10-10T15:31:55.026585+00:00",
+  "pid": 12031
+}

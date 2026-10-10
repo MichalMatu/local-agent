@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-batch-journal-v2-gate-20261010-v1",
+  "task_digest": "414c2658e9d57a925e6a4415edb17c35ddc12bf4dce6e5ce71230b16b3a5c45e",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T18:06:05.793142+00:00",
+  "attempt_id": "9f9ddbf587f70b41d74acbf7",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 95058,
+  "updated_at": "2026-10-10T18:06:06.294230+00:00",
+  "pid": 95058
+}

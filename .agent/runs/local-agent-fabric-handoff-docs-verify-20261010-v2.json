@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-handoff-docs-verify-20261010-v2",
+  "task_digest": "8485f5b393e5bf9a6d7112da017c21a694e89329587c8fe949a0b71d2a68c97b",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T15:19:17.338537+00:00",
+  "attempt_id": "a10b531ba2d2b7490326e7c7",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 90233,
+  "updated_at": "2026-10-10T15:19:17.556442+00:00",
+  "pid": 90233
+}

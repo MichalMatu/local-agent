@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-batch-journal-v2-gate-20261010-v1",
+  "dedupe_key": "local-agent/fabric/batch-journal-v2-20261010",
+  "dedupe_revision": 1,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "command_timeout": 500,
+  "task_timeout": 650,
+  "idle_timeout": 170,
+  "memory_limit_mb": 1200,
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"1d89170640aa497ffbee86bafc524c2939b0681b\" || exit 3\nnode --check chat_bridge/github_fabric_private_batch_journal.js\nnode --check chat_bridge/github_fabric_private_batch_journal.test.js\nnode chat_bridge/github_fabric_private_batch_journal.test.js\nnode chat_bridge/github_fabric_private_live_worker.test.js\nnode chat_bridge/github_fabric_private_receipts.test.js\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_BATCH_JOURNAL_V2_GATE_PASS"
+  ]
+}

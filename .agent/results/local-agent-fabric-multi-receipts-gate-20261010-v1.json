@@ -1,0 +1,60 @@
+{
+  "allow_write": false,
+  "attempt_id": "0eab10bc9daebd9320d937d1",
+  "command_timeout": 380,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 3929,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"4cae8ead1d6ba98f57fd532740cb9d4a82986710\" || exit 3\npython3 -m unittest discover -s tests -p 'test_github_fabric_receipt_aggregation.py' -v\npython3 -m unittest discover -s tests -p 'test_github_fabric_dispatch.py' -v\nnode chat_bridge/github_fabric_private_receipts.test.js\nnode chat_bridge/github_fabric_private_live_worker.test.js\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_MULTI_RECEIPT_SOURCE_GATE_PASS",
+      "current_rss_mb": 4.45,
+      "elapsed_seconds": 0.881,
+      "exit_code": 0,
+      "idle_timed_out": false,
+      "memory_limit_mb": 1000,
+      "memory_limited": false,
+      "output": "test_cross_child_chat_reuse_fails_both (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_cross_child_chat_reuse_fails_both) ... ok\ntest_empty_and_claim_only_are_not_assumed_unsent (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_empty_and_claim_only_are_not_assumed_unsent) ... ok\ntest_independent_out_of_order_child_evidence (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_independent_out_of_order_child_evidence) ... ok\ntest_orphan_ack_and_result_fail_closed (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_orphan_ack_and_result_fail_closed) ... ok\ntest_partial_failure_does_not_invalidate_other_child (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_partial_failure_does_not_invalidate_other_child) ... ok\ntest_unknown_child_and_duplicate_request_identity_rejected (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_unknown_child_and_duplicate_request_identity_rejected) ... ok\ntest_wrong_transaction_digest_owner_and_extra_keys (test_github_fabric_receipt_aggregation.PrivateMultiChildAggregationTests.test_wrong_transaction_digest_owner_and_extra_keys) ... ok\n\n----------------------------------------------------------------------\nRan 7 tests in 0.001s\n\nOK\ntest_admitted_children_must_match_operator_request_exactly (test_github_fabric_dispatch.GithubFabricDispatchTests.test_admitted_children_must_match_operator_request_exactly) ... ok\ntest_build_is_deterministic_and_projects_exact_existing_spawn_evidence (test_github_fabric_dispatch.GithubFabricDispatchTests.test_build_is_deterministic_and_projects_exact_existing_spawn_evidence) ... ok\ntest_dispatch_has_no_browser_runtime_identity_or_top_level_execution_authority (test_github_fabric_dispatch.GithubFabricDispatchTests.test_dispatch_has_no_browser_runtime_identity_or_top_level_execution_authority) ... ok\ntest_missing_or_extra_child_is_rejected (test_github_fabric_dispatch.GithubFabricDispatchTests.test_missing_or_extra_child_is_rejected) ... ok\ntest_private_bootstrap_has_exact_terminal_proof_and_matching_sha256 (test_github_fabric_dispatch.GithubFabricDispatchTests.test_private_bootstrap_has_exact_terminal_proof_and_matching_sha256) ... ok\ntest_same_id_changed_payload_is_a_permanent_conflict (test_github_fabric_dispatch.GithubFabricDispatchTests.test_same_id_changed_payload_is_a_permanent_conflict) ... ok\ntest_disabled_by_default_and_permission_denied (test_github_fabric_dispatch.GithubFabricSyntheticPublicationTests.test_disabled_by_default_and_permission_denied) ... ok\ntest_exact_fixture_only_rejects_private_content_and_forged_identity (test_github_fabric_dispatch.GithubFabricSyntheticPublicationTests.test_exact_fixture_only_rejects_private_content_and_forged_identity) ... ok\ntest_index_capacity_duplicate_and_malformed_fail_closed (test_github_fabric_dispatch.GithubFabricSyntheticPublicationTests.test_index_capacity_duplicate_and_malformed_fail_closed) ... ok\ntest_missing_or_unverified_remote_head_fails_closed (test_github_fabric_dispatch.GithubFabricSyntheticPublicationTests.test_missing_or_unverified_remote_head_fails_closed) ... ok\ntest_order_independent_fixture_and_no_overwrite (test_github_fabric_dispatch.GithubFabricSyntheticPublicationTests.test_order_independent_fixture_and_no_overwrite) ... ok\ntest_proposes_record_before_index_and_replays_after_restart (test_github_fabric_dispatch.GithubFabricSyntheticPublicationTests.test_proposes_record_before_index_and_replays_after_restart) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.015s\n\nOK\nPrivate Fabric browser receipt CAS/no-replay contract passed.\nPrivate GitHub-first worker real-controller fake UI no-replay contract passed.\n\n==> Ruff\n$ /Users/michal/.platformio/penv/bin/ruff check .\nAll checks passed!\nFABRIC_MULTI_RECEIPT_SOURCE_GATE_PASS\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 4.45,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "finished_at": "2026-10-10T15:26:27.817208+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.064,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.073,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-multi-receipts-gate-20261010-v1",
+  "idle_timeout": 170,
+  "memory_limit_mb": 1000,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 0.881,
+      "outcome": "passed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T15:26:25.250024+00:00",
+  "status": "done",
+  "task_digest": "73d368e714a9edacd236fb039f538c75aad1f7352269c06c5507d16bb1171b57",
+  "task_timeout": 520,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

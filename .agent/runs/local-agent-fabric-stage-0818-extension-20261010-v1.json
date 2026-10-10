@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-stage-0818-extension-20261010-v1",
+  "task_digest": "9cd10078fae8909b34aacdc64b75b72c339c421903e8ff9c181aa329b9e6215c",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T15:01:10.380814+00:00",
+  "attempt_id": "f138085350d79184f67275d2",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 59540,
+  "updated_at": "2026-10-10T15:01:10.819788+00:00",
+  "pid": 59540
+}

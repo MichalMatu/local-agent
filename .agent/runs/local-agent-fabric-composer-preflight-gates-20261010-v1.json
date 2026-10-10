@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-composer-preflight-gates-20261010-v1",
+  "task_digest": "e98dced605268d9c36bcb60da9fcf713a07f6a0bbf76bddffa1dcac680c9d52f",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T14:40:40.285831+00:00",
+  "attempt_id": "d20253ac63a6a7f60aeb682d",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 26143,
+  "updated_at": "2026-10-10T14:40:40.608187+00:00",
+  "pid": 26143
+}

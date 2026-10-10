@@ -1,0 +1,60 @@
+{
+  "allow_write": false,
+  "attempt_id": "2d09100a1dc4e17d0c959696",
+  "command_timeout": 140,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 110,
+      "command": "node --check chat_bridge/popup.js && node chat_bridge/github_fabric_private_live_worker.test.js && node chat_bridge/popup_live.test.js",
+      "current_rss_mb": 39.2,
+      "elapsed_seconds": 3.319,
+      "exit_code": 0,
+      "idle_timed_out": false,
+      "memory_limit_mb": 700,
+      "memory_limited": false,
+      "output": "Private GitHub-first worker real-controller fake UI no-replay contract passed.\nPopup live-state tests passed.\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 39.2,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "finished_at": "2026-10-10T15:09:46.933721+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.182,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.184,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-popup-phase-guard-20261010-v2",
+  "idle_timeout": 100,
+  "memory_limit_mb": 700,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 3.319,
+      "outcome": "passed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T15:09:39.555551+00:00",
+  "status": "done",
+  "task_digest": "08521a6b3a04cbbf1901a1f84efb164a6ec1f264b2301813d2d371a4d5c3fe54",
+  "task_timeout": 250,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-multi-summary-gates-20261010-v1",
+  "task_digest": "f5218f5f67fa7dc6eb2411a4f0ef59ba11c1a12a80e4a0ed3df42c186d94f3b3",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T15:29:04.508408+00:00",
+  "attempt_id": "92827a2912fb860bbe2426c9",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 7741,
+  "updated_at": "2026-10-10T15:29:04.711744+00:00",
+  "pid": 7741
+}

@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-parent-ownership-reader-gate-20261010-v1",
+  "dedupe_key": "local-agent/fabric/parent-ownership-reader-gate-20261010",
+  "dedupe_revision": 1,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 1350,
+  "command_timeout": 490,
+  "task_timeout": 650,
+  "idle_timeout": 170,
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"97eac9e2522f1ed58c8a62585d6a5c7cf7f3cd36\" || exit 3\nnode --check chat_bridge/github_fabric_private_parent_ownership_reader.js\nnode --check chat_bridge/github_fabric_private_parent_ownership_reader.test.js\nnode chat_bridge/github_fabric_private_parent_ownership_reader.test.js\nnode chat_bridge/github_fabric_private_parent_fence_reader.test.js\nnode chat_bridge/github_fabric_private_batch_journal.test.js\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_PARENT_OWNERSHIP_READER_PASS"
+  ]
+}

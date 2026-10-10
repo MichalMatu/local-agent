@@ -1,0 +1,60 @@
+{
+  "allow_write": false,
+  "attempt_id": "a10b531ba2d2b7490326e7c7",
+  "command_timeout": 300,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 253,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"17991d96fc867aa14be71e263e15ab5b6d1612a2\" || exit 3\npython3 - <<'PY'\nfrom pathlib import Path\nimport re\npaths=[\"docs/conversation_fabric/GITHUB_FIRST_CURRENT_HANDOFF.md\",\n\"docs/conversation_fabric/GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md\",\n\"docs/conversation_fabric/GITHUB_FIRST_MVP_TRIAL.md\",\n\"docs/conversation_fabric/README.md\",\n\"docs/conversation_fabric/CURRENT_PLAN.md\",\n\"docs/conversation_fabric/E2E_READINESS_2026-10-10.md\",\n\"docs/AUTONOMOUS_CHAT_LOOP.md\",\"docs/GITHUB_BRIDGE_CONTROL.md\",\"chat_bridge/README.md\"]\nfor name in paths:\n p=Path(name); data=p.read_text()\n assert data.startswith(\"# \"),name\n assert not re.search(r\"github_pat_[A-Za-z0-9_-]{30,}\",data),name\n for link in re.findall(r\"\\]\\(([^)]+)\\)\",data):\n  if link.startswith((\"http:\",\"https:\",\"#\",\"mailto:\")):continue\n  assert (p.parent/link.split(\"#\")[0]).exists(),name+\" => \"+link\nprint(\"HANDOFF_LINKS_PASS\",len(paths))\nlive=Path(paths[0]).read_text().lower()\nprompt=Path(paths[1]).read_text().lower()\nassert \"one real private github-first child e2e: pass\" in live\nassert \"not a checkout pin\" in live\nassert \"none is redundant or deletable now\" in live\nassert \"multi-child github-first\" in prompt\nassert \"change/merge\" in prompt\nprint(\"HANDOFF_CONSISTENCY_PASS\")\nPY\nnode chat_bridge/github_fabric_private_live_worker.test.js\nnode chat_bridge/github_fabric_private_activation_guard.test.js\nnode chat_bridge/popup_live.test.js\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_HANDOFF_DOCS_VERIFIED",
+      "current_rss_mb": 4.38,
+      "elapsed_seconds": 0.682,
+      "exit_code": 0,
+      "idle_timed_out": false,
+      "memory_limit_mb": 750,
+      "memory_limited": false,
+      "output": "HANDOFF_LINKS_PASS 9\nHANDOFF_CONSISTENCY_PASS\nPrivate GitHub-first worker real-controller fake UI no-replay contract passed.\nPrivate GitHub Fabric operator-gated effect safety contract passed.\nPopup live-state tests passed.\nFABRIC_HANDOFF_DOCS_VERIFIED\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 4.38,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "finished_at": "2026-10-10T15:19:17.338537+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.068,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.073,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-handoff-docs-verify-20261010-v2",
+  "idle_timeout": 150,
+  "memory_limit_mb": 750,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 0.682,
+      "outcome": "passed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T15:19:15.101460+00:00",
+  "status": "done",
+  "task_digest": "8485f5b393e5bf9a6d7112da017c21a694e89329587c8fe949a0b71d2a68c97b",
+  "task_timeout": 480,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

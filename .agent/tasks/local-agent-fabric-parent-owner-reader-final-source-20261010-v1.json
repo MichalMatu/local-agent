@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-parent-owner-reader-final-source-20261010-v1",
+  "dedupe_key": "local-agent/fabric/parent-owner-reader-final-20261010",
+  "dedupe_revision": 1,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 1350,
+  "command_timeout": 500,
+  "task_timeout": 640,
+  "idle_timeout": 180,
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"e51a03bc6a58f79080995d6e55a9931507d6d223\" || exit 3\nnode chat_bridge/github_fabric_private_parent_ownership_reader.test.js\nnode chat_bridge/github_fabric_private_parent_fence_reader.test.js\npython3 -m unittest discover -s tests -p 'test_github_fabric_parent_ownership_github.py' -v\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_PARENT_OWNER_READER_FINAL_SHA_PASS"
+  ]
+}

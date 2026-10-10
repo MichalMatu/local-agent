@@ -1,0 +1,61 @@
+{
+  "allow_write": false,
+  "attempt_id": "d09ecc348860055e07e697e5",
+  "command_timeout": 300,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 121,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"17991d96fc867aa14be71e263e15ab5b6d1612a2\" || { echo HANDOFF_SOURCE_SHA_MISMATCH; exit 3; }\npython3 - <<'PY'\nfrom pathlib import Path\nimport re\npaths = [\n  \"docs/conversation_fabric/GITHUB_FIRST_CURRENT_HANDOFF.md\",\n  \"docs/conversation_fabric/GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md\",\n  \"docs/conversation_fabric/GITHUB_FIRST_MVP_TRIAL.md\",\n  \"docs/conversation_fabric/README.md\",\n  \"docs/conversation_fabric/CURRENT_PLAN.md\",\n  \"docs/conversation_fabric/E2E_READINESS_2026-10-10.md\",\n  \"docs/AUTONOMOUS_CHAT_LOOP.md\",\n  \"docs/GITHUB_BRIDGE_CONTROL.md\",\n  \"chat_bridge/README.md\",\n]\nfor name in paths:\n p=Path(name); data=p.read_text()\n assert data.startswith(\"# \"), name\n assert not re.search(r\"github_pat_[A-Za-z0-9_-]{30,}\",data), f\"credential in {name}\"\n for target in re.findall(r\"\\]\\(([^)]+)\\)\",data):\n  if target.startswith((\"http:\",\"https:\",\"#\",\"mailto:\")):\n   continue\n  rel=target.split(\"#\")[0]\n  assert (p.parent / rel).exists(), f\"broken link: {name} -> {target}\"\nprint(\"FABRIC_HANDOFF_DOC_LINKS_PASS\",len(paths))\nlive=Path(paths[0]).read_text()\nassert \"one real private GitHub-first child E2E: PASS\" in live\nassert \"f9f73e97a061d5ba590021ddae14b45f705cb7ae\" in live\nassert \"not a checkout pin\" in live\nassert \"None is redundant or deletable now\" in live\nprompt=Path(paths[1]).read_text()\nassert \"multi-child GitHub-first\" in prompt\nassert \"Do not change/merge\" in prompt\nprint(\"FABRIC_HANDOFF_CONTRACT_PASS\")\nPY\nnode chat_bridge/github_fabric_private_live_worker.test.js\nnode chat_bridge/github_fabric_private_activation_guard.test.js\nnode chat_bridge/popup_live.test.js\ntest -z \"$(git status --porcelain)\" || { echo HANDOFF_DIRTY_WORKTREE; exit 4; }\necho FABRIC_HANDOFF_DOCS_VERIFIED",
+      "current_rss_mb": 8.02,
+      "elapsed_seconds": 0.399,
+      "exit_code": 1,
+      "idle_timed_out": false,
+      "memory_limit_mb": 850,
+      "memory_limited": false,
+      "output": "FABRIC_HANDOFF_DOC_LINKS_PASS 9\nTraceback (most recent call last):\n  File \"<stdin>\", line 25, in <module>\nAssertionError\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 8.02,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "failure_reason": "command_failed",
+  "finished_at": "2026-10-10T15:18:28.211527+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.067,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.071,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-handoff-docs-verify-20261010-v1",
+  "idle_timeout": 120,
+  "memory_limit_mb": 850,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 0.399,
+      "outcome": "failed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T15:18:25.956357+00:00",
+  "status": "failed",
+  "task_digest": "e4d75cb6ffd38ce6b15ccce78fd6514afe9f51f38439dcef9a522ee7d3f63347",
+  "task_timeout": 480,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

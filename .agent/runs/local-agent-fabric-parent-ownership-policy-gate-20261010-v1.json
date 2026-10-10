@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-parent-ownership-policy-gate-20261010-v1",
+  "task_digest": "57deaa9755307c9af7733ed73327a911e4d81d75bb7b283da26cbfed56eb8d3d",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T18:11:42.088533+00:00",
+  "attempt_id": "255eeeba3ea7bb164cb72ab1",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 6186,
+  "updated_at": "2026-10-10T18:11:46.636657+00:00",
+  "pid": 6186
+}

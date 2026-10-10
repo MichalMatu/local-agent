@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-stage-second-live-20261010-v1",
+  "task_digest": "53b5c821c72246d4ab8cc9a94bbfd5f9d424daa775ade737f05125342eaea695",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T15:01:50.622519+00:00",
+  "attempt_id": "87d8417470a90c4f933f6ce2",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 60336,
+  "updated_at": "2026-10-10T15:01:50.931927+00:00",
+  "pid": 60336
+}

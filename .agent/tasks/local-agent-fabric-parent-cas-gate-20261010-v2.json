@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-parent-cas-gate-20261010-v2",
+  "dedupe_key": "local-agent/fabric/parent-cas-gate-20261010",
+  "dedupe_revision": 2,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 1400,
+  "command_timeout": 480,
+  "task_timeout": 620,
+  "idle_timeout": 180,
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"dc3b924b257aecc41252c680f35eed4ee82506bf\" || exit 3\npython3 -m unittest discover -s tests -p 'test_github_fabric_parent_ownership_github.py' -v\npython3 -m unittest discover -s tests -p 'test_github_fabric_parent_ownership.py' -v\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_PARENT_CAS_GATE_PASS"
+  ]
+}

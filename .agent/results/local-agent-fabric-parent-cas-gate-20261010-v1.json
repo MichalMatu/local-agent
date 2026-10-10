@@ -1,0 +1,61 @@
+{
+  "allow_write": false,
+  "attempt_id": "da14334dfbf967d0fac6dbaf",
+  "command_timeout": 480,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 4288,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"226e58ab5a57e72d56c853d4af3449c584e3748a\" || exit 3\npython3 -m unittest discover -s tests -p 'test_github_fabric_parent_ownership_github.py' -v\npython3 -m unittest discover -s tests -p 'test_github_fabric_parent_ownership.py' -v\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_PARENT_CAS_GATE_PASS",
+      "current_rss_mb": 4.41,
+      "elapsed_seconds": 0.424,
+      "exit_code": 1,
+      "idle_timed_out": false,
+      "memory_limit_mb": 1300,
+      "memory_limited": false,
+      "output": "test_ambiguous_transport_and_unreadable_recovery_fails_closed (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_ambiguous_transport_and_unreadable_recovery_fails_closed) ... ok\ntest_disabled_before_api_and_non_executable_result (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_disabled_before_api_and_non_executable_result) ... ok\ntest_first_acquisition_is_atomic_replay_safe_and_never_authority (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_first_acquisition_is_atomic_replay_safe_and_never_authority) ... ok\ntest_index_history_witness_corruption_rejected_without_writes (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_index_history_witness_corruption_rejected_without_writes) ... ok\ntest_lost_ref_ack_converges_with_one_nonforce_write (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_lost_ref_ack_converges_with_one_nonforce_write) ... FAIL\ntest_missing_ack_result_never_closes_and_historic_replay_fails (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_missing_ack_result_never_closes_and_historic_replay_fails) ... ok\ntest_non_fast_forward_conflict_has_no_retry (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_non_fast_forward_conflict_has_no_retry) ... FAIL\ntest_pinned_receipt_tamper_refuses_completion (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_pinned_receipt_tamper_refuses_completion) ... ok\ntest_two_controllers_one_parent_and_unresolved_frozen_owner (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_two_controllers_one_parent_and_unresolved_frozen_owner) ... FAIL\n\n======================================================================\nFAIL: test_lost_ref_ack_converges_with_one_nonforce_write (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_lost_ref_ack_converges_with_one_nonforce_write)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/michal/agent-workspace/repos/local-agent/work/tests/test_github_fabric_parent_ownership_github.py\", line 226, in test_lost_ref_ack_converges_with_one_nonforce_write\n    self.assertEqual(len(updates), 2, \"one staging ref and one candidate CAS\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 0 != 2 : one staging ref and one candidate CAS\n\n======================================================================\nFAIL: test_non_fast_forward_conflict_has_no_retry (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_non_fast_forward_conflict_has_no_retry)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"/Users/michal/agent-workspace/repos/local-agent/work/tests/test_github_fabric_parent_ownership_github.py\", line 234, in test_non_fast_forward_conflict_has_no_retry\n    self.assertEqual(len(updates), 2, \"never retry a rejected CAS automatically\")\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 0 != 2 : never retry a rejected CAS automatically\n\n======================================================================\nFAIL: test_two_controllers_one_parent_and_unresolved_frozen_owner (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_two_controllers_one_parent_and_unresolved_frozen_owner)\n----------------------------------------------------------------------\nPermissionError: Private parent historic dispatch/owner replay denied\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/Users/michal/agent-workspace/repos/local-agent/work/tests/test_github_fabric_parent_ownership_github.py\", line 177, in test_two_controllers_one_parent_and_unresolved_frozen_owner\n    with self.assertRaisesRegex(PermissionError, \"already owned\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: \"already owned\" does not match \"Private parent historic dispatch/owner replay denied\"\n\n----------------------------------------------------------------------\nRan 9 tests in 0.020s\n\nFAILED (failures=3)\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 4.41,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "failure_reason": "command_failed",
+  "finished_at": "2026-10-10T18:41:31.995592+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.065,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.068,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-parent-cas-gate-20261010-v1",
+  "idle_timeout": 180,
+  "memory_limit_mb": 1300,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 0.424,
+      "outcome": "failed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T18:41:29.835559+00:00",
+  "status": "failed",
+  "task_digest": "352eb535bd48fe83507be63ce19d5b4cb34c29e1018646c18bd89bb028fb338d",
+  "task_timeout": 620,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

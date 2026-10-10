@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-multi-receipts-gate-20261010-v1",
+  "dedupe_key": "local-agent/fabric/multi-receipts-gate-20261010",
+  "dedupe_revision": 1,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 1000,
+  "command_timeout": 380,
+  "task_timeout": 520,
+  "idle_timeout": 170,
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"4cae8ead1d6ba98f57fd532740cb9d4a82986710\" || exit 3\npython3 -m unittest discover -s tests -p 'test_github_fabric_receipt_aggregation.py' -v\npython3 -m unittest discover -s tests -p 'test_github_fabric_dispatch.py' -v\nnode chat_bridge/github_fabric_private_receipts.test.js\nnode chat_bridge/github_fabric_private_live_worker.test.js\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_MULTI_RECEIPT_SOURCE_GATE_PASS"
+  ]
+}

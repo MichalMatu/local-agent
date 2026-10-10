@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-preflight-stage-0817-20261010-v1",
+  "dedupe_key": "local-agent/fabric/preflight-stage-0817-20261010",
+  "dedupe_revision": 1,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 700,
+  "command_timeout": 160,
+  "task_timeout": 300,
+  "idle_timeout": 120,
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"a353ec9196220aa9729230d30fedb89cf01b330d\" || exit 3\ndest=\"$HOME/Downloads/Local-Agent-Chat-Bridge-0.8.15-GitHub-first\"\nbackup=\"$HOME/.local/share/local-agent/fabric-bridge-backups/pre-0817\"\ntest -d \"$dest\"\ntest \"$(python3 -c 'import json;print(json.load(open(\"chat_bridge/manifest.json\"))[\"version\"])')\" = \"0.8.17\"\ntest \"$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))[\"version\"])' \"$dest/manifest.json\")\" = \"0.8.16\"\nmkdir -p \"$backup\"\nfor f in worker_github_fabric_private_live.js manifest.json; do\n  test -f \"$dest/$f\"\n  cp -p \"$dest/$f\" \"$backup/$f\"\n  cp -p \"chat_bridge/$f\" \"$dest/$f\"\n  cmp -s \"chat_bridge/$f\" \"$dest/$f\"\ndone\necho \"BRIDGE_0817_SAME_DIRECTORY_STAGED; CHROME_NOT_RELOADED\"\ntest -z \"$(git status --porcelain)\""
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-stage-second-live-20261010-v1",
+  "dedupe_key": "local-agent/fabric/stage-second-live-20261010",
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"a625f7db92aba9a83eef9024f2d4dc76c8fe7c20\" || exit 3\nLOCAL_AGENT_GITHUB_FABRIC_WRITE_TOKEN=\"$(gh auth token)\" python3 -m local_agent.conversation.github_fabric_private_live --request-id operator-request-live-fabric-20261010-02 --stage-private\necho PRIVATE_SECOND_DISPATCH_STAGING_DONE"
+  ],
+  "dedupe_revision": 1,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 1000,
+  "command_timeout": 450,
+  "task_timeout": 650,
+  "idle_timeout": 170
+}

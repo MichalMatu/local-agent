@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-stage-0818-extension-20261010-v1",
+  "dedupe_key": "local-agent/fabric/stage-0818-extension-20261010",
+  "dedupe_revision": 1,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 600,
+  "command_timeout": 180,
+  "task_timeout": 330,
+  "idle_timeout": 120,
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"a625f7db92aba9a83eef9024f2d4dc76c8fe7c20\" || exit 3\ndest=\"$HOME/Downloads/Local-Agent-Chat-Bridge-0.8.15-GitHub-first\"\nbackup=\"$HOME/.local/share/local-agent/fabric-bridge-backups/pre-0818\"\ntest -d \"$dest\"\ntest \"$(python3 -c 'import json;print(json.load(open(\"chat_bridge/manifest.json\"))[\"version\"])')\" = \"0.8.18\"\ntest \"$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))[\"version\"])' \"$dest/manifest.json\")\" = \"0.8.17\"\nmkdir -p \"$backup\"\nfor f in worker_github_fabric_private_live.js worker_events.js popup.js popup.html manifest.json; do\n  test -f \"$dest/$f\"\n  cp -p \"$dest/$f\" \"$backup/$f\"\n  cp -p \"chat_bridge/$f\" \"$dest/$f\"\n  cmp -s \"chat_bridge/$f\" \"$dest/$f\"\ndone\necho \"BRIDGE_0818_SAME_UNPACKED_DIRECTORY_READY; EXTENSION_NOT_RELOADED\"\ntest -z \"$(git status --porcelain)\""
+  ]
+}

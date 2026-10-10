@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-effect-intents-pure-gate-20261010-v1",
+  "task_digest": "ff2f5e46ad28428b2d85cf86a6226adf1dbaf749a7561cb7efd8357ee12225ae",
+  "status": "failed",
+  "failure_reason": "command_failed",
+  "finished_at": "2026-10-10T19:07:59.850444+00:00",
+  "attempt_id": "a19bf73f523d7ebcdfdfd9e9",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 80570,
+  "updated_at": "2026-10-10T19:08:00.182572+00:00",
+  "pid": 80570
+}

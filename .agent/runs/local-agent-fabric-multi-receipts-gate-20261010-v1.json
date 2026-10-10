@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-multi-receipts-gate-20261010-v1",
+  "task_digest": "73d368e714a9edacd236fb039f538c75aad1f7352269c06c5507d16bb1171b57",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T15:26:27.817208+00:00",
+  "attempt_id": "0eab10bc9daebd9320d937d1",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 3362,
+  "updated_at": "2026-10-10T15:26:28.031133+00:00",
+  "pid": 3362
+}

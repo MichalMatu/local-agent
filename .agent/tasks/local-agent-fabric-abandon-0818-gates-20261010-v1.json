@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-abandon-0818-gates-20261010-v1",
+  "dedupe_key": "local-agent/fabric/abandon-0818-gates-20261010",
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"a625f7db92aba9a83eef9024f2d4dc76c8fe7c20\" || exit 3\nnode --check chat_bridge/worker_github_fabric_private_live.js\nnode --check chat_bridge/worker_events.js\nnode --check chat_bridge/popup.js\nnode chat_bridge/github_fabric_private_live_worker.test.js\npython3 scripts/verify.py --only bridge\ntest -z \"$(git status --porcelain)\" || exit 4\necho BRIDGE_0818_ABANDON_GATES_PASS"
+  ],
+  "dedupe_revision": 1,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 1000,
+  "command_timeout": 450,
+  "task_timeout": 650,
+  "idle_timeout": 170
+}

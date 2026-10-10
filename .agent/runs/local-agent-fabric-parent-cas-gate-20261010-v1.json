@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-parent-cas-gate-20261010-v1",
+  "task_digest": "352eb535bd48fe83507be63ce19d5b4cb34c29e1018646c18bd89bb028fb338d",
+  "status": "failed",
+  "failure_reason": "command_failed",
+  "finished_at": "2026-10-10T18:41:31.995592+00:00",
+  "attempt_id": "da14334dfbf967d0fac6dbaf",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 51740,
+  "updated_at": "2026-10-10T18:41:32.205087+00:00",
+  "pid": 51740
+}

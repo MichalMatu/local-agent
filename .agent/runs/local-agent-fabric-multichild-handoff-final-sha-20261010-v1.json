@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-multichild-handoff-final-sha-20261010-v1",
+  "task_digest": "87499b9f054e9ab56fa5d3482197e8dfa9f50f5a41c36e7055afacfe89ff23ec",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T18:17:32.071201+00:00",
+  "attempt_id": "fc228fc98de4816a8d360b47",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 12555,
+  "updated_at": "2026-10-10T18:17:32.356402+00:00",
+  "pid": 12555
+}

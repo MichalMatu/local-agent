@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-pinned-effect-reader-full-20261010-v1",
+  "dedupe_key": "local-agent/fabric/pinned-effect-reader-full-20261010",
+  "dedupe_revision": 1,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 1550,
+  "command_timeout": 680,
+  "task_timeout": 830,
+  "idle_timeout": 190,
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"377c905aefd77545be504910d74e609a07b130fe\" || exit 3\npython3 scripts/verify.py --only compile\npython3 -m unittest discover -s tests -p 'test_github_fabric_*.py' -v\npython3 scripts/verify.py --only lint\npython3 scripts/verify.py --only bridge\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_PINNED_EFFECT_READER_FULL_PASS"
+  ]
+}

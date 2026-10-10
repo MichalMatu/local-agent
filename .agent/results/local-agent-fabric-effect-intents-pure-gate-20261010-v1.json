@@ -1,0 +1,61 @@
+{
+  "allow_write": false,
+  "attempt_id": "a19bf73f523d7ebcdfdfd9e9",
+  "command_timeout": 420,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 2400,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"f75fc08766667436e0aa86e0e0275f847e9d9afc\" || exit 3\npython3 -m unittest discover -s tests -p 'test_github_fabric_effect_intents.py' -v\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_EFFECT_INTENT_PURE_GATE_PASS",
+      "current_rss_mb": 8.86,
+      "elapsed_seconds": 0.579,
+      "exit_code": 1,
+      "idle_timed_out": false,
+      "memory_limit_mb": 1200,
+      "memory_limited": false,
+      "output": "test_duplicate_forged_or_out_of_order_effect_rejected (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_duplicate_forged_or_out_of_order_effect_rejected) ... ok\ntest_empty_recovery_and_wrong_dispatch_rejected (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_empty_recovery_and_wrong_dispatch_rejected) ... ok\ntest_first_send_is_durable_unknown_not_permission (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_first_send_is_durable_unknown_not_permission) ... ok\ntest_frozen_effect_stays_blocked_and_never_released (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_frozen_effect_stays_blocked_and_never_released) ... ok\ntest_owner_epoch_drift_and_completed_parent_denied (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_owner_epoch_drift_and_completed_parent_denied) ... FAIL\ntest_partial_claim_only_wrong_digest_or_identity_denied (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_partial_claim_only_wrong_digest_or_identity_denied) ... ok\ntest_replay_after_restart_or_wrong_order_never_arms (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_replay_after_restart_or_wrong_order_never_arms) ... ok\ntest_result_only_if_matching_pinned_completed_evidence (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_result_only_if_matching_pinned_completed_evidence) ... ok\n\n======================================================================\nFAIL: test_owner_epoch_drift_and_completed_parent_denied (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_owner_epoch_drift_and_completed_parent_denied)\n----------------------------------------------------------------------\nPermissionError: Private parent effect owner no longer active\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/Users/michal/agent-workspace/repos/local-agent/work/tests/test_github_fabric_effect_intents.py\", line 183, in test_owner_epoch_drift_and_completed_parent_denied\n    with self.assertRaisesRegex(PermissionError, \"not active\"):\n         ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: \"not active\" does not match \"Private parent effect owner no longer active\"\n\n----------------------------------------------------------------------\nRan 8 tests in 0.013s\n\nFAILED (failures=1)\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 8.86,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "failure_reason": "command_failed",
+  "finished_at": "2026-10-10T19:07:59.850444+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.11,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.095,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-effect-intents-pure-gate-20261010-v1",
+  "idle_timeout": 180,
+  "memory_limit_mb": 1200,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 0.579,
+      "outcome": "failed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T19:07:56.820314+00:00",
+  "status": "failed",
+  "task_digest": "ff2f5e46ad28428b2d85cf86a6226adf1dbaf749a7561cb7efd8357ee12225ae",
+  "task_timeout": 600,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

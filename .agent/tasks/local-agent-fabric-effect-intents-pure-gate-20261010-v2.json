@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-effect-intents-pure-gate-20261010-v2",
+  "dedupe_key": "local-agent/fabric/effect-intents-20261010",
+  "dedupe_revision": 2,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 1350,
+  "command_timeout": 450,
+  "task_timeout": 610,
+  "idle_timeout": 170,
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"ab567e19ee5178ec6c6a981211bc7e01fa14477d\" || exit 3\npython3 -m unittest discover -s tests -p 'test_github_fabric_effect_intents.py' -v\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_EFFECT_INTENTS_PURE_PASS"
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "allow_write": false,
+  "attempt_id": "be77a62a52c5444c1ea6dd71",
+  "command_timeout": 480,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 2758,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"dc3b924b257aecc41252c680f35eed4ee82506bf\" || exit 3\npython3 -m unittest discover -s tests -p 'test_github_fabric_parent_ownership_github.py' -v\npython3 -m unittest discover -s tests -p 'test_github_fabric_parent_ownership.py' -v\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_PARENT_CAS_GATE_PASS",
+      "current_rss_mb": 4.8,
+      "elapsed_seconds": 1.008,
+      "exit_code": 0,
+      "idle_timed_out": false,
+      "memory_limit_mb": 1400,
+      "memory_limited": false,
+      "output": "test_ambiguous_transport_and_unreadable_recovery_fails_closed (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_ambiguous_transport_and_unreadable_recovery_fails_closed) ... ok\ntest_disabled_before_api_and_non_executable_result (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_disabled_before_api_and_non_executable_result) ... ok\ntest_first_acquisition_is_atomic_replay_safe_and_never_authority (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_first_acquisition_is_atomic_replay_safe_and_never_authority) ... ok\ntest_index_history_witness_corruption_rejected_without_writes (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_index_history_witness_corruption_rejected_without_writes) ... ok\ntest_lost_ref_ack_converges_with_one_nonforce_write (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_lost_ref_ack_converges_with_one_nonforce_write) ... ok\ntest_missing_ack_result_never_closes_and_historic_replay_fails (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_missing_ack_result_never_closes_and_historic_replay_fails) ... ok\ntest_non_fast_forward_conflict_has_no_retry (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_non_fast_forward_conflict_has_no_retry) ... ok\ntest_pinned_receipt_tamper_refuses_completion (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_pinned_receipt_tamper_refuses_completion) ... ok\ntest_two_controllers_one_parent_and_unresolved_frozen_owner (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_two_controllers_one_parent_and_unresolved_frozen_owner) ... ok\n\n----------------------------------------------------------------------\nRan 9 tests in 0.032s\n\nOK\ntest_claim_only_or_partial_never_releases_parent (test_github_fabric_parent_ownership.ParentOwnershipPolicyTests.test_claim_only_or_partial_never_releases_parent) ... ok\ntest_full_private_summary_allows_proposed_epoch_increment_only (test_github_fabric_parent_ownership.ParentOwnershipPolicyTests.test_full_private_summary_allows_proposed_epoch_increment_only) ... ok\ntest_missing_invalid_or_forged_completion_fails_closed (test_github_fabric_parent_ownership.ParentOwnershipPolicyTests.test_missing_invalid_or_forged_completion_fails_closed) ... ok\ntest_one_parent_one_controller_and_no_implicit_takeover (test_github_fabric_parent_ownership.ParentOwnershipPolicyTests.test_one_parent_one_controller_and_no_implicit_takeover) ... ok\n\n----------------------------------------------------------------------\nRan 4 tests in 0.005s\n\nOK\n\n==> Ruff\n$ /Users/michal/.platformio/penv/bin/ruff check .\nAll checks passed!\nFABRIC_PARENT_CAS_GATE_PASS\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 4.8,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "finished_at": "2026-10-10T18:42:32.986640+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.081,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.091,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-parent-cas-gate-20261010-v2",
+  "idle_timeout": 180,
+  "memory_limit_mb": 1400,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 1.008,
+      "outcome": "passed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T18:42:30.104991+00:00",
+  "status": "done",
+  "task_digest": "574990a1c2c2f6d6f7b48c2523a24489d49efc4e2f2f88bb138c3f4295837fac",
+  "task_timeout": 620,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

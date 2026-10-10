@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-multichild-journal-final-gate-20261010-v1",
+  "dedupe_key": "local-agent/fabric/multichild-journal-final-gate-20261010",
+  "dedupe_revision": 1,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 1500,
+  "command_timeout": 600,
+  "task_timeout": 780,
+  "idle_timeout": 190,
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"fcd7d260a3decbef9d64c2e5a2ad339800e2fe17\" || exit 3\npython3 scripts/verify.py --only compile\npython3 -m unittest discover -s tests -p 'test_github_fabric_*.py' -v\npython3 scripts/verify.py --only lint\npython3 scripts/verify.py --only bridge\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_MULTICHILD_JOURNAL_FINAL_HEAD_PASS"
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "allow_write": false,
+  "attempt_id": "7b21f67778cf64cfe9e23638",
+  "command_timeout": 500,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 2070,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"e51a03bc6a58f79080995d6e55a9931507d6d223\" || exit 3\nnode chat_bridge/github_fabric_private_parent_ownership_reader.test.js\nnode chat_bridge/github_fabric_private_parent_fence_reader.test.js\npython3 -m unittest discover -s tests -p 'test_github_fabric_parent_ownership_github.py' -v\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_PARENT_OWNER_READER_FINAL_SHA_PASS",
+      "current_rss_mb": 16.84,
+      "elapsed_seconds": 17.223,
+      "exit_code": 0,
+      "idle_timed_out": false,
+      "memory_limit_mb": 1350,
+      "memory_limited": false,
+      "output": "Private parent ownership pinned read-only candidate tests passed.\nDefault-disabled private parent fence pinned read tests passed.\ntest_ambiguous_transport_and_unreadable_recovery_fails_closed (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_ambiguous_transport_and_unreadable_recovery_fails_closed) ... ok\ntest_disabled_before_api_and_non_executable_result (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_disabled_before_api_and_non_executable_result) ... ok\ntest_first_acquisition_is_atomic_replay_safe_and_never_authority (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_first_acquisition_is_atomic_replay_safe_and_never_authority) ... ok\ntest_index_history_witness_corruption_rejected_without_writes (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_index_history_witness_corruption_rejected_without_writes) ... ok\ntest_lost_ref_ack_converges_with_one_nonforce_write (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_lost_ref_ack_converges_with_one_nonforce_write) ... ok\ntest_missing_ack_result_never_closes_and_historic_replay_fails (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_missing_ack_result_never_closes_and_historic_replay_fails) ... ok\ntest_non_fast_forward_conflict_has_no_retry (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_non_fast_forward_conflict_has_no_retry) ... ok\ntest_pinned_receipt_tamper_refuses_completion (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_pinned_receipt_tamper_refuses_completion) ... ok\ntest_two_controllers_one_parent_and_unresolved_frozen_owner (test_github_fabric_parent_ownership_github.ParentCandidateCASAPITests.test_two_controllers_one_parent_and_unresolved_frozen_owner) ... ok\n\n----------------------------------------------------------------------\nRan 9 tests in 2.033s\n\nOK\n\n==> Ruff\n$ /Users/michal/.platformio/penv/bin/ruff check .\nAll checks passed!\nFABRIC_PARENT_OWNER_READER_FINAL_SHA_PASS\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 46.17,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "finished_at": "2026-10-10T18:58:19.352824+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.412,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.297,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-parent-owner-reader-final-source-20261010-v1",
+  "idle_timeout": 180,
+  "memory_limit_mb": 1350,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 17.223,
+      "outcome": "passed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T18:57:48.268968+00:00",
+  "status": "done",
+  "task_digest": "4c90fdb3f4250ef9a084d0a0a2841421cb385bdab914075cd24cd470856052e9",
+  "task_timeout": 640,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

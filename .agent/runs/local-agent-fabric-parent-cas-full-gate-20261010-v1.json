@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-parent-cas-full-gate-20261010-v1",
+  "task_digest": "20f4bf9b5f52ed272248011f63815673aa4f9e46abac74f31d0ed96fc981885b",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T18:43:45.660167+00:00",
+  "attempt_id": "f7bb52a75b2d26ea5ddf13c6",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 55492,
+  "updated_at": "2026-10-10T18:43:45.903309+00:00",
+  "pid": 55492
+}

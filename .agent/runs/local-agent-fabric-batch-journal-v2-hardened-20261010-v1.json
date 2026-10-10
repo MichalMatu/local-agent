@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-batch-journal-v2-hardened-20261010-v1",
+  "task_digest": "ad479f9e156cfe02766f8d0a45e972b1b45bc53266d52cbd0449e5e8c5bd8c22",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T18:08:09.560725+00:00",
+  "attempt_id": "5b2d32e38b04fd85acc08b92",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 99094,
+  "updated_at": "2026-10-10T18:08:09.826840+00:00",
+  "pid": 99094
+}

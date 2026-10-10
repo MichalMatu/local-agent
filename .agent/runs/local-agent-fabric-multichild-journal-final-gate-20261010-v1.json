@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-multichild-journal-final-gate-20261010-v1",
+  "task_digest": "813e3396c8f1c78588788c31a6eb8a4765d668c2cb34b3bee3a26f1a714ead25",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T18:16:20.922797+00:00",
+  "attempt_id": "a0f7af2c2769bea021c1525f",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 8014,
+  "updated_at": "2026-10-10T18:16:21.540538+00:00",
+  "pid": 8014
+}

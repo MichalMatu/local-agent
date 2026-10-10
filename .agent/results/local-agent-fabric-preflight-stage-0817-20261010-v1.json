@@ -1,0 +1,60 @@
+{
+  "allow_write": false,
+  "attempt_id": "bd3462be60f3b9305ebf582a",
+  "command_timeout": 160,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 55,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"a353ec9196220aa9729230d30fedb89cf01b330d\" || exit 3\ndest=\"$HOME/Downloads/Local-Agent-Chat-Bridge-0.8.15-GitHub-first\"\nbackup=\"$HOME/.local/share/local-agent/fabric-bridge-backups/pre-0817\"\ntest -d \"$dest\"\ntest \"$(python3 -c 'import json;print(json.load(open(\"chat_bridge/manifest.json\"))[\"version\"])')\" = \"0.8.17\"\ntest \"$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))[\"version\"])' \"$dest/manifest.json\")\" = \"0.8.16\"\nmkdir -p \"$backup\"\nfor f in worker_github_fabric_private_live.js manifest.json; do\n  test -f \"$dest/$f\"\n  cp -p \"$dest/$f\" \"$backup/$f\"\n  cp -p \"chat_bridge/$f\" \"$dest/$f\"\n  cmp -s \"chat_bridge/$f\" \"$dest/$f\"\ndone\necho \"BRIDGE_0817_SAME_DIRECTORY_STAGED; CHROME_NOT_RELOADED\"\ntest -z \"$(git status --porcelain)\"",
+      "current_rss_mb": 8.91,
+      "elapsed_seconds": 0.753,
+      "exit_code": 0,
+      "idle_timed_out": false,
+      "memory_limit_mb": 700,
+      "memory_limited": false,
+      "output": "BRIDGE_0817_SAME_DIRECTORY_STAGED; CHROME_NOT_RELOADED\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 8.91,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "finished_at": "2026-10-10T14:43:39.764634+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.353,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.117,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-preflight-stage-0817-20261010-v1",
+  "idle_timeout": 120,
+  "memory_limit_mb": 700,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 0.753,
+      "outcome": "passed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T14:43:35.763359+00:00",
+  "status": "done",
+  "task_digest": "f4ec0ef20d2f29563142f025c251f78fac63ab4a582433612547655fd11b8ba7",
+  "task_timeout": 300,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}

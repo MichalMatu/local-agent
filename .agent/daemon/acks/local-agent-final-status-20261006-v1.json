@@ -1,0 +1,13 @@
+{
+  "id": "local-agent-final-status-20261006-v1",
+  "action": "status",
+  "status": "completed",
+  "daemon_version": "4.20.6",
+  "updated_at": "2026-10-06T22:12:20.524779+00:00",
+  "repository_id": "local-agent",
+  "repository": "MichalMatu/local-agent",
+  "control_branch": "agent-control",
+  "default_branch": "main",
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "result": "status_published"
+}

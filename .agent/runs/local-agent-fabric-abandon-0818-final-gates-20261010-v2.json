@@ -1,0 +1,13 @@
+{
+  "event": "task_finished",
+  "task_id": "local-agent-fabric-abandon-0818-final-gates-20261010-v2",
+  "task_digest": "1c07bc9b8579a976b24a8e439eb63c6bf183fa91320df1b7a799213ff18dcb05",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T15:02:54.860387+00:00",
+  "attempt_id": "cf1b5772fc7ad47471a7a6de",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 61830,
+  "updated_at": "2026-10-10T15:02:55.102307+00:00",
+  "pid": 61830
+}
