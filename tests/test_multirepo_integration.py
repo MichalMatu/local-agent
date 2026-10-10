@@ -8,7 +8,9 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from unittest import mock
 
+from local_agent.foundation import process as process_lifecycle
 from local_agent.repository.worker import MULTIREPO_DAEMON_VERSION
 from local_agent.repository.context import load_repository_registry, repository_config_digest
 
@@ -187,6 +189,16 @@ def test_environment(root: Path) -> tuple[Path, dict[str, str]]:
         encoding="utf-8",
     )
     env = os.environ.copy()
+    # These subprocess fixtures form independent fake repositories. Python's
+    # normal subprocess.Popen closes outer task lease descriptors, so copying
+    # their environment markers would advertise FDs the child does not own.
+    # Drop them from the *fixture copy* only; never alter real task leases.
+    for key in (
+        process_lifecycle.LEASE_FDS_ENV,
+        process_lifecycle.LEASE_KEYS_DIGEST_ENV,
+        process_lifecycle.RESOURCE_LEASE_FDS_ENV,
+    ):
+        env.pop(key, None)
     env["HOME"] = str(home)
     env["LOCAL_AGENT_TEST_CATALOG"] = str(root / "agent_bindings.json")
     env["PYTHONPATH"] = os.pathsep.join((str(root), str(REPO_ROOT)))
@@ -253,6 +265,27 @@ def queue_equivalent_duplicate(
 
 
 class MultiRepositoryIntegrationTests(unittest.TestCase):
+    def test_isolated_fixture_env_does_not_advertise_outer_lease_fds(self) -> None:
+        inherited = {
+            process_lifecycle.LEASE_FDS_ENV: "4",
+            process_lifecycle.LEASE_KEYS_DIGEST_ENV: "a" * 64,
+            process_lifecycle.RESOURCE_LEASE_FDS_ENV: "5",
+            "LOCAL_AGENT_FIXTURE_SENTINEL": "safe-value",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, inherited):
+                _home, child_env = test_environment(Path(tmp))
+                for name in (
+                    process_lifecycle.LEASE_FDS_ENV,
+                    process_lifecycle.LEASE_KEYS_DIGEST_ENV,
+                    process_lifecycle.RESOURCE_LEASE_FDS_ENV,
+                ):
+                    self.assertNotIn(name, child_env)
+                    self.assertEqual(os.environ[name], inherited[name])
+                self.assertEqual(
+                    child_env["LOCAL_AGENT_FIXTURE_SENTINEL"], "safe-value"
+                )
+
     def test_two_repository_workers_with_same_task_id_are_isolated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
