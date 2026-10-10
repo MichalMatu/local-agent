@@ -11,7 +11,7 @@ Re-read all refs before writing code, submitting tasks or deciding to merge.
 | --- | --- |
 | Public repository | `MichalMatu/local-agent` |
 | Production `main` | `f9f73e97a061d5ba590021ddae14b45f705cb7ae`, **not modified** |
-| Candidate | `work/fabric-github-first-live-mvp`; re-read PR HEAD; last tested functional source `f5f1cda366e9e7ef923b6c594ec029ed45bcf84f` |
+| Candidate | `work/fabric-github-first-live-mvp`; re-read PR HEAD; last full source gate `fcd7d260a3decbef9d64c2e5a2ad339800e2fe17` |
 | Pull request | [#274](https://github.com/MichalMatu/local-agent/pull/274), OPEN/DRAFT, targets `main`, **not merged** |
 | Control branches | `agent-control`, `chat-bridge-state`, `operator-control` — operational, not disposable |
 | Private transport | `MichalMatu/local-agent-fabric-private:fabric-data` |
@@ -224,7 +224,12 @@ browser driver imports the new batch module. The parent ownership model has
   `local-agent-fabric-parent-ownership-policy-gate-20261010-v1`
   (source `ee9f00b2a5ac56fa1760fee772f836c7db00dd42`).
   These ran isolated Node/Python tests and applicable Bridge/Ruff gates.
-  Later hardening of the parent model still requires a new exact-head gate.
+  The subsequent full source gate
+  `local-agent-fabric-multichild-journal-final-gate-20261010-v1` at exact
+  `fcd7d260a3decbef9d64c2e5a2ad339800e2fe17` also **PASS / exit 0**
+  (Python compile, all `test_github_fabric_*.py`, Ruff and complete Bridge
+  Node suite). A final documentation-only commit after that gate must
+  receive its own exact-head sanity verification.
 
 ### FAIL / unresolved
 
