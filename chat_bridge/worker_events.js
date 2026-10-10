@@ -105,6 +105,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  if (message.type === "bridge:private-github-first-draft-status") {
+    privateFabricDraftStatus().then(sendResponse).catch(() => sendResponse({ ok: false, reason: "private_draft_command_failed" }));
+    return true;
+  }
+  if (message.type === "bridge:private-github-first-save-dispatch") {
+    operatorSavePrivateFabricDispatch(message).then(sendResponse).catch(() => sendResponse({ ok: false, reason: "private_draft_command_failed" }));
+    return true;
+  }
+  if (message.type === "bridge:private-github-first-save-token") {
+    operatorSavePrivateFabricToken(message).then(sendResponse).catch(() => sendResponse({ ok: false, reason: "private_draft_command_failed" }));
+    return true;
+  }
+  if (message.type === "bridge:private-github-first-forget-token") {
+    operatorForgetPrivateFabricToken().then(sendResponse).catch(() => sendResponse({ ok: false, reason: "private_draft_command_failed" }));
+    return true;
+  }
   if (message.type === "bridge:private-github-first-start") {
     operatorStartPrivateFabricTrial(message)
       .then(sendResponse)
