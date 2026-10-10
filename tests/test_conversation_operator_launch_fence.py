@@ -81,6 +81,19 @@ class LaunchFenceTests(unittest.TestCase):
         self.assertFalse(operator_queue.reserve_launch_once(self.state, self.item))
         self.assertIsNotNone(operator_queue.next_staged_request(self.state))
 
+    def test_new_launch_directory_entry_is_durable_before_reservation(self) -> None:
+        fence = operator_queue._launch_fence_path(self.state, self.item.request_id)
+        self.assertFalse(fence.parent.exists())
+        with mock.patch.object(
+            operator_queue, "fsync_directory", wraps=operator_queue.fsync_directory
+        ) as synced:
+            self.assertTrue(operator_queue.reserve_launch_once(self.state, self.item))
+        self.assertEqual(
+            synced.call_args_list,
+            [mock.call(fence.parent.parent), mock.call(fence.parent)],
+        )
+        self.assertTrue(fence.is_file())
+
     def test_competing_starts_admit_exactly_one(self) -> None:
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(
