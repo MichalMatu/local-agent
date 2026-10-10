@@ -350,6 +350,22 @@ async function reconcileGithubConversationControlsOnce() {
     if (!mutation.value.changed) {
       if (mutation.value.preservedLocalSafety) {
         await clearConversationAlarm(conversation.id, mutation.value.localGeneration);
+      } else if (control.enabled && state.settings.masterEnabled &&
+                 appliedEntry?.controlSignature === controlSignature) {
+        // An unchanged GitHub generation normally leaves its alarm alone. If
+        // Chrome loses that alarm, restore only a still-future local deadline:
+        // replaying an expired one-shot wake would risk a duplicate Send.
+        const latest = (await getBridgeState()).conversations[conversation.id];
+        const storedDeadline = Date.parse(latest?.nextRunAt || "");
+        if (latest?.enabled &&
+            latest.generation === mutation.value.localGeneration &&
+            stateModel.isTransportReady(latest) &&
+            Number.isFinite(storedDeadline) && storedDeadline > Date.now() + 1000) {
+          const alarms = await chrome.alarms.getAll();
+          if (!alarms.some((alarm) => alarm.name === alarmName(conversation.id))) {
+            await scheduleAt(conversation.id, storedDeadline, latest.generation);
+          }
+        }
       }
       if (mutation.value.preservedLocalSafety || !appliedEntry?.controlSignature) {
         await writeAppliedGithubControl(
