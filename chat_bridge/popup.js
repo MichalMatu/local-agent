@@ -557,43 +557,131 @@ refresh().catch((error) => showMessage(`Error: ${error.message}`));
 const privateDispatchField = document.querySelector("#privateDispatchId");
 const privateTokenField = document.querySelector("#privateGitHubToken");
 const privateTrialStatus = document.querySelector("#privateFabricState");
+const privateSettingsPanel = document.querySelector(".settings-panel");
+const privateDispatchStatus = document.querySelector("#privateFabricDispatchState");
+const privateTokenStatus = document.querySelector("#privateFabricTokenState");
+const PRIVATE_POPUP_UI_KEY = "privateFabricPopupUiV1";
 
 function renderPrivateTrial(response) {
   privateTrialStatus.textContent = response?.ok
     ? [
-        response.phase || "unknown",
-        response.dispatchId || "",
-        response.childConversationUrl || "",
-        response.resultPath || "",
+        response.phase || "unknown", response.dispatchId || "",
+        response.childConversationUrl || "", response.resultPath || "",
         response.reason || ""
       ].filter(Boolean).join(" · ")
     : "Trial: " + String(response?.reason || "unavailable");
 }
 
+function renderPrivateDraft(response) {
+  if (!response?.ok) {
+    privateTokenStatus.textContent = "Credential status unavailable";
+    return;
+  }
+  const saved = response.dispatchId || "";
+  privateDispatchStatus.textContent = saved ? "Saved for this extension" : "Not saved";
+  // Never overwrite a draft the operator is currently editing.
+  if (!privateDispatchField.value.trim()) privateDispatchField.value = saved;
+  privateTokenStatus.textContent = response.tokenSaved
+    ? "Token saved for this browser session · ends ••••" + response.tokenLastFour
+    : "No token saved for this browser session";
+}
+
+async function refreshPrivateDraft() {
+  const value = await request({ type: "bridge:private-github-first-draft-status" });
+  renderPrivateDraft(value);
+  return value;
+}
+
+async function savePrivateInput(button, message, clearField = false) {
+  button.disabled = true;
+  try {
+    const response = await request(message);
+    if (clearField && response?.ok) privateTokenField.value = "";
+    renderPrivateDraft(response);
+    if (!response?.ok) showMessage("Error: " + String(response?.reason || "save_failed"));
+    return response;
+  } catch (_error) {
+    showMessage("Error: could_not_save_private_input");
+    return { ok: false };
+  } finally {
+    button.disabled = false;
+  }
+}
+
+document.querySelector("#privateFabricSaveDispatch").addEventListener("click", () => {
+  const button = document.querySelector("#privateFabricSaveDispatch");
+  savePrivateInput(button, {
+    type: "bridge:private-github-first-save-dispatch",
+    dispatchId: privateDispatchField.value.trim()
+  });
+});
+
+document.querySelector("#privateFabricSaveToken").addEventListener("click", () => {
+  const button = document.querySelector("#privateFabricSaveToken");
+  savePrivateInput(button, {
+    type: "bridge:private-github-first-save-token",
+    writeToken: privateTokenField.value.trim()
+  }, true);
+});
+
+document.querySelector("#privateFabricForgetToken").addEventListener("click", () => {
+  const button = document.querySelector("#privateFabricForgetToken");
+  savePrivateInput(button, { type: "bridge:private-github-first-forget-token" }, true);
+});
+
 document.querySelector("#privateFabricStart").addEventListener("click", async () => {
   const button = document.querySelector("#privateFabricStart");
   button.disabled = true;
   try {
+    // Empty fields use the independently saved draft and session credential.
     const response = await request({
       type: "bridge:private-github-first-start",
       dispatchId: privateDispatchField.value.trim(),
       writeToken: privateTokenField.value.trim()
     });
+    if (response?.ok) privateTokenField.value = "";
     renderPrivateTrial(response);
+    await refreshPrivateDraft();
   } catch (_error) {
     renderPrivateTrial({ ok: false, reason: "extension_request_failed" });
   } finally {
-    privateTokenField.value = "";
     button.disabled = false;
   }
 });
 
 document.querySelector("#privateFabricStatus").addEventListener("click", async () => {
-  try { renderPrivateTrial(await request({ type: "bridge:private-github-first-status" })); }
-  catch (_error) { renderPrivateTrial({ ok: false, reason: "status_unavailable" }); }
+  try {
+    renderPrivateTrial(await request({ type: "bridge:private-github-first-status" }));
+    await refreshPrivateDraft();
+  } catch (_error) {
+    renderPrivateTrial({ ok: false, reason: "status_unavailable" });
+  }
 });
 
 document.querySelector("#privateFabricRetire").addEventListener("click", async () => {
-  try { renderPrivateTrial(await request({ type: "bridge:private-github-first-retire" })); }
-  catch (_error) { renderPrivateTrial({ ok: false, reason: "rollback_unavailable" }); }
+  try {
+    renderPrivateTrial(await request({ type: "bridge:private-github-first-retire" }));
+    await refreshPrivateDraft();
+  } catch (_error) {
+    renderPrivateTrial({ ok: false, reason: "rollback_unavailable" });
+  }
 });
+
+(async () => {
+  try {
+    const savedUi = await chrome.storage.local.get(PRIVATE_POPUP_UI_KEY);
+    privateSettingsPanel.open = savedUi[PRIVATE_POPUP_UI_KEY]?.advancedOpen === true;
+    // Register after restoration so it cannot overwrite the saved preference.
+    privateSettingsPanel.addEventListener("toggle", () => {
+      chrome.storage.local.set({
+        [PRIVATE_POPUP_UI_KEY]: { advancedOpen: privateSettingsPanel.open }
+      }).catch(() => undefined);
+    });
+    await Promise.all([
+      refreshPrivateDraft(),
+      request({ type: "bridge:private-github-first-status" }).then(renderPrivateTrial)
+    ]);
+  } catch (_error) {
+    privateTokenStatus.textContent = "Saved settings could not be restored";
+  }
+})();
