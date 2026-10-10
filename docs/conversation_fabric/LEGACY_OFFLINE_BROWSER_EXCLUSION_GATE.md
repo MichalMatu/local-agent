@@ -92,7 +92,14 @@ absence of unreviewed optional permissions, externally connectable endpoints
 or web-accessible resources. Duplicate manifest JSON fields are rejected.
 Intentional manifest changes must receive new source review and tests. It fails if the startup
 graph becomes dynamic, duplicate or unreviewed, or if a loaded script
-references `github_fabric_private_*` or adds another code loader. It checks
+references `github_fabric_private_*` or adds another code loader.
+The direct service-worker and permitted nested-worker import identities and
+ordering are pinned to reviewed lists. A new benign-looking worker script,
+reordered bootstrap, or additional nested import also fails the audit until
+its effect surface receives deliberate review. The scanner does not prove
+that changes *within an already approved script* are behavior-preserving,
+that source loaded in Chrome matches the Git checkout, or that old/offline
+extensions have been retired. It checks
 that the currently observed old DOM effects still exist and that public
 GitHub intake remains no-tab/no-Send and default-disabled.
 
