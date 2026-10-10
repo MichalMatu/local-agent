@@ -6,7 +6,7 @@ Chrome Manifest V3 extension for managed ChatGPT conversation transport, GitHub-
 
 ```text
 Local Agent release line: 4.20.6
-Chat Bridge:             0.8.15
+Chat Bridge:             0.8.16
 content protocol:        26
 assistant guard:         8
 runtime schema:          3 + optional conversation_controls / operator_status_url
@@ -27,7 +27,7 @@ Historical handoffs/release notes are evidence only.
 
 ## GitHub-first MVP (operator-armed)
 
-Version 0.8.15 adds a one-child, default-disabled private GitHub-first
+Version 0.8.15 introduced a one-child, default-disabled private GitHub-first
 workflow, independent of the legacy DOM campaign transport. It stages real
 ChildRequests into a private repository through the trusted Local Agent and
 uses the existing browser driver to perform an explicitly authorized trial.
@@ -36,6 +36,13 @@ See [GitHub-first MVP trial](../docs/conversation_fabric/GITHUB_FIRST_MVP_TRIAL.
 
 **Not live-accepted yet:** do not treat code/Chromium tests as proof of
 production Chrome E2E. Extension activation/reload requires user approval.
+
+Version 0.8.16 makes private launch inputs independently savable: dispatch ID
+persists in extension-local storage, token persists only for the active Chrome
+session, a four-character token suffix confirms presence without exposing it,
+and the Advanced settings panel reopening preference survives popup closure.
+The token does not survive extension reload or browser restart; no token is
+stored in public GitHub, page DOM, or extension-local persistent storage.
 
 ## Architecture
 
