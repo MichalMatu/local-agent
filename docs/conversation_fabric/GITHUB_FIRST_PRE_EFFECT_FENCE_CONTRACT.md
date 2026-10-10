@@ -89,11 +89,26 @@ remain unjoined; that would create false confidence.
 The candidate journal and the parent reader are both unimported. A private
 read token kept only in session storage is not an automatic recovery channel.
 
-**Candidate reader integration:** the existing ownership snapshot reader was
-designed before the effect-ledger namespace. It currently rejects unexpected
-effect-ledger paths. The next gate must validate (not silently ignore) bounded
-effect files from the same pinned tree and ensure current owner/epoch
-consistency, without creating action authority.
+**Candidate reader integration:** the independent, default-disabled
+`chat_bridge/github_fabric_private_parent_effects.js` validates the
+effect-ledger schema, deterministic per-child effect IDs, sequential
+verified-child admission, monotonic revision and unknown/frozen phases.
+`github_fabric_private_parent_ownership_reader.js` now recognizes effect
+paths in the SAME pinned Git commit/tree, checks Git blob SHA over decoded
+bytes and validates each selected parent ledger against the current owner
+and epoch. It rejects orphan/duplicate/missing-root effect paths, tampered
+records and absent child identity evidence. All projected states explicitly
+have `browser_effects_permitted: false`.
+
+**Still blocked:** the JS reader receives `expectedChildren` as an explicit
+argument; it cannot independently prove that the caller obtained these
+child IDs and spawn transactions from the SAME pinned indexed dispatch.
+The universal driver must authenticate that dispatch at the identical Git
+HEAD, not merge evidence from a moving ref or from browser inputs. A
+completed old-epoch effect ledger remains a mismatch after a subsequent
+parent-epoch takeover; an explicit immutable historical effect-ledger
+lifecycle and migration rule must be reviewed instead of silently
+overwriting the old record. Neither issue is Send-authorized.
 
 **Cross-device testing:** require deterministic two-controller ref collision,
 lost acknowledgment both before/after the ref update, stale old epoch,
