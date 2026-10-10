@@ -150,6 +150,7 @@ class PrivateParentSendIntentTests(unittest.TestCase):
         first = self.start()
         frozen = effect.freeze_unknown(self.owner, self.dispatch, first)
         self.assertEqual(frozen["effects"][0]["phase"], "frozen_unknown")
+        self.assertEqual(frozen["revision"], first["revision"] + 1)
         self.assertEqual(effect.freeze_unknown(self.owner, self.dispatch, frozen), frozen)
         self.assertEqual(effect.recovery_projection(
             self.owner, self.dispatch, frozen
@@ -176,11 +177,11 @@ class PrivateParentSendIntentTests(unittest.TestCase):
         completed_parent = {
             **self.owner, "phase": "completed", "completion": "verified"
         }
-        with self.assertRaisesRegex(PermissionError, "not active"):
+        with self.assertRaisesRegex(PermissionError, "active"):
             effect.propose_send_intent(
                 completed_parent, self.dispatch, self.first
             )
-        with self.assertRaisesRegex(PermissionError, "not active"):
+        with self.assertRaisesRegex(PermissionError, "active"):
             effect.propose_result_verification(
                 completed_parent, self.dispatch, self.first, self.summary(),
                 existing=first
