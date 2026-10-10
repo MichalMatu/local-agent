@@ -50,6 +50,14 @@ are demonstrated for the complete deployment scope.
   an exact Host Ops-managed profile; it does not enumerate every Chrome
   profile or disconnected host. CDP inspection can expose URLs, titles and
   session data; it also does not prove extension revocation.
+- Treat `browser inspect` as **read-only but not metadata-free**. Its
+  implementation enumerates process command lines, may expose
+  `--user-data-dir` paths, and automatically makes loopback HTTP
+  `/json/version` and `/json/list` requests to discovered CDP ports.
+  Raw target URLs/titles and debugger WebSocket endpoints may be returned.
+  Do not run it, or export its raw JSON/result to GitHub/agent-control,
+  under an implied blanket permission. Review endpoints and redact
+  findings under an explicit Phase 1 scope instead.
 
 ### Phase 1 — operator-approved, strictly scoped passive inspection
 
