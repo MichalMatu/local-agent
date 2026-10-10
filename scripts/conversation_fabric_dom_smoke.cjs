@@ -207,6 +207,78 @@ async function runStreamingControlSmoke(context) {
   await page.close();
 }
 
+// Browser E2E for the exact-assistant terminal parsing fix: a ChatGPT turn may
+// append toolbar/UI text after the assistant message, but that is not prose.
+async function runTurnWrapperTerminalSmoke(context) {
+  const page = await context.newPage();
+  await installParentChromeStub(page);
+  try {
+    await page.goto(parentUrl, { waitUntil: "domcontentloaded" });
+    for (const filename of [
+      "control_protocol.js",
+      "conversation_fabric_protocol.js",
+      "content_retry.js",
+      "conversation_fabric_content.js"
+    ]) {
+      await page.addScriptTag({ path: path.join(bridge, filename) });
+    }
+
+    const control = {
+      schema_version: 1,
+      action: "delegate",
+      children: [{ id: "wrapper-check", role: "verification",
+        prompt: "Verify that turn UI is not assistant prose." }]
+    };
+    await page.evaluate((value) => {
+      const turn = document.createElement("section");
+      turn.dataset.turnKey = "assistant-with-trailing-toolbar";
+      const message = document.createElement("article");
+      message.dataset.messageAuthorRole = "assistant";
+      message.dataset.messageId = "assistant-with-toolbar-message";
+      message.textContent = [
+        "Delegation with a separate toolbar.",
+        "<<<LOCAL_AGENT_CF",
+        JSON.stringify(value),
+        "LOCAL_AGENT_CF>>>"
+      ].join("\n");
+      const toolbar = document.createElement("aside");
+      toolbar.id = "assistant-turn-toolbar";
+      toolbar.textContent = "Copy Share Read aloud";
+      turn.append(message, toolbar);
+      document.querySelector("#turns").appendChild(turn);
+    }, control);
+    await page.waitForFunction(() => window.__cfRuntimeMessages.some(
+      message => message.type === "bridge:conversation-fabric-control"
+    ));
+    const dispatched = await page.evaluate(() => window.__cfRuntimeMessages.filter(
+      message => message.type === "bridge:conversation-fabric-control"
+    ));
+    assert.equal(dispatched.length, 1,
+      "a valid terminal assistant control must dispatch despite sibling UI text");
+    assert.equal(dispatched[0].control.action, "delegate");
+    assert.equal(dispatched[0].control.children.length, 1);
+    assert.equal(dispatched[0].assistantIdentity, "assistant-with-trailing-toolbar");
+
+    // Changing only the turn toolbar cannot change the control signature
+    // or trigger a second send even when the scanner re-observes the DOM.
+    await page.evaluate(() => {
+      document.querySelector("#assistant-turn-toolbar").textContent =
+        "Copy Share Read aloud Updated toolbar";
+    });
+    await page.waitForTimeout(900);
+    assert.deepEqual(await page.evaluate(() => ({
+      controls: window.__cfRuntimeMessages.filter(
+        message => message.type === "bridge:conversation-fabric-control"
+      ).length,
+      submitted: [...window.__submitted],
+      composer: document.querySelector("#prompt-textarea")?.textContent || ""
+    })), { controls: 1, submitted: [], composer: "" },
+    "unrelated turn UI must not replay delegation or touch the composer");
+  } finally {
+    await page.close();
+  }
+}
+
 async function runParentSmoke(context) {
   const page = await context.newPage();
   await installParentChromeStub(page);
@@ -549,6 +621,7 @@ async function runChildSmoke(context, completionMarker) {
   });
   try {
     await runStreamingControlSmoke(context);
+    await runTurnWrapperTerminalSmoke(context);
     const completionMarker = await runParentSmoke(context);
     await runChildSmoke(context, completionMarker);
     console.log("Conversation Fabric DOM smoke passed.");
