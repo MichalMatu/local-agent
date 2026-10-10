@@ -87,9 +87,6 @@
 
     const legacy = legacyBindingMetadata(raw);
     const taskResultWatch = sanitizeTaskResultWatch(raw.task_result_watch);
-    if (!raw.enabled && taskResultWatch) {
-      throw new Error("disabled conversation cannot watch task results");
-    }
     const intervalMinutes = raw.interval_minutes === null || raw.interval_minutes === undefined
       ? null
       : integerInRange(
