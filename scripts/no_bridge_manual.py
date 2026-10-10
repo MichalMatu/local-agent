@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from dataclasses import asdict
@@ -52,12 +53,19 @@ def _strict_observation(text: str, *, expected_list: bool = False) -> dict[str, 
     def _reject_constant(_value: str) -> None:
         raise ValueError("Non-finite JSON observation value")
 
+    def _finite_float(raw_number: str) -> float:
+        number = float(raw_number)
+        if not math.isfinite(number):
+            raise ValueError("Non-finite JSON observation value")
+        return number
+
     try:
         decoded = json.loads(
             text, object_pairs_hook=_unique_fields,
             parse_constant=_reject_constant,
+            parse_float=_finite_float,
         )
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, RecursionError) as exc:
         raise ValueError("Input is not JSON") from exc
     if type(decoded) is not (list if expected_list else dict):
         raise ValueError("Observation has an invalid JSON root type")
