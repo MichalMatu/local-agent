@@ -6,7 +6,7 @@ Chrome Manifest V3 extension for managed ChatGPT conversation transport, GitHub-
 
 ```text
 Local Agent release line: 4.20.6
-Chat Bridge:             0.8.16
+Chat Bridge:             0.8.17
 content protocol:        26
 assistant guard:         8
 runtime schema:          3 + optional conversation_controls / operator_status_url
@@ -37,7 +37,7 @@ See [GitHub-first MVP trial](../docs/conversation_fabric/GITHUB_FIRST_MVP_TRIAL.
 **Not live-accepted yet:** do not treat code/Chromium tests as proof of
 production Chrome E2E. Extension activation/reload requires user approval.
 
-Version 0.8.16 makes private launch inputs independently savable: dispatch ID
+Version 0.8.17 makes private launch inputs independently savable: dispatch ID
 persists in extension-local storage, token persists only for the active Chrome
 session, a four-character token suffix confirms presence without exposing it,
 and the Advanced settings panel reopening preference survives popup closure.
@@ -246,3 +246,10 @@ node scripts/conversation_fabric_browser_smoke.cjs
 Runtime-changing releases require full exact-head CI, macOS smoke and bounded real-browser/live acceptance for changed lifecycle semantics.
 
 `conversation_live_slice_browser.cjs` and isolated-profile tooling are legacy development/test evidence, not the production Superchat delegation backend.
+
+### GitHub-first fresh-composer preflight (0.8.17)
+
+The worker checks the already-claimed child tab for a ready fresh ChatGPT
+composer before persisting an unknown-Send fence. When loading is incomplete it
+stays in `tab_ready` and retries readiness only, without any Send. Once armed,
+ambiguous Send remains reconciliation-only; no second Send is performed.
