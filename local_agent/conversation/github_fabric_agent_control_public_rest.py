@@ -8,6 +8,7 @@ write capability, redirects, browser or local task execution authority.
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
 import time
@@ -133,13 +134,20 @@ class PublicAgentControlReadOnlyREST:
         def _reject_constant(_constant: str) -> Any:
             raise ValueError("Public GitHub evidence contains non-finite JSON")
 
+        def _finite_float(raw_number: str) -> float:
+            number = float(raw_number)
+            if not math.isfinite(number):
+                raise ValueError("Public GitHub evidence contains non-finite JSON")
+            return number
+
         try:
             decoded = json.loads(
                 raw.decode("utf-8"),
                 object_pairs_hook=_unique_keys,
                 parse_constant=_reject_constant,
+                parse_float=_finite_float,
             )
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
             raise ValueError("Public GitHub evidence JSON malformed") from None
         if type(decoded) is not dict:
             raise ValueError("Public GitHub evidence must be an object")
