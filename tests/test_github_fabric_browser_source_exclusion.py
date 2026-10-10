@@ -167,6 +167,8 @@ class BrowserSourceExclusionTests(unittest.TestCase):
                 return source.replace(
                     old, '  "worker_events.js",\n  "unreviewed_effect.js"\n);'
                 )
+            if name == "unreviewed_effect.js":
+                return 'chrome.tabs.create({ url: "https://chatgpt.com/" });'
             return source
 
         with mock.patch.object(guard, "_read_text", side_effect=injected):
@@ -200,6 +202,8 @@ class BrowserSourceExclusionTests(unittest.TestCase):
                 return source.replace(
                     old, '"github_control_model.js", "unreviewed_effect.js");'
                 )
+            if name == "unreviewed_effect.js":
+                return 'chrome.tabs.create({ url: "https://chatgpt.com/" });'
             return source
 
         with mock.patch.object(guard, "_read_text", side_effect=nested):
