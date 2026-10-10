@@ -80,7 +80,7 @@ function makeHarness(storage = {}) {
   assert.equal(parsed.taskResultWatch.taskId, taskId);
   assert.equal(parsed.taskResultWatch.repositoryId, "local-agent");
   assert.throws(() => model.sanitizeConversationControl({ ...control, task_result_watch: { ...watch, task_id: "../bad" } }), /task_id is invalid/);
-  assert.throws(() => model.sanitizeConversationControl({ ...control, enabled: false }), /disabled conversation cannot watch/);
+  assert.equal(model.sanitizeConversationControl({ ...control, enabled: false, next_wake_at: null }).enabled, false);
   assert.throws(() => model.validateConversationControls([control], []), /enabled configured repository/);
   assert.throws(() => model.validateConversationControls([control], [{ ...localAgent, repositoryId: "local-agent", executionEnabled: false }]), /enabled configured repository/);
 
