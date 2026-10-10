@@ -37,7 +37,7 @@ assert.match(
 );
 
 const manifest = JSON.parse(read("manifest.json"));
-assert.equal(manifest.version, "0.8.15", "browser-native Conversation Fabric must have an unambiguous Bridge version");
+assert.equal(manifest.version, "0.8.16", "browser-native Conversation Fabric must have an unambiguous Bridge version");
 assert.ok(
   read("conversation_fabric_content.js").includes("return `LOCAL_AGENT_CF_CHILD_COMPLETE:"),
   "new child completion must use the ASCII-only footer"
