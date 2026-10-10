@@ -1,0 +1,17 @@
+{
+  "id": "local-agent-fabric-pinned-effects-final-source-20261010-v1",
+  "dedupe_key": "local-agent/fabric/pinned-effects-final-source-20261010",
+  "dedupe_revision": 1,
+  "agent_binding": "2180d453-1357-4fbc-be1a-e1e5b8fbb10a",
+  "mode": "commands",
+  "work_branch": "work/fabric-github-first-live-mvp",
+  "allow_write": false,
+  "resources": [],
+  "memory_limit_mb": 1300,
+  "command_timeout": 520,
+  "task_timeout": 660,
+  "idle_timeout": 175,
+  "commands": [
+    "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"72718291ebb01ab0a1bd8de7c3fdf89139d174db\" || exit 3\nnode --check chat_bridge/github_fabric_private_parent_effects.js\nnode chat_bridge/github_fabric_private_parent_ownership_reader.test.js\npython3 -m unittest discover -s tests -p 'test_github_fabric_effect_intents*.py' -v\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_PINNED_EFFECTS_FINAL_SOURCE_PASS"
+  ]
+}
