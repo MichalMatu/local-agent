@@ -187,7 +187,89 @@ Do not create a separate feature branch, trigger hosted GitHub Actions,
 change `main`, rotate operator settings, or infer that read-only aggregation
 constitutes a live multi-child PASS.
 
-## Next accepted increment
+## Continuation checkpoint — 2026-10-10, journal v2 and global fencing policy preview
+
+**Scope:** source-only candidate work on PR #274. The installed Chat Bridge
+0.8.18 and the real single-child browser trial are unchanged. No active
+browser driver imports the new batch module. The parent ownership model has
+**no** live GitHub CAS writer and grants **no** Send authority.
+
+### PASS
+
+- Candidate `chat_bridge/github_fabric_private_batch_journal.js` stores
+  independently identified children under a separate `chrome.storage.local`
+  key `privateFabricBatchJournalV2`, without private prompt text or GitHub
+  tokens. Version 1's accepted single-child journal is untouched.
+- Durable phase intent comes **before** each potentially ambiguous effect:
+  `claim_intent`, `tab_open_intent`, then `submission_unknown` before
+  any future Send. On restart, such states require reconciliation, never
+  automatic duplicate claims, new tabs or prompt submission.
+- The pure model permits only one active child at a time, requires a new
+  owner identity for each child, validates immutable transactions/digests
+  and forbids a second child while an earlier sibling is uncertain,
+  abandoned or blocked. Storage transitions require an expected version,
+  one admissible phase advance, and read-back; this is **not** cross-device
+  compare-and-swap.
+- Candidate `local_agent/conversation/github_fabric_parent_ownership.py`
+  defines the deterministic parent ID shared with the existing synthetic
+  parent reader, frozen uncertain outcomes, unique ownership and proposed
+  monotonically increasing epochs. Competing controllers are refused in
+  policy tests. A confirmed finished dispatch cannot be rearmed as a new
+  epoch, nor can an epoch reuse the preceding owner identity.
+- Exact-bound Mac Local Agent tasks returned **PASS / exit 0**:
+  `local-agent-fabric-batch-journal-v2-gate-20261010-v1`
+  (source `1d89170640aa497ffbee86bafc524c2939b0681b`),
+  `local-agent-fabric-batch-journal-v2-hardened-20261010-v1`
+  (source `578ad5efa07725d788924872b03fac4d47d4d3e3`),
+  `local-agent-fabric-parent-ownership-policy-gate-20261010-v1`
+  (source `ee9f00b2a5ac56fa1760fee772f836c7db00dd42`).
+  These ran isolated Node/Python tests and applicable Bridge/Ruff gates.
+  Later hardening of the parent model still requires a new exact-head gate.
+
+### FAIL / unresolved
+
+- Historic private dispatch
+  `fabric-13795c4be8cc6d08c8cda3120d6efebd` remains **claim-only,
+  unknown Send**. Do not retry it or release ownership on inference.
+- Negative tests deliberately reject two owners, malformed journals,
+  duplicate owners/tabs/URLs, forged storage transitions and incomplete
+  aggregate receipts. These are expected regression outcomes, not new
+  real-browser failures.
+
+### UNVERIFIED
+
+- Installed Chrome/MV3 worker does **not** consume journal v2; restart
+  protection is proven only in Node storage/worker-recreation simulation.
+  No claim of live two-child completion or background recovery.
+- The parent fencing policy is a **pure preview**, not an atomic private
+  GitHub lease/epoch writer. Existing legacy DOM delegation and all other
+  controllers do not yet consult a shared authority, so **global exclusion
+  is not achieved**. A GitHub writer must use strict pinned origin + CAS,
+  refuse ambiguous ref updates, prohibit unverified lease takeover, and
+  check the current epoch immediately before every browser effect.
+- A full production merge matrix, isolated MV3 Chromium extension recovery,
+  cross-device races, any real two-child Chrome trial and real extension
+  reload are still blocked/unverified. GitHub Actions remain unused.
+
+### Safe next sequence
+
+1. Build a private GitHub parent-ownership **writer/reconciler** with a
+   single parent record and atomic non-force CAS, conflict and lost-update
+   tests, and permanent freezing of unknown outcomes. Keep it disabled.
+2. Gate **every** Send-capable path, including legacy DOM delegation, on
+   current remote epoch/owner authorization; forbid a local storage claim,
+   cached read or mere TTL from granting authority.
+3. Wire the per-child journal into a separately operator-gated two-child
+   worker; enforce one child Send at a time and post-restart read-only
+   reconciliation. Require indexed private dispatch + matching browser
+   claim/ACK/result for independent children.
+4. Run exact-HEAD Mac and isolated Chromium/MV3 tests; require security
+   review for race/TOCTOU and offline-owner cases.
+5. **Ask the operator first** for installed extension reload and then a
+   supervised real Chrome two-child, MV3 restart and competing-controller
+   test. Do not treat independent tests as permission for browser effects.
+
+## Earlier accepted multi-child scope (still not live authorized)
 
 Build and independently test **multi-child GitHub-first dispatch** in small
 steps, without changing the currently accepted one-child live path:
