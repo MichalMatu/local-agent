@@ -21,9 +21,9 @@ const dispatch = {
   children: [{ request_id: "child-1" }]
 };
 
-function fixture({ unknownSend = false, enabled = true } = {}) {
-  const local = {};
-  const session = {};
+function fixture({ unknownSend = false, enabled = true, existingLocal = null, existingSession = null } = {}) {
+  const local = existingLocal || {};
+  const session = existingSession || {};
   const counts = { claim: 0, tabs: 0, submit: 0, reconcile: 0, ack: 0, result: 0, legacy: 0 };
   let ready = false;
   const storage = data => ({
@@ -117,6 +117,44 @@ function fixture({ unknownSend = false, enabled = true } = {}) {
 }
 
 async function test() {
+  const staged = fixture();
+  let snapshot = await staged.ctx.privateFabricDraftStatus();
+  assert.equal(snapshot.ok, true);
+  assert.equal(snapshot.tokenSaved, false);
+  assert.equal(snapshot.dispatchId, "");
+  assert.equal((await staged.ctx.operatorSavePrivateFabricDispatch({ dispatchId: "invalid" })).ok, false);
+  snapshot = await staged.ctx.operatorSavePrivateFabricDispatch({ dispatchId });
+  assert.equal(snapshot.dispatchId, dispatchId);
+  assert.equal(snapshot.tokenSaved, false);
+  snapshot = await staged.ctx.operatorSavePrivateFabricToken({ writeToken: token });
+  assert.equal(snapshot.tokenSaved, true);
+  assert.equal(snapshot.tokenLastFour, token.slice(-4));
+  assert.ok(!JSON.stringify(staged.local).includes(token), "saved token must never enter local storage");
+  assert.ok(!JSON.stringify(snapshot).includes(token), "status must never expose token");
+
+  // Closing the popup and suspending/restarting the worker must not clear the
+  // independently saved ID or Chrome-session credential.
+  const reopened = fixture({ existingLocal: staged.local, existingSession: staged.session });
+  snapshot = await reopened.ctx.privateFabricDraftStatus();
+  assert.equal(snapshot.dispatchId, dispatchId);
+  assert.equal(snapshot.tokenSaved, true);
+  const submitted = await reopened.ctx.operatorStartPrivateFabricTrial({});
+  assert.equal(submitted.phase, "running");
+  assert.equal(reopened.counts.submit, 1);
+  assert.equal((await reopened.ctx.operatorForgetPrivateFabricToken()).ok, false);
+  reopened.setReady();
+  await reopened.ctx.pollPrivateFabricTrial();
+  assert.equal((await reopened.ctx.privateFabricDraftStatus()).tokenSaved, false);
+  assert.equal(reopened.counts.result, 1);
+  assert.equal((await reopened.ctx.operatorStartPrivateFabricTrial({})).ok, false);
+  await reopened.ctx.retirePrivateFabricTrial();
+  assert.equal((await reopened.ctx.operatorForgetPrivateFabricToken()).ok, true);
+
+  const afterBrowserRestart = fixture({ existingLocal: staged.local, existingSession: {} });
+  snapshot = await afterBrowserRestart.ctx.privateFabricDraftStatus();
+  assert.equal(snapshot.dispatchId, dispatchId);
+  assert.equal(snapshot.tokenSaved, false);
+
   const f = fixture();
   let value = await f.ctx.operatorStartPrivateFabricTrial({
     dispatchId, writeToken: token
