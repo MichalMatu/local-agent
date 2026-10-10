@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -18,6 +20,9 @@ from local_agent.conversation import github_fabric_github as git
 _API_ROOT = "https://api.github.com/repos/MichalMatu/local-agent"
 _MAX_RESPONSE_BYTES = 512 * 1024
 _REQUEST_TIMEOUT_SECONDS = 15
+_MAX_SESSION_SECONDS = 120.0
+_MAX_SESSION_REQUESTS = 52  # 2 tree/commit + up to 16 times 3 recovery GETs
+_MAX_SESSION_BYTES = 8 * 1024 * 1024
 _SHA = r"[0-9a-f]{40}"
 _TASK_ID = r"[A-Za-z0-9._-]{1,200}"
 _SCOPED_GET = (
@@ -34,7 +39,17 @@ class _NoRedirect(HTTPRedirectHandler):
 
 
 class PublicAgentControlReadOnlyREST:
-    """Read **public** pinned GitHub evidence without implicit credentials."""
+    """Read **public** pinned GitHub evidence without implicit credentials.
+
+    All requests from one instance share a time, count and byte budget.
+    Neither HTTP failure nor partial data consumption resets that budget.
+    """
+
+    def __init__(self) -> None:
+        self._budget_lock = threading.Lock()
+        self._started_at: float | None = None
+        self._requests = 0
+        self._received_bytes = 0
 
     def request(
         self, method: str, path: str, body: Any = None,
@@ -44,6 +59,27 @@ class PublicAgentControlReadOnlyREST:
             or not any(pattern.fullmatch(path) for pattern in _SCOPED_GET)
         ):
             raise PermissionError("Public agent-control reader only allows pinned GET paths")
+        # Serialize callers so requests cannot race to evade aggregate budgets.
+        with self._budget_lock:
+            return self._bounded_get(path)
+
+    def _bounded_get(self, path: str) -> dict[str, Any]:
+        now = time.monotonic()
+        if self._started_at is None:
+            self._started_at = now
+        deadline = self._started_at + _MAX_SESSION_SECONDS
+        remaining = deadline - now
+        byte_allowance = min(
+            _MAX_RESPONSE_BYTES, _MAX_SESSION_BYTES - self._received_bytes
+        )
+        if (
+            self._requests >= _MAX_SESSION_REQUESTS
+            or remaining <= 0
+            or byte_allowance <= 0
+        ):
+            raise ValueError("Public GitHub evidence session budget exhausted")
+        # Count attempts, including HTTP 4xx/5xx and transport failures.
+        self._requests += 1
         # GitHub's public Contents API can expose output from old tasks. Do not
         # expose raw responses to a caller-facing CLI; reconcile and redact.
         request = Request(
@@ -57,24 +93,30 @@ class PublicAgentControlReadOnlyREST:
         )
         opener = build_opener(_NoRedirect())
         try:
-            with opener.open(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
+            with opener.open(
+                request, timeout=min(_REQUEST_TIMEOUT_SECONDS, remaining)
+            ) as response:
                 if response.status != 200:
                     raise git.GithubFabricHTTPError(response.status)
                 declared = response.headers.get("Content-Length")
                 if declared is not None and (
                     not declared.isascii() or not declared.isdecimal()
-                    or int(declared) > _MAX_RESPONSE_BYTES
+                    or int(declared) > byte_allowance
                 ):
-                    raise ValueError("Public GitHub evidence response is oversized")
-                raw = response.read(_MAX_RESPONSE_BYTES + 1)
+                    raise ValueError("Public GitHub evidence response exceeds budget")
+                raw = response.read(byte_allowance + 1)
         except HTTPError as exc:
             raise git.GithubFabricHTTPError(exc.code) from None
         except (URLError, TimeoutError, OSError):
             raise git.GithubFabricTransportError(
                 "Public GitHub evidence read failed"
             ) from None
-        if len(raw) > _MAX_RESPONSE_BYTES:
-            raise ValueError("Public GitHub evidence response is oversized")
+        if len(raw) > byte_allowance:
+            raise ValueError("Public GitHub evidence response exceeds budget")
+        self._received_bytes += len(raw)
+        if time.monotonic() >= deadline:
+            raise ValueError("Public GitHub evidence session budget exhausted")
+
         def _unique_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             value: dict[str, Any] = {}
             for key, item in pairs:
