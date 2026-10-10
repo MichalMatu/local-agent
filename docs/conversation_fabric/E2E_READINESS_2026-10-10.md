@@ -1,5 +1,13 @@
 # Conversation Fabric E2E readiness — 2026-10-10
 
+> **Historical pre-live checklist, superseded for the private MVP.**
+> The authenticated Chrome private GitHub-first one-child E2E PASSED later on
+> 2026-10-10 with Bridge 0.8.18 (private claim/ACK/result verified).
+> Use [the current handoff](GITHUB_FIRST_CURRENT_HANDOFF.md) and
+> [updated MVP runbook](GITHUB_FIRST_MVP_TRIAL.md) for active work.
+> The remainder of this document preserves pre-trial gate evidence, not
+> current readiness or production-wide authorization.
+
 This is the current **operator-facing test gate**, not an automatic activation
 of the future private GitHub-first browser transport. Historical 0.8.13
 screenshots and PR/SHA snapshots remain audit evidence only.
