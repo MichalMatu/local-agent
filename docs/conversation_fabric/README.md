@@ -1,23 +1,26 @@
 # Conversation Fabric
 
-Browser-native reasoning-child delegation for one managed ChatGPT parent in the operator's authenticated Chrome profile. **Chat Bridge 0.8.14 (repository source) / content protocol v26** is the current source contract. The installed operator Chrome extension version is not established by the manifest alone.
+**Current operator handoff (2026-10-10):**
+[GitHub-first current handoff](GITHUB_FIRST_CURRENT_HANDOFF.md) and
+[manual next-chat prompt](GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md).
 
-## Start here — choose one track
+**Verified in the operator's existing authenticated Chrome:** Bridge
+**0.8.18**, one private GitHub-first reasoning child, with independently
+confirmed private `claim → ACK → result`. This is not multi-child or
+cross-device acceptance; PR #274 is still draft and `main` is untouched.
+See the [single-child live runbook](GITHUB_FIRST_MVP_TRIAL.md).
 
-- **First E2E gates, offline vs operator Chrome vs private production:** [**2026-10-10 E2E readiness and safety runbook**](E2E_READINESS_2026-10-10.md).
-- **GitHub-first Milestone 8 / private cross-device project continuity:** [current handoff](GITHUB_FIRST_CURRENT_HANDOFF.md). The 2026-10-09 PR #209/#214 parent-fence experiments were archived and closed unmerged; production private browser execution remains disabled.
-- **Existing production Chrome/DOM child delegation:** [current DOM behavior and restart gate](CURRENT_PLAN.md), [live Chrome acceptance checkpoint](CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md), [diagnostics](DELEGATION_DIAGNOSTICS.md).
-- **Target product ownership:** [GitHub-first target architecture](TARGET_PRODUCT_ARCHITECTURE.md).
+**Separate, earlier working path:** the **legacy DOM** Conversation Fabric
+accepted one and three reasoning children on Bridge 0.8.13 (2026-10-08).
+See [legacy current plan](CURRENT_PLAN.md) and
+[historical 0.8.13 acceptance](CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md).
+Legacy DOM parallel acceptance does **not** prove GitHub-first private
+multi-child support.
 
-Older handoff prompts and pre-publisher plans are historical evidence; follow the current handoff above, not stale SHA references or prior suggested work.
-
-## Historical legacy DOM live status (2026-10-08, installed 0.8.13)
-
-- **PASS:** one verification child in campaign `cf-a9f08cda8905ab33`.
-- **PASS:** three parallel research/verification/integration children in campaign `cf-df084c77d84a5929`.
-- Both campaigns reported stable capture and automatic owned-tab cleanup in the operator's normal Chrome.
-- **NOT YET LIVE-VERIFIED:** reload/restart of the extension while children are running, with claim-safe recovery and no replay.
-- An earlier child attempt failed when its tab was manually closed before Bridge collected a valid legacy completion footer. It is historical failure evidence, not an active campaign.
+The [2026-10-10 E2E readiness runbook](E2E_READINESS_2026-10-10.md)
+records the earlier **pre-live** gate and is historical for the private path.
+[TARGET_PRODUCT_ARCHITECTURE.md](TARGET_PRODUCT_ARCHITECTURE.md) is the
+future target, not an implementation-status report.
 
 ## Responsibility boundaries
 
