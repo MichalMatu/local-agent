@@ -159,6 +159,9 @@ def reserve_launch_once(state_dir: Path, item: OperatorWorkItem) -> bool:
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.parent.is_symlink():
         raise RuntimeError("operator launch fence directory is unsafe")
+    # A new launches/ directory must survive a crash as well as the marker.
+    # Persist its entry before committing the one-shot launch reservation.
+    fsync_directory(path.parent.parent)
     encoded = json.dumps(
         {
             "schema_version": 1,
