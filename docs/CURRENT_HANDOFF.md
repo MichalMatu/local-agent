@@ -1,4 +1,6 @@
-# Current handoff — Tool Runtime Phase C and Bridge 0.8.13 checkpoint
+# Current handoff — Tool Runtime Phase C and Chat Bridge readiness
+
+> **2026-10-10 release/E2E checkpoint:** `main@9041a2a55c708cb78c390ca366b79320401bea9c` merged #227 and #242 via #272. Canonical Mac integrated suite passed at `f7d47a182c22aac0959d400c6494aabf95a70237`; the daemon then self-updated and returned `idle`. Exactly four permanent branches remained and no PR was open at that checkpoint. The current repository Bridge manifest is **0.8.14**, while the 0.8.13 installed Chrome acceptance below is historical. Use [2026-10-10 E2E readiness](conversation_fabric/E2E_READINESS_2026-10-10.md) for current tests. The private GitHub-first browser Send/ACK remains disabled.
 
 > **Track routing (2026-10-09):** This document remains the Local Agent
 > **Milestone 7 Tool Runtime / existing DOM Bridge** handoff. For the active
@@ -13,7 +15,7 @@ Updated: **2026-10-08**. Source baseline at start of this documentation handoff:
 
 ### Conversation Fabric / Chat Bridge
 
-- Installed operator Chrome reported **Chat Bridge 0.8.13**, content protocol **v26** after extension and parent-tab reload.
+- At the **2026-10-08 historical live acceptance**, operator Chrome reported **Chat Bridge 0.8.13**, content protocol **v26**. The current repository source is 0.8.14; installation in operator Chrome has not been independently reverified for the current build.
 - **Live acceptance PASS:** one-child campaign `cf-a9f08cda8905ab33` and three-child parallel campaign `cf-df084c77d84a5929`. In both, the worker reported stable result capture, automatic exact-tab cleanup and parent feedback.
 - The earlier `cf-0c2fd2d492856bc8` failure was closed without automatic replay; its child tab was closed manually after a missing legacy completion footer.
 - **Remaining Fabric live test:** service-worker/extension reload *during* an active new campaign, followed by exact-claim result recovery and no duplicate bootstrap or terminal feedback. Existing Chromium CI already exercises controlled worker recovery, but live Chrome interruption is not yet accepted.
@@ -53,6 +55,6 @@ The dated Phase B handoff and historical Conversation Fabric isolated-profile in
 ## Verification / branch hygiene
 
 - Start every code change from the latest `main`; keep the diff small, add focused regression coverage and review actual ownership/partial-effect behavior.
-- Require all six exact-head CI jobs: `test`, `coverage`, `python-314`, `absorbed-host-ops`, `bridge-browser`, `macos-smoke`, plus bounded live acceptance when browser/device runtime semantics change.
+- **Current operator override:** GitHub Actions are manual-only and must not be dispatched. Replace the historical six hosted-job rule with exact-head canonical Mac/sandbox checks in `conversation_fabric/LOCAL_VERIFICATION.md`; unavailable gates remain UNVERIFIED. Live browser acceptance remains separate.
 - Use connected GitHub source edits when reviewable diff and CI suffice; machine/device/local Chrome execution requires an authorized machine executor.
 - Source branches `work/*` are disposable **after exact PR state is verified**. Never touch `main` or control/evidence branches. Branch audit and deletion limitations: [2026-10-08 checkpoint](conversation_fabric/CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md).
