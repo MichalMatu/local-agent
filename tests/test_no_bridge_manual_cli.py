@@ -342,5 +342,32 @@ class NoBridgeOperatorCLITests(unittest.TestCase):
         self.assertIn("pip install", second["task"]["commands"][0])
 
 
+    def test_nonfinite_exponent_and_recursion_refuse_with_redacted_error(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "observation.json"
+            path.write_text('{"count":1e999}', encoding="utf-8")
+            code, output, error = invoke([
+                "export", "--input", str(path),
+                "--pinned-source-sha", HEAD,
+                "--destination-parent-url", DEST,
+            ])
+            self.assertEqual(code, 2)
+            self.assertEqual(output, "")
+            self.assertIn("refused", error)
+            self.assertNotIn("Traceback", error)
+
+            with mock.patch.object(cli.json, "loads", side_effect=RecursionError("PRIVATE_INPUT")):
+                code, output, error = invoke([
+                    "export", "--input", str(path),
+                    "--pinned-source-sha", HEAD,
+                    "--destination-parent-url", DEST,
+                ])
+            self.assertEqual(code, 2)
+            self.assertEqual(output, "")
+            self.assertIn("refused", error)
+            self.assertNotIn("PRIVATE_INPUT", error)
+            self.assertNotIn("Traceback", error)
+
+
 if __name__ == "__main__":
     unittest.main()
