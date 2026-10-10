@@ -116,10 +116,13 @@ class PrivateLivePublisherTests(unittest.TestCase):
 
     def test_invalid_scope_and_orphan_fail_closed(self):
         self.operator["workflow_id"] = "unapproved-workflow"
+        for child in self.children:
+            child["workflow_id"] = "unapproved-workflow"
         with self.assertRaises(PermissionError):
             self.publish()
         self.assertEqual(self.api.operations, [])
         self.operator = operator_request()
+        self.children = admitted_children()
         dispatch = dispatch_contract.build_github_fabric_dispatch(self.operator, self.children)
         self.api.snapshots[self.api.head][catalog.dispatch_path(dispatch["id"])] = json.dumps(dispatch)
         with self.assertRaisesRegex(ValueError, "unindexed dispatch"):
