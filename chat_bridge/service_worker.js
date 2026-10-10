@@ -8,6 +8,7 @@ importScripts(
   "worker_binding.js",
   "worker_schedule.js",
   "worker_github_control.js",
+  "worker_task_result_wake.js",
   "worker_transport.js",
   "worker_controls.js",
   "worker_delivery.js",

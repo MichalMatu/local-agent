@@ -9,14 +9,21 @@ function serializeGithubControlOperation(operation) {
 }
 
 function githubControlSignature(control) {
-  return JSON.stringify([
+  // Preserve the exact pre-0.8.14 signature for controls without a watch.
+  // Installed Chrome stores that signature durably; changing its shape
+  // would incorrectly reject every unchanged generation after upgrade.
+  const identity = [
     control.conversationId,
     control.controlGeneration,
     control.enabled,
     control.intervalMinutes,
     control.nextWakeAt,
     control.updatedAt
-  ]);
+  ];
+  if (control.taskResultWatch) {
+    identity.push(control.taskResultWatch.repositoryId, control.taskResultWatch.taskId);
+  }
+  return JSON.stringify(identity);
 }
 
 function githubControlPreservedLocalSafety(conversation, fresh) {

@@ -96,6 +96,23 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(h.storage.bridgeState.conversations[chatId].generation, stableGeneration);
   assert.equal(h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime, stableScheduled);
 
+  // 0.8.13 persisted a six-field signature. 0.8.14 must compare that
+  // identical signature when no task-result watch is configured, without
+  // requiring an unrelated generation mutation or rejecting the schedule.
+  const pre0814Signature = JSON.stringify([
+    chatId,
+    control.control_generation,
+    control.enabled,
+    control.interval_minutes,
+    new Date(control.next_wake_at).toISOString(),
+    new Date(control.updated_at).toISOString()
+  ]);
+  assert.equal(h.storage.bridgeGithubControlApplied[chatId].controlSignature, pre0814Signature);
+  reconcile = await h.evaluate("reconcileGithubConversationControls()");
+  assert.equal(reconcile.conflicts.length, 0);
+  assert.equal(reconcile.applied.length, 0);
+  assert.equal(h.storage.bridgeState.conversations[chatId].generation, stableGeneration);
+
   // Chrome may lose one conversation alarm without a change to GitHub or
   // the local conversation generation. Repair a future deadline only.
   h.alarms.delete(`local-agent-chat:${chatId}`);
