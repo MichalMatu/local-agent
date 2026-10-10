@@ -156,5 +156,67 @@ class BrowserSourceExclusionTests(unittest.TestCase):
                 guard.audit_browser_source_exclusion(REPO_ROOT)
 
 
+    def test_extra_worker_import_refused_even_when_source_looks_harmless(self):
+        original = guard._read_text
+
+        def injected(directory, name):
+            source = original(directory, name)
+            if name == "service_worker.js":
+                old = '  "worker_events.js"\n);'
+                self.assertIn(old, source)
+                return source.replace(
+                    old, '  "worker_events.js",\n  "unreviewed_effect.js"\n);'
+                )
+            return source
+
+        with mock.patch.object(guard, "_read_text", side_effect=injected):
+            with self.assertRaisesRegex(ValueError, "bootstrap import identity"):
+                guard.audit_browser_source_exclusion(REPO_ROOT)
+
+    def test_reordered_worker_imports_refused_for_same_source_set(self):
+        original = guard._read_text
+
+        def reordered(directory, name):
+            source = original(directory, name)
+            if name == "service_worker.js":
+                first = '  "worker_state.js",\n  "worker_runtime.js",'
+                second = '  "worker_runtime.js",\n  "worker_state.js",'
+                self.assertIn(first, source)
+                return source.replace(first, second)
+            return source
+
+        with mock.patch.object(guard, "_read_text", side_effect=reordered):
+            with self.assertRaisesRegex(ValueError, "bootstrap import identity"):
+                guard.audit_browser_source_exclusion(REPO_ROOT)
+
+    def test_additional_static_nested_worker_import_refused(self):
+        original = guard._read_text
+
+        def nested(directory, name):
+            source = original(directory, name)
+            if name == "worker_base.js":
+                old = '"github_control_model.js");'
+                self.assertIn(old, source)
+                return source.replace(
+                    old, '"github_control_model.js", "unreviewed_effect.js");'
+                )
+            return source
+
+        with mock.patch.object(guard, "_read_text", side_effect=nested):
+            with self.assertRaisesRegex(ValueError, "nested worker import identity"):
+                guard.audit_browser_source_exclusion(REPO_ROOT)
+
+    def test_reviewed_worker_import_baseline_is_exact(self):
+        root = REPO_ROOT / "chat_bridge"
+        self.assertEqual(
+            guard._worker_imports(guard._read_text(root, "service_worker.js")),
+            guard._WORKER_BOOTSTRAP,
+        )
+        self.assertEqual(
+            guard._nested_worker_imports(guard._read_text(root, "worker_base.js")),
+            guard._WORKER_NESTED_IMPORTS["worker_base.js"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
