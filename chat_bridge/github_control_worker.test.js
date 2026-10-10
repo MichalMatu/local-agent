@@ -96,6 +96,34 @@ const { createHarness } = require("./worker_test_harness.js");
   assert.equal(h.storage.bridgeState.conversations[chatId].generation, stableGeneration);
   assert.equal(h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime, stableScheduled);
 
+  // Chrome may lose one conversation alarm without a change to GitHub or
+  // the local conversation generation. Repair a future deadline only.
+  h.alarms.delete(`local-agent-chat:${chatId}`);
+  reconcile = await h.evaluate("reconcileGithubConversationControls()");
+  assert.equal(reconcile.applied.length, 0);
+  assert.equal(h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime, stableScheduled);
+  assert.equal(h.storage.bridgeState.conversations[chatId].generation, stableGeneration);
+  assert.equal(h.sentMessages.length, 0, "alarm repair must not submit a prompt");
+
+  // A missing alarm with a consumed/past local deadline must NOT be
+  // rearmed by replaying the same GitHub generation.
+  h.alarms.delete(`local-agent-chat:${chatId}`);
+  h.storage.bridgeState.conversations[chatId].nextRunAt = new Date(Date.now() - 2000).toISOString();
+  reconcile = await h.evaluate("reconcileGithubConversationControls()");
+  assert.equal(reconcile.applied.length, 0);
+  assert.equal(h.alarms.has(`local-agent-chat:${chatId}`), false);
+  assert.equal(h.sentMessages.length, 0);
+
+  // Disabled global Master is a hard guard even with a future stored wake.
+  h.storage.bridgeState.conversations[chatId].nextRunAt = new Date(stableScheduled).toISOString();
+  h.storage.bridgeState.settings.masterEnabled = false;
+  reconcile = await h.evaluate("reconcileGithubConversationControls()");
+  assert.equal(h.alarms.has(`local-agent-chat:${chatId}`), false);
+  h.storage.bridgeState.settings.masterEnabled = true;
+  reconcile = await h.evaluate("reconcileGithubConversationControls()");
+  assert.equal(h.alarms.get(`local-agent-chat:${chatId}`)?.scheduledTime, stableScheduled);
+  assert.equal(h.storage.bridgeState.conversations[chatId].generation, stableGeneration);
+
   // Once GitHub manages this binding, legacy assistant/operator schedule controls are no-ops.
   response = await h.sendRuntimeMessage({
     type: "bridge:assistant-control",
