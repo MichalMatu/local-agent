@@ -464,7 +464,12 @@ historic private claim-only dispatch were left untouched.
   `local-agent-fabric-effect-intents-cas-gate-20261010-v1`
   at `3961561149bb0d7cf8474cd0c21fa97e12cfbb89`:
   **PASS / exit 0** (8 CAS + 8 policy tests + Ruff).
-  Full exact-HEAD Fabric/Bridge acceptance remains to be recorded below.
+  Mac full source task `local-agent-fabric-send-effect-full-source-20261010-v1`
+  at exact source `8d3af03bc7df794322bac8329dacb4571666197e`
+  **PASS / exit 0**: Python compile, all Fabric Python tests, Ruff,
+  complete Bridge Node suite and clean checkout. No Chrome effects.
+  The following documentation-only commit still requires a final
+  exact-HEAD sanity gate.
 
 ### FAIL / corrected
 
