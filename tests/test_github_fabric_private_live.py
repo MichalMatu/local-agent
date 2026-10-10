@@ -129,6 +129,60 @@ class PrivateLivePublisherTests(unittest.TestCase):
             self.publish()
         self.assertEqual(len(self.api.commits), 0)
 
+    def test_private_github_request_index_to_dispatch_and_replay(self):
+        source_id = self.operator["id"]
+        index = json.dumps({"schema_version": 1, "request_ids": [source_id]})
+        source = json.dumps({
+            "schema_version": 1,
+            "operator_request": self.operator,
+            "child_requests": self.children,
+        })
+        self.api.snapshots[self.api.head][live.REQUEST_INDEX] = index
+        self.api.trees["b" * 40][live.REQUEST_INDEX] = index
+        source_path = live.REQUEST_ROOT + source_id + ".json"
+        self.api.snapshots[self.api.head][source_path] = source
+        self.api.trees["b" * 40][source_path] = source
+        result = live.stage_private_queued_request(
+            source_id, enabled=True, writer_authorized=True, api=self.api
+        )
+        self.assertEqual(result.status, "converged")
+        self.assertEqual(len(self.api.commits), 1)
+        replay = live.stage_private_queued_request(
+            source_id, enabled=True, writer_authorized=True, api=self.api
+        )
+        self.assertEqual(replay.status, "replay")
+        self.assertEqual(len(self.api.commits), 1)
+
+        # Mutable same-ID source cannot create a second browser dispatch.
+        changed = copy.deepcopy(self.children)
+        changed[0]["scope"]["summary"] += " modified"
+        self.api.snapshots[self.api.head][source_path] = json.dumps({
+            "schema_version": 1,
+            "operator_request": self.operator,
+            "child_requests": changed,
+        })
+        with self.assertRaisesRegex(ValueError, "same operator request ID"):
+            live.stage_private_queued_request(
+                source_id, enabled=True, writer_authorized=True, api=self.api
+            )
+        self.assertEqual(len(self.api.commits), 1)
+
+    def test_private_request_unindexed_denied_before_any_write(self):
+        self.api.snapshots[self.api.head][live.REQUEST_INDEX] = json.dumps({
+            "schema_version": 1, "request_ids": []
+        })
+        with self.assertRaisesRegex(PermissionError, "not indexed"):
+            live.stage_private_queued_request(
+                self.operator["id"], enabled=True, writer_authorized=True, api=self.api
+            )
+        self.assertEqual(len(self.api.commits), 0)
+        with self.assertRaises(PermissionError):
+            live.stage_private_queued_request(self.operator["id"], api=self.api)
+        with self.assertRaises(ValueError):
+            live.stage_private_queued_request(
+                "../escape", enabled=True, writer_authorized=True, api=self.api
+            )
+
     def test_access_denied_does_not_fallback_public(self):
         self.api.deny_next_request = True
         with self.assertRaises(git.GithubFabricHTTPError) as error:
