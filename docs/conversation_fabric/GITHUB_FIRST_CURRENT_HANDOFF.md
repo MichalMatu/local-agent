@@ -429,6 +429,84 @@ feature toggle, popup launch, new browser claim or Send behavior.
    explicit operator consent **before** any real installed Chrome
    extension reload or browser Send.
 
+## Continuation checkpoint — 2026-10-10, per-child global pre-effect intent CAS
+
+**Source-only / no browser authority.** Fixed working branch
+`work/fabric-github-first-live-mvp`; previous installed extension and the
+historic private claim-only dispatch were left untouched.
+
+### PASS — implemented and independently tested
+
+- New `github_fabric_effect_intents.py` defines immutable deterministic
+  child effect IDs derived from parent, epoch, owner, dispatch and spawn
+  transaction; bounded ordered per-child state `send_unknown`,
+  `result_verified` and `frozen_unknown`; monotonic revisions; permanent
+  no-replay for an already armed child.
+- New `github_fabric_effect_intents_github.py` implements opt-in private
+  `fabric-data` Git Data CAS on the single parent effects ledger path.
+  It checks current indexed private dispatch, owner and epoch at a single
+  pinned HEAD; writes with a non-force ref update; on lost PATCH ACK it
+  reconciles by read-back **without repeating the write or issuing Send
+  authority**. A competing ref or owner blocks; unreadable outcome remains
+  uncertain.
+- Independent child results can advance only against matching private
+  claim/ACK/result evidence from one pinned commit. A second child cannot
+  arm until the first is verified; false partial success, missing receipt,
+  old child replay, owner drift and compromised ledger fail closed.
+- The new [universal pre-effect contract](GITHUB_FIRST_PRE_EFFECT_FENCE_CONTRACT.md)
+  documents the safe path, remaining universal legacy/JS fence design and
+  the distinction between `recorded_no_send` and an actual browser permit.
+- Mac exact-HEAD pure policy task
+  `local-agent-fabric-effect-intents-pure-gate-20261010-v2`
+  at `ab567e19ee5178ec6c6a981211bc7e01fa14477d`:
+  **PASS / exit 0** (8 tests + Ruff).
+  Mac isolated Git CAS gate
+  `local-agent-fabric-effect-intents-cas-gate-20261010-v1`
+  at `3961561149bb0d7cf8474cd0c21fa97e12cfbb89`:
+  **PASS / exit 0** (8 CAS + 8 policy tests + Ruff).
+  Full exact-HEAD Fabric/Bridge acceptance remains to be recorded below.
+
+### FAIL / corrected
+
+- The first pure policy gate
+  `local-agent-fabric-effect-intents-pure-gate-20261010-v1` failed a
+  **single wrong expected exception message**. The model correctly blocked
+  a completed owner. The assertion was fixed; v2 and CAS tests passed.
+- The historic private dispatch
+  `fabric-13795c4be8cc6d08c8cda3120d6efebd` is still
+  **claim-only / browser Send unknown**. Never replay.
+
+### UNVERIFIED — release blocked
+
+- No real `fabric-data` effect write was performed, only fake Git Data API.
+  Candidate writer results always have `browser_send_authorized: false`.
+- **Universal Send fence does not exist yet.** Legacy DOM and GitHub-first
+  controllers are not simultaneously enrolled; neither active worker nor
+  installed MV3 extension imports the candidate journal/owner reader.
+- The read-only JS parent ownership reader predates the effects namespace
+  and rejects unrecognized effect-ledger paths. It must be extended with
+  bounded pinned effect validation before production integration.
+- No one-shot browser execution capability, cross-device TOCTOU proof,
+  isolated installed MV3 restart, real two-child Chrome Send or parent
+  synthesis acceptance is claimed. All remain explicit blockers.
+- No `main` mutation, PR merge, Chrome/Local Agent restart, extension
+  reload, browser Send, GitHub Actions or private branch mutation occurred.
+
+### Safe next sequence
+
+1. Validate effect-ledger evidence alongside parent epoch/history/witness in
+   the same pinned JS Git tree; never turn read-only observation into a
+   Send permission.
+2. Make parent acquisition and **all legacy/GitHub-first Send paths** consult
+   a single authoritative, atomic pre-effect protocol. Require no automatic
+   takeover/retry after uncertain effects.
+3. Extend focused tests to competing drivers/devices, lost ref ACK before
+   and after update, stale cached read, MV3 suspension at every phase and
+   empty/offline token denial.
+4. Run exact-HEAD Mac and isolated MV3 gates. Request **separate explicit
+   operator approval** before installed extension reload or a real browser
+   trial.
+
 ## Earlier accepted multi-child scope (still not live authorized)
 
 Build and independently test **multi-child GitHub-first dispatch** in small
