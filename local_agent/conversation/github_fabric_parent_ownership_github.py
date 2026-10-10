@@ -326,6 +326,17 @@ def acquire_parent_candidate(
         api = private_git.PrivateFabricREST(token)
     snapshot = _snapshot(api, dispatch_id)
     identifier = policy.parent_id(snapshot.dispatch["parent_conversation_url"])
+    # Historical identity denial precedes current-owner policy: even if a
+    # newer epoch is active, an older dispatch can never be queued again.
+    exact_active_replay = (
+        snapshot.parent is not None and snapshot.parent["phase"] == "active"
+        and snapshot.parent["dispatch_id"] == dispatch_id
+        and snapshot.parent["owner_id"] == owner_id
+    )
+    if (not exact_active_replay and snapshot.history is not None
+            and any(item["dispatch_id"] == dispatch_id or item["owner_id"] == owner_id
+                    for item in snapshot.history["entries"])):
+        raise PermissionError("Private parent historic dispatch/owner replay denied")
     operation, candidate = policy.propose_acquisition(
         snapshot.dispatch, owner_id, existing=snapshot.parent,
     )
@@ -333,10 +344,6 @@ def acquire_parent_candidate(
         return ParentCandidateResult(
             "replay", snapshot.head, identifier, candidate["fence_epoch"]
         )
-    if (snapshot.history is not None and
-            any(item["dispatch_id"] == dispatch_id or item["owner_id"] == owner_id
-                for item in snapshot.history["entries"])):
-        raise PermissionError("Private parent historic dispatch/owner replay denied")
 
     if snapshot.history is not None and len(snapshot.history["entries"]) >= MAX_EPOCHS:
         raise ValueError("Private parent epoch capacity reached; manual review required")
