@@ -33,7 +33,7 @@
   }
 
   function receiptPath(dispatch, childRequestId, kind) {
-    if (!["ack", "result"].includes(kind)) {
+    if (!["claim", "ack", "result"].includes(kind)) {
       throw new Error("Private Fabric receipt kind invalid");
     }
     return "projects/local-agent/workflows/workflow-001/receipts/" +
@@ -162,6 +162,27 @@
     return { status: "ambiguous", path };
   }
 
+  async function claimBrowserChild({
+    enabled = false, writeToken, fetchImpl = globalThis.fetch,
+    dispatch, childRequestId, ownerId
+  } = {}) {
+    const child = validateInput({ enabled, writeToken, dispatch, childRequestId });
+    if (typeof ownerId !== "string" ||
+        !/^[a-f0-9]{32}$/.test(ownerId)) {
+      throw new Error("Private Fabric browser claim requires immutable owner identity");
+    }
+    const record = {
+      schema_version: 1, kind: "browser_child_claim",
+      dispatch_id: dispatch.id, child_request_id: childRequestId,
+      spawn_transaction_id: child.spawn.transaction_id,
+      parent_conversation_url: dispatch.parent_conversation_url,
+      owner_id: ownerId
+    };
+    return createOnce({
+      writeToken, fetchImpl, path: receiptPath(dispatch, childRequestId, "claim"), record
+    });
+  }
+
   async function publishBrowserAck({
     enabled = false, writeToken, fetchImpl = globalThis.fetch,
     dispatch, childRequestId, childConversationUrl
@@ -177,6 +198,15 @@
       bootstrap_digest: child.spawn.bootstrap_digest,
       child_conversation_url: childConversationUrl
     };
+    const claimed = await readExisting(
+      fetchImpl, writeToken, receiptPath(dispatch, childRequestId, "claim")
+    );
+    if (claimed?.kind !== "browser_child_claim" ||
+        claimed.dispatch_id !== dispatch.id ||
+        claimed.child_request_id !== childRequestId ||
+        claimed.spawn_transaction_id !== child.spawn.transaction_id) {
+      throw new Error("Private Fabric ACK requires durable matching child claim");
+    }
     return createOnce({
       writeToken, fetchImpl, path: receiptPath(dispatch, childRequestId, "ack"), record
     });
@@ -216,6 +246,6 @@
   }
 
   return Object.freeze({
-    API, BRANCH, receiptPath, publishBrowserAck, publishBrowserResult
+    API, BRANCH, receiptPath, claimBrowserChild, publishBrowserAck, publishBrowserResult
   });
 });
