@@ -4,6 +4,98 @@
 All source SHAs and PR states below are **observations at handoff**, not locks;
 re-read GitHub before code edits, task publication or merge.
 
+## Latest current checkpoint — 2026-10-09
+
+This checkpoint supersedes the historical SHA snapshots and old mandatory
+six-job hosted-CI wording below. GitHub Actions are disabled for automatic
+runs and must not be dispatched. Validate candidate heads via canonical Mac
+Local Agent or an isolated sandbox under `LOCAL_VERIFICATION.md`.
+
+At this snapshot, `main` is `f84129a37c102310d74d7176f9156f90b603c39d`
+(merged #233 local test gate, #234 strict JSON type parity, #235 strict parent
+tree root reader, #236 HTTP no-redirect for token-bearing public GitHub REST).
+Draft #209 is `cc7fcd80e111b54dc2574c92ba07d3b4dacb0d43`, and stacked
+draft #214 is `9d1d2d3adb8d8a145d870260297966911d3324f7`.
+Every SHA is only a recorded observation: recheck GitHub live heads.
+
+The latest #214 exact-head focused Mac task
+`local-agent-m8-private-tree-atomic-proof-20261009-v1` passed 57/57 Python
+tests, reader/no-Send guard JS, compile and Ruff. Full Mac coverage/native
+and exact-head Chromium tasks were separately queued; do not count them as
+PASS unless their terminal result can be inspected. #209/#214 still lack
+independent security/integration approval and real shared browser-side
+parent admission, including legacy/offline worker exclusion. Both remain
+**draft and unmerged**. No private `parents/` record, actual GitHub-first
+Send, ACK or result was published. Current production remains legacy DOM.
+
+## Current operator override — 2026-10-09: no GitHub Actions
+
+**Binding development rule:** hosted runner credits are exhausted until the
+operator chooses otherwise. `main@09d646fbd6a701801c6eda56ea148f259d4adaf9`
+changed `.github/workflows/ci.yml` to **manual `workflow_dispatch` only**:
+no `push` or `pull_request` activation. The workflow is retained for possible
+future explicit operator activation, but **do not dispatch it**. Pending
+historical workflow runs and older handoff references to mandatory six-job
+CI are not current acceptance gates and must not be treated as successful.
+
+Use the **exact commit SHA** and the Mac's canonical `local-agent` binding
+(or an isolated local sandbox) for `scripts/verify.py` and relevant Host Ops,
+coverage, macOS/Chromium checks. Persist full command status and bounded
+output on the `agent-control` result. See `LOCAL_VERIFICATION.md` for the
+current gate. Skip only with an explicit unverified marker; never invent a
+successful Mac/browser/Python-3.14 result. Missing independent security and
+integration reviews still block #209 and #214 merges. Live GitHub-first
+private Send/ACK remains disabled and the legacy DOM mode remains active.
+
+The sections below retain historical source observations for audit only.
+Superseded handoff PR #231 and CI-concurrency PR #232 were closed unmerged.
+Always re-read the current heads and preserve the manual-only workflow.
+
+## Historical audit snapshot — after PR #226 (superseded)
+
+This section records a **read-only audit**, not live browser/Mac acceptance and
+not permission to publish an executable task. All refs must be re-read before
+further code changes.
+
+- **PR #226 merged**, squash `b67ad098edb0a7a1acd2d3fed32a77480c99ddd0`, after the exact-head
+  `377f7ce89ed1623759e0cb9aa69081ffd8f72f41` workflow completed
+  all six required CI jobs successfully. It preserves the current ordinary
+  Superchat/legacy DOM flow and adds a manual-only next-window prompt.
+- Private `fabric-data` remained at
+  `b834209d99f088e093d503632717ae0aaeafbf7f` with no `parents/`
+  tree entries on the inspected snapshot. No new private synthetic parent
+  record, real Send, ACK, or result was published by this review.
+- The observed `agent-control` status at branch
+  `c5c4f9603a87064c26cfb41d66dabf31dee4f575` was `idle`,
+  self-revision `186ad66480d884670e7043edd7fca340dca2eb9f`,
+  binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; that was an
+  observation **before** the #226 merge and is not proof of current Mac health.
+  The corresponding `.agent/binding.json` and the `local-agent` entry of
+  `chat_bridge/runtime.json` matched this binding at inspection.
+- **Catalog inconsistency for separate investigation:** the current
+  `chat-bridge-state` runtime catalog still lists the frozen donor
+  `MichalMatu/host-ops` with `execution_enabled=true`, contrary to the
+  canonical execution boundary in `AGENTS.md`. Do not execute or route
+  tasks there. Resolve the actual authoritative runtime registry and
+  migration status before touching catalog flags or changing bindings.
+- Draft #209 remained source-only and fixture-limited on head
+  `bf867e5d433cfdb0ebefccd0ec3ba8bf9c6e1e20`; stacked draft #214
+  remained at `9e64517bdb4f5f1ddce20ef0e1758a9f3dd5af22`.
+  Both exact-head workflow runs completed successfully, but the two earlier
+  delegated **independent** security/integration review responses were not
+  evidenced in PR reviews/threads. Do not invent them, re-delegate blindly,
+  or merge either draft based on CI alone.
+- **Historical #214 review gap, fixed in later drafts:** the earlier Python CAS origin reader checked
+  parent-tree paths but does not verify Contents decoded blob bytes against
+  the tree entry SHA. The separate JS private parent reader performs that
+  check. Later draft #214 source and negative tests now verify exact path,
+  metadata and decoded Git blob SHA-1; live mode admission is still absent.
+  Recorded in [#214 review comment](https://github.com/MichalMatu/local-agent/pull/214#issuecomment-6073474628).
+  The current old DOM path is not globally fenced by this synthetic preview.
+- #195 remains a deferred successor roadmap PR, and #227 is a separate
+  open draft concerning operator launch recovery. Do not conflate their
+  readiness with Milestone 8 GitHub-first production acceptance.
+
 ## 1. Goal and authority
 
 Product target: a Superchat on desktop/phone can explicitly rehydrate an
@@ -26,11 +118,19 @@ Conversation-specific scheduling/pacing changes require this chat's exact
 `conversation_controls` record and incremented `control_generation`.
 Do not use legacy LAB add/rebind/schedule markers for ordinary Superchat flow.
 
+**Operator decision (2026-10-09):** Keep using the current ordinary ChatGPT
+Superchat and working legacy DOM delegation for this development session.
+Defer automatic child-to-successor-Superchat promotion until the GitHub-first
+private transport, durable workflow/ACK/results and cross-device admission are
+actually complete. Prepare **manual** new-window handoff only from a stable
+GitHub checkpoint; use GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md, not automatic
+children that gain independent authority.
+
 ## 2. Revalidated source and remote state (2026-10-09)
 
 | Surface | Handoff observation |
 | --- | --- |
-| Public code repo | `MichalMatu/local-agent`, `main@a5d92bdb3ffa0367c5d3cea125f61c0ccc594d46` |
+| Public code repo | `MichalMatu/local-agent`, `main@b67ad098edb0a7a1acd2d3fed32a77480c99ddd0` |
 | Private data repo | `MichalMatu/local-agent-fabric-private`, `fabric-data@b834209d99f088e093d503632717ae0aaeafbf7f` |
 | Local Agent | `agent-control` daemon `idle` at recheck; observed self revision `a1ba2be840098a727e9de06323ae8625955a6e1e` (may lag latest `main`; re-check) |
 | Canonical executable catalog entry | `local-agent` / `MichalMatu/local-agent`, execution enabled, binding `2180d453-1357-4fbc-be1a-e1e5b8fbb10a`; **re-check, do not hard-code** |
@@ -49,6 +149,10 @@ Do not use legacy LAB add/rebind/schedule markers for ordinary Superchat flow.
 | PR #219 | **MERGED**, authenticated Mac GET-only twice-read private parent namespace absence smoke, squash `3004a75b38b4621b5417cf26c04c539ef421c842` |
 | PR #220 | **MERGED**, production Bridge private-import and GitHub-first no-Send regression test; Mac and exact-head six CI checks passed; squash `2654e9a04e4bec7eadc36c5d99c5a82e04239d67` |
 | PR #221 | **MERGED**, private parent reader five-second headers/body abort deadline; exact-head Mac Bridge suite and all six CI checks passed; squash `a5d92bdb3ffa0367c5d3cea125f61c0ccc594d46` |
+| PR #222 | **MERGED**, latest prior canonical handoff checkpoint; squash `40c854d5112028aecf8dfcfad17b0130e8f005e1` |
+| PR #223 | **MERGED**, unconfirmed legacy DOM terminal feedback now appears as `assumed` in operator snapshot and inspect rather than falsely `delivered`; exact-head Mac + six CI passed; squash `8bbd46f29ef1aa2a562660c1fd627c98d533df03` |
+| PR #224 | **CLOSED / SUPERSEDED** by #225 due conflicts after #223 merged; not merged |
+| PR #225 | **MERGED**, unknown terminal feedback no-prune and bounded fail-closed retention, exact-head Mac and six CI checks passed; squash `186ad66480d884670e7043edd7fca340dca2eb9f` |
 
 Two reasoning-only child reviews were delegated in an earlier Chat Bridge
 parent conversation: `m8-parent-fence-verification` (security/correctness)
@@ -160,7 +264,8 @@ have been authorized in this private repository.
 | Legacy browser Send/claim and results | `chat_bridge/worker_conversation_fabric.js`, `worker_spawn*.js`, `spawn_result_content.js` |
 | Inactive browser GitHub intake | `chat_bridge/worker_github_fabric_intake.js`, `github_fabric_private_transport.js` |
 | Target product rules | `TARGET_PRODUCT_ARCHITECTURE.md`; repository-wide invariants `AGENTS.md` |
-| Existing DOM behavior | `CURRENT_PLAN.md`; separate live restart test `NEXT_CHAT_PROMPT.md` |
+| Existing DOM behavior | `CURRENT_PLAN.md`; separate live restart test `NEXT_CHAT_PROMPT.md`; `assumed` feedback operator status (#223) and durable no-prune retention (#225), both merged |
+| Manual new-window continuation | `GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md`; **not** automatic Superchat succession |
 
 ## 6. Safe next work, in order
 
@@ -169,14 +274,14 @@ have been authorized in this private repository.
    Re-review **latest** PR #209 source, tests, global parent ID, conflicts
    and the distinction between simulated fencing and live enforcement.
 2. If reviews warrant it, make the smallest PR #209 corrections, run exact
-   head focused tests via canonical Local Agent and all six CI jobs; merge
+   head focused tests via canonical Local Agent and applicable exact-head Mac/sandbox gates; merge
    only after passing review and GitHub mergeability. Otherwise leave draft
    and explain blocker.
 3. Review the separate PR #214 implementation for synthetic-only private CAS.
    It has atomic parent record+index commits, pinned complete-tree reads,
    race tests and strict zero-write replay. **Do not merge the stacked draft**
    before PR #209's outstanding review gate is resolved, then revalidate
-   its base and six CI checks. No real private parent publication occurred.
+   its base and exact-head local Mac/sandbox gates. No real private parent publication occurred.
 4. The browser reader is already merged in PR #216, but it is unimported
    and always denies side-effect authority. Next design/implement **both**
    transport consumers agreeing
@@ -188,9 +293,17 @@ have been authorized in this private repository.
    successfully (`local-agent-m8-main-private-three-surface-read-20261009-v1`)
    on its pinned earlier main SHA; do not mislabel it as evidence for later
    commits. No production Send/ACK or private parent write was attempted.
-6. Implement real evidence-bearing ACK/results, retirement and cross-device
+6. PR #225 is merged after exact-head Mac and six CI gates. Its predecessor
+   #224 was closed without merge after a conflict with #223. Never prune an
+   unconfirmed terminal notification as though its delivery were proved;
+   preserve no-replay semantics, and fail closed on history capacity saturation.
+7. Implement real evidence-bearing ACK/results, retirement and cross-device
    recovery in bounded gated PRs. Leave all new production flags disabled
    until real acceptance, not merely fixture CI.
+8. Postpone any automatic Superchat successor/promotion feature. The next
+   ChatGPT window is a user-chosen manual handoff from the durable checkpoint,
+   using GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md. A new chat must resolve its
+   own managed conversation controls and canonical repository binding.
 
 Use connected GitHub tooling for exact-source edits and PRs. Use Local Agent
 only for authorized Mac commands, tests, browser/device effects. Confirm
@@ -210,6 +323,9 @@ source files for the next task. The earlier
 Stage 8 `HANDOFF_PROMPT.md` is explicitly archival.
 `NEXT_CHAT_PROMPT.md` addresses a **different** legacy Chrome-reload
 acceptance exercise and should not be used as the GitHub-first kickoff.
+For an operator-approved manual new ChatGPT window, copy the prompt from
+`GITHUB_FIRST_NEXT_SUPERCHAT_PROMPT.md` after the current development checkpoint
+is stable. It confers no runtime handoff authority.
 
 This handoff is documentation of observed facts, not a standing authorization
 to spawn child chats, publish real prompts or execute machine commands.

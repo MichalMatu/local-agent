@@ -95,6 +95,19 @@ The bounded-parallel production coordinator is `local_agent/supervisor/orchestra
 
 ## Verification expectations
 
+**Operator decision (2026-10-09):** GitHub Actions automatic CI is disabled because
+hosted runner credits are exhausted. `.github/workflows/ci.yml` has **only**
+`workflow_dispatch`; never invoke it, re-enable `push`/`pull_request`, or
+reintroduce a required hosted check without the operator's explicit approval.
+For source PR acceptance, require deterministic tests on the **exact candidate
+commit** using the canonical bound Local Agent on Mac or an isolated sandbox.
+Record the source SHA, interpreter/tool versions, command, exit code, bounded
+output/result artifact and any skipped capabilities. A test that could not run
+is **not** a passing test; required Mac/Chromium or independent review gates
+remain blocked until their equivalent evidence exists. See
+`docs/conversation_fabric/LOCAL_VERIFICATION.md` for the offline gate matrix.
+
+
 - Keep `python scripts/verify.py` green for normal changes and use focused tests first when practical.
 - Use `python scripts/verify.py --profile macos-smoke` for release/installation/runtime boundary changes.
 - Bridge changes require the focused Node suite plus browser/DOM contract coverage when the content/transport boundary changes.

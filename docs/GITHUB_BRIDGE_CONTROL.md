@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the canonical scheduling/control contract for Chat Bridge `0.8.13`. GitHub desired state owns managed-chat pacing; Chat Bridge owns browser transport and browser-native Conversation Fabric; repository execution authorization remains exclusively at executable `.agent/tasks` after canonical runtime-catalog admission.
+This is the canonical scheduling/control contract for Chat Bridge `0.8.14`. GitHub desired state owns managed-chat pacing; Chat Bridge owns browser transport and browser-native Conversation Fabric; repository execution authorization remains exclusively at executable `.agent/tasks` after canonical runtime-catalog admission.
 
 Normal `STATUS`, `PAUSE`, `RESUME`, `NEXT` and `INTERVAL` operations for a managed conversation are not transported by assistant scheduling text. GitHub desired state in `chat_bridge/runtime.json` on `chat-bridge-state` is authoritative.
 
@@ -40,6 +40,55 @@ For a managed chat:
 - `INTERVAL`: increment generation and set `interval_minutes` or `null` for runtime default.
 
 The global Bridge Master switch is independent manual operator state and is never changed by a conversation desired-state record.
+
+## MVP: optional exact task-result wake (single active Chrome)
+
+A GitHub-managed parent may opt into one task-completion wake hint by adding
+`task_result_watch` **inside its exact `conversation_controls` record**:
+
+```json
+{
+  "conversation_id": "chat-00000000",
+  "control_generation": 2,
+  "enabled": true,
+  "interval_minutes": 10,
+  "next_wake_at": null,
+  "updated_at": "2026-10-10T07:00:00Z",
+  "task_result_watch": {
+    "repository_id": "local-agent",
+    "task_id": "exact-unique-task-id"
+  }
+}
+```
+
+The sample ID is illustrative, not a registration instruction. Select the
+actual repository from the canonical execution catalog and publish a legitimate
+bound task before watching its result. The repository must also be an enabled
+agent in the Bridge runtime catalog. This hint grants **no** execution right.
+Each new/changed watch is a desired-state mutation and therefore requires a
+strictly newer `control_generation`; same-generation rewrites are conflicts.
+
+Up to four task-result watches are accepted across one runtime configuration.
+
+The existing one-minute GitHub-control alarm reads the exact task's bounded
+public `agent-control/.agent/results/<task_id>.json` path. A missing result
+is inert. An exact terminal `done`, `failed` or `cancelled` result advances
+only the **ordinary conversation alarm** to the near future. It does not
+call Send, bypass current Chrome/parent/composer checks, create a new alarm
+owner, load task commands, or execute anything. Before changing the alarm,
+it revalidates current parent enablement, Master, applied signed generation
+and task identity, and records a bounded durable one-time claim.
+
+If the result is unavailable/oversized/ambiguous or the watcher cannot safely
+schedule, keep the ordinary 10-minute cadence as the fallback. A surviving
+ambiguous one-time claim is never replayed automatically. Remove
+`task_result_watch` and increment `control_generation` after the parent has
+processed the result. No watcher is configured by default; the deployed
+extension must be reloaded before this optional code can run.
+
+For MVP the supported topology stays one operator-controlled Mac and one
+active production Chrome session. No Android, additional production profile,
+CDP transport, GitHub credential in the extension, or new scheduler is added.
 
 ## Reconciliation/idempotence
 

@@ -68,17 +68,18 @@ LOCAL_AGENT_CF>>>
 - After worker restart, adopt only an exact transaction/request/bootstrap/current-child-URL claim; tab ID alone is insufficient.
 - Terminal feedback uses durable at-most-once delivery. An ambiguous send is not replayed automatically, and a newer campaign must not inherit the previous one's results/receipt.
 - A previously claimed but unconfirmed terminal feedback send remains **ambiguous**, even when the internal compatibility marker `feedback_delivered=true` suppresses replay. Operator/popup status must show `feedbackState=assumed`; scoped `inspect` must report `feedback_state=assumed` and a manual-reconciliation warning. Do not interpret the no-replay marker as proof that the parent received the message.
+- Historical pruning may discard only terminal campaigns whose feedback delivery was confirmed. An assumed/unconfirmed delivery claim is retained even if the compatibility `feedback_delivered` marker is set; if too many unresolved campaigns exhaust storage, reject new delegation with `conversation_fabric_history_full` rather than erase uncertain receipt evidence.
 - Diagnostic `control_rejected`, `control_worker_rejected`, `control_accepted` and `control_transport_failed` events are **observability**, not delegation/result proof. See [diagnostics](DELEGATION_DIAGNOSTICS.md).
 
 ## Remaining live acceptance
 
-**Not yet demonstrated in the operator's real Chrome:** controlled extension/MV3 worker reload **during an active campaign** and verified exact-claim recovery, no child-bootstrap replay, full capture, tab cleanup and no terminal-feedback duplication. Recovery behavior is covered by CI's Chromium harness, but the live interruption test is a separate gate. Optional remote Operator telemetry activation is also unverified.
+**Not yet demonstrated in the operator's real Chrome:** controlled extension/MV3 worker reload **during an active campaign** and verified exact-claim recovery, no child-bootstrap replay, full capture, tab cleanup and no terminal-feedback duplication. Recovery behavior is covered by the isolated Chromium harness when run locally, but the live interruption test is a separate gate. Optional remote Operator telemetry activation is also unverified.
 
 Recommended next test: one fresh, explicit bounded campaign with two reasoning children; keep child tabs open; trigger one controlled reload while they run; verify ownership, exact one-time bootstrap and completion, and inspect the resulting campaign and popup status. Do not replay the closed old failure.
 
 ## Verification and next work
 
-- Source gates: `bridge-browser`, `test`, `coverage`, `python-314`, `macos-smoke`, `absorbed-host-ops` on the **exact PR head**.
+- **Current source gate (operator override, 2026-10-09):** GitHub Actions automatic CI is disabled. Use exact-head Mac/sandbox verification for compile, Ruff, bridge Node tests, Python unit/integration, Host Ops, coverage and relevant native macOS/isolated Chromium smoke. See `LOCAL_VERIFICATION.md`; record unsupported checks as unverified, not passing. Historical hosted check names are no longer required for ongoing development. Independent safety/integration review and live browser acceptance gates are unchanged.
 - Existing harness: `scripts/conversation_fabric_dom_smoke.cjs` and `scripts/conversation_fabric_browser_smoke.cjs`. No second production browser controller.
 - Main development continues in **Milestone 7 Tool Runtime Phase C**, independently of Fabric live acceptance. See [current handoff](../CURRENT_HANDOFF.md).
 - Historical Stage 8 isolated-profile / older 0.8.x instructions remain historical evidence, not active operation.

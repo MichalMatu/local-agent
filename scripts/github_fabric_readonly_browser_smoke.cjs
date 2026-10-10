@@ -13,6 +13,33 @@ const extension = path.join(root, "chat_bridge");
 const runtimeUrl = "https://raw.githubusercontent.com/MichalMatu/local-agent/chat-bridge-state/chat_bridge/runtime.json";
 const recordRoot = "https://raw.githubusercontent.com/MichalMatu/local-agent/chat-bridge-state/.agent/conversation/browser_dispatches/";
 
+// This isolated browser smoke is a CI test, not a production worker. Do not
+// allow a stalled extension/CDP call or browser close to consume the whole
+// workflow without identifying the interrupted stage.
+let currentStage = "setup";
+const globalWatchdog = setTimeout(() => {
+  console.error(`GitHub Fabric read-only MV3 smoke exceeded 180s at: ${currentStage}`);
+  process.exit(124);
+}, 180_000);
+globalWatchdog.unref();
+
+async function bounded(label, operation, timeoutMs = 20_000) {
+  currentStage = label;
+  let timer;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(
+          `GitHub Fabric read-only MV3 ${label} exceeded ${timeoutMs}ms`
+        )), timeoutMs);
+      })
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function syntheticDispatch() {
   const python = [
     "import json",
@@ -30,19 +57,21 @@ function syntheticDispatch() {
 }
 
 async function start(profile) {
-  const context = await chromium.launchPersistentContext(profile, {
+  const context = await bounded("Chromium persistent launch", chromium.launchPersistentContext(profile, {
     channel: "chromium", headless: true,
     ignoreDefaultArgs: ["--disable-extensions"],
     args: ["--disable-background-networking",
       "--disable-extensions-except=" + extension, "--load-extension=" + extension]
-  });
-  await context.setOffline(true);
-  const worker = context.serviceWorkers()[0] || await context.waitForEvent("serviceworker");
+  }), 60_000);
+  await bounded("Chromium offline setup", context.setOffline(true));
+  const worker = context.serviceWorkers()[0] || await bounded(
+    "MV3 service worker startup", context.waitForEvent("serviceworker", { timeout: 20_000 })
+  );
   return { context, worker };
 }
 
 async function configure(worker, dispatch) {
-  return worker.evaluate(async ({ dispatch, runtimeUrl, recordRoot }) => {
+  return bounded("configure MV3 fixture", worker.evaluate(async ({ dispatch, runtimeUrl, recordRoot }) => {
     const parent = await upsertConversation({
       url: dispatch.parent_conversation_url, enabled: true
     });
@@ -76,21 +105,23 @@ async function configure(worker, dispatch) {
       });
     };
     return parent.id;
-  }, { dispatch, runtimeUrl, recordRoot });
+  }, { dispatch, runtimeUrl, recordRoot }));
 }
 
-const poll = worker => worker.evaluate(async () => pollGithubFabricReadOnlyIntake());
-const change = (worker, fields) => worker.evaluate(value => {
+const poll = worker => bounded("read-only intake poll", worker.evaluate(
+  async () => pollGithubFabricReadOnlyIntake()
+));
+const change = (worker, fields) => bounded("update fixture", worker.evaluate(value => {
   Object.assign(globalThis.__githubFabricTest, value);
-}, fields);
-const snapshot = worker => worker.evaluate(async () => ({
+}, fields));
+const snapshot = worker => bounded("snapshot worker storage", worker.evaluate(async () => ({
   seen: (await chrome.storage.local.get("bridgeGithubFabricReadOnlySeen"))
     .bridgeGithubFabricReadOnlySeen || {},
   campaigns: Object.keys(await chrome.storage.local.get(null))
     .filter(key => key.startsWith("conversation-fabric-campaign:")),
   tabs: (await chrome.tabs.query({})).length,
   requests: globalThis.__githubFabricTest.requests
-}));
+})));
 
 (async () => {
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), "fabric-readonly-mv3-"));
@@ -113,8 +144,10 @@ const snapshot = worker => worker.evaluate(async () => ({
     assert.ok(Object.hasOwn(original.seen, dispatch.id));
     assert.deepEqual(original.campaigns, []);
     assert.equal(original.tabs, baseline.tabs);
-    await active.worker.evaluate(() => chrome.storage.session.clear());
-    await active.context.close();
+    await bounded("clear browser session", active.worker.evaluate(
+      () => chrome.storage.session.clear()
+    ));
+    await bounded("first Chromium close", active.context.close(), 30_000);
 
     // Cold Chrome + MV3 restart must preserve the real storage.local ledger.
     active = await start(profile);
@@ -151,8 +184,11 @@ const snapshot = worker => worker.evaluate(async () => ({
     assert.equal(final.tabs, baseline.tabs);
     console.log("Installed MV3 GitHub Fabric read-only restart smoke passed.");
   } finally {
-    if (active) await active.context.close().catch(() => undefined);
-    await fs.rm(profile, { recursive: true, force: true });
+    if (active) await bounded("final Chromium close", active.context.close(), 30_000)
+      .catch(() => undefined);
+    await bounded("remove isolated Chrome profile", fs.rm(profile, {
+      recursive: true, force: true
+    }), 30_000);
   }
 })().catch(error => {
   console.error(error);

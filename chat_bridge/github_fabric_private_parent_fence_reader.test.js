@@ -177,6 +177,29 @@ async function run() {
   const symlink = await fixture();
   symlink.state.tree.tree[2].mode = "120000";
   await assert.rejects(read(symlink), /unexpected or duplicate/);
+  const missingParentRoot = await fixture();
+  missingParentRoot.state.tree.tree.shift();
+  await assert.rejects(read(missingParentRoot), /root missing from tree/);
+  const duplicateParentRoot = await fixture();
+  duplicateParentRoot.state.tree.tree.unshift({
+    ...duplicateParentRoot.state.tree.tree[0]
+  });
+  await assert.rejects(read(duplicateParentRoot), /root invalid or duplicated/);
+  const parentRootSymlink = await fixture();
+  parentRootSymlink.state.tree.tree[0].mode = "120000";
+  await assert.rejects(read(parentRootSymlink), /root invalid or duplicated/);
+  const parentRootInvalidSha = await fixture();
+  parentRootInvalidSha.state.tree.tree[0].sha = "malformed";
+  await assert.rejects(read(parentRootInvalidSha), /root invalid or duplicated/);
+  const parentRootWrongType = await fixture();
+  parentRootWrongType.state.tree.tree[0].type = "blob";
+  await assert.rejects(read(parentRootWrongType), /root invalid or duplicated/);
+  const arrayRootSha = await fixture();
+  arrayRootSha.state.tree.tree[0].sha = ["f".repeat(40)];
+  await assert.rejects(read(arrayRootSha), /root invalid or duplicated/);
+  const arrayRecordSha = await fixture();
+  arrayRecordSha.state.tree.tree[2].sha = [arrayRecordSha.state.tree.tree[2].sha];
+  await assert.rejects(read(arrayRecordSha), /unexpected or duplicate/);
   const truncated = await fixture();
   truncated.state.tree.truncated = true;
   await assert.rejects(read(truncated), /origin tree incomplete/);
@@ -186,6 +209,32 @@ async function run() {
   const refChanged = await fixture();
   refChanged.state.ref.object.sha = "badsha";
   await assert.rejects(read(refChanged), /origin ref invalid/);
+
+  // Python requires literal string IDs. Numeric values must not become
+  // apparently valid IDs through JS String(...) coercion, even with a
+  // perfectly matching, signed private tree/Contents fixture.
+  for (const field of ["workflow_id", "operator_request_id"]) {
+    for (const invalid of [123, true, null, ["workflow-001"], { id: "workflow-001" }]) {
+      const malformed = await fixture();
+      malformed.state.record[field] = invalid;
+      malformed.resign();
+      await assert.rejects(read(malformed), /preview record invalid/,
+        field + " must be a literal string, not " + typeof invalid);
+    }
+  }
+
+  // A one-element array stringifies to the valid digest/dispatch label in
+  // JavaScript, but the trusted Python schema requires literal JSON strings.
+  for (const field of ["operator_request_digest", "dispatch_id"]) {
+    const reference = (await fixture()).state.record[field];
+    for (const invalid of [[reference], { value: reference }, null, true]) {
+      const malformed = await fixture();
+      malformed.state.record[field] = invalid;
+      malformed.resign();
+      await assert.rejects(read(malformed), /preview record invalid/,
+        field + " must never be accepted via JS String coercion");
+    }
+  }
 
   const forged = await fixture();
   forged.state.record.browser_send_authorized = true;

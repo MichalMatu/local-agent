@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from local_agent.conversation import github_fabric_publication as preflight
 
@@ -45,6 +45,13 @@ class GithubFabricTransportError(RuntimeError):
     pass
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    """Never forward a Bearer token to a redirected URL."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class GitHubFabricREST:
     """Explicit credential holder on the trusted Local Agent side only."""
 
@@ -65,6 +72,15 @@ class GitHubFabricREST:
             raise ValueError("GitHub Fabric API request is invalid")
         if "//" in path or ".." in path:
             raise ValueError("GitHub Fabric API path is invalid")
+        if method == "GET" and body is not None:
+            raise ValueError("GitHub Fabric GET cannot carry a body")
+        if method == "PATCH":
+            if (path != GITHUB_REF_UPDATE_PATH or not isinstance(body, dict)
+                    or set(body) != {"sha", "force"} or body["force"] is not False):
+                raise ValueError("GitHub Fabric ref update requires force=false")
+            _require_sha(body["sha"], label="ref update")
+        if method == "POST" and not isinstance(body, dict):
+            raise ValueError("GitHub Fabric POST requires an object body")
         data = None if body is None else json.dumps(
             body, ensure_ascii=False, sort_keys=True, allow_nan=False
         ).encode("utf-8")
@@ -82,7 +98,7 @@ class GitHubFabricREST:
             },
         )
         try:
-            with urlopen(request, timeout=15) as response:
+            with build_opener(_NoRedirect()).open(request, timeout=15) as response:
                 data_bytes = response.read(MAX_API_RESPONSE_BYTES + 1)
         except HTTPError as exc:
             raise GithubFabricHTTPError(exc.code) from None

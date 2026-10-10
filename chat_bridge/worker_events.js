@@ -35,6 +35,13 @@ async function handleGithubControlAlarm() {
   } catch (error) {
     console.error("GitHub Fabric read-only intake:", error);
   }
+  // The existing minute alarm can advance one watched task's ordinary wake.
+  // No new Chrome scheduler or direct Send path is introduced.
+  try {
+    await pollGithubTaskResultWakes();
+  } catch (error) {
+    console.error("GitHub task completion wake:", error);
+  }
   return fabric;
 }
 chrome.alarms.onAlarm.addListener((alarm) => {
