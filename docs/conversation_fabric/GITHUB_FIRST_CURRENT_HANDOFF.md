@@ -11,7 +11,7 @@ Re-read all refs before writing code, submitting tasks or deciding to merge.
 | --- | --- |
 | Public repository | `MichalMatu/local-agent` |
 | Production `main` | `f9f73e97a061d5ba590021ddae14b45f705cb7ae`, **not modified** |
-| Candidate | `work/fabric-github-first-live-mvp`, observed `940bf803c2469ed2ae078060de4e5305dc0aa323` |
+| Candidate | `work/fabric-github-first-live-mvp`; re-read PR HEAD; last tested functional source `f5f1cda366e9e7ef923b6c594ec029ed45bcf84f` |
 | Pull request | [#274](https://github.com/MichalMatu/local-agent/pull/274), OPEN/DRAFT, targets `main`, **not merged** |
 | Control branches | `agent-control`, `chat-bridge-state`, `operator-control` — operational, not disposable |
 | Private transport | `MichalMatu/local-agent-fabric-private:fabric-data` |
@@ -107,9 +107,8 @@ constraints; **do not dispatch Actions without approval**.
 This increment is **source-only**. It does not arm a two-child browser launch,
 reload Chat Bridge, change any driver, or alter the accepted single-child live
 transaction. Exact tested source HEAD:
-`f5f1cda366e9e7ef923b6c594ec029ed45bcf84f`; this documentation
-commit itself advances branch HEAD and requires a new exact-head acceptance
-gate before promotion.
+`f5f1cda366e9e7ef923b6c594ec029ed45bcf84f`; documentation-only commits also advance branch HEAD; run an exact-head test
+gate after the final documentation update before promotion.
 
 ### PASS — independently observed or executed
 
