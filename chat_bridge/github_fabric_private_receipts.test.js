@@ -86,10 +86,15 @@ async function test() {
   await assert.rejects(receipts.publishBrowserResult({
     ...args, assistantIdentity: "reply-001", assistantText: "E2E finished"
   }), /requires matching durable ACK/);
+  await assert.rejects(receipts.publishBrowserAck(args), /requires durable matching child claim/);
+  const claimed = await receipts.claimBrowserChild({ ...args, ownerId: "1".repeat(32) });
+  assert.equal(claimed.status, "created");
+  assert.equal((await receipts.claimBrowserChild({ ...args, ownerId: "1".repeat(32) })).status, "replay");
+  await assert.rejects(receipts.claimBrowserChild({ ...args, ownerId: "2".repeat(32) }), /immutable identity conflict/);
   const ack = await receipts.publishBrowserAck(args);
   assert.equal(ack.status, "created");
   assert.equal((await receipts.publishBrowserAck(args)).status, "replay");
-  assert.equal(source.calls.filter(x => x.method === "PUT").length, 1);
+  assert.equal(source.calls.filter(x => x.method === "PUT").length, 2);
   const terminal = await receipts.publishBrowserResult({
     ...args, assistantIdentity: "reply-001", assistantText: "E2E finished"
   });
@@ -97,7 +102,7 @@ async function test() {
   assert.equal((await receipts.publishBrowserResult({
     ...args, assistantIdentity: "reply-001", assistantText: "E2E finished"
   })).status, "replay");
-  assert.equal(source.records.size, 2);
+  assert.equal(source.records.size, 3);
 
   await assert.rejects(receipts.publishBrowserResult({
     ...args, assistantIdentity: "reply-001", assistantText: "Different result"
@@ -107,7 +112,9 @@ async function test() {
   }), /immutable identity conflict/);
 
   const ambiguous = fakeGitHub({ lostAck: true });
-  const converged = await receipts.publishBrowserAck({ ...args, fetchImpl: ambiguous.fetchImpl });
+  const converged = await receipts.claimBrowserChild({
+    ...args, fetchImpl: ambiguous.fetchImpl, ownerId: "1".repeat(32)
+  });
   assert.equal(converged.status, "converged");
   assert.equal(ambiguous.calls.filter(x => x.method === "PUT").length, 1);
 
@@ -116,8 +123,8 @@ async function test() {
   unavailable.fetchImpl = async (url, opts) =>
     opts.method === "PUT" ? (() => { throw Error("lost response " + token); })() :
       original(url, opts);
-  const unknown = await receipts.publishBrowserAck({
-    ...args, fetchImpl: unavailable.fetchImpl
+  const unknown = await receipts.claimBrowserChild({
+    ...args, fetchImpl: unavailable.fetchImpl, ownerId: "1".repeat(32)
   });
   assert.equal(unknown.status, "ambiguous");
   assert.equal(unavailable.calls.filter(x => x.method === "PUT").length, 0);
