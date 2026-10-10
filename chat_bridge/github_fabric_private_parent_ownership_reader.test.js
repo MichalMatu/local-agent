@@ -5,6 +5,7 @@ const cryptoModule = require("node:crypto");
 const fs = require("node:fs");
 if (!globalThis.crypto?.subtle) globalThis.crypto = cryptoModule.webcrypto;
 const reader = require("./github_fabric_private_parent_ownership_reader.js");
+const effects = require("./github_fabric_private_parent_effects.js");
 const API = "https://api.github.com/repos/MichalMatu/local-agent-fabric-private";
 const BASE = "projects/local-agent/parent_ownership/";
 const PARENT = "https://chatgpt.com/c/parent-candidate-001";
@@ -70,6 +71,9 @@ function fixture(epoch = 1, phase = "active") {
       "projects/local-agent/parent_ownership/history",
       "projects/local-agent/parent_ownership/epochs",
       "projects/local-agent/parent_ownership/epochs/" + PARENT_ID];
+    if ([...state.records.keys()].some(path => path.startsWith(BASE + "effects/"))) {
+      dirs.push(BASE + "effects");
+    }
     state.entries = [
       ...dirs.map(path => ({ path, type: "tree", mode: "040000", sha: "f".repeat(40) })),
       ...[...state.blobs].map(([path, sha]) =>
@@ -120,6 +124,32 @@ function fixture(epoch = 1, phase = "active") {
   return { state, read, resign };
 }
 
+async function effectFixture(epoch = 1) {
+  const f = fixture(epoch);
+  const expectedChildren = [
+    { child_request_id: "child-request-001", spawn_transaction_id: "spawn-" + "1".repeat(64) },
+    { child_request_id: "child-request-002", spawn_transaction_id: "spawn-" + "2".repeat(64) }
+  ];
+  const owner = f.state.records.get(BASE + PARENT_ID + ".json");
+  const make = async (index, phase = "send_unknown") => ({
+    effect_id: await effects.expectedEffectId(owner, expectedChildren[index]),
+    child_request_id: expectedChildren[index].child_request_id,
+    spawn_transaction_id: expectedChildren[index].spawn_transaction_id,
+    phase, result_source_head_sha: phase === "result_verified" ? "c".repeat(40) : ""
+  });
+  const path = BASE + "effects/" + PARENT_ID + ".json";
+  const ledger = {
+    schema_version: 1, parent_id: PARENT_ID,
+    parent_conversation_url: PARENT, fence_epoch: epoch,
+    owner_id: owner.owner_id, dispatch_id: owner.dispatch_id,
+    revision: 1, effects: [await make(0)]
+  };
+  f.state.records.set(path, ledger);
+  f.resign();
+  const read = (extra = {}) => f.read({ expectedChildren, ...extra });
+  return { ...f, path, ledger, make, expectedChildren, read };
+}
+
 async function run() {
   assert.equal(await reader.parentId(PARENT), PARENT_ID);
   const one = fixture();
@@ -148,6 +178,69 @@ async function run() {
     "matching_completed_candidate");
   assert.equal((await fixture(2, "unknown_frozen").read()).status,
     "matching_frozen_candidate");
+
+  const armed = await effectFixture();
+  assert.equal((await armed.read()).status, "matching_active_candidate");
+  const observedEffect = await armed.read();
+  assert.equal(observedEffect.effect_status, "reconcile_only_no_send_replay");
+  assert.equal(observedEffect.recorded_effects, 1);
+  assert.equal(observedEffect.browser_effects_permitted, false);
+  assert.equal(observedEffect.source_head_sha, HEAD);
+  assert.ok(!JSON.stringify(observedEffect).includes("spawn-" + "1".repeat(64)),
+    "returned evidence must be redacted");
+  await assert.rejects(armed.read({ expectedChildren: null }),
+    /expected children required/);
+  await assert.rejects(armed.read({ expectedChildren: [
+    { ...armed.expectedChildren[0], child_request_id: "other-child" },
+    armed.expectedChildren[1]
+  ] }), /immutable child identity or phase invalid/);
+
+  const completedEffect = await effectFixture();
+  completedEffect.ledger.effects[0] = await completedEffect.make(0, "result_verified");
+  completedEffect.ledger.revision = 2;
+  completedEffect.resign();
+  assert.equal((await completedEffect.read()).effect_status, "verified_no_send_replay");
+  completedEffect.ledger.effects.push(await completedEffect.make(1));
+  completedEffect.ledger.revision = 3;
+  completedEffect.resign();
+  assert.equal((await completedEffect.read()).effect_status, "reconcile_only_no_send_replay");
+  assert.equal((await completedEffect.read()).recorded_effects, 2);
+
+  const frozenEffect = await effectFixture();
+  frozenEffect.ledger.effects[0].phase = "frozen_unknown";
+  frozenEffect.ledger.revision = 2;
+  frozenEffect.resign();
+  assert.equal((await frozenEffect.read()).effect_status, "blocked_unknown_no_takeover");
+  frozenEffect.ledger.effects.push(await frozenEffect.make(1));
+  frozenEffect.ledger.revision = 3;
+  frozenEffect.resign();
+  await assert.rejects(frozenEffect.read(), /immutable child identity or phase invalid/);
+
+  const forgedEffect = await effectFixture();
+  forgedEffect.ledger.effects[0].effect_id = "effect-" + "0".repeat(32);
+  forgedEffect.resign();
+  await assert.rejects(forgedEffect.read(), /immutable child identity or phase invalid/);
+  const badRevision = await effectFixture();
+  badRevision.ledger.revision = 2;
+  badRevision.resign();
+  await assert.rejects(badRevision.read(), /revision invalid/);
+  const wrongEpochLedger = await effectFixture(2);
+  wrongEpochLedger.ledger.fence_epoch = 1;
+  wrongEpochLedger.resign();
+  await assert.rejects(wrongEpochLedger.read(), /ledger header invalid/);
+  const alteredBlob = await effectFixture();
+  alteredBlob.ledger.revision = 2; // Unsigned Contents tamper.
+  await assert.rejects(alteredBlob.read(), /pinned blob digest mismatch/);
+  const duplicateEffectPath = await effectFixture();
+  duplicateEffectPath.state.entries.push({
+    ...duplicateEffectPath.state.entries.find(entry => entry.path === duplicateEffectPath.path)
+  });
+  await assert.rejects(duplicateEffectPath.read(), /unexpected or duplicate tree entry/);
+  const noEffectDirectory = await effectFixture();
+  noEffectDirectory.state.entries = noEffectDirectory.state.entries.filter(
+    entry => entry.path !== BASE + "effects"
+  );
+  await assert.rejects(noEffectDirectory.read(), /effects directory missing/);
 
   const notEnabled = fixture();
   await assert.rejects(notEnabled.read({ enabled: false }), /default-disabled/);
