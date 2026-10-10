@@ -1,8 +1,10 @@
 (function initPrivateParentOwnershipReader(root, factory) {
-  const api = factory();
+  const effects = root.LocalAgentPrivateParentEffects ||
+    (typeof require === "function" ? require("./github_fabric_private_parent_effects.js") : null);
+  const api = factory(effects);
   root.LocalAgentPrivateParentOwnershipReader = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
-})(typeof globalThis !== "undefined" ? globalThis : this, function createPrivateParentOwnershipReader() {
+})(typeof globalThis !== "undefined" ? globalThis : this, function createPrivateParentOwnershipReader(effectsModel) {
   "use strict";
 
   // Candidate-only: NOT imported by the installed MV3 worker. This reads
@@ -19,6 +21,7 @@
   const MAX_JSON_RESPONSE = 20 * 1024;
   const MAX_RECORD_BYTES = 4096;
   const MAX_HISTORY_BYTES = 8192;
+  const MAX_EFFECT_BYTES = 8192;
   const MAX_INDEX_BYTES = 4096;
   const SHA_RE = /^[0-9a-f]{40}$/;
   const OWNER_RE = /^[0-9a-f]{32}$/;
@@ -70,6 +73,7 @@
 
   function recordPath(id) { return BASE + id + ".json"; }
   function historyPath(id) { return BASE + "history/" + id + ".json"; }
+  function effectsPath(id) { return BASE + "effects/" + id + ".json"; }
   function witnessPath(id, epoch) {
     return BASE + "epochs/" + id + "/" + String(epoch).padStart(4, "0") + ".json";
   }
@@ -221,7 +225,7 @@
 
   async function readPrivateParentOwnershipSnapshot({
     enabled = false, readToken, parentConversationUrl,
-    expectedOwnerId, expectedDispatchId, expectedEpoch,
+    expectedOwnerId, expectedDispatchId, expectedEpoch, expectedChildren,
     fetchImpl = globalThis.fetch
   } = {}) {
     if (enabled !== true) throw new Error("Private parent candidate reader default-disabled");
@@ -264,7 +268,7 @@
     const blobs = new Map();
     const roots = new Set();
     const allowedDirectories = new Set([
-      BASE.slice(0, -1), BASE + "history", BASE + "epochs"
+      BASE.slice(0, -1), BASE + "history", BASE + "epochs", BASE + "effects"
     ]);
     for (const entry of tree.tree) {
       if (!entry || typeof entry.path !== "string" ||
@@ -284,6 +288,7 @@
             !(entry.path === INDEX_PATH ||
               /^projects\/local-agent\/parent_ownership\/parent-[0-9a-f]{32}\.json$/.test(entry.path) ||
               /^projects\/local-agent\/parent_ownership\/history\/parent-[0-9a-f]{32}\.json$/.test(entry.path) ||
+              /^projects\/local-agent\/parent_ownership\/effects\/parent-[0-9a-f]{32}\.json$/.test(entry.path) ||
               /^projects\/local-agent\/parent_ownership\/epochs\/parent-[0-9a-f]{32}\/[0-9]{4}\.json$/.test(entry.path))) {
           throw new Error("Private parent candidate unexpected or duplicate tree entry");
         }
@@ -305,7 +310,8 @@
       fetchImpl, readToken, head, INDEX_PATH, blobs.get(INDEX_PATH), MAX_INDEX_BYTES
     ));
     const known = new Set(index.parent_ids);
-    const seenParents = new Set(), seenHistory = new Set(), seenWitness = new Map();
+    const seenParents = new Set(), seenHistory = new Set();
+    const seenEffects = new Set(), seenWitness = new Map();
     for (const path of blobs.keys()) {
       if (path === INDEX_PATH) continue;
       let match = path.match(/^projects\/local-agent\/parent_ownership\/(parent-[0-9a-f]{32})\.json$/);
@@ -320,8 +326,19 @@
         seenHistory.add(match[1]);
         continue;
       }
+      match = path.match(/^projects\/local-agent\/parent_ownership\/effects\/(parent-[0-9a-f]{32})\.json$/);
+      if (match) {
+        if (!known.has(match[1])) throw new Error("Private parent candidate orphan effects");
+        if (!roots.has(BASE + "effects")) {
+          throw new Error("Private parent candidate effects directory missing");
+        }
+        seenEffects.add(match[1]);
+        continue;
+      }
       match = path.match(/^projects\/local-agent\/parent_ownership\/epochs\/(parent-[0-9a-f]{32})\/([0-9]{4})\.json$/);
-      if (!known.has(match[1])) throw new Error("Private parent candidate orphan witness");
+      if (!match || !known.has(match[1])) {
+        throw new Error("Private parent candidate orphan witness");
+      }
       const paths = seenWitness.get(match[1]) || new Set();
       paths.add(path);
       seenWitness.set(match[1], paths);
@@ -368,6 +385,24 @@
         record.parent_conversation_url !== parentConversationUrl) {
       throw new Error("Private parent candidate current owner conflicts with epoch history");
     }
+    // An optional effect ledger MUST be valid against immutable child
+    // identity evidence provided by a separately authenticated dispatch.
+    // Without those expected children, a present ledger fails closed.
+    let effectObservation = Object.freeze({
+      status: "unarmed", recorded_effects: 0, browser_effects_permitted: false
+    });
+    if (seenEffects.has(id)) {
+      if (!effectsModel || typeof effectsModel.validateEffectLedger !== "function") {
+        throw new Error("Private parent candidate effect validator unavailable");
+      }
+      const path = effectsPath(id);
+      const ledger = await pinnedFile(
+        fetchImpl, readToken, head, path, blobs.get(path), MAX_EFFECT_BYTES
+      );
+      effectObservation = await effectsModel.validateEffectLedger(
+        ledger, record, expectedChildren
+      );
+    }
     // Do not use this snapshot as a Send authorization: it may be stale
     // before the next microtask, and legacy DOM drivers are not fenced.
     const matches = record.owner_id === expectedOwnerId &&
@@ -383,6 +418,8 @@
       ) : "competing_or_stale_candidate",
       observed_phase: record.phase,
       observed_epoch: record.fence_epoch,
+      effect_status: effectObservation.status,
+      recorded_effects: effectObservation.recorded_effects,
       browser_effects_permitted: false
     });
   }
