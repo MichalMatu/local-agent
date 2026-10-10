@@ -149,5 +149,16 @@ class AuthenticatedAgentControlRESTTests(unittest.TestCase):
         self.assertFalse(observed.can_authorize_browser_effect)
 
 
+    def test_rejected_body_debits_authenticated_session(self):
+        self.opener.response = FakeResponse(
+            b"x" * (public_rest._MAX_RESPONSE_BYTES + 1)
+        )
+        with self.assertRaisesRegex(ValueError, "oversized"):
+            self.request()
+        self.assertEqual(
+            self.api._received_bytes, public_rest._MAX_RESPONSE_BYTES + 1
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
