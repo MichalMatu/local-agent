@@ -8,7 +8,7 @@ For Milestone 8 private project continuity, the active continuation document is
 GitHub-first remains default-disabled. The old live Chrome reload experiment
 described below is independent of the GitHub-first source-pinned recovery proof.
 
-Legacy DOM source observation: 2026-10-08. Current source: **Chat Bridge 0.8.13 / content protocol v26**.
+Legacy DOM live observation: 2026-10-08 with operator-installed 0.8.13. Current repository source: **Chat Bridge 0.8.14 / content protocol v26**; installed operator Chrome version must be checked separately. See [current E2E readiness gate](E2E_READINESS_2026-10-10.md).
 Live proof and exact source baseline: [2026-10-08 checkpoint](CHECKPOINT_2026-10-08_BRIDGE_0813_LIVE_ACCEPTANCE.md).
 
 ## Accepted: single and parallel delegation in normal Chrome
@@ -75,7 +75,7 @@ LOCAL_AGENT_CF>>>
 
 **Not yet demonstrated in the operator's real Chrome:** controlled extension/MV3 worker reload **during an active campaign** and verified exact-claim recovery, no child-bootstrap replay, full capture, tab cleanup and no terminal-feedback duplication. Recovery behavior is covered by the isolated Chromium harness when run locally, but the live interruption test is a separate gate. Optional remote Operator telemetry activation is also unverified.
 
-Recommended next test: one fresh, explicit bounded campaign with two reasoning children; keep child tabs open; trigger one controlled reload while they run; verify ownership, exact one-time bootstrap and completion, and inspect the resulting campaign and popup status. Do not replay the closed old failure.
+Recommended next test (only after the E2E readiness preflight): one fresh, explicit bounded campaign with two reasoning children; keep child tabs open; trigger one controlled reload while they run; verify ownership, exact one-time bootstrap and completion, and inspect the resulting campaign and popup status. Do not replay the closed old failure.
 
 ## Verification and next work
 
