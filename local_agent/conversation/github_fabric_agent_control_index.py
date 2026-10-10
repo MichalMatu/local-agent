@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from local_agent.conversation import github_fabric_agent_control_recovery as receipt
+from local_agent.conversation import github_fabric_agent_control_authenticated_rest as auth_rest
 from local_agent.conversation import github_fabric_github as git
 
 MAX_GIT_TREE_ENTRIES = 2048
@@ -72,7 +73,7 @@ def discover_agent_control_results(
         raise ValueError("Agent-control history source pins invalid")
     if api is not None and token is not None:
         raise ValueError("Agent-control history accepts API or token, not both")
-    remote = receipt._GetOnly(api if api is not None else git.GitHubFabricREST(token))
+    remote = receipt._GetOnly(api if api is not None else auth_rest.AuthenticatedAgentControlReadOnlyREST(token))
     commit = remote.request("GET", f"/git/commits/{independently_pinned_control_sha}")
     if not isinstance(commit, dict) or not isinstance(commit.get("tree"), dict):
         raise ValueError("Agent-control history commit metadata invalid")
