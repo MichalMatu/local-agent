@@ -188,6 +188,29 @@ async function privateFabricAdvance(record, token) {
     await savePrivateFabricTrial(record);
   }
   if (record.phase === "tab_ready") {
+    // This is a read-only browser readiness check. The original tab, immutable
+    // transaction and staged intent already exist, but Send is not yet armed.
+    // Slow ChatGPT loading may be retried safely only BEFORE this boundary.
+    let readiness;
+    try { readiness = await ensureConversationSpawnContent(record.intent.tab_id); }
+    catch (_error) {
+      record.reason = "pre_submit_content_unavailable";
+      return savePrivateFabricTrial(record);
+    }
+    if (!readiness?.ok || readiness.route !== "fresh" ||
+        readiness.readiness?.ok !== true) {
+      const code = String(readiness?.readiness?.reason || readiness?.reason || "not_ready");
+      // Never carry a page-origin string or private prompt into diagnostics.
+      const known = new Set([
+        "spawn_composer_not_found", "spawn_page_not_ready",
+        "spawn_assistant_busy", "spawn_composer_not_empty",
+        "spawn_content_unavailable", "spawn_content_protocol_mismatch",
+        "spawn_unexpected_route", "spawn_ready"
+      ]);
+      record.reason = "pre_submit_" + (known.has(code) ? code : "not_ready");
+      return savePrivateFabricTrial(record);
+    }
+    record.reason = "";
     // Persist the unknown-send fence BEFORE calling any UI Submit.
     // After interruption, reconciliation NEVER attempts another Submit.
     record.phase = "submission_unknown";
@@ -200,7 +223,17 @@ async function privateFabricAdvance(record, token) {
       record.phase = "ack_pending";
       await savePrivateFabricTrial(record);
     } else {
-      record.reason = "send_uncertain_reconciliation_only";
+      // Preserve a bounded failure code without ever exposing private bootstrap.
+      const failure = String(submitted?.reason || "");
+      const safeCodes = new Set([
+        "spawn_composer_not_found", "spawn_page_not_ready",
+        "spawn_send_button_not_ready", "spawn_composer_write_failed",
+        "spawn_composer_changed", "spawn_content_unavailable",
+        "spawn_content_protocol_mismatch", "spawn_submission_ambiguous",
+        "spawn_v2_claim_exists", "spawn_unexpected_route"
+      ]);
+      record.reason = "send_uncertain_reconciliation_only" +
+        (safeCodes.has(failure) ? ":" + failure : "");
       await savePrivateFabricTrial(record);
     }
   }
