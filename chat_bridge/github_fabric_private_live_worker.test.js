@@ -230,6 +230,20 @@ async function test() {
   assert.ok(ambiguous.counts.reconcile >= 2);
   assert.equal(ambiguous.counts.ack, 0);
   assert.equal((await ambiguous.ctx.retirePrivateFabricTrial()).ok, false);
+  const abandoned = await ambiguous.ctx.operatorAbandonPrivateFabricTrial();
+  assert.equal(abandoned.ok, true);
+  assert.equal(abandoned.phase, "abandoned");
+  assert.equal(ambiguous.counts.submit, 1, "abandon never repeats Send");
+  assert.equal(ambiguous.counts.claim, 1, "abandon never repeats claim");
+  assert.equal((await ambiguous.ctx.pollPrivateFabricTrial()).phase, "abandoned");
+  assert.equal(ambiguous.counts.submit, 1);
+  const oldAgain = await ambiguous.ctx.operatorStartPrivateFabricTrial({
+    dispatchId, writeToken: token
+  });
+  assert.equal(oldAgain.ok, false, "abandoned dispatch must never be armed again");
+  assert.equal(oldAgain.reason, "private_dispatch_permanently_abandoned");
+  assert.deepEqual(ambiguous.local.privateFabricAbandonedDispatchesV1, [dispatchId]);
+
 
   const disabled = fixture({ enabled: false });
   value = await disabled.ctx.operatorStartPrivateFabricTrial({
