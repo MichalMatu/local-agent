@@ -67,11 +67,11 @@
     },
     {
       "conversation_id": "chat-7d906863",
-      "control_generation": 3,
+      "control_generation": 4,
       "enabled": true,
-      "interval_minutes": 10,
+      "interval_minutes": 30,
       "next_wake_at": null,
-      "updated_at": "2026-10-10T08:02:38.968Z"
+      "updated_at": "2026-10-10T08:09:59.470Z"
     }
   ],
   "agents": [
