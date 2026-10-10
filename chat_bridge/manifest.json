@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Local Agent Chat Bridge",
-  "version": "0.8.14",
+  "version": "0.8.15",
   "description": "Schedules Local Agent wake-ups as transport only; repository execution authority is validated separately.",
   "permissions": [
     "alarms",
@@ -12,7 +12,8 @@
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
-    "https://raw.githubusercontent.com/*"
+    "https://raw.githubusercontent.com/*",
+    "https://api.github.com/*"
   ],
   "background": {
     "service_worker": "service_worker.js"
