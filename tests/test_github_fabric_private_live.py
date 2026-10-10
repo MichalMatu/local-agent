@@ -161,7 +161,7 @@ class PrivateLivePublisherTests(unittest.TestCase):
             "operator_request": self.operator,
             "child_requests": changed,
         })
-        with self.assertRaisesRegex(ValueError, "same operator request ID"):
+        with self.assertRaisesRegex(ValueError, "same-id dispatch conflict|same operator request ID"):
             live.stage_private_queued_request(
                 source_id, enabled=True, writer_authorized=True, api=self.api
             )
