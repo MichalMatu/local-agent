@@ -132,6 +132,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       .catch((_error) => sendResponse({ ok: false, reason: "private_trial_status_failed" }));
     return true;
   }
+  if (message.type === "bridge:private-github-first-abandon") {
+    operatorAbandonPrivateFabricTrial().then(sendResponse)
+      .catch(() => sendResponse({ ok: false, reason: "private_trial_abandon_failed" }));
+    return true;
+  }
   if (message.type === "bridge:private-github-first-retire") {
     retirePrivateFabricTrial().then(sendResponse)
       .catch((_error) => sendResponse({ ok: false, reason: "private_trial_retire_failed" }));
