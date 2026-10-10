@@ -563,6 +563,11 @@ const privateTokenStatus = document.querySelector("#privateFabricTokenState");
 const PRIVATE_POPUP_UI_KEY = "privateFabricPopupUiV1";
 
 function renderPrivateTrial(response) {
+  const abandon = document.querySelector("#privateFabricAbandon");
+  if (abandon) {
+    abandon.disabled = response?.ok !== true || response?.phase !== "submission_unknown";
+    abandon.title = abandon.disabled ? "Only for an unresolved failed trial" : "Abandon without sending again";
+  }
   privateTrialStatus.textContent = response?.ok
     ? [
         response.phase || "unknown", response.dispatchId || "",
@@ -663,8 +668,12 @@ document.querySelector("#privateFabricAbandon").addEventListener("click", async 
   button.disabled = true;
   try {
     const result = await request({ type: "bridge:private-github-first-abandon" });
-    renderPrivateTrial(result);
-    if (!result?.ok) showMessage("Error: " + (result?.reason || "abandon_failed"));
+    if (result?.ok) {
+      renderPrivateTrial(result);
+    } else {
+      showMessage("Abandon is only for a failed trial awaiting reconciliation.");
+      renderPrivateTrial(await request({ type: "bridge:private-github-first-status" }));
+    }
     await refreshPrivateDraft();
   } catch (_error) {
     renderPrivateTrial({ ok: false, reason: "abandon_unavailable" });
