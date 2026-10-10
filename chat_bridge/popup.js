@@ -553,3 +553,47 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 refresh().catch((error) => showMessage(`Error: ${error.message}`));
+
+const privateDispatchField = document.querySelector("#privateDispatchId");
+const privateTokenField = document.querySelector("#privateGitHubToken");
+const privateTrialStatus = document.querySelector("#privateFabricState");
+
+function renderPrivateTrial(response) {
+  privateTrialStatus.textContent = response?.ok
+    ? [
+        response.phase || "unknown",
+        response.dispatchId || "",
+        response.childConversationUrl || "",
+        response.resultPath || "",
+        response.reason || ""
+      ].filter(Boolean).join(" · ")
+    : "Trial: " + String(response?.reason || "unavailable");
+}
+
+document.querySelector("#privateFabricStart").addEventListener("click", async () => {
+  const button = document.querySelector("#privateFabricStart");
+  button.disabled = true;
+  try {
+    const response = await request({
+      type: "bridge:private-github-first-start",
+      dispatchId: privateDispatchField.value.trim(),
+      writeToken: privateTokenField.value.trim()
+    });
+    renderPrivateTrial(response);
+  } catch (_error) {
+    renderPrivateTrial({ ok: false, reason: "extension_request_failed" });
+  } finally {
+    privateTokenField.value = "";
+    button.disabled = false;
+  }
+});
+
+document.querySelector("#privateFabricStatus").addEventListener("click", async () => {
+  try { renderPrivateTrial(await request({ type: "bridge:private-github-first-status" })); }
+  catch (_error) { renderPrivateTrial({ ok: false, reason: "status_unavailable" }); }
+});
+
+document.querySelector("#privateFabricRetire").addEventListener("click", async () => {
+  try { renderPrivateTrial(await request({ type: "bridge:private-github-first-retire" })); }
+  catch (_error) { renderPrivateTrial({ ok: false, reason: "rollback_unavailable" }); }
+});
