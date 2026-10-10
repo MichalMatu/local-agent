@@ -126,11 +126,56 @@ function fixture(epoch = 1, phase = "active") {
 
 async function effectFixture(epoch = 1) {
   const f = fixture(epoch);
-  const expectedChildren = [
-    { child_request_id: "child-request-001", spawn_transaction_id: "spawn-" + "1".repeat(64) },
-    { child_request_id: "child-request-002", spawn_transaction_id: "spawn-" + "2".repeat(64) }
-  ];
+  const requestDigest = "sha256:" + "4".repeat(64);
+  const requestId = "operator-request-001";
+  const dispatchId = "fabric-" + hash(JSON.stringify([
+    "github-fabric-dispatch-v1", requestDigest
+  ])).slice(0, 32);
+  const campaignId = "cf-" + hash(JSON.stringify([
+    "github-fabric-campaign-v1", requestId, requestDigest, PARENT
+  ])).slice(0, 16);
+  const childRecords = ["child-request-001", "child-request-002"].map((requestId, i) => {
+    const bootstrapText = "verified private bootstrap " + i;
+    const childRequestDigest = "sha256:" + String(i + 5).repeat(64);
+    return {
+      id: "child-" + (i + 1), request_id: requestId,
+      role: i ? "verification" : "research",
+      spawn: {
+        schema_version: 1,
+        transaction_id: "spawn-" + hash(JSON.stringify([childRequestDigest, 1])),
+        child_request_digest: childRequestDigest,
+        bootstrap_digest: "sha256:" + hash(bootstrapText),
+        bootstrap_text: bootstrapText
+      }
+    };
+  });
+  const dispatch = {
+    schema_version: 1, operation: "delegate", id: dispatchId,
+    request_id: "operator-request-001", request_digest: requestDigest,
+    campaign_id: campaignId, parent_conversation_url: PARENT,
+    children: childRecords
+  };
+  const expectedChildren = childRecords.map(child => ({
+    child_request_id: child.request_id,
+    spawn_transaction_id: child.spawn.transaction_id
+  }));
   const owner = f.state.records.get(BASE + PARENT_ID + ".json");
+  owner.dispatch_id = dispatchId;
+  const history = f.state.records.get(BASE + "history/" + PARENT_ID + ".json");
+  history.entries[epoch - 1].dispatch_id = dispatchId;
+  f.state.records.get(epochPath(epoch)).dispatch_id = dispatchId;
+  const scope = "projects/local-agent/workflows/workflow-001/dispatches/";
+  const dispatchPath = scope + dispatchId + ".json";
+  f.state.records.set("projects/index.json", {
+    schema_version: 1, project_ids: ["local-agent"]
+  });
+  f.state.records.set("projects/local-agent/workflows/index.json", {
+    schema_version: 1, workflow_ids: ["workflow-001"]
+  });
+  f.state.records.set(scope + "index.json", {
+    schema_version: 1, dispatch_ids: [dispatchId]
+  });
+  f.state.records.set(dispatchPath, dispatch);
   const make = async (index, phase = "send_unknown") => ({
     effect_id: await effects.expectedEffectId(owner, expectedChildren[index]),
     child_request_id: expectedChildren[index].child_request_id,
@@ -146,8 +191,8 @@ async function effectFixture(epoch = 1) {
   };
   f.state.records.set(path, ledger);
   f.resign();
-  const read = (extra = {}) => f.read({ expectedChildren, ...extra });
-  return { ...f, path, ledger, make, expectedChildren, read };
+  const read = (extra = {}) => f.read({ expectedDispatchId: dispatchId, ...extra });
+  return { ...f, path, ledger, make, expectedChildren, read, dispatch, dispatchPath, scope };
 }
 
 async function run() {
@@ -188,12 +233,45 @@ async function run() {
   assert.equal(observedEffect.source_head_sha, HEAD);
   assert.ok(!JSON.stringify(observedEffect).includes("spawn-" + "1".repeat(64)),
     "returned evidence must be redacted");
-  await assert.rejects(armed.read({ expectedChildren: null }),
-    /expected children required/);
-  await assert.rejects(armed.read({ expectedChildren: [
-    { ...armed.expectedChildren[0], child_request_id: "other-child" },
-    armed.expectedChildren[1]
-  ] }), /immutable child identity or phase invalid/);
+  // Caller-supplied expectedChildren is not an input anymore. The private
+  // reader independently derives identities from the SAME pinned dispatch.
+  assert.equal((await armed.read({ expectedChildren: [] })).effect_status,
+    "reconcile_only_no_send_replay");
+
+  const badProjectIndex = await effectFixture();
+  badProjectIndex.state.records.get("projects/index.json").project_ids = [];
+  badProjectIndex.resign();
+  await assert.rejects(badProjectIndex.read(), /dispatch not indexed/);
+  const missingDispatchIndex = await effectFixture();
+  missingDispatchIndex.state.records.delete(missingDispatchIndex.scope + "index.json");
+  missingDispatchIndex.resign();
+  await assert.rejects(missingDispatchIndex.read(), /dispatch tree path invalid/);
+  const forgedDispatch = await effectFixture();
+  forgedDispatch.dispatch.request_digest = "sha256:" + "0".repeat(64);
+  forgedDispatch.resign();
+  await assert.rejects(forgedDispatch.read(), /dispatch digest mismatch/);
+  const forgedBootstrap = await effectFixture();
+  forgedBootstrap.dispatch.children[0].spawn.bootstrap_text = "tampered bootstrap";
+  forgedBootstrap.resign();
+  await assert.rejects(forgedBootstrap.read(), /child digest mismatch/);
+  const forgedChildIdentity = await effectFixture();
+  forgedChildIdentity.dispatch.children[0].request_id = "different-private-child";
+  forgedChildIdentity.resign();
+  await assert.rejects(forgedChildIdentity.read(), /immutable child identity or phase invalid/);
+  const tamperUnsignedDispatch = await effectFixture();
+  tamperUnsignedDispatch.dispatch.children[0].spawn.bootstrap_text = "unsigned tamper";
+  await assert.rejects(tamperUnsignedDispatch.read(), /pinned blob digest mismatch/);
+  const competingBranch = await effectFixture();
+  competingBranch.state.records.get(competingBranch.scope + "index.json")
+    .dispatch_ids = ["fabric-" + "0".repeat(32)];
+  competingBranch.resign();
+  await assert.rejects(competingBranch.read(), /dispatch not indexed/);
+  const duplicatedDispatchPath = await effectFixture();
+  duplicatedDispatchPath.state.entries.push({
+    ...duplicatedDispatchPath.state.entries.find(entry =>
+      entry.path === duplicatedDispatchPath.dispatchPath)
+  });
+  await assert.rejects(duplicatedDispatchPath.read(), /dispatch tree path invalid/);
 
   const completedEffect = await effectFixture();
   completedEffect.ledger.effects[0] = await completedEffect.make(0, "result_verified");
