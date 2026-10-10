@@ -1,105 +1,95 @@
-# Private GitHub-first Conversation Fabric — MVP trial
+# Private GitHub-first Conversation Fabric — supervised MVP
 
-Status: source implementation only. **Live Chrome trial has not been executed.**
-The installed production Bridge must not be reloaded without operator approval.
-Legacy DOM campaigns remain available and unmodified on `main`.
+**Status (2026-10-10): one real Chrome child E2E PASS.**
+This is a *single-child* operator-gated proof, **not** a general production
+enablement. The live evidence and next gates are in
+[GITHUB_FIRST_CURRENT_HANDOFF.md](GITHUB_FIRST_CURRENT_HANDOFF.md).
 
-## Fixed routing
+## Routing and authority
 
-- Private GitHub source: `MichalMatu/local-agent-fabric-private`, branch `fabric-data`.
-- Private request inbox: `projects/local-agent/workflows/workflow-001/requests/`.
-- Private dispatch index: `projects/local-agent/workflows/workflow-001/dispatches/index.json`.
-- Private ACK/terminal evidence: `projects/local-agent/workflows/workflow-001/receipts/<dispatch-id>/{claim,ack,result}/<child-request-id>.json`.
-- The public `MichalMatu/local-agent` branch `agent-control` may carry only opaque request IDs and ordinary task metadata; never private prompts or tokens.
-- One operator-armed child only. No autonomous activation, secondary Chrome, or hosted GitHub Actions.
+- Public source: `MichalMatu/local-agent`, candidate
+  `work/fabric-github-first-live-mvp`, draft PR #274. `main` unchanged.
+- Private coordination: `MichalMatu/local-agent-fabric-private:fabric-data`,
+  under `projects/local-agent/workflows/workflow-001/`.
+- `requests/index.json` indexes an envelope named
+  `requests/<operator-request-id>.json` with OperatorRequest v3 and
+  ChildRequest v1 objects. Private request text **never** goes to public
+  `agent-control`.
+- The trusted canonical Local Agent stages `dispatches/<dispatch-id>.json`
+  and updates `dispatches/index.json` atomically after validation.
+- The extension writes each private browser receipt to
+  `receipts/<dispatch-id>/{claim,ack,result}/<child-request-id>.json`.
+- The public `chat-bridge-state` desired-state control is scheduling and
+  parent admission state, **not** task-execution authority.
+- Each executable Mac task still requires the current canonical target
+  `agent_binding` and normal Local Agent admission. Children reason only.
 
-## 1. Superchat → private ChildRequest
+## Operator-controlled one-child test
 
-The Superchat writes one bounded, validated JSON envelope to the private request
-inbox under the operator request ID, and indexes that ID in the sorted
-`requests/index.json` array:
+1. Read `AGENTS.md` and the current handoff. Re-check parent control,
+   source SHA, active trial phase and existing receipts first.
+2. Publish one valid private request, then stage it with an exact-bound
+   Local Agent command (Mac GitHub CLI credential stays on Mac):
 
-```json
-{"schema_version":1,"request_ids":["operator-request-001"]}
-```
+   ```sh
+   LOCAL_AGENT_GITHUB_FABRIC_WRITE_TOKEN="$(gh auth token)" \
+     python3 -m local_agent.conversation.github_fabric_private_live \
+     --request-id <operator-request-id> --stage-private
+   ```
 
-Envelope path: `requests/operator-request-001.json`; fields:
+   The public task contains only the opaque request ID and exact source/binding;
+   do **not** log the token or copy the private child prompt into task output.
 
-```json
-{
-  "schema_version": 1,
-  "operator_request": "<full existing OperatorRequest v3 object>",
-  "child_requests": ["<full existing ChildRequest v1 object>"]
-}
-```
+3. In the existing authenticated Chrome with approved installed Bridge
+   **0.8.18**, open Advanced settings, independently **Save dispatch ID** and
+   **Save token**. Token requires Contents read/write on the *private* repo;
+   it is stored in `chrome.storage.session`, not persistent local storage.
+   Popup shows only its last four characters. Do not paste it in ChatGPT.
+4. With the GitHub-managed parent and Master enabled, press
+   **Launch one child once**. The worker creates a unique private `claim`,
+   checks the first fresh page and its editor, submits the bootstrap through
+   the existing Chrome DOM driver, then records browser `ACK` and `result`
+   when it observes the exact child completion proof.
+5. Check **Check trial**, then independently verify matching child identity,
+   transaction and URL in all three private receipts. Never infer a PASS from
+   the popup or a screenshot alone.
 
-The strings above are explanatory placeholders, not runnable requests.
-The trusted validator requires actual objects, a valid parent ChatGPT conversation
-URL, a canonical repository binding, consistent workflow/node/role and a valid
-bootstrap. The trial requires exactly one child. Never include a token.
+**No blind replay.** If the trial reaches `submission_unknown`, preserve
+the record and original claim. Do not click Launch again, remove the claim or
+reset extension storage. Operator-only **Abandon failed trial (no retry)**
+permanently excludes an unresolved dispatch; it is not allowed once the active
+trial moves to another phase. The phase-guard popup improvement is in the
+candidate source but may not be present in the installed unpacked extension
+until a separately approved reload.
 
-## 2. Local Agent → immutable private dispatch
+## Verified live evidence
 
-Submit an ordinary `agent-control` task on the canonical Local Agent binding
-and candidate branch, with a command equivalent to the following on the trusted
-Mac. Only the opaque private request ID appears in the public task:
+**Second trial: PASS** (existing operator Chrome):
 
-```sh
-set -euo pipefail
-LOCAL_AGENT_GITHUB_FABRIC_WRITE_TOKEN="$(gh auth token)" \
-  python -m local_agent.conversation.github_fabric_private_live \
-    --request-id operator-request-001 --stage-private
-```
+- Dispatch: `fabric-a8a79801818a745c63c9e3674597522e`.
+- Child: `fabric-live-verify-02`.
+- Parent: `https://chatgpt.com/c/6aca323f-ec58-83eb-bb3f-5be611bc7770`.
+- Child URL: `https://chatgpt.com/c/6aca5422-3a90-83ed-b2e1-3baaf114533f`.
+- Assistant: `FABRIC_PRIVATE_E2E_V2_OK | value=42 | role=verification`
+  plus expected final completion marker in the browser.
+- Independent private Github read: **claim PASS, ACK PASS, result PASS**,
+  identical transaction and child request ID, exact ACK/result child URL.
+  The result payload stores bounded assistant answer **without the marker**.
 
-Requires the Mac's existing GitHub CLI identity to have read/write access to
-the private repo. Do **not** print, log or store the token in a public task.
-The publisher performs pinned private reads, semantic validation, immutable
-request-ID collision checks, and an atomic non-forced dispatch/index GitHub
-commit. It emits only a dispatch ID, status and private GitHub commit SHA.
+**First trial: unresolved, NOT PASS.**
+Dispatch `fabric-13795c4be8cc6d08c8cda3120d6efebd` has a claim
+but no ACK/result. It was not retried. The initial Chrome page remained on
+`/`, with no page-local Send claim or user message in the operator's read-only
+diagnostic. Never use that absence alone as global proof of no Send.
 
-## 3. Operator-armed Chat Bridge → browser
+## Outstanding before wider activation
 
-After an explicitly approved update to Bridge **0.8.17**, open its popup,
-expand Advanced Settings and enter the exact `fabric-...` dispatch ID and
-a scoped private-repository Contents read/write token. Press **Save dispatch
-ID** and **Save token** independently. The ID persists in extension-local
-storage; the token stays only in Chrome session storage and its last four
-characters confirm that it was saved. Advanced settings reopen in their previous
-expanded/collapsed state. Once both inputs show saved, press **Launch one child**
-exactly once. Do not paste this token into ChatGPT or GitHub public files. A Chrome or extension restart clears the token, so re-enter it after a restart.
+- Multi-child private admission, per-child ACK/result and parent aggregation.
+- Real MV3 restart/cold browser recovery with durable no-replay.
+- Cross-device and legacy-driver **global** parent ownership/epoch fencing,
+  revocation and security review.
+- Explicit operator approval for every further installed extension reload,
+  real Chrome test or draft-PR merge. No hosted GitHub Actions without approval.
 
-Before a browser effect, the worker requires a managed GitHub-backed parent,
-no unresolved legacy parent campaign, an indexed SHA-pinned private dispatch,
-and a unique private GitHub child claim. It persists a local parent-mode fence
-before claim/Send and persists `submission_unknown` before attempting UI Send.
-The worker will never replay a potentially submitted message. Results are
-detected via the existing child completion proof and published to private
-GitHub; the parent reads them directly through GitHub Connector.
-
-**Check trial** reads safe status. **Rollback completed trial** retires the
-local GitHub-first parent fence only after the terminal result has been durably
-published. In ambiguous or unfinished states, recovery is read-only and
-rollback is denied.
-
-## Remaining live acceptance
-
-1. Obtain operator approval to update/reload the existing extension in its
-   existing authenticated Chrome; no second browser/profile.
-2. Stage a real, one-child private request from the actual Superchat parent.
-3. Confirm private claim → UI tab → Send → private ACK → child result → private
-   result → Superchat GitHub read; verify replay issues no second Send.
-4. Only after a successful live trial, test two children and MV3 restart
-   recovery. The first trial is not a substitute for those tests.
-
-Local mocked-UI and isolated Chromium passes must never be described as a
-real GitHub-first Chrome E2E. Cross-device legacy-driver exclusion is not
-established by the local parent fence; leave broader rollout disabled.
-
-## Pre-submit browser readiness
-
-Bridge 0.8.17 defers arming the unknown-Send checkpoint until the new child
-page reports a ready composer. A stalled `tab_ready` checkpoint retries only
-readiness. Existing `submission_unknown` records are not replayed or reset:
-verify the original child tab, parent binding and private claim before any
-operator-authorized replacement trial. Never invoke Launch to recover an
-uncertain Send.
+The accepted live test is **one child only**; isolated Chromium and Node
+simulations are additional regression evidence, not substitutes for it.
