@@ -1,14 +1,13 @@
 {
-  "event": "task_started",
+  "event": "task_finished",
   "task_id": "local-agent-fabric-pinned-effects-final-source-20261010-v1",
   "task_digest": "77d847752b404f341270860afb2c8bb9cb2136627439489907bcdbd2def2a855",
-  "idle_timeout": 175,
-  "task_timeout": 660,
-  "memory_limit_mb": 1300,
-  "started_at": "2026-10-10T20:34:10.793971+00:00",
+  "status": "done",
+  "failure_reason": null,
+  "finished_at": "2026-10-10T20:34:13.689385+00:00",
   "attempt_id": "cb40bd234ff079da412275bf",
   "daemon_version": "4.20.6",
   "daemon_pid": 12254,
-  "updated_at": "2026-10-10T20:34:10.794108+00:00",
+  "updated_at": "2026-10-10T20:34:13.920015+00:00",
   "pid": 12254
 }
