@@ -1,5 +1,12 @@
 # GitHub-first Conversation Fabric — current Milestone 8 handoff
 
+> **Latest no-Bridge security checkpoint (2026-10-10):**
+> [M8_NO_BRIDGE_SECURITY_CHECKPOINT_20261010.md](M8_NO_BRIDGE_SECURITY_CHECKPOINT_20261010.md)
+> supersedes the #258 source/test status below. Latest code candidate
+> #265 at `7d4572d2`: 1066 full Mac tests PASS, 83.9% coverage.
+> Offline legacy Chrome exclusion and independent browser security
+> acceptance remain BLOCKED. Refresh all GitHub refs before further work.
+>
 > **Current continuation (2026-10-10):** see
 > [M8_NO_BRIDGE_WINDOW_HANDOFF_20261010.md](M8_NO_BRIDGE_WINDOW_HANDOFF_20261010.md)
 > for the latest PR #258 test receipts (1046/1046 PASS), active hard safety
