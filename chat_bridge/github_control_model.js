@@ -61,6 +61,22 @@
     };
   }
 
+  function sanitizeTaskResultWatch(raw) {
+    if (raw === null || raw === undefined) return null;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error("task_result_watch must be an object");
+    }
+    const repositoryId = String(raw.repository_id || "");
+    const taskId = String(raw.task_id || "");
+    if (!REPOSITORY_ID_RE.test(repositoryId)) {
+      throw new Error("task_result_watch repository_id is invalid");
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(taskId)) {
+      throw new Error("task_result_watch task_id is invalid");
+    }
+    return Object.freeze({ repositoryId, taskId });
+  }
+
   function sanitizeConversationControl(raw) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
       throw new Error("conversation control must be an object");
@@ -70,6 +86,7 @@
     if (typeof raw.enabled !== "boolean") throw new Error("conversation control enabled must be a boolean");
 
     const legacy = legacyBindingMetadata(raw);
+    const taskResultWatch = sanitizeTaskResultWatch(raw.task_result_watch);
     const intervalMinutes = raw.interval_minutes === null || raw.interval_minutes === undefined
       ? null
       : integerInRange(
@@ -106,24 +123,37 @@
       enabled: raw.enabled,
       intervalMinutes,
       nextWakeAt,
+      taskResultWatch,
       updatedAt
     });
   }
 
-  function validateConversationControls(rawControls, _agents) {
+  function validateConversationControls(rawControls, agents) {
     if (rawControls === undefined || rawControls === null) return [];
     if (!Array.isArray(rawControls)) throw new Error("runtime conversation_controls must be a list");
     if (rawControls.length > 128) throw new Error("runtime conversation_controls exceeds 128 entries");
 
     const seen = new Set();
-    return rawControls.map((raw) => {
+    const validated = rawControls.map((raw) => {
       const control = sanitizeConversationControl(raw);
+      if (control.taskResultWatch) {
+        const agent = (agents || []).find((item) =>
+          item.repositoryId === control.taskResultWatch.repositoryId
+        );
+        if (!agent || agent.executionEnabled !== true || !REPOSITORY_RE.test(agent.repository)) {
+          throw new Error("task_result_watch requires an enabled configured repository");
+        }
+      }
       if (seen.has(control.conversationId)) {
         throw new Error(`duplicate runtime conversation control: ${control.conversationId}`);
       }
       seen.add(control.conversationId);
       return control;
     });
+    if (validated.filter((control) => Boolean(control.taskResultWatch)).length > 4) {
+      throw new Error("runtime task_result_watch exceeds four concurrent watches");
+    }
+    return validated;
   }
 
   function findConversationControl(runtime, conversationId) {

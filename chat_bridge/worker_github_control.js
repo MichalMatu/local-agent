@@ -9,14 +9,21 @@ function serializeGithubControlOperation(operation) {
 }
 
 function githubControlSignature(control) {
-  return JSON.stringify([
+  // Preserve the exact pre-0.8.14 signature for controls without a watch.
+  // Installed Chrome stores that signature durably; changing its shape
+  // would incorrectly reject every unchanged generation after upgrade.
+  const identity = [
     control.conversationId,
     control.controlGeneration,
     control.enabled,
     control.intervalMinutes,
     control.nextWakeAt,
     control.updatedAt
-  ]);
+  ];
+  if (control.taskResultWatch) {
+    identity.push(control.taskResultWatch.repositoryId, control.taskResultWatch.taskId);
+  }
+  return JSON.stringify(identity);
 }
 
 function githubControlPreservedLocalSafety(conversation, fresh) {
@@ -350,6 +357,22 @@ async function reconcileGithubConversationControlsOnce() {
     if (!mutation.value.changed) {
       if (mutation.value.preservedLocalSafety) {
         await clearConversationAlarm(conversation.id, mutation.value.localGeneration);
+      } else if (control.enabled && state.settings.masterEnabled &&
+                 appliedEntry?.controlSignature === controlSignature) {
+        // An unchanged GitHub generation normally leaves its alarm alone. If
+        // Chrome loses that alarm, restore only a still-future local deadline:
+        // replaying an expired one-shot wake would risk a duplicate Send.
+        const latest = (await getBridgeState()).conversations[conversation.id];
+        const storedDeadline = Date.parse(latest?.nextRunAt || "");
+        if (latest?.enabled &&
+            latest.generation === mutation.value.localGeneration &&
+            stateModel.isTransportReady(latest) &&
+            Number.isFinite(storedDeadline) && storedDeadline > Date.now() + 1000) {
+          const alarms = await chrome.alarms.getAll();
+          if (!alarms.some((alarm) => alarm.name === alarmName(conversation.id))) {
+            await scheduleAt(conversation.id, storedDeadline, latest.generation);
+          }
+        }
       }
       if (mutation.value.preservedLocalSafety || !appliedEntry?.controlSignature) {
         await writeAppliedGithubControl(
