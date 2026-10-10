@@ -1,10 +1,44 @@
 # GitHub-first Conversation Fabric — current Milestone 8 handoff
 
-**Updated: 2026-10-09. Canonical continuation entrypoint for this track.**
+**Updated: 2026-10-10. Canonical continuation entrypoint for this track.**
 All source SHAs and PR states below are **observations at handoff**, not locks;
 re-read GitHub before code edits, task publication or merge.
 
-## Latest current checkpoint — 2026-10-09
+## Current verified checkpoint — 2026-10-10
+
+- `main@9041a2a55c708cb78c390ca366b79320401bea9c` includes
+  independent PR #227 (operator campaign launch one-shot fence) and #242
+  (terminal assistant-message DOM parser fix), combined via merged #272.
+  The exact-head integrated canonical Mac task
+  `local-agent-final-integrated-full-mac-20261010-v1` passed with exit 0
+  on `f7d47a182c22aac0959d400c6494aabf95a70237`;
+  core branch coverage was 83.1%. The daemon subsequently reported
+  `idle` on new `main`; no operator Chrome extension reload was done.
+- GitHub branch cleanup left only `main`, `agent-control`,
+  `chat-bridge-state`, `operator-control`, and zero open PRs at that
+  checkpoint. **#209/#214 were closed UNMERGED**, their commit ancestry
+  retained in `archive/2026-10-10/pr214-parent-fence-cas-stack`.
+  The experimental legacy DOM suspension (#239) and transport audit (#241)
+  were also archived rather than activated. Historical open-PR references
+  below are NOT current work items.
+- Current repository Chat Bridge source: `0.8.14` (manifest),
+  content protocol `v26`; the existing operator Chrome installation has
+  not been independently identified for this source. Previously accepted
+  0.8.13 live campaigns are historical evidence.
+- **First practical E2E:** finish isolated Chromium source gates and perform
+  a supervised, bounded **legacy DOM** campaign using the existing authenticated
+  profile; follow [E2E readiness and safe rollout](E2E_READINESS_2026-10-10.md).
+  No second Chrome, no unapproved extension reload and no real private
+  transport activation.
+- **Milestone 8 private GitHub-first cross-device Send/ACK is still NOT
+  production-ready.** The disabled/read-only prototypes cannot authorize
+  browser effects; global dual-driver parent fencing, revocation,
+  extension-only credentials, genuine ACK/result handling and cross-device
+  authority must be implemented and independently tested before activation.
+- GitHub Actions stay `workflow_dispatch`-only. Use exact-head Local Agent
+  Mac results and record any unexecuted native/browser gates as UNVERIFIED.
+
+## Historical checkpoint — 2026-10-09 (superseded)
 
 This checkpoint supersedes the historical SHA snapshots and old mandatory
 six-job hosted-CI wording below. GitHub Actions are disabled for automatic
