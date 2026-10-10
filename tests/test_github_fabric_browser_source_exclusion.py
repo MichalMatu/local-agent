@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from local_agent.conversation import github_fabric_browser_source_exclusion as guard
 
@@ -67,6 +68,27 @@ class BrowserSourceExclusionTests(unittest.TestCase):
             (folder / "linked.js").symlink_to(source)
             with self.assertRaisesRegex(ValueError, "linked"):
                 guard._read_text(folder, "linked.js")
+
+
+    def test_real_recursive_closure_includes_secondary_worker_imports(self):
+        observation = guard.audit_browser_source_exclusion(REPO_ROOT)
+        self.assertIn("bridge_state.js", observation.inspected_scripts)
+        self.assertIn("github_control_model.js", observation.inspected_scripts)
+        self.assertIn("control_protocol.js", observation.inspected_scripts)
+        self.assertFalse(observation.old_offline_clients_excluded)
+
+    def test_injected_secondary_worker_loader_is_refused_end_to_end(self):
+        original = guard._read_text
+
+        def injected(directory, name):
+            content = original(directory, name)
+            if name == "worker_events.js":
+                return content + '\\nimportScripts("unexpected.js");\\n'
+            return content
+
+        with mock.patch.object(guard, "_read_text", side_effect=injected):
+            with self.assertRaisesRegex(ValueError, "Nested browser import graph"):
+                guard.audit_browser_source_exclusion(REPO_ROOT)
 
 
 if __name__ == "__main__":
