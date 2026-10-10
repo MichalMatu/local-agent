@@ -1,0 +1,14 @@
+{
+  "event": "task_started",
+  "task_id": "local-agent-fabric-pinned-effect-reader-full-20261010-v1",
+  "task_digest": "303d6b6a58e84d73b4ecf63c76943c1cc329b0d483372d5626be670ca4966bd4",
+  "idle_timeout": 190,
+  "task_timeout": 830,
+  "memory_limit_mb": 1550,
+  "started_at": "2026-10-10T20:32:23.515136+00:00",
+  "attempt_id": "2487e532c6b0935045a16546",
+  "daemon_version": "4.20.6",
+  "daemon_pid": 9935,
+  "updated_at": "2026-10-10T20:32:23.515225+00:00",
+  "pid": 9935
+}
