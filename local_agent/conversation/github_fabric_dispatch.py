@@ -76,6 +76,32 @@ def _browser_child_id(request_id: str) -> str:
     return f"child-{digest[:16]}"
 
 
+def _fnv1a32_ascii(value: str) -> str:
+    """Mirror the Bridge completion-marker checksum for bounded ASCII IDs."""
+    checksum = 0x811C9DC5
+    for char in value:
+        checksum = ((checksum ^ ord(char)) * 0x01000193) & 0xFFFFFFFF
+    return f"{checksum:08x}"
+
+
+def _browser_bootstrap(request: dict[str, Any], child_id: str) -> str:
+    """Attach one unambiguous terminal proof, independently of DOM delegation."""
+    fingerprint = contract.child_request_digest(request)[7:15]
+    completion = (
+        f"LOCAL_AGENT_CF_CHILD_COMPLETE:{fingerprint}:{child_id}:"
+        f"{_fnv1a32_ascii(f'{fingerprint}\n{child_id}')}"
+    )
+    suffix = (
+        "\nWhen your bounded task is fully complete, append the following exact ASCII "
+        "completion token as the final non-whitespace line of your answer.\n"
+        "Copy the token literally as plain text, without Markdown, code fences, "
+        "quotes or trailing prose.\n"
+        "Never emit this token in an intermediate or progress response.\n"
+        f"{completion}\n"
+    )
+    return bootstrap.child_bootstrap_message(request) + suffix
+
+
 def _campaign_id(operator_request: dict[str, Any], request_digest: str) -> str:
     identity = _canonical_bytes(
         [
@@ -219,21 +245,24 @@ def build_github_fabric_dispatch(
             if actual != expected:
                 raise ValueError(f"admitted child request {label} does not match operator request")
 
-        bootstrap_text = bootstrap.child_bootstrap_message(request)
+        child_id = _browser_child_id(str(spec["request_id"]))
+        bootstrap_text = _browser_bootstrap(request, child_id)
         if len(bootstrap_text) > MAX_BROWSER_BOOTSTRAP_CHARS:
             raise ValueError(
                 "admitted child bootstrap exceeds browser dispatch character bound"
             )
         children.append(
             {
-                "id": _browser_child_id(str(spec["request_id"])),
+                "id": child_id,
                 "request_id": request["id"],
                 "role": request["role"],
                 "spawn": {
                     "schema_version": BROWSER_SPAWN_SCHEMA_VERSION,
                     "transaction_id": spawn.spawn_transaction_id(request, 1),
                     "child_request_digest": contract.child_request_digest(request),
-                    "bootstrap_digest": bootstrap.child_bootstrap_digest(request),
+                    "bootstrap_digest": "sha256:" + hashlib.sha256(
+                        bootstrap_text.encode("utf-8")
+                    ).hexdigest(),
                     "bootstrap_text": bootstrap_text,
                 },
             }
