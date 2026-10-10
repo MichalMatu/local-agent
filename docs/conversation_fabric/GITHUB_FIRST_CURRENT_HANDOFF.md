@@ -274,6 +274,86 @@ browser driver imports the new batch module. The parent ownership model has
    supervised real Chrome two-child, MV3 restart and competing-controller
    test. Do not treat independent tests as permission for browser effects.
 
+## Continuation checkpoint — 2026-10-10, candidate private parent CAS and epoch ledger
+
+**Source-only safety increment.** Verified functional source HEAD:
+`dc3b924b257aecc41252c680f35eed4ee82506bf`. This document update
+will advance HEAD; a final exact-HEAD sanity gate is required. The installed
+Bridge 0.8.18 and real Chrome workflow were not touched.
+
+### PASS
+
+- New `local_agent/conversation/github_fabric_parent_ownership_github.py`
+  implements an **explicitly opt-in**, trusted Local Agent-side candidate
+  writer for the fixed private `fabric-data` repository only.
+- Every proposed acquisition resolves its exact dispatch from the indexed,
+  commit-pinned private intake. The writer atomically commits a parent
+  ownership record, sorted global parent index, per-parent epoch history,
+  and an immutable per-epoch witness, using `force=false` Git ref updates.
+  No browser authorization is issued, and private prompts/results are never
+  included in ownership records or returned status.
+- Historical dispatch **and owner** identities cannot be reused across
+  later completed epochs, not just the immediately previous epoch. An
+  ambiguous or active predecessor cannot be silently replaced. The history
+  is bounded (32 epochs); capacity exhaustion fails closed.
+- Completion is checked against **all** child claim/ACK/result receipts
+  from one pinned private commit. Partial, missing, corrupt or mismatched
+  evidence cannot close an epoch. Explicit unknown-outcome freeze is
+  irreversible by this candidate API.
+- Ref contention (409/422), lost PATCH response and uncertain reconciliation
+  never trigger a blind second write; a fresh verified read can acknowledge
+  exactly matching state, otherwise the outcome stays conflict/uncertain.
+- Canonical Mac Local Agent focused task
+  `local-agent-fabric-parent-cas-gate-20261010-v2` on
+  `dc3b924b257aecc41252c680f35eed4ee82506bf` returned
+  **PASS / exit 0**: nine isolated private Git Data CAS tests, four pure
+  ownership-policy tests and Ruff. Full task
+  `local-agent-fabric-parent-cas-full-gate-20261010-v1` on the same SHA
+  returned **PASS / exit 0**: Python compile, all
+  `test_github_fabric_*.py`, Ruff and full Bridge Node suite.
+
+### FAIL / unresolved
+
+- The initial `local-agent-fabric-parent-cas-gate-20261010-v1` failed on
+  **three new test expectations**: the fake private API records its delegated
+  ref update under the shared Git test endpoint; a reused historical owner
+  now returns a stricter denial. The test assertions were corrected, and
+  v2 plus full exact-HEAD verification passed. This was not a real-browser
+  failure or evidence of an unsafe successful CAS.
+- The original real Chrome dispatch
+  `fabric-13795c4be8cc6d08c8cda3120d6efebd` is still
+  **claim-only / unknown Send**, never replayed.
+
+### UNVERIFIED / release blockers
+
+- The new private writer has **not been invoked against the real private
+  GitHub data repository**; tests only used a fully isolated Git Data fake.
+- **Global parent exclusivity is not yet achieved.** Existing GitHub-first
+  and legacy DOM Send paths have not joined this common parent ownership
+  epoch/fence. Candidate parent records confer no Send permission.
+- Cross-device CAS races against actual GitHub, revocation/TOCTOU fencing,
+  installed MV3 cold restart, multi-child browser Send, durable parent
+  synthesis and independent security acceptance remain unverified.
+- No Chrome/extension/Local Agent restart, browser Send, private receipt
+  replay, GitHub Actions dispatch, production `main` edit or merge
+  occurred in this increment.
+
+### Next bounded increment
+
+1. Create a **read-only** private browser ownership verifier that matches
+   the trusted CAS record, history and epoch witness at one private Git
+   commit, with strict owner/dispatch/parent identity and stale epoch
+   rejection. It must not expose prompts, tokens or Send rights.
+2. Design a universal pre-effect remote fence for **all** legacy and
+   GitHub-first Send paths, including explicit authority revocation, cached
+   or offline owner refusal, cross-worker and cross-device races. Require
+   focused independent review before enabling.
+3. Connect the existing candidate per-child MV3 journal v2 only after that
+   gate is fully enforced. Test independent child receipts, partial failure
+   and restart/no-replay using an isolated browser harness.
+4. Ask the operator before any installed extension reload, real Chrome
+   two-child trial, or global competing-controller acceptance.
+
 ## Earlier accepted multi-child scope (still not live authorized)
 
 Build and independently test **multi-child GitHub-first dispatch** in small
