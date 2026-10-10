@@ -81,6 +81,11 @@ Until all these conditions are met, record **BLOCKED**; do not toggle any
 private read/dispatch flags, issue child Send/ACK or claim global old-client
 exclusion.
 
+For a privacy-preserving, intentionally unfilled evidence ledger and
+operator-approval boundary, see
+[LEGACY_BROWSER_RETIREMENT_EVIDENCE_LEDGER.md](LEGACY_BROWSER_RETIREMENT_EVIDENCE_LEDGER.md).
+The ledger never issues a production GO or prompts live browser actions.
+
 ## Source-only regression (not a retirement certificate)
 
 `local_agent/conversation/github_fabric_browser_source_exclusion.py`
