@@ -1,7 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const model = require("./github_fabric_private_dispatch_model.js");
+const model = require("./github_fabric_dispatch_model.js");
 const journal = require("./github_fabric_private_batch_journal.js");
 
 const PARENT = "https://chatgpt.com/c/private-batch-parent";
