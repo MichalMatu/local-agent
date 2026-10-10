@@ -99,11 +99,14 @@ class PublicAgentControlReadOnlyREST:
                 if response.status != 200:
                     raise git.GithubFabricHTTPError(response.status)
                 declared = response.headers.get("Content-Length")
-                if declared is not None and (
-                    not declared.isascii() or not declared.isdecimal()
-                    or int(declared) > byte_allowance
-                ):
-                    raise ValueError("Public GitHub evidence response exceeds budget")
+                if declared is not None:
+                    if (
+                        not declared.isascii() or not declared.isdecimal()
+                        or int(declared) > _MAX_RESPONSE_BYTES
+                    ):
+                        raise ValueError("Public GitHub evidence response is oversized")
+                    if int(declared) > byte_allowance:
+                        raise ValueError("Public GitHub evidence response exceeds budget")
                 raw = response.read(byte_allowance + 1)
         except HTTPError as exc:
             raise git.GithubFabricHTTPError(exc.code) from None
@@ -112,6 +115,8 @@ class PublicAgentControlReadOnlyREST:
                 "Public GitHub evidence read failed"
             ) from None
         if len(raw) > byte_allowance:
+            if byte_allowance == _MAX_RESPONSE_BYTES:
+                raise ValueError("Public GitHub evidence response is oversized")
             raise ValueError("Public GitHub evidence response exceeds budget")
         self._received_bytes += len(raw)
         if time.monotonic() >= deadline:
