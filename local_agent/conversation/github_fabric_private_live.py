@@ -6,6 +6,10 @@ a parent transport lease, or permission for Chat Bridge to press Send.
 
 from __future__ import annotations
 
+import argparse
+import json
+import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,6 +19,9 @@ from local_agent.conversation import github_fabric_private_github as private_git
 from local_agent.conversation import github_fabric_private_publication as catalog
 
 MAX_ATTEMPTS = 4
+_REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}\\Z")
+REQUEST_ROOT = "projects/local-agent/workflows/workflow-001/requests/"
+REQUEST_INDEX = REQUEST_ROOT + "index.json"
 PROJECT_ID = "local-agent"
 WORKFLOW_ID = "workflow-001"
 
@@ -142,6 +149,23 @@ def stage_private_dispatch(
         operation, updated = _validate_remote(
             projects, workflows, index, record, dispatch
         )
+        # Every indexed dispatch shares one immutable operator request ID.
+        # A mutated private request cannot sneak through as a second dispatch.
+        for other_id in [] if index is None else catalog.validate_dispatch_index(index):
+            if other_id == dispatch["id"]:
+                continue
+            other = git._read_json_at_commit(
+                api, catalog.dispatch_path(other_id), head,
+                max_bytes=catalog.MAX_RECORD_BYTES,
+            )
+            if other is None:
+                raise ValueError("Private Fabric indexed competing dispatch is missing")
+            dispatch_contract.validate_github_fabric_dispatch(other)
+            if other["id"] != other_id:
+                raise ValueError("Private Fabric competing dispatch identity invalid")
+            if other["request_id"] == dispatch["request_id"]:
+                raise ValueError("Private Fabric same operator request ID has different dispatch")
+
         if operation == "replay":
             return PrivateDispatchPublication(
                 "converged" if attempted else "replay", head, dispatch["id"], commits
@@ -159,3 +183,84 @@ def stage_private_dispatch(
             # A lost PATCH response does not imply failure. Re-read before retry.
             continue
     raise RuntimeError("Private Fabric live staging did not converge")
+
+
+def stage_private_queued_request(
+    request_id: str,
+    *,
+    enabled: bool = False,
+    writer_authorized: bool = False,
+    token: str | None = None,
+    api: Any | None = None,
+) -> PrivateDispatchPublication:
+    """Resolve a private GitHub ChildRequest envelope through trusted Local Agent.
+
+    Superchat writes only to the fixed private request namespace; a public
+    agent-control task may carry ONLY the opaque request ID, never prompt text.
+    """
+    if enabled is not True or writer_authorized is not True:
+        raise PermissionError("Private queued Fabric intake disabled")
+    if not isinstance(request_id, str) or not _REQUEST_ID.fullmatch(request_id):
+        raise ValueError("Private Fabric request ID invalid")
+    if api is None:
+        api = private_git.PrivateFabricREST(token)
+    ref = api.request("GET", private_git.REF_PATH)
+    if (ref.get("ref") != "refs/heads/" + private_git.PRIVATE_BRANCH
+            or ref.get("object", {}).get("type") != "commit"):
+        raise ValueError("Private Fabric queued request ref invalid")
+    head = git._require_sha(ref.get("object", {}).get("sha"), label="private request head")
+    index = git._read_json_at_commit(
+        api, REQUEST_INDEX, head, max_bytes=catalog.MAX_INDEX_BYTES
+    )
+    if (not isinstance(index, dict) or set(index) != {"schema_version", "request_ids"}
+            or type(index["schema_version"]) is not int or index["schema_version"] != 1
+            or not isinstance(index["request_ids"], list)
+            or len(index["request_ids"]) > 4
+            or index["request_ids"] != sorted(set(index["request_ids"]))
+            or any(not isinstance(item, str) or not _REQUEST_ID.fullmatch(item)
+                   for item in index["request_ids"])
+            or len(json.dumps(index).encode("utf-8")) > catalog.MAX_INDEX_BYTES):
+        raise ValueError("Private Fabric request index invalid")
+    if request_id not in index["request_ids"]:
+        raise PermissionError("Private Fabric request is not indexed")
+    source = git._read_json_at_commit(
+        api, REQUEST_ROOT + request_id + ".json", head,
+        max_bytes=catalog.MAX_RECORD_BYTES
+    )
+    if (not isinstance(source, dict)
+            or set(source) != {"schema_version", "operator_request", "child_requests"}
+            or type(source["schema_version"]) is not int
+            or source["schema_version"] != 1
+            or not isinstance(source["operator_request"], dict)
+            or not isinstance(source["child_requests"], list)
+            or source["operator_request"].get("id") != request_id):
+        raise ValueError("Private Fabric queued request envelope invalid")
+    return stage_private_dispatch(
+        source["operator_request"], source["child_requests"],
+        enabled=True, writer_authorized=True, api=api,
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Stage an indexed private GitHub Fabric request")
+    parser.add_argument("--request-id", required=True)
+    parser.add_argument("--stage-private", action="store_true")
+    args = parser.parse_args(argv)
+    if not args.stage_private:
+        parser.error("explicit --stage-private required")
+    token = os.environ.get("LOCAL_AGENT_GITHUB_FABRIC_WRITE_TOKEN")
+    if not token:
+        parser.error("trusted Mac-side scoped GitHub token required")
+    result = stage_private_queued_request(
+        args.request_id, enabled=True, writer_authorized=True, token=token
+    )
+    print(json.dumps({
+        "status": result.status, "dispatch_id": result.dispatch_id,
+        "source_head_sha": result.source_head_sha,
+        "completed_commits": result.completed_commits,
+    }, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
