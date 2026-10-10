@@ -98,9 +98,19 @@
               <label class="field-label" for="privateDispatchId">Private dispatch ID</label>
               <input id="privateDispatchId" type="text" autocomplete="off" spellcheck="false"
                 placeholder="fabric-…" maxlength="39" />
+              <div class="private-draft-actions">
+                <button id="privateFabricSaveDispatch" class="secondary-button" type="button">Save dispatch ID</button>
+                <span id="privateFabricDispatchState" class="private-draft-state" role="status">Not saved</span>
+              </div>
               <label class="field-label" for="privateGitHubToken">Scoped private-repository token</label>
               <input id="privateGitHubToken" type="password" autocomplete="off" spellcheck="false"
                 placeholder="Read/write Contents permission" />
+              <div class="private-draft-actions">
+                <button id="privateFabricSaveToken" class="secondary-button" type="button">Save token</button>
+                <button id="privateFabricForgetToken" class="secondary-button" type="button">Forget token</button>
+              </div>
+              <p id="privateFabricTokenState" class="private-draft-state" role="status">No token saved</p>
+              <p class="private-draft-explanation">Dispatch ID stays saved. Token stays only for the current browser session and is shown by its last four characters.</p>
               <p>Explicit launch only. No token is sent to the ChatGPT page or public GitHub.</p>
               <button id="privateFabricStart" class="secondary-button" type="button">Launch one child</button>
               <button id="privateFabricStatus" class="secondary-button" type="button">Check trial</button>
