@@ -241,5 +241,24 @@ class PublicAgentControlRESTTests(unittest.TestCase):
                     self.invoke()
 
 
+    def test_rejected_undeclared_oversize_responses_consume_global_byte_budget(self):
+        # A bad server can omit Content-Length. Repeated rejected reads must
+        # still consume the shared session budget, not just the request limit.
+        body = b"x" * (reader._MAX_RESPONSE_BYTES + 1)
+        self.opener.response = FakeResponse(body)
+        for _ in range(16):
+            with self.assertRaisesRegex(ValueError, "oversized"):
+                self.invoke()
+        self.assertEqual(
+            self.api._received_bytes,
+            16 * (reader._MAX_RESPONSE_BYTES + 1),
+        )
+        requests_before = len(self.opener.calls)
+        with self.assertRaisesRegex(ValueError, "session budget"):
+            self.invoke()
+        self.assertEqual(len(self.opener.calls), requests_before)
+        self.assertEqual(self.api._requests, 16)
+
+
 if __name__ == "__main__":
     unittest.main()
