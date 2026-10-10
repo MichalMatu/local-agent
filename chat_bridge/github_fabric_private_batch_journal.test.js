@@ -154,6 +154,18 @@ async function test() {
     result_path: journal.resultPath(data, "request-2")
   }), /no replay/);
 
+  // Do not let a caller bypass the transition function with a forged
+  // yet internally well-shaped later journal snapshot.
+  const forged = structuredClone(v);
+  forged.revision++;
+  forged.children[0].child_conversation_url = "https://chatgpt.com/c/forged-same-child";
+  assert.throws(() => journal.validateJournal(forged, data), /./) === undefined &&
+    assert.equal(forged.revision, v.revision + 1);
+  await assert.rejects(journal.persist(storage, data, forged, v), /no replay/);
+  const duplicateOwner = structuredClone(v);
+  duplicateOwner.children[1].owner_id = OWNER_A;
+  assert.throws(() => journal.validateJournal(duplicateOwner, data), /owner identity invalid or duplicated/);
+
   // Storage failure never authorizes continuing with an unpersisted effect.
   const neverCommitted = journal.initializeJournal(data, SHA);
   const broken = memoryStorage();
