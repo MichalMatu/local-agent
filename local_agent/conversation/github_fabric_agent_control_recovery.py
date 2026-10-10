@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
+from local_agent.conversation import github_fabric_agent_control_authenticated_rest as auth_rest
 from local_agent.conversation import github_fabric_github as git
 
 _TASK_RE = re.compile(r"[A-Za-z0-9._-]{1,200}\Z")
@@ -190,7 +191,7 @@ def recover_agent_control_result(
         raise ValueError("Agent-control branch pin invalid")
     if api is not None and token is not None:
         raise ValueError("Agent-control recovery requires API or token, not both")
-    remote = _GetOnly(api if api is not None else git.GitHubFabricREST(token))
+    remote = _GetOnly(api if api is not None else auth_rest.AuthenticatedAgentControlReadOnlyREST(token))
     commit = remote.request("GET", f"/git/commits/{independently_pinned_control_sha}")
     if not isinstance(commit, dict) or not isinstance(commit.get("tree"), dict):
         raise ValueError("Agent-control commit metadata invalid")
