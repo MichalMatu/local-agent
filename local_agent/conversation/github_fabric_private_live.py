@@ -19,7 +19,7 @@ from local_agent.conversation import github_fabric_private_github as private_git
 from local_agent.conversation import github_fabric_private_publication as catalog
 
 MAX_ATTEMPTS = 4
-_REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}\\Z")
+_REQUEST_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}\Z")
 REQUEST_ROOT = "projects/local-agent/workflows/workflow-001/requests/"
 REQUEST_INDEX = REQUEST_ROOT + "index.json"
 PROJECT_ID = "local-agent"
