@@ -302,5 +302,28 @@ class AgentControlRecoveryTests(unittest.TestCase):
             self.inspect(api)
 
 
+    def test_overflowing_float_and_deep_record_refuse_without_traceback(self):
+        api = MemoryControlAPI()
+        original_request = api.request
+        for raw, expected in (
+            (b'{"count":1e999}', "non-finite"),
+            (b'{"nested":' + b'[' * 12000 + b'0' + b']' * 12000 + b'}', "JSON invalid"),
+        ):
+            def forged(method, path, body=None):
+                if path == f"/contents/.agent/results/{TASK_ID}.json?ref={CONTROL_SHA}":
+                    return {
+                        "type": "file", "encoding": "base64", "size": len(raw),
+                        "content": base64.b64encode(raw).decode(),
+                        "sha": hashlib.sha1(
+                            f"blob {len(raw)}\\0".encode() + raw
+                        ).hexdigest(),
+                    }
+                return original_request(method, path, body)
+
+            api.request = forged
+            with self.subTest(expected=expected), self.assertRaisesRegex(ValueError, expected):
+                self.inspect(api)
+
+
 if __name__ == "__main__":
     unittest.main()
