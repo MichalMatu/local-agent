@@ -579,6 +579,68 @@ runtime setting, browser effect or real private-GitHub write.
 3. Only after the universal legacy/first-party driver fence is proven,
    consider an explicit, one-shot execution gate behind operator approval.
 
+## Continuation checkpoint — 2026-10-10, same-commit private dispatch provenance
+
+**Source-only, zero browser effects.** Functional candidate HEAD
+`a7873c6bdb05a1fb914a6689b432b90b5f04fe58` on the sole
+working branch `work/fabric-github-first-live-mvp`.
+
+### Implemented
+
+- New `chat_bridge/github_fabric_private_parent_pinned_dispatch.js` checks
+  private project/workflow/dispatch indexes at fixed paths and the
+  matching dispatch from a single provided pinned-Contents loader. It
+  validates dispatch model and independently recomputes dispatch ID,
+  campaign ID, child bootstrap and spawn transaction SHA-256 digests.
+  The result contains **only ordered child request and transaction IDs**.
+- The default-disabled parent ownership reader supplies the same
+  private origin HEAD and recursive Git tree already used to verify
+  parent/epoch and effect records. It checks every expected dispatch
+  catalog/record path has exactly one regular Git blob entry and verifies
+  the actual Contents bytes against its pinned Git blob SHA-1. It no
+  longer accepts caller-supplied `expectedChildren`; effect-ledger
+  validation derives those IDs from authenticated private dispatch.
+- Extended isolated tests cover forged bootstrap, changed request
+  digest/dispatch ID, wrong or missing private catalog/index, altered
+  child identity, duplicate dispatch path, missing parent directory
+  and unsigned tampering; no page text or credential is returned.
+- Checked syntax of all four new/modified JavaScript sources and tests
+  using the isolated V8 parser: **PASS**. Prior exact-HEAD Bridge/Python
+  suites apply only to earlier source HEAD, not this untested change.
+
+### Blocker / unverified
+
+- The canonical Mac Local Agent source test task for
+  `a7873c6bdb05a1fb914a6689b432b90b5f04fe58`
+  was **blocked before its `.agent/tasks` creation** by the execution
+  tool's safety gate. A smaller request was also blocked. No task ran
+  and no PASS/FAIL test outcome for this new checkpoint can be claimed.
+  Attempted direct container download was not possible (DNS unavailable).
+  **Do not mark this increment validated until the exact HEAD passes
+  Node focused tests, Ruff and full Fabric/Bridge regression.**
+- Old-epoch per-parent effect ledger lifecycle still needs an immutable
+  archive/reset design. The local legacy DOM controller and private
+  GitHub-first worker still lack a shared global Send gate. Any
+  `matching_active_candidate` or effect status is read-only evidence,
+  explicitly not a browser Submit permit.
+- Three earlier independent child-review jobs remain without returned
+  results in this parent chat; do not redelegate them or claim their
+  findings.
+- No changes to `main`, real private `fabric-data`, installed
+  MV3 worker or Chrome; no Local Agent/Chrome restart, browser Send,
+  GitHub Actions, or PR merge. PR stays draft.
+
+### Next bounded step
+
+1. Run the existing `github_fabric_private_parent_ownership_reader.test.js`
+   and `github_fabric_private_parent_fence_reader.test.js`, then all
+   Fabric Python/Bridge tests and Ruff at the **current exact source HEAD**.
+2. Reconcile any failed test evidence before integrating any candidate
+   reader into the active worker. Preserve the default-denied Send
+   contract and no-replay semantics across epochs.
+3. Incorporate any actual returning delegated review results and
+   require separate operator approval for real Chrome/MV3 effects.
+
 ## Earlier accepted multi-child scope (still not live authorized)
 
 Build and independently test **multi-child GitHub-first dispatch** in small
