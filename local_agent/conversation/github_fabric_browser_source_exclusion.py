@@ -19,8 +19,10 @@ _IMPORT = re.compile(r"\s*importScripts\((?P<names>.*?)\);\s*\Z", re.DOTALL)
 _QUOTED_NAME = re.compile(r'"([a-z][a-z0-9_]*\.js)"')
 _PRIVATE = re.compile(r"github_fabric_private_[a-z0-9_]+")
 _UNAPPROVED_LOADER = re.compile(
-    r"\b(?:importScripts|eval|require)\s*\(|\bimport\s*\(|\bnew\s+Function\s*\("
+    r"\beval\s*\(|\bimport\s*\(|\bnew\s+Function\s*\("
 )
+_REQUIRE = re.compile(r"\brequire\s*\(([^)]*)\)")
+_NODE_COMPAT_REQUIRES = frozenset(("bridge_state.js", "github_control_model.js"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,8 +64,33 @@ def _worker_imports(source: str) -> tuple[str, ...]:
 def _script_safety(name: str, source: str) -> None:
     if _PRIVATE.search(source):
         raise ValueError("Private GitHub Fabric module referenced by production source")
-    if name != "service_worker.js" and _UNAPPROVED_LOADER.search(source):
-        raise ValueError("Browser source has an unreviewed secondary code loader")
+    if _UNAPPROVED_LOADER.search(source):
+        raise ValueError("Browser source has an unreviewed dynamic code loader")
+    requires = _REQUIRE.findall(source)
+    if requires and (
+        name not in _NODE_COMPAT_REQUIRES
+        or requires != ['"./control_protocol.js"']
+    ):
+        raise ValueError("Browser source has an unreviewed CommonJS fallback")
+
+
+def _nested_worker_imports(source: str) -> tuple[str, ...]:
+    """Permit only one fully static importScripts invocation at script start."""
+    if re.search(r"\bimportScripts\s*\(", source) is None:
+        return ()
+    match = re.match(r"\s*importScripts\((.*?)\);\s*", source, re.DOTALL)
+    if match is None:
+        raise ValueError("Nested browser import graph is not statically enumerable")
+    names = _QUOTED_NAME.findall(match.group(1))
+    residue = _QUOTED_NAME.sub("S", match.group(1))
+    if (
+        not names or len(names) != len(set(names))
+        or re.fullmatch(r"\s*S(?:\s*,\s*S)*\s*", residue) is None
+        or re.search(r"\bimportScripts\s*\(", source[match.end():])
+    ):
+        raise ValueError("Nested browser import graph ambiguous")
+    return tuple(names)
+
 
 
 def audit_browser_source_exclusion(repo_root: Path) -> BrowserSourceExclusionAudit:
@@ -93,18 +120,35 @@ def audit_browser_source_exclusion(repo_root: Path) -> BrowserSourceExclusionAud
         if type(entry) is not dict or type(entry.get("js")) is not list:
             raise ValueError("Browser content script list invalid")
         content_names.extend(entry["js"])
-    names = ("service_worker.js", *worker_names, *content_names)
+    # Traverse nested imports (worker_base.js loads three audited modules).
+    worker_sources: dict[str, str] = {}
+    pending = list(worker_names)
+    while pending:
+        name = pending.pop()
+        if name in worker_sources:
+            continue
+        if len(worker_sources) >= _MAX_SCRIPT_COUNT:
+            raise ValueError("Browser worker import closure exceeds bound")
+        source = _read_text(root, name)
+        _script_safety(name, source)
+        worker_sources[name] = source
+        pending.extend(_nested_worker_imports(source))
+    names = ("service_worker.js", *worker_sources, *content_names)
     if len(names) > _MAX_SCRIPT_COUNT or any(
         type(name) is not str or _NAME.fullmatch(name) is None for name in names
     ):
         raise ValueError("Browser production script graph exceeds bound")
-    # A shared source may legitimately load once in each execution realm.
-    # Duplicate imports *within* one realm remain ambiguous and denied.
+    # Shared source names are allowed across distinct worker/content realms.
     if len(content_names) != len(set(content_names)):
         raise ValueError("Browser content script identity duplicated")
-    sources = {name: _read_text(root, name) for name in names}
+    sources = {"service_worker.js": worker, **worker_sources}
+    for name in content_names:
+        sources.setdefault(name, _read_text(root, name))
     for name, source in sources.items():
         _script_safety(name, source)
+    if any(_nested_worker_imports(sources[name]) for name in content_names
+           if name not in worker_sources):
+        raise ValueError("Browser content script unexpectedly imports worker code")
 
     # Presence of old browser effect entry points is a *blocker*, not proof
     # that those entry points or unknown offline copies have been retired.
