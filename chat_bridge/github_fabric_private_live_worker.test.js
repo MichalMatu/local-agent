@@ -21,11 +21,12 @@ const dispatch = {
   children: [{ request_id: "child-1" }]
 };
 
-function fixture({ unknownSend = false, enabled = true, existingLocal = null, existingSession = null } = {}) {
+function fixture({ unknownSend = false, enabled = true, slowComposer = false, existingLocal = null, existingSession = null } = {}) {
   const local = existingLocal || {};
   const session = existingSession || {};
   const counts = { claim: 0, tabs: 0, submit: 0, reconcile: 0, ack: 0, result: 0, legacy: 0 };
   let ready = false;
+  let composerReady = !slowComposer;
   const storage = data => ({
     async get(key) {
       return typeof key === "string"
@@ -90,6 +91,14 @@ function fixture({ unknownSend = false, enabled = true, existingLocal = null, ex
       counts.tabs++;
       return { ok: true, tabId: 55 };
     },
+    async ensureConversationSpawnContent() {
+      return {
+        ok: true, route: "fresh",
+        readiness: composerReady
+          ? { ok: true, reason: "spawn_ready" }
+          : { ok: false, reason: "spawn_composer_not_found" }
+      };
+    },
     async submitConversationSpawnBootstrap(current) {
       counts.submit++;
       assert.equal(current.tab_id, 55);
@@ -113,10 +122,29 @@ function fixture({ unknownSend = false, enabled = true, existingLocal = null, ex
   };
   vm.createContext(ctx);
   vm.runInContext(source, ctx, { filename: "worker_github_fabric_private_live.js" });
-  return { ctx, counts, local, session, setReady: () => { ready = true; } };
+  return { ctx, counts, local, session, setReady: () => { ready = true; }, setComposerReady: () => { composerReady = true; } };
 }
 
 async function test() {
+  const slow = fixture({ slowComposer: true });
+  let pending = await slow.ctx.operatorStartPrivateFabricTrial({
+    dispatchId, writeToken: token
+  });
+  assert.equal(pending.phase, "tab_ready");
+  assert.equal(pending.reason, "pre_submit_spawn_composer_not_found");
+  assert.equal(slow.counts.claim, 1);
+  assert.equal(slow.counts.tabs, 1);
+  assert.equal(slow.counts.submit, 0,
+    "a slow first ChatGPT page must never enter the unknown-Send fence");
+  await slow.ctx.pollPrivateFabricTrial();
+  assert.equal(slow.counts.submit, 0, "readiness retry must not blindly Send");
+  slow.setComposerReady();
+  pending = await slow.ctx.pollPrivateFabricTrial();
+  assert.equal(pending.phase, "running");
+  assert.equal(slow.counts.submit, 1, "the first authorized Send occurs once after readiness");
+  await slow.ctx.pollPrivateFabricTrial();
+  assert.equal(slow.counts.submit, 1, "a further poll must never duplicate Send");
+
   const staged = fixture();
   let snapshot = await staged.ctx.privateFabricDraftStatus();
   assert.equal(snapshot.ok, true);
