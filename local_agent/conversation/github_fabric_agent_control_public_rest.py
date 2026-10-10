@@ -119,11 +119,14 @@ class PublicAgentControlReadOnlyREST:
             raise git.GithubFabricTransportError(
                 "Public GitHub evidence read failed"
             ) from None
+        # A rejected chunked/undeclared oversized body still consumed network
+        # bytes; charge the shared session before raising. Otherwise repeated
+        # invalid responses could bypass the advertised aggregate byte budget.
+        self._received_bytes += len(raw)
         if len(raw) > byte_allowance:
             if byte_allowance == _MAX_RESPONSE_BYTES:
                 raise ValueError("Public GitHub evidence response is oversized")
             raise ValueError("Public GitHub evidence response exceeds budget")
-        self._received_bytes += len(raw)
         if time.monotonic() >= deadline:
             raise ValueError("Public GitHub evidence session budget exhausted")
 
