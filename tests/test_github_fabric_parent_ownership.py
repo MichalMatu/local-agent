@@ -88,6 +88,10 @@ class ParentOwnershipPolicyTests(unittest.TestCase):
         self.assertEqual(successor["dispatch_id"], self.competing["id"])
         with self.assertRaisesRegex(PermissionError, "already owned"):
             propose_acquisition(self.batch, OWNER_1, existing=successor)
+        with self.assertRaisesRegex(PermissionError, "may not be rearmed"):
+            propose_acquisition(self.batch, OWNER_2, existing=completed)
+        with self.assertRaisesRegex(PermissionError, "distinct owner identity"):
+            propose_acquisition(self.competing, OWNER_1, existing=completed)
 
     def test_missing_invalid_or_forged_completion_fails_closed(self):
         _, first = propose_acquisition(self.batch, OWNER_1)
@@ -114,6 +118,8 @@ class ParentOwnershipPolicyTests(unittest.TestCase):
             validate({**first, "token": "must-not-be-present"})
         with self.assertRaisesRegex(ValueError, "parent fence"):
             validate({**first, "fence_epoch": 0})
+        with self.assertRaisesRegex(ValueError, "parent fence"):
+            validate({**first, "phase": []})
         with self.assertRaisesRegex(ValueError, "owner invalid"):
             propose_acquisition(self.batch, "../other-controller")
         with self.assertRaisesRegex(ValueError, "parent fence identity invalid"):
