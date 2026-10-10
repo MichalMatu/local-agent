@@ -1,0 +1,60 @@
+{
+  "allow_write": false,
+  "attempt_id": "cb40bd234ff079da412275bf",
+  "command_timeout": 520,
+  "commands": [
+    {
+      "background_process_leak": false,
+      "captured_output_chars": 3170,
+      "command": "set -euo pipefail\ntest \"$(git rev-parse HEAD)\" = \"72718291ebb01ab0a1bd8de7c3fdf89139d174db\" || exit 3\nnode --check chat_bridge/github_fabric_private_parent_effects.js\nnode chat_bridge/github_fabric_private_parent_ownership_reader.test.js\npython3 -m unittest discover -s tests -p 'test_github_fabric_effect_intents*.py' -v\npython3 scripts/verify.py --only lint\ntest -z \"$(git status --porcelain)\" || exit 4\necho FABRIC_PINNED_EFFECTS_FINAL_SOURCE_PASS",
+      "current_rss_mb": 3.23,
+      "elapsed_seconds": 1.033,
+      "exit_code": 0,
+      "idle_timed_out": false,
+      "memory_limit_mb": 1300,
+      "memory_limited": false,
+      "output": "Private parent ownership pinned read-only candidate tests passed.\ntest_duplicate_forged_or_out_of_order_effect_rejected (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_duplicate_forged_or_out_of_order_effect_rejected) ... ok\ntest_empty_recovery_and_wrong_dispatch_rejected (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_empty_recovery_and_wrong_dispatch_rejected) ... ok\ntest_first_send_is_durable_unknown_not_permission (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_first_send_is_durable_unknown_not_permission) ... ok\ntest_frozen_effect_stays_blocked_and_never_released (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_frozen_effect_stays_blocked_and_never_released) ... ok\ntest_owner_epoch_drift_and_completed_parent_denied (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_owner_epoch_drift_and_completed_parent_denied) ... ok\ntest_partial_claim_only_wrong_digest_or_identity_denied (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_partial_claim_only_wrong_digest_or_identity_denied) ... ok\ntest_replay_after_restart_or_wrong_order_never_arms (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_replay_after_restart_or_wrong_order_never_arms) ... ok\ntest_result_only_if_matching_pinned_completed_evidence (test_github_fabric_effect_intents.PrivateParentSendIntentTests.test_result_only_if_matching_pinned_completed_evidence) ... ok\ntest_atomic_send_intent_never_authorizes_browser (test_github_fabric_effect_intents_github.PrivateEffectIntentCASTests.test_atomic_send_intent_never_authorizes_browser) ... ok\ntest_conflict_after_external_ref_change_requires_reconciliation (test_github_fabric_effect_intents_github.PrivateEffectIntentCASTests.test_conflict_after_external_ref_change_requires_reconciliation) ... ok\ntest_disabled_before_private_io (test_github_fabric_effect_intents_github.PrivateEffectIntentCASTests.test_disabled_before_private_io) ... ok\ntest_lost_patch_ack_reconciles_without_duplicate_write_or_send (test_github_fabric_effect_intents_github.PrivateEffectIntentCASTests.test_lost_patch_ack_reconciles_without_duplicate_write_or_send) ... ok\ntest_next_child_requires_verified_prior_receipts (test_github_fabric_effect_intents_github.PrivateEffectIntentCASTests.test_next_child_requires_verified_prior_receipts) ... ok\ntest_transport_loss_and_unreadable_origin_stays_uncertain (test_github_fabric_effect_intents_github.PrivateEffectIntentCASTests.test_transport_loss_and_unreadable_origin_stays_uncertain) ... ok\ntest_verified_parent_ownership_required_after_completion (test_github_fabric_effect_intents_github.PrivateEffectIntentCASTests.test_verified_parent_ownership_required_after_completion) ... ok\ntest_wrong_owner_epoch_and_corrupt_ledger_are_denied (test_github_fabric_effect_intents_github.PrivateEffectIntentCASTests.test_wrong_owner_epoch_and_corrupt_ledger_are_denied) ... ok\n\n----------------------------------------------------------------------\nRan 16 tests in 0.026s\n\nOK\n\n==> Ruff\n$ /Users/michal/.platformio/penv/bin/ruff check .\nAll checks passed!\nFABRIC_PINNED_EFFECTS_FINAL_SOURCE_PASS\n",
+      "output_policy": "stream",
+      "output_truncated": false,
+      "peak_rss_mb": 3.23,
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1,
+      "timed_out": false
+    }
+  ],
+  "daemon_version": "4.20.6",
+  "edits": {},
+  "finished_at": "2026-10-10T20:34:13.689385+00:00",
+  "git_diff": {
+    "elapsed_seconds": 0.073,
+    "exit_code": 0,
+    "output": ""
+  },
+  "git_status": {
+    "elapsed_seconds": 0.077,
+    "exit_code": 0,
+    "output": ""
+  },
+  "id": "local-agent-fabric-pinned-effects-final-source-20261010-v1",
+  "idle_timeout": 175,
+  "memory_limit_mb": 1300,
+  "mode": "commands",
+  "stages": [
+    {
+      "elapsed_seconds": 1.033,
+      "outcome": "passed",
+      "stage_index": 1,
+      "stage_name": "command-1",
+      "stage_phase": "commands",
+      "stage_total": 1
+    }
+  ],
+  "started_at": "2026-10-10T20:34:10.794039+00:00",
+  "status": "done",
+  "task_digest": "77d847752b404f341270860afb2c8bb9cb2136627439489907bcdbd2def2a855",
+  "task_timeout": 660,
+  "verification": [],
+  "work_branch": "work/fabric-github-first-live-mvp"
+}
