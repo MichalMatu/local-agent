@@ -228,5 +228,18 @@ class PublicAgentControlRESTTests(unittest.TestCase):
         self.assertNotIn("authorization", str(request.header_items()).lower())
 
 
+    def test_overflowing_float_and_deep_json_fail_closed(self):
+        # Python's default json.loads accepts 1e999 as infinity despite
+        # rejecting the bare Infinity token via parse_constant.
+        for payload, expected in (
+            (b'{"count":1e999}', "non-finite JSON"),
+            (b'{"nested":' + b'[' * 12000 + b'0' + b']' * 12000 + b'}', "JSON malformed"),
+        ):
+            with self.subTest(expected=expected):
+                self.opener.response = FakeResponse(payload)
+                with self.assertRaisesRegex(ValueError, expected):
+                    self.invoke()
+
+
 if __name__ == "__main__":
     unittest.main()
