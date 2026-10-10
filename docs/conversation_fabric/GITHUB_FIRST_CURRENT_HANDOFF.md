@@ -354,6 +354,81 @@ Bridge 0.8.18 and real Chrome workflow were not touched.
 4. Ask the operator before any installed extension reload, real Chrome
    two-child trial, or global competing-controller acceptance.
 
+## Continuation checkpoint — 2026-10-10, pinned owner/epoch reader for Bridge
+
+**Scope:** candidate-only, read-only Node/MV3-compatible module on
+`work/fabric-github-first-live-mvp`. No installed service worker import,
+feature toggle, popup launch, new browser claim or Send behavior.
+
+### PASS
+
+- Added `chat_bridge/github_fabric_private_parent_ownership_reader.js`,
+  intentionally separate from the older, synthetic-only parent transport
+  preview reader. It uses the actual private candidate CAS paths under
+  `projects/local-agent/parent_ownership/` and fixed `fabric-data`.
+- The reader requires explicit enablement, a scoped caller-supplied token
+  and canonical parent URL plus exact expected owner, dispatch and epoch.
+  It reads one authenticated private ref, resolves its commit/tree and
+  checks bounded pinned Contents (including actual Git blob SHA-1 over
+  exact UTF-8 bytes) for the selected parent record, epoch history and
+  **every** immutable witness in that history. It rejects duplicates,
+  orphan paths, incomplete index/record/history, mismatched owner/epoch,
+  corrupt witness, truncated trees, symlinks and malformed encodings.
+- The result contains only redacted observation metadata: matched active,
+  completed, frozen, stale/competing or unregistered. It always returns
+  `browser_effects_permitted: false`, never a Send capability, token,
+  prompt, child text or mutable lease. A private GitHub snapshot can become
+  stale immediately after reading.
+- Isolated regression tests cover epochs 1 and 2, current vs previous
+  owner/dispatch, completed/frozen epochs, invalid/duplicated history,
+  missing or tampered epoch witnesses, corrupt tree/blob, denied access,
+  rejection before fetch, and no installed worker import.
+- Exact-bound Mac source tasks (without browser effects):
+  `local-agent-fabric-parent-ownership-reader-gate-20261010-v1`
+  and `local-agent-fabric-parent-ownership-reader-full-20261010-v1`
+  at functional HEAD `97eac9e2522f1ed58c8a62585d6a5c7cf7f3cd36`
+  both **PASS / exit 0**. Full gate covered Python compile, all
+  `test_github_fabric_*.py`, Ruff and the full Bridge Node suite,
+  including the accepted live-worker fake UI contract and candidate
+  batch journal v2. Final documentation-only HEAD still needs its own
+  exact-source sanity gate.
+
+### FAIL / unresolved
+
+- The historical private dispatch
+  `fabric-13795c4be8cc6d08c8cda3120d6efebd` remains
+  **claim-only, unknown browser Send** and must not be replayed.
+- Rejecting tampered and stale ownership in negative tests is intended,
+  not a real-browser failure.
+
+### UNVERIFIED / blocked
+
+- The new reader is not loaded into the production extension. The CAS
+  writer and reader have not been exercised against real private GitHub
+  ownership records, only synthetic/mocked contracts.
+- **No global Send exclusivity:** installed legacy DOM and GitHub-first
+  driver do not share a live authoritative pre-effect epoch gate. Even
+  a matching pinned candidate snapshot provides no atomic Send grant;
+  TOCTOU, takeover, offline, two-Chrome and multi-child browser gates
+  remain blocked.
+- No extension reload, Chrome/Local Agent restart, real browser trial,
+  GitHub Actions, private `fabric-data` mutation, `main` edit or merge
+  in this increment.
+
+### Next work
+
+1. Independently review the full private CAS + JS reader identity and
+   GitHub tree/path integrity boundary. Treat pinned observations as
+   evidence only, never action authority.
+2. Design a universal globally fenced pre-effect protocol that covers
+   *all* Send paths, including old DOM delegation and multiple devices,
+   with an explicit pending-effect record and no implicit TTL takeover.
+3. Only then wire the private per-child MV3 journal and two-child browser
+   executor behind operator admission, with no Send replay after suspend.
+4. Perform isolated Chromium/MV3 and offline/race tests; seek separate
+   explicit operator consent **before** any real installed Chrome
+   extension reload or browser Send.
+
 ## Earlier accepted multi-child scope (still not live authorized)
 
 Build and independently test **multi-child GitHub-first dispatch** in small
