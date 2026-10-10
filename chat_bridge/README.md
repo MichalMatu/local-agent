@@ -25,24 +25,35 @@ Canonical current behavior is defined by source plus:
 
 Historical handoffs/release notes are evidence only.
 
-## GitHub-first MVP (operator-armed)
+## Private GitHub-first MVP — first real E2E accepted
 
-Version 0.8.15 introduced a one-child, default-disabled private GitHub-first
-workflow, independent of the legacy DOM campaign transport. It stages real
-ChildRequests into a private repository through the trusted Local Agent and
-uses the existing browser driver to perform an explicitly authorized trial.
-The parent reads private ACK/result directly from GitHub, not DOM feedback.
-See [GitHub-first MVP trial](../docs/conversation_fabric/GITHUB_FIRST_MVP_TRIAL.md).
+Bridge 0.8.18 provides an **operator-armed single-child** private
+GitHub-first flow in the authenticated Chrome profile, independent of the
+legacy DOM campaign driver. The trusted Mac Local Agent publishes a pinned
+private dispatch; the extension holds the scoped token in
+`chrome.storage.session`, creates one unique private claim, uses the normal
+Chrome UI Send driver and writes private browser ACK/result records.
 
-**Not live-accepted yet:** do not treat code/Chromium tests as proof of
-production Chrome E2E. Extension activation/reload requires user approval.
+The **second** supervised private trial on 2026-10-10 PASSED end to end:
+dispatch `fabric-a8a79801818a745c63c9e3674597522e`, child
+`fabric-live-verify-02`, browser conversation
+`https://chatgpt.com/c/6aca5422-3a90-83ed-b2e1-3baaf114533f`,
+result `FABRIC_PRIVATE_E2E_V2_OK | value=42 | role=verification`.
+Private claim, ACK, result and exact transaction/URL identity were checked
+independently. The first trial remains claim-only/unresolved and may not be
+replayed. See [current handoff](../docs/conversation_fabric/GITHUB_FIRST_CURRENT_HANDOFF.md)
+and [live trial contract](../docs/conversation_fabric/GITHUB_FIRST_MVP_TRIAL.md).
 
-Version 0.8.18 makes private launch inputs independently savable: dispatch ID
-persists in extension-local storage, token persists only for the active Chrome
-session, a four-character token suffix confirms presence without exposing it,
-and the Advanced settings panel reopening preference survives popup closure.
-The token does not survive extension reload or browser restart; no token is
-stored in public GitHub, page DOM, or extension-local persistent storage.
+UI evolution: 0.8.16 introduced independently saved dispatch ID/session token,
+masked token suffix and remembered Advanced settings; 0.8.17 introduced
+readiness-only retries before arming unknown Send; 0.8.18 added supervised
+failed-trial abandonment without replay. A later popup source fix disables
+Abandon outside `submission_unknown`; it may require a separate approved
+extension reload to become active in Chrome.
+
+**Not yet accepted:** private multi-child aggregation, real MV3/cold restart
+recovery and global cross-device/legacy-driver parent exclusion. Keep PR #274
+draft; do not infer production-wide rollout from the one-child proof.
 
 ## Architecture
 
