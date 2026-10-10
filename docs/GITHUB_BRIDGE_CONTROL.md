@@ -68,6 +68,8 @@ agent in the Bridge runtime catalog. This hint grants **no** execution right.
 Each new/changed watch is a desired-state mutation and therefore requires a
 strictly newer `control_generation`; same-generation rewrites are conflicts.
 
+Up to four task-result watches are accepted across one runtime configuration.
+
 The existing one-minute GitHub-control alarm reads the exact task's bounded
 public `agent-control/.agent/results/<task_id>.json` path. A missing result
 is inert. An exact terminal `done`, `failed` or `cancelled` result advances
