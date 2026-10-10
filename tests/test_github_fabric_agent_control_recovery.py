@@ -315,14 +315,15 @@ class AgentControlRecoveryTests(unittest.TestCase):
                         "type": "file", "encoding": "base64", "size": len(raw),
                         "content": base64.b64encode(raw).decode(),
                         "sha": hashlib.sha1(
-                            f"blob {len(raw)}\\0".encode() + raw
+                            f"blob {len(raw)}\0".encode() + raw
                         ).hexdigest(),
                     }
                 return original_request(method, path, body)
 
             api.request = forged
-            with self.subTest(expected=expected), self.assertRaisesRegex(ValueError, expected):
-                self.inspect(api)
+            with self.subTest(expected=expected):
+                with self.assertRaisesRegex(ValueError, expected):
+                    self.inspect(api)
 
 
 if __name__ == "__main__":
