@@ -59,7 +59,7 @@ commit. It emits only a dispatch ID, status and private GitHub commit SHA.
 
 ## 3. Operator-armed Chat Bridge → browser
 
-After an explicitly approved update to Bridge **0.8.16**, open its popup,
+After an explicitly approved update to Bridge **0.8.17**, open its popup,
 expand Advanced Settings and enter the exact `fabric-...` dispatch ID and
 a scoped private-repository Contents read/write token. Press **Save dispatch
 ID** and **Save token** independently. The ID persists in extension-local
@@ -94,3 +94,12 @@ rollback is denied.
 Local mocked-UI and isolated Chromium passes must never be described as a
 real GitHub-first Chrome E2E. Cross-device legacy-driver exclusion is not
 established by the local parent fence; leave broader rollout disabled.
+
+## Pre-submit browser readiness
+
+Bridge 0.8.17 defers arming the unknown-Send checkpoint until the new child
+page reports a ready composer. A stalled `tab_ready` checkpoint retries only
+readiness. Existing `submission_unknown` records are not replayed or reset:
+verify the original child tab, parent binding and private claim before any
+operator-authorized replacement trial. Never invoke Launch to recover an
+uncertain Send.
